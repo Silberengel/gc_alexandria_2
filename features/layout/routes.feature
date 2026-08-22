@@ -17,7 +17,6 @@ Feature: Routes
       | /wiki/d/{d}/p/{npub}         | that wiki or spec page                              |
       | /wiki/{naddr\|nevent}        | that page; bar becomes /wiki/d/{d}/p/{npub}         |
       | /settings                    | appearance and cache                                |
-      | /about                       | About                                               |
-      | /start                       | Getting Started                                     |
+      | /about                       | About and getting started                           |
       | /contact                     | Contact                                             |
     Then that is the path for that surface

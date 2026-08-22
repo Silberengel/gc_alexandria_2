@@ -7,7 +7,7 @@
   import Profile from './routes/Profile.svelte';
   import Settings from './routes/Settings.svelte';
   import About from './routes/About.svelte';
-  import Start from './routes/Start.svelte';
+  import StartRedirect from './routes/StartRedirect.svelte';
   import Contact from './routes/Contact.svelte';
   import NotFound from './routes/NotFound.svelte';
 
@@ -16,7 +16,7 @@
     '/search': Search,
     '/settings': Settings,
     '/about': About,
-    '/start': Start,
+    '/start': StartRedirect,
     '/contact': Contact,
     '/p/:id': Profile,
     '/publication/d/:d/p/:npub': Publication,

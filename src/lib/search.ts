@@ -4,6 +4,7 @@ import { dTagVariants, normalizeDTag } from './dtag';
 import { cachePutMany, cacheScanByKind } from './nostr/cache';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
+import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack } from './nostr/selector';
 import { hexPubkey, npubFromInput, sortSearchResults } from './metadata';
 
@@ -109,21 +110,19 @@ async function fanOutSearch(q: string, onUpdate: (r: SearchResult) => void): Pro
   const dTags = dTagVariants(q);
   const relays = documentStack();
 
-  const relayFilter: Filter = {
-    '#d': dTags.slice(0, 12),
-    '#T': [q],
-    '#N': [q],
-    limit: 100
-  };
+  const tagSlug = relayTagSlug(q);
+  const dFilter = dTags.length
+    ? { kinds: [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC], '#d': dTags.slice(0, 12), limit: 100 }
+    : null;
 
   const tasks = [
     mercuryPublicationSearch({ q, limit: 100 }),
     mercuryPublicationSearch({ d: dTags[0], limit: 100 }),
     mercurySectionSearch({ q, limit: 100 }),
     mercuryWikiSearch({ q, limit: 100 }),
-    relayPool.query(relays, [{ '#d': dTags.slice(0, 12), limit: 100 }]),
-    relayPool.query(relays, [{ '#T': [q], limit: 100 }]),
-    relayPool.query(relays, [{ '#N': [q], limit: 100 }])
+    ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
+    relayPool.query(relays, [{ kinds: [KIND.PUBLICATION], '#T': [tagSlug], limit: 100 }]),
+    relayPool.query(relays, [{ kinds: [KIND.PUBLICATION], '#N': [tagSlug], limit: 100 }])
   ];
 
   const merge = (batch: Event[]) => {

@@ -21,7 +21,6 @@
   <a class="brand" href="#/" use:link>Library of Alexandria</a>
   <nav>
     <a href="#/about" use:link>About</a>
-    <a href="#/start" use:link>Start</a>
     <a href="#/contact" use:link>Contact</a>
     <a href="#/settings" use:link>Settings</a>
   </nav>

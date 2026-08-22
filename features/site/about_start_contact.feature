@@ -1,16 +1,15 @@
 @mvp
-Feature: About, Getting Started, and Contact
+Feature: About and Contact
   As a visitor
   I want the same project pages as on the current Alexandria site
   So that I can learn the library, find GitCitadel, and send a bug report
 
-  Scenario: About and Getting Started
+  Scenario: About includes getting started
     When I open /about
     Then I see that this is the Library of Alexandria, a GitCitadel project
     And I can follow GitHub, Geyser, gitcitadel.com, and the GitCitadel Nostr profile
     And I see the app version when a release version is known
-    When I open /start
-    Then I see how to search, open an edition, read, and open a wiki page
+    And I see how to search, open an edition, read, and open a wiki page
 
   Scenario: Contact matches the current Alexandria contact page
     When I open /contact

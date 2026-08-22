@@ -5,7 +5,7 @@
   import { KIND } from '$lib/constants';
   import { mercuryPublicationSearch } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
-  import { documentStack, socialStack } from '$lib/nostr/selector';
+  import { highlightStack, socialStack } from '$lib/nostr/selector';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
 
@@ -17,13 +17,13 @@
 
   onMount(async () => {
     publications = await mercuryPublicationSearch({ limit: 50 });
-    const commentFilter = { kinds: [KIND.COMMENT], limit: 200 };
+    const commentFilter = { kinds: [KIND.COMMENT], limit: 100 };
     comments = (await relayPool.query(socialStack(), [commentFilter])).sort(
       (a, b) => b.created_at - a.created_at
-    ).slice(0, 200);
+    ).slice(0, 100);
 
-    const highlightFilter = { kinds: [KIND.HIGHLIGHT], limit: 200 };
-    highlights = (await relayPool.query(documentStack(), [highlightFilter]))
+    const highlightFilter = { kinds: [KIND.HIGHLIGHT], limit: 100 };
+    highlights = (await relayPool.query(highlightStack(), [highlightFilter]))
       .sort((a, b) => b.created_at - a.created_at)
       .slice(0, 50);
 

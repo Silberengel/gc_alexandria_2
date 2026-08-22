@@ -1,3 +1,5 @@
+export const MERCURY_WSS = 'wss://mercury-relay.imwald.eu';
+
 export const MERCURY_HTTP = import.meta.env.DEV
   ? '/mercury'
   : 'https://mercury-relay.imwald.eu';
@@ -11,7 +13,7 @@ export const THIRD_PARTY_RELAYS = [
 
 export const DOCUMENT_SEARCH_RELAYS = [
   'wss://thecitadel.nostr1.com',
-  'wss://mercury-relay.imwald.eu',
+  MERCURY_WSS,
   ...THIRD_PARTY_RELAYS
 ] as const;
 

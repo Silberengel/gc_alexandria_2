@@ -2,11 +2,13 @@ import {
   AGGR_RELAY,
   DOCUMENT_SEARCH_RELAYS,
   MERCURY_HTTP,
+  MERCURY_WSS,
   SOCIAL_RELAYS,
   THIRD_PARTY_RELAYS,
   WIKI_RELAYS,
   type StackKind
 } from '../constants';
+import { webSocketRelays, writeWebSocketRelays } from './relay-filters';
 
 export type SelectorContext = {
   signedIn: boolean;
@@ -48,8 +50,12 @@ function dedupe(urls: string[]): string[] {
   return out;
 }
 
+function stackUrls(urls: string[]): string[] {
+  return webSocketRelays(dedupe(urls));
+}
+
 function withoutBlocked(urls: string[]): string[] {
-  const blocked = new Set(ctx.blocked.map((u) => u.toLowerCase()));
+  const blocked = new Set(ctx.blocked.map((u) => u.replace(/\/+$/, '').toLowerCase()));
   return urls.filter((u) => !blocked.has(u.replace(/\/+$/, '').toLowerCase()));
 }
 
@@ -58,22 +64,24 @@ function maybeAggr(urls: string[]): string[] {
   const hasNostrLand = [...ctx.outbox, ...ctx.favorites].some((u) =>
     u.toLowerCase().includes('nostr.land')
   );
-  if (hasNostrLand && !urls.includes(AGGR_RELAY)) return [...urls, AGGR_RELAY];
+  if (hasNostrLand && !urls.some((u) => u.toLowerCase().includes('aggr.nostr.land'))) {
+    return [...urls, AGGR_RELAY];
+  }
   return urls;
 }
 
-/** Document/search stack per relays/stacks.feature */
+/** Document/search WebSocket stack (Mercury read-only WSS + Citadel + third-party). */
 export function documentStack(): string[] {
   let relays = [...DOCUMENT_SEARCH_RELAYS];
   if (ctx.signedIn) {
     relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
   }
-  return maybeAggr(withoutBlocked(dedupe(relays)));
+  return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
 /** Wiki read stack */
 export function wikiStack(): string[] {
-  return withoutBlocked(dedupe([...documentStack(), ...WIKI_RELAYS]));
+  return withoutBlocked(stackUrls([...documentStack(), ...WIKI_RELAYS]));
 }
 
 /** Social/interaction stack */
@@ -82,17 +90,19 @@ export function socialStack(): string[] {
   if (ctx.signedIn) {
     relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
   }
-  return maybeAggr(withoutBlocked(dedupe(relays)));
+  return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
 /** Highlight list unions document + social */
 export function highlightStack(): string[] {
-  return withoutBlocked(dedupe([...documentStack(), ...socialStack()]));
+  return withoutBlocked(stackUrls([...documentStack(), ...socialStack()]));
 }
 
 export function writeStack(): string[] {
   if (!ctx.signedIn) return [];
-  return withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
+  return writeWebSocketRelays(
+    withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]))
+  );
 }
 
 export function stackFor(kind: StackKind): string[] {
@@ -112,4 +122,4 @@ export function mercuryBase(): string {
   return MERCURY_HTTP;
 }
 
-export { THIRD_PARTY_RELAYS };
+export { THIRD_PARTY_RELAYS, MERCURY_WSS };

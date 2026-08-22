@@ -1,6 +1,7 @@
 import { type Event, type Filter } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
 import { cachePutMany } from './cache';
+import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
 import { ingestEvent } from './verify';
 
 type SubCallback = {
@@ -17,12 +18,14 @@ class RelayPool {
   }
 
   async query(relays: string[], filters: Filter[], timeoutMs = 8000): Promise<Event[]> {
-    const wssRelays = relays.filter((r) => r.startsWith('wss://') || r.startsWith('ws://'));
-    if (!wssRelays.length || !filters.length) return [];
+    const wssRelays = webSocketRelays(relays);
+    const cleanFilters = normalizeRelayFilters(filters);
+    if (!wssRelays.length || !cleanFilters.length) return [];
 
     return new Promise((resolve) => {
       const byId = new Map<string, Event>();
       let closed = false;
+      let eoseCount = 0;
 
       const finish = async () => {
         if (closed) return;
@@ -34,12 +37,18 @@ class RelayPool {
         resolve(events);
       };
 
-      const sub = this.pool.subscribeMany(wssRelays, filters, {
+      const onEose = () => {
+        eoseCount += 1;
+        if (eoseCount >= wssRelays.length) finish();
+      };
+
+      const sub = this.pool.subscribeMany(wssRelays, cleanFilters, {
         onevent: (event) => {
           const v = ingestEvent(event);
           if (v && !byId.has(v.id)) byId.set(v.id, v);
         },
-        oneose: finish
+        oneose: onEose,
+        onclose: onEose
       });
 
       const timer = setTimeout(finish, timeoutMs);
@@ -47,8 +56,11 @@ class RelayPool {
   }
 
   subscribe(relays: string[], filters: Filter[], cb: SubCallback): () => void {
-    const wssRelays = relays.filter((r) => r.startsWith('wss://') || r.startsWith('ws://'));
-    const sub = this.pool.subscribeMany(wssRelays, filters, {
+    const wssRelays = webSocketRelays(relays);
+    const cleanFilters = normalizeRelayFilters(filters);
+    if (!wssRelays.length || !cleanFilters.length) return () => {};
+
+    const sub = this.pool.subscribeMany(wssRelays, cleanFilters, {
       onevent: (event) => {
         const v = ingestEvent(event);
         if (v) {
@@ -63,11 +75,9 @@ class RelayPool {
 
   async publish(relays: string[], event: Event): Promise<void> {
     if (!this.signedIn) return;
-    await Promise.allSettled(
-      relays
-        .filter((r) => r.startsWith('wss://') || r.startsWith('ws://'))
-        .map((r) => this.pool.publish([r], event))
-    );
+    const wssRelays = writeWebSocketRelays(relays);
+    if (!wssRelays.length) return;
+    await Promise.allSettled(wssRelays.map((r) => this.pool.publish([r], event)));
   }
 
   close(): void {

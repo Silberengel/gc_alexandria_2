@@ -3,6 +3,7 @@ import type { Event } from 'nostr-tools';
 import { LOGIN_METADATA_KINDS } from '../constants';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
+import { webSocketRelays } from '../nostr/relay-filters';
 import { documentStack, setSelectorContext, writeStack } from '../nostr/selector';
 import { mercuryFilter } from '../nostr/mercury';
 
@@ -38,15 +39,15 @@ function createSessionStore() {
     const local = metadataEvents.filter((e) => e.kind === 10432);
 
     const readList = (ev: Event | undefined, tag: string) =>
-      ev?.tags.filter((t) => t[0] === tag && t[1]).map((t) => t[1]!) ?? [];
+      webSocketRelays(ev?.tags.filter((t) => t[0] === tag && t[1]).map((t) => t[1]!) ?? []);
 
     setSelectorContext({
       signedIn: true,
       inbox: readList(relays[0], 'r'),
       outbox: readList(relays[0], 'w'),
-      favorites: favorites.flatMap((e) => readList(e, 'relay')),
-      local: local.flatMap((e) => readList(e, 'relay')),
-      blocked: blocked.flatMap((e) => readList(e, 'relay'))
+      favorites: webSocketRelays(favorites.flatMap((e) => readList(e, 'relay'))),
+      local: webSocketRelays(local.flatMap((e) => readList(e, 'relay'))),
+      blocked: webSocketRelays(blocked.flatMap((e) => readList(e, 'relay')))
     });
   }
 

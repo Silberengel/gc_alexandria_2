@@ -71,7 +71,7 @@ flowchart LR
 | [`security/sanitize_verify.feature`](features/security/sanitize_verify.feature) | Sanitize and signatures |
 | [`cache/client_cache.feature`](features/cache/client_cache.feature) | HTTP cache and Cache Storage, local publish, login batch, kind 5 |
 | [`appearance/settings.feature`](features/appearance/settings.feature) | Schemes, colors, fonts |
-| [`site/about_start_contact.feature`](features/site/about_start_contact.feature) | About, Start, Contact |
+| [`site/about_start_contact.feature`](features/site/about_start_contact.feature) | About (with getting started) and Contact |
 | [`relays/stacks.feature`](features/relays/stacks.feature) | Selector, pool, AUTH |
 | [`performance/nostr_opacity.feature`](features/performance/nostr_opacity.feature) | Library language, protocol details opt-in |
 | [`phase2/deferred.feature`](features/phase2/deferred.feature) | Later surfaces |
