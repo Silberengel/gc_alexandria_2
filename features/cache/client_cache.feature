@@ -6,7 +6,8 @@ Feature: Client event cache
 
   Background:
     Given the site has no server database for this cache
-    And verified events and cover images are kept in a generous browser cache
+    And verified events and cover images are kept in the browser's persistent cache
+    And that cache is HTTP cache and Cache Storage, not an IndexedDB event database
 
   Scenario: Revisits use the cache
     Given I have loaded a publication's header, social lists, sections, and a cover

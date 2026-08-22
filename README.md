@@ -2,9 +2,20 @@
 
 A new Library of Alexandria website. This repository is the **product contract**. The app is not built yet.
 
-Acceptance tests live in [`features/`](features/). `@mvp` is the first ship. `@phase2` is deferred in [`features/phase2/deferred.feature`](features/phase2/deferred.feature). Do not extend `gc-alexandria` or `jumble`. No NDK. No framework has been chosen.
+Acceptance tests live in [`features/`](features/). `@mvp` is the first ship. `@phase2` is deferred in [`features/phase2/deferred.feature`](features/phase2/deferred.feature). Do not extend `gc-alexandria` or `jumble`. No NDK.
 
 Each behavior is specified once, in the feature file that owns it.
+
+## Stack
+
+A static TypeScript SPA (Svelte 5, Vite). No app server and no server-side event database.
+
+The selector in [`relays/stacks.feature`](features/relays/stacks.feature) opens the matching **WebSocket** stack and reuses one pool. Mercury **HTTPS** is the catalog hop on that same selector. Identity is NIP-07 and NIP-46 via `nostr-tools` (`verifyEvent`, bech32, AUTH). Do not use NDK or `SimplePool` as the product pool.
+
+Events and covers persist in the browser **HTTP cache and Cache Storage**, not IndexedDB. Appearance stays in `localStorage` so Clear Cache does not wipe it. Markup is AsciiDoc, Djot, and Markdown, sanitized after render.
+
+Tests: Vitest for selector, cache, and verify; Playwright against `features/`.
+
 
 ```mermaid
 flowchart LR
@@ -51,11 +62,11 @@ flowchart LR
 | [`identity/profile.feature`](features/identity/profile.feature) | `/p/` and userbadges |
 | [`social/mute.feature`](features/social/mute.feature) | Kind 10000 everywhere, read-only in the app |
 | [`security/sanitize_verify.feature`](features/security/sanitize_verify.feature) | Sanitize and signatures |
-| [`cache/client_cache.feature`](features/cache/client_cache.feature) | Cache, local publish, login batch, kind 5 |
+| [`cache/client_cache.feature`](features/cache/client_cache.feature) | HTTP cache and Cache Storage, local publish, login batch, kind 5 |
 | [`appearance/settings.feature`](features/appearance/settings.feature) | Schemes, colors, fonts |
 | [`site/about_start_contact.feature`](features/site/about_start_contact.feature) | About, Start, Contact |
 | [`relays/stacks.feature`](features/relays/stacks.feature) | Selector, pool, AUTH |
-| [`performance/nostr_opacity.feature`](features/performance/nostr_opacity.feature) | Library language, no WS required |
+| [`performance/nostr_opacity.feature`](features/performance/nostr_opacity.feature) | Library language, protocol details opt-in |
 | [`phase2/deferred.feature`](features/phase2/deferred.feature) | Later surfaces |
 
 ## Related repos
