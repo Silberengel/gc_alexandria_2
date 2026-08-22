@@ -1,6 +1,6 @@
 # Alexandria (gc_alexandria_2)
 
-A new Library of Alexandria website. This repository is the **product contract**. The app is not built yet.
+A new Library of Alexandria website. This repository is the **product contract** and the **Svelte 5 app**.
 
 Acceptance tests live in [`features/`](features/). `@mvp` is the first ship. `@phase2` is deferred in [`features/phase2/deferred.feature`](features/phase2/deferred.feature). Do not extend `gc-alexandria` or `jumble`. No NDK.
 
@@ -15,6 +15,13 @@ The selector in [`relays/stacks.feature`](features/relays/stacks.feature) opens 
 Events and covers persist in the browser **HTTP cache and Cache Storage**, not IndexedDB. Appearance stays in `localStorage` so Clear Cache does not wipe it. Markup is AsciiDoc, Djot, and Markdown, sanitized after render.
 
 Tests: Vitest for selector, cache, and verify; Playwright against `features/`.
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # static output in dist/
+npm test
+```
 
 
 ```mermaid

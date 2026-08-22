@@ -3,6 +3,7 @@
 *~
 node_modules/
 dist/
+.svelte-kit/
 .venv/
 __pycache__/
 .env
