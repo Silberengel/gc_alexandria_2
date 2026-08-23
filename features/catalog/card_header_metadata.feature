@@ -14,6 +14,7 @@ Feature: Publication and wiki card metadata
     And author is every author-tag, else every N-tag, omitted if neither; each opens /search as an explicit author lookup (Mercury author and N; relays #N)
     And title is every title-tag, else every T-tag, omitted if neither; each opens /search as an explicit title lookup (Mercury title and T; relays #T)
     And subject is every t-tag, omitted if none; each opens /search as an explicit #t lookup
+    And summary is the summary-tag, else a short content excerpt, omitted if neither
     And source is the first s-tag, else the first source-tag, omitted if neither; it opens that URL and not /search
     And clicking the card or cover outside those field links opens that edition or wiki page
 

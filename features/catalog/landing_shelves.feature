@@ -13,11 +13,15 @@ Feature: Landing bookshelves
     And each shelf is a horizontal row of covers or cover placeholders, not metadata cards
     And each shelf has its own horizontal shelf-bar and scrolls by itself
     And covers use the publication's image tag when present, else a cover placeholder
+    And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
+    And a cover shows a book-icon badge at the bottom-right when that publication's index has at least one section a-tag or e-tag, of any kind
     And covers load when they enter view
-    And publications on a shelf are ordered newest bookmark or booklist reference first
-    And below the shelves, informative cards list those same publications
+    And publications on a shelf are ranked newest first
+    And when a shelf has fewer than 10 publications I see all of them
+    And when a shelf has at least 10 publications I see the 3 newest first and the remaining covers shuffled from the current UNIX timestamp
     And empty shelves are omitted
-    And clicking a cover or card opens that edition's /publication/d/{d}/p/{npub}
+    And a home with no shelves or only one shelf is still the landing page
+    And clicking a cover opens that edition's /publication/d/{d}/p/{npub}
 
   Scenario: Only non-empty shelves are shown
     Given I am not signed in

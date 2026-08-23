@@ -1,7 +1,9 @@
 import { nip19, type Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { parseAddress } from './library-scope';
 import { firstTag, tagValue } from './nostr/verify';
 import { indexSlug } from './dtag';
+import { coverImageUrl } from './cover';
 
 export type CardMeta = {
   publishedBy: string;
@@ -40,7 +42,7 @@ export function cardMeta(event: Event): CardMeta {
     source: firstTag(event, 's') ?? firstTag(event, 'source'),
     identifier: firstTag(event, 'i'),
     language: firstTag(event, 'l'),
-    image: firstTag(event, 'image'),
+    image: coverImageUrl(event),
     summary: firstTag(event, 'summary') ?? event.content.slice(0, 280),
     dTag: firstTag(event, 'd') ?? '',
     kind: event.kind
@@ -95,6 +97,16 @@ export function countSections(event: Event, sections: Event[]): number {
   return sections.filter((s) =>
     s.tags.some((t) => t[0] === 'a' && t[1] === addr)
   ).length;
+}
+
+/** True when a 30040 index lists at least one section (`a` or `e`), of any kind. */
+export function hasPublicationSection(event: Event): boolean {
+  if (event.kind !== KIND.PUBLICATION) return false;
+  for (const tag of event.tags) {
+    if (tag[0] === 'a' && tag[1] && parseAddress(tag[1])) return true;
+    if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) return true;
+  }
+  return false;
 }
 
 export function sortSearchResults(events: Event[], sectionCounts: Map<string, number>): Event[] {

@@ -16,8 +16,9 @@
 :root.dark {
   --surface: var(--brand-primary-1000);
   --surface-2: var(--brand-primary-950);
-  --text: var(--brand-primary-100);
-  --text-muted: var(--brand-primary-300);
+  --text: var(--brand-primary-0);
+  --text-muted: var(--brand-primary-200);
+  --accent: var(--brand-primary-300);
   --border: var(--brand-primary-800);
 }
 
@@ -60,7 +61,39 @@ a:hover { text-decoration: underline; }
 .top-bar nav { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
 .top-bar nav a { color: var(--text); font-weight: 500; }
 
-.brand { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+.brand img { width: 2rem; height: 2rem; border-radius: 0.25rem; }
+
+.landing-hero {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.landing-hero img {
+  width: 100%;
+  max-height: 14rem;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+}
+.landing-hero h1 { margin: 0; font-size: 1.6rem; }
+
+.about-hero {
+  display: block;
+  width: 100%;
+  max-height: 16rem;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+.about-logo { display: block; margin: 1.5rem 0 0; }
 
 .btn {
   font: inherit;
@@ -72,6 +105,7 @@ a:hover { text-decoration: underline; }
   border-radius: 0.35rem;
 }
 .btn-primary { background: var(--accent); color: var(--brand-primary-0); border-color: transparent; }
+:root.dark .btn-primary { color: var(--brand-primary-1000); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 input[type='search'], input[type='text'], textarea, select {
@@ -94,7 +128,96 @@ input[type='search'], input[type='text'], textarea, select {
 .card-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.card-grid-results {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pub-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0.85rem;
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.75rem;
+}
+
+.pub-card-cover {
+  position: relative;
+  flex: 0 0 6.75rem;
+  width: 6.75rem;
+  max-width: 38%;
+  aspect-ratio: 2 / 3;
+  align-self: flex-start;
+  border-radius: 0.35rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.pub-card-cover .cover-frame,
+.pub-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.pub-card-body {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pub-card-body h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.pub-card-line {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.pub-card-summary {
+  margin: 0.35rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  overflow: hidden;
+}
+
+.pub-card .chip-row {
+  margin: 0.45rem 0 0;
+  max-width: 100%;
+}
+
+.pub-card .chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pub-card .userbadge {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pub-card .userbadge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shelf-bar {
@@ -106,6 +229,7 @@ input[type='search'], input[type='text'], textarea, select {
 }
 
 .cover {
+  position: relative;
   flex: 0 0 6rem;
   scroll-snap-align: start;
   aspect-ratio: 2/3;
@@ -115,16 +239,43 @@ input[type='search'], input[type='text'], textarea, select {
   background: var(--surface-2);
   display: block;
 }
-.cover img { width: 100%; height: 100%; object-fit: cover; }
-.cover-placeholder {
-  display: flex;
+.cover-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-cover {
+  position: relative;
+  display: block;
+  margin-bottom: 0.75rem;
+  border-radius: 0.35rem;
+  overflow: hidden;
+}
+.card-cover .cover-frame { height: auto; }
+.card-cover img {
+  width: 100%;
+  max-height: 10rem;
+  object-fit: contain;
+  border-radius: 0.35rem;
+}
+.book-badge {
+  position: absolute;
+  bottom: 0.22rem;
+  right: 0.22rem;
+  z-index: 1;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
-  text-align: center;
-  padding: 0.25rem;
-  color: var(--text-muted);
+  padding: 0.18rem;
+  border-radius: 0.2rem;
+  line-height: 0;
+  background: var(--accent);
+  color: var(--brand-primary-0);
+  pointer-events: none;
 }
+:root.dark .book-badge { color: var(--brand-primary-1000); }
 
 .reading-body {
   font-family: var(--reading-font);
@@ -135,6 +286,53 @@ input[type='search'], input[type='text'], textarea, select {
 
 .section-title { font-size: 1.25rem; margin: 1.5rem 0 0.75rem; }
 .muted { color: var(--text-muted); }
+
+.landing-feeds {
+  display: grid;
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+}
+.landing-ref-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.landing-ref {
+  margin-bottom: 1rem;
+}
+.landing-ref-work {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+.landing-ref-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  margin: 0.3rem 0 0 1.35rem;
+  min-width: 0;
+}
+.landing-ref-title {
+  font-weight: 650;
+}
+.landing-ref-excerpt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wiki-defer-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface-2);
+}
 .error-page { text-align: center; padding: 3rem 1rem; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
 .chip {
@@ -151,12 +349,29 @@ input[type='search'], input[type='text'], textarea, select {
   align-items: center;
   gap: 0.4rem;
   vertical-align: middle;
+  max-width: 100%;
 }
-.userbadge img {
-  width: 1.5rem;
-  height: 1.5rem;
+.userbadge-avatar {
+  width: 1.35rem;
+  height: 1.35rem;
   border-radius: 999px;
   object-fit: cover;
+  flex: 0 0 auto;
+  background: var(--surface-2);
+}
+.userbadge-anon {
+  color: var(--text-muted);
+  overflow: visible;
+}
+.userbadge span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pub-card .userbadge-avatar {
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 .accordion {
@@ -167,5 +382,15 @@ input[type='search'], input[type='text'], textarea, select {
 
 @media (min-width: 768px) {
   .shell { padding: 1.5rem; }
-  .card-grid { grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+}
+
+@media (min-width: 900px) {
+  .card-grid-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .landing-feeds {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+    gap: 2rem;
+  }
 }

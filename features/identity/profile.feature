@@ -15,6 +15,7 @@ Feature: Profile page
   Scenario: Userbadges open /p/
     When I see a published-by, comment, highlight, rating, or signed-in badge
     Then it is a userbadge using that pubkey's kind 0 picture and display name when they exist
+    And if there is no picture I see a generic avatar on that userbadge
     And clicking it opens /p/ for that npub
     And a nostr: npub or nprofile in content is the compact userbadge in generic_card, with no picture
     And clicking that compact badge also opens /p/
