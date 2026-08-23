@@ -27,7 +27,7 @@
     <h2>Appearance</h2>
     <p class="muted">Scheme</p>
     <div class="chip-row">
-      <button class="btn" type="button" onclick={() => appearance.setScheme('light')}>Light</button>
+      <button class="btn" type="button" onclick={() => appearance.setScheme('antique')}>Antique</button>
       <button class="btn" type="button" onclick={() => appearance.setScheme('ocean')}>Ocean</button>
       <button class="btn" type="button" onclick={() => appearance.setScheme('forrest')}>Forrest</button>
     </div>

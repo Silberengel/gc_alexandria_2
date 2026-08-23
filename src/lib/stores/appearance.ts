@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export type Scheme = 'light' | 'ocean' | 'forrest';
+export type Scheme = 'antique' | 'ocean' | 'forrest';
 
 export type AppearanceState = {
   scheme: Scheme;
@@ -14,7 +14,7 @@ export type AppearanceState = {
 const STORAGE_KEY = 'alexandria-appearance';
 
 const defaults: AppearanceState = {
-  scheme: 'light',
+  scheme: 'antique',
   dark: false,
   uiFont: 'system-ui, sans-serif',
   readingFont: 'Georgia, serif',
@@ -33,7 +33,7 @@ function load(): AppearanceState {
 
 function apply(state: AppearanceState): void {
   const root = document.documentElement;
-  root.dataset.theme = state.scheme === 'light' ? '' : state.scheme;
+  root.dataset.theme = state.scheme === 'antique' ? '' : state.scheme;
   root.classList.toggle('dark', state.dark);
   root.style.setProperty('--ui-font', state.uiFont);
   root.style.setProperty('--reading-font', state.readingFont);
