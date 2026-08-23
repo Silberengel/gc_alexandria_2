@@ -14,6 +14,7 @@ Feature: Search
     And relay NIP-01 tag filters for search are only #d #T #N
     And #title and #author are never sent as NIP-01 tags
     And searches run in parallel against cache, Mercury HTTP, and the matching relay stacks on the shared pool
+    And a repeat of the same query paints the last snapshot immediately, then refreshes from API and relays
     And cards render as each source returns; the page does not wait for every EOSE or for full-text
     And a top-level 30040 is one not referenced by another 30040's a-tag
     And a subindex is a 30040 that is referenced by another 30040's a-tag
@@ -23,6 +24,7 @@ Feature: Search
     When I submit a query from the landing global search bar
     Then I am on /search
     And I see result cards as they arrive
+    And those cards are horizontal, with the full cover on the left, summary when present, and two per row on a laptop
     And I do not see bookshelves, landing highlights, What we are discussing, subject buttons, or label buttons
 
   Scenario: Typeahead uses Mercury suggest

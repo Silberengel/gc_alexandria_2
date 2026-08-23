@@ -15,6 +15,20 @@ Feature: Client event cache
     Then those ids and covers are served from cache
     And replaceable events may still refresh if a newer version exists
 
+  Scenario: Landing paints from a snapshot
+    Given I have opened the home page before in this browser
+    When I open it again
+    Then shelves, highlights, and What we are discussing appear from the landing snapshot before live relays answer
+    And live results replace that snapshot when they arrive
+    And if live relays or Mercury return nothing the snapshot stays on screen
+
+  Scenario: Repeat search paints from a snapshot
+    Given I have searched for a term, subject, or label in this browser
+    When I search that same value again
+    Then last result cards appear before live API and relays answer
+    And live results replace that snapshot when they arrive
+    And if live API and relays return nothing the snapshot stays on screen
+
   Scenario: Local publishes are written to cache
     When I publish a comment, rating, highlight, booklist label, bookmark, or bug report
     Then the signed event is written to the client cache as it is sent to write relays

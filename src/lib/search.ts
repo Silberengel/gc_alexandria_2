@@ -1,7 +1,7 @@
 import { nip19, type Event, type Filter } from 'nostr-tools';
 import { KIND } from './constants';
 import { dTagVariants, normalizeDTag } from './dtag';
-import { cachePutMany, cacheScanByKind } from './nostr/cache';
+import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot } from './nostr/cache';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
@@ -20,6 +20,14 @@ function stripNostr(s: string): string {
   return s.trim().replace(/^nostr:/i, '');
 }
 
+export function normalizeSearchKey(input: string): string {
+  return input.trim().normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+}
+
+function preferLive(live: Event[], cached: Event[]): Event[] {
+  return live.length ? live : cached;
+}
+
 export function isNsec(input: string): boolean {
   try {
     return nip19.decode(stripNostr(input)).type === 'nsec';
@@ -28,39 +36,53 @@ export function isNsec(input: string): boolean {
   }
 }
 
+async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Promise<Event[]> {
+  const cached = await cacheGetSearchSnapshot(key);
+  onUpdate({ events: cached, loading: true, done: false });
+  return cached;
+}
+
+function finish(key: string, live: Event[], cached: Event[], onUpdate: (r: SearchResult) => void): Event[] {
+  const events = preferLive(live, cached).slice(0, 100);
+  void cachePutSearchSnapshot(key, events);
+  void cachePutMany(events);
+  onUpdate({ events, loading: false, done: true });
+  return events;
+}
+
 export async function runSearch(query: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const q = stripNostr(query);
-  onUpdate({ events: [], loading: true, done: false });
 
   if (isNsec(q)) {
     onUpdate({ events: [], loading: false, done: true });
     return;
   }
 
+  const key = `q:${normalizeSearchKey(q)}`;
+  const cached = await paintCached(key, onUpdate);
+
   const profileNpub = npubFromInput(q);
   if (profileNpub) {
-    onUpdate({ events: [], loading: false, done: true });
+    onUpdate({ events: cached, loading: false, done: true });
     return;
   }
 
   if (HEX64.test(q)) {
-    const events = await fetchByIdOrAuthor(q);
-    onUpdate({ events, loading: false, done: true });
+    finish(key, await fetchByIdOrAuthor(q), cached, onUpdate);
     return;
   }
 
   try {
     const decoded = nip19.decode(q);
     if (decoded.type === 'naddr' || decoded.type === 'nevent' || decoded.type === 'note') {
-      const events = await fetchBech32(decoded);
-      onUpdate({ events, loading: false, done: true });
+      finish(key, await fetchBech32(decoded), cached, onUpdate);
       return;
     }
   } catch {
     /* fan-out */
   }
 
-  await fanOutSearch(q, onUpdate);
+  await fanOutSearch(q, key, cached, onUpdate);
 }
 
 async function fetchByIdOrAuthor(hex: string): Promise<Event[]> {
@@ -105,8 +127,14 @@ async function fetchBech32(
   return [];
 }
 
-async function fanOutSearch(q: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+async function fanOutSearch(
+  q: string,
+  key: string,
+  cached: Event[],
+  onUpdate: (r: SearchResult) => void
+): Promise<void> {
   const byId = new Map<string, Event>();
+  for (const event of cached) byId.set(event.id, event);
   const dTags = dTagVariants(q);
   const relays = documentStack();
 
@@ -142,9 +170,19 @@ async function fanOutSearch(q: string, onUpdate: (r: SearchResult) => void): Pro
     )
   );
 
-  const final = sortSearchResults([...byId.values()], new Map()).slice(0, 100);
-  await cachePutMany(final);
-  onUpdate({ events: final, loading: false, done: true });
+  finish(key, sortSearchResults([...byId.values()], new Map()), cached, onUpdate);
+}
+
+export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+  const key = `subject:${normalizeSearchKey(subject)}`;
+  const cached = await paintCached(key, onUpdate);
+  finish(key, await searchBySubject(subject), cached, onUpdate);
+}
+
+export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+  const key = `label:${normalizeSearchKey(label)}`;
+  const cached = await paintCached(key, onUpdate);
+  finish(key, await searchByLabel(label), cached, onUpdate);
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {

@@ -28,6 +28,100 @@ async function openCache(): Promise<Cache> {
   return caches.open(CACHE_NAME);
 }
 
+const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
+const SEARCH_KEYS_META = 'alexandria-search-keys';
+const MAX_SEARCH_SNAPSHOTS = 20;
+
+export type LandingSnapshot = {
+  publications: Event[];
+  highlights: Event[];
+  comments: Event[];
+  referenced: Event[];
+};
+
+function ingestList(rows: unknown): Event[] {
+  if (!Array.isArray(rows)) return [];
+  const out: Event[] = [];
+  for (const row of rows) {
+    const e = ingestEvent(row);
+    if (e) out.push(e);
+  }
+  return out;
+}
+
+export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null> {
+  const cache = await openCache();
+  const res = await cache.match(LANDING_SNAPSHOT_KEY);
+  if (!res) return null;
+  try {
+    const raw = (await res.json()) as LandingSnapshot;
+    return {
+      publications: ingestList(raw.publications),
+      highlights: ingestList(raw.highlights),
+      comments: ingestList(raw.comments),
+      referenced: ingestList(raw.referenced)
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<void> {
+  const cache = await openCache();
+  const body = JSON.stringify({
+    publications: snap.publications.slice(0, 50),
+    highlights: snap.highlights.slice(0, 10),
+    comments: snap.comments.slice(0, 10),
+    referenced: (snap.referenced ?? []).slice(0, 80)
+  });
+  await cache.put(
+    LANDING_SNAPSHOT_KEY,
+    new Response(body, { headers: { 'Content-Type': 'application/json' } })
+  );
+}
+
+function searchSnapshotUrl(key: string): string {
+  return `/snapshot/search/${encodeURIComponent(key)}`;
+}
+
+function searchKeyList(): string[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_KEYS_META);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((k): k is string => typeof k === 'string');
+    }
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+export async function cacheGetSearchSnapshot(key: string): Promise<Event[]> {
+  const cache = await openCache();
+  const res = await cache.match(searchSnapshotUrl(key));
+  if (!res) return [];
+  try {
+    return ingestList(await res.json());
+  } catch {
+    return [];
+  }
+}
+
+export async function cachePutSearchSnapshot(key: string, events: Event[]): Promise<void> {
+  const cache = await openCache();
+  const body = JSON.stringify(events.slice(0, 100));
+  await cache.put(
+    searchSnapshotUrl(key),
+    new Response(body, { headers: { 'Content-Type': 'application/json' } })
+  );
+  const keys = [key, ...searchKeyList().filter((k) => k !== key)];
+  const dropped = keys.slice(MAX_SEARCH_SNAPSHOTS);
+  const kept = keys.slice(0, MAX_SEARCH_SNAPSHOTS);
+  localStorage.setItem(SEARCH_KEYS_META, JSON.stringify(kept));
+  await Promise.all(dropped.map((k) => cache.delete(searchSnapshotUrl(k))));
+}
+
 export async function cacheGetEvent(id: string): Promise<Event | null> {
   const cache = await openCache();
   const res = await cache.match(`/event/${id.toLowerCase()}`);
@@ -85,6 +179,7 @@ export function cacheSizeHuman(): string {
 export async function clearEventCache(): Promise<void> {
   await caches.delete(CACHE_NAME);
   localStorage.removeItem(META_KEY);
+  localStorage.removeItem(SEARCH_KEYS_META);
 }
 
 export async function cacheCover(url: string, blob: Blob): Promise<void> {
