@@ -40,3 +40,10 @@ Feature: Wiki
     Then I see the header card and the body
     And below that I see kind 9802 highlights whose a-tag is this article and kind 1111 threads for that article
     And I do not see kind 34259 ratings
+
+  Scenario: Deference forwards to the preferred version
+    Given a kind 30818 article A defers to article B with an a-tag or e-tag marker defer
+    When I open A's /wiki/d/{d}/p/{npub}
+    Then I am forwarded to B
+    And I see a banner "Deferred to by:" with A's userbadge
+    And I do not see the placeholder body "Read nostr:naddr instead."
