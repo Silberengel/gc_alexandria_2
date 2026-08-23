@@ -1,92 +1,92 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
-  import PublicationCard from '$lib/components/PublicationCard.svelte';
-  import { KIND } from '$lib/constants';
-  import { mercuryPublicationSearch } from '$lib/nostr/mercury';
-  import { relayPool } from '$lib/nostr/pool';
-  import { highlightStack, socialStack } from '$lib/nostr/selector';
+  import Cover from '$lib/components/Cover.svelte';
+  import LandingRefRow from '$lib/components/LandingRefRow.svelte';
+  import { LANDING_FEED_LIMIT, loadCachedLanding, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
+  import { publicationPath } from '$lib/metadata';
+  import { session } from '$lib/stores/session';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
 
   let publications = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
+  let referenced = $state<Event[]>([]);
   let subjects = $state<string[]>([]);
-  let labels = $state<string[]>([]);
+  const shelfSeed = Math.floor(Date.now() / 1000);
+  const shelfPubs = $derived(orderShelfCovers(publications, shelfSeed).slice(0, 50));
 
-  onMount(async () => {
-    publications = await mercuryPublicationSearch({ limit: 50 });
-    const commentFilter = { kinds: [KIND.COMMENT], limit: 100 };
-    comments = (await relayPool.query(socialStack(), [commentFilter])).sort(
-      (a, b) => b.created_at - a.created_at
-    ).slice(0, 100);
+  function apply(view: LandingView): void {
+    publications = view.publications;
+    comments = view.comments;
+    highlights = view.highlights;
+    referenced = view.referenced ?? [];
+    subjects = view.subjects;
+  }
 
-    const highlightFilter = { kinds: [KIND.HIGHLIGHT], limit: 100 };
-    highlights = (await relayPool.query(highlightStack(), [highlightFilter]))
-      .sort((a, b) => b.created_at - a.created_at)
-      .slice(0, 50);
+  async function loadLanding(): Promise<void> {
+    const cached = await loadCachedLanding();
+    if (cached) apply(cached);
+    apply(await refreshLanding(cached, apply));
+  }
 
-    const subjectCounts = new Map<string, number>();
-    for (const p of publications) {
-      for (const t of p.tags.filter((x) => x[0] === 't' && x[1])) {
-        subjectCounts.set(t[1]!, (subjectCounts.get(t[1]!) ?? 0) + 1);
-      }
-    }
-    subjects = [...subjectCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 25)
-      .map(([t]) => t);
+  onMount(() => {
+    let lastPk: string | null | undefined;
+    const unsub = session.subscribe(($s) => {
+      if ($s.pubkey === lastPk && lastPk !== undefined) return;
+      lastPk = $s.pubkey;
+      void loadLanding();
+    });
+    return unsub;
   });
 </script>
 
 <TopBar showSearch />
 
 <main class="shell">
-  <h1 class="section-title">Library of Alexandria</h1>
+  <header class="landing-hero">
+    <img src="/screenshots/old_books.jpg" alt="" />
+    <h1>Library of Alexandria</h1>
+  </header>
 
   {#if publications.length}
     <section>
       <h2 class="section-title">Bookshelves</h2>
       <div class="shelf-bar">
-        {#each publications.slice(0, 50) as pub}
-          <a class="cover" href={`#/publication/d/${pub.tags.find((t) => t[0] === 'd')?.[1] ?? ''}/p/${pub.pubkey}`} use:link>
-            {#if pub.tags.find((t) => t[0] === 'image')?.[1]}
-              <img src={pub.tags.find((t) => t[0] === 'image')?.[1]} alt="" loading="lazy" />
-            {:else}
-              <span class="cover-placeholder">No cover</span>
-            {/if}
+        {#each shelfPubs as pub}
+          <a class="cover" href={`#${publicationPath(pub)}`} use:link>
+            <Cover event={pub} />
           </a>
         {/each}
       </div>
-      <div class="card-grid">
-        {#each publications.slice(0, 25) as pub}
-          <PublicationCard event={pub} />
-        {/each}
-      </div>
     </section>
   {/if}
 
-  {#if highlights.length}
-    <section>
-      <h2 class="section-title">Highlights</h2>
-      <ul>
-        {#each highlights.slice(0, 50) as h}
-          <li class="muted" style="margin-bottom:0.5rem">{h.content.slice(0, 120)}</li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
+  {#if highlights.length || comments.length}
+    <div class="landing-feeds">
+      {#if highlights.length}
+        <section>
+          <h2 class="section-title">Highlights</h2>
+          <ul class="landing-ref-list">
+            {#each highlights.slice(0, LANDING_FEED_LIMIT) as h (h.id)}
+              <LandingRefRow event={h} {referenced} />
+            {/each}
+          </ul>
+        </section>
+      {/if}
 
-  {#if comments.length}
-    <section>
-      <h2 class="section-title">What we are discussing</h2>
-      <ul>
-        {#each comments.slice(0, 200) as c}
-          <li style="margin-bottom:0.75rem">{c.content.slice(0, 160)}</li>
-        {/each}
-      </ul>
-    </section>
+      {#if comments.length}
+        <section>
+          <h2 class="section-title">What we are discussing</h2>
+          <ul class="landing-ref-list">
+            {#each comments.slice(0, LANDING_FEED_LIMIT) as c (c.id)}
+              <LandingRefRow event={c} {referenced} />
+            {/each}
+          </ul>
+        </section>
+      {/if}
+    </div>
   {/if}
 
   {#if subjects.length}

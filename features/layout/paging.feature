@@ -8,8 +8,8 @@ Feature: Card paging
     Given card lists show 25 per page, current page only, loading when they enter view
     And search results stop at 100
     And each shelf shows at most 50 covers
-    And the highlight list has at most 50 entries
-    And What we are discussing shows at most 200 comments
+    And the highlight list has at most 10 entries
+    And What we are discussing shows at most 10 comments
 
   Scenario: Lists are paged and capped
     When I open home, search, or a profile

@@ -11,6 +11,7 @@ Feature: Landing publication highlights
     And an i-tag as the highlight source is for websites, not publications, and is omitted here
     And this list reads the document/search and social/interaction selectors
     And clicking a row opens that edition's /publication/d/{d}/p/{npub}
+    And the landing page shows at most 10 of those highlights
 
   Scenario: One newest highlight per edition
     Given edition G has an older highlight and a newer highlight
@@ -25,4 +26,10 @@ Feature: Landing publication highlights
     Given three different npubs have highlighted edition H via a-tags
     And one of those npubs highlighted it twice
     When I open the home page
-    Then the H row shows the quoted passage, the publication title, and a count of 3 distinct npubs
+    Then the publication title is the link to the left of the publisher's userbadge
+    And the highlighter's userbadge sits above the muted excerpt, indented under the title
+
+  Scenario: A section highlight names the edition
+    When a highlight's a-tag is a 30041 section
+    Then the title is "Publication Title: Section Title"
+    And clicking it opens the parent 30040

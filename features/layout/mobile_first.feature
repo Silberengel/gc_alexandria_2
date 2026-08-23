@@ -14,3 +14,5 @@ Feature: Mobile-first layout
     And I do not switch information architecture
     And reading and wiki bodies keep a comfortable line length
     And the table of contents does not cover the only way back
+    And Highlights and What we are discussing sit in two columns
+    And search result cards are two per row, horizontal, with the cover on the left
