@@ -7,6 +7,7 @@
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { firstTag } from '$lib/nostr/verify';
+  import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { hexPubkey } from '$lib/search';
   import { nip19 } from 'nostr-tools';
   import type { Event } from 'nostr-tools';
@@ -51,7 +52,7 @@
   {#if profile}
     <div class="card" style="margin-bottom:1rem">
       {#if firstTag(profile, 'picture')}
-        <img src={firstTag(profile, 'picture')} alt="" style="width:4rem;height:4rem;border-radius:999px" />
+        <img src={toNostrBuildThumbUrl(firstTag(profile, 'picture') ?? '')} alt="" style="width:4rem;height:4rem;border-radius:999px" />
       {/if}
       <h2>{firstTag(profile, 'display_name') ?? firstTag(profile, 'name') ?? 'Unknown'}</h2>
       <p class="muted">{firstTag(profile, 'about')}</p>
@@ -60,7 +61,7 @@
     <p><UserBadge pubkey={pubkey} /></p>
   {/if}
   <h2 class="section-title">Produced</h2>
-  <div class="card-grid">
+  <div class="card-grid card-grid-results">
     {#each visible.slice(0, 25) as event}
       <PublicationCard {event} />
     {/each}
