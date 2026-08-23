@@ -1,6 +1,7 @@
 import type { Filter, Event } from 'nostr-tools';
 import { MERCURY_HTTP } from '../constants';
 import { ingestEvent } from './verify';
+import { cachePutMany } from './cache';
 
 function trimSlash(base: string): string {
   return base.replace(/\/+$/, '');
@@ -21,6 +22,14 @@ function parseEvents(data: unknown): Event[] {
   return out;
 }
 
+const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/json' };
+
+const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier'] as const;
+
+function searchHasQuery(query: Record<string, unknown>): boolean {
+  return SEARCH_FIELDS.some((key) => typeof query[key] === 'string' && String(query[key]).trim().length > 0);
+}
+
 export async function mercuryFilter(filter: Filter): Promise<Event[]> {
   const body: Record<string, unknown> = { limit: Math.min(100, filter.limit ?? 100) };
   if (filter.ids?.length) body.ids = filter.ids.map((id) => id.toLowerCase());
@@ -36,18 +45,21 @@ export async function mercuryFilter(filter: Filter): Promise<Event[]> {
   }
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/events/filter`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: JSON_HEADERS,
     body: JSON.stringify(body)
   });
   if (!res.ok) return [];
-  return parseEvents(await res.json());
+  const events = parseEvents(await res.json());
+  void cachePutMany(events);
+  return events;
 }
 
 export async function mercuryPublicationSearch(query: Record<string, unknown>): Promise<Event[]> {
+  if (!searchHasQuery(query)) return [];
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit: 100, ...query })
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query })
   });
   if (!res.ok) return [];
   return parseEvents(await res.json());
@@ -56,7 +68,7 @@ export async function mercuryPublicationSearch(query: Record<string, unknown>): 
 export async function mercuryWikiSearch(query: Record<string, unknown>): Promise<Event[]> {
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/wiki/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: JSON_HEADERS,
     body: JSON.stringify({ limit: 100, ...query })
   });
   if (!res.ok) return [];
@@ -66,7 +78,7 @@ export async function mercuryWikiSearch(query: Record<string, unknown>): Promise
 export async function mercurySectionSearch(query: Record<string, unknown>): Promise<Event[]> {
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/sections/search`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: JSON_HEADERS,
     body: JSON.stringify({ limit: 100, ...query })
   });
   if (!res.ok) return [];
@@ -76,7 +88,7 @@ export async function mercurySectionSearch(query: Record<string, unknown>): Prom
 export async function mercurySuggest(q: string): Promise<string[]> {
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/suggest`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: JSON_HEADERS,
     body: JSON.stringify({ q, limit: 10 })
   });
   if (!res.ok) return [];
@@ -112,7 +124,7 @@ export async function mercuryPublicationStream(naddr: string, pos?: number): Pro
 export async function mercuryPublish(event: Event): Promise<boolean> {
   const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/events`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: JSON_HEADERS,
     body: JSON.stringify(event)
   });
   return res.ok;

@@ -22,37 +22,17 @@ class RelayPool {
     const cleanFilters = normalizeRelayFilters(filters);
     if (!wssRelays.length || !cleanFilters.length) return [];
 
-    return new Promise((resolve) => {
-      const byId = new Map<string, Event>();
-      let closed = false;
-      let eoseCount = 0;
-
-      const finish = async () => {
-        if (closed) return;
-        closed = true;
-        sub.close();
-        clearTimeout(timer);
-        const events = [...byId.values()];
-        await cachePutMany(events);
-        resolve(events);
-      };
-
-      const onEose = () => {
-        eoseCount += 1;
-        if (eoseCount >= wssRelays.length) finish();
-      };
-
-      const sub = this.pool.subscribeMany(wssRelays, cleanFilters, {
-        onevent: (event) => {
-          const v = ingestEvent(event);
-          if (v && !byId.has(v.id)) byId.set(v.id, v);
-        },
-        oneose: onEose,
-        onclose: onEose
-      });
-
-      const timer = setTimeout(finish, timeoutMs);
-    });
+    const batches = await Promise.all(
+      cleanFilters.map((filter) => this.pool.querySync(wssRelays, filter, { maxWait: timeoutMs }))
+    );
+    const byId = new Map<string, Event>();
+    for (const event of batches.flat()) {
+      const v = ingestEvent(event);
+      if (v && !byId.has(v.id)) byId.set(v.id, v);
+    }
+    const events = [...byId.values()];
+    await cachePutMany(events);
+    return events;
   }
 
   subscribe(relays: string[], filters: Filter[], cb: SubCallback): () => void {
@@ -60,7 +40,8 @@ class RelayPool {
     const cleanFilters = normalizeRelayFilters(filters);
     if (!wssRelays.length || !cleanFilters.length) return () => {};
 
-    const sub = this.pool.subscribeMany(wssRelays, cleanFilters, {
+    const requests = wssRelays.flatMap((url) => cleanFilters.map((filter) => ({ url, filter })));
+    const sub = this.pool.subscribeMap(requests, {
       onevent: (event) => {
         const v = ingestEvent(event);
         if (v) {
