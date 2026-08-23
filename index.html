@@ -3,15 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Library of Alexandria — a GitCitadel project" />
+    <meta name="description" content="Alexandria is a digital library, utilizing Nostr events for curated publications and wiki pages." />
     <title>Library of Alexandria</title>
+    <link rel="icon" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
+    <meta property="og:title" content="Library of Alexandria" />
+    <meta property="og:description" content="Alexandria is a digital library, utilizing Nostr events for curated publications and wiki pages." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Alexandria" />
+    <meta property="og:image" content="/screenshots/old_books.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Library of Alexandria" />
+    <meta name="twitter:image" content="/screenshots/old_books.jpg" />
     <script>
       (function () {
         try {
           var raw = localStorage.getItem('alexandria-appearance');
           if (!raw) return;
           var data = JSON.parse(raw);
-          if (data.scheme) document.documentElement.dataset.theme = data.scheme;
+          if (data.scheme && data.scheme !== 'antique') {
+            document.documentElement.dataset.theme = data.scheme;
+          }
           if (data.dark) document.documentElement.classList.add('dark');
         } catch (_) {}
       })();

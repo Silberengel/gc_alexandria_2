@@ -6,6 +6,7 @@
 <TopBar />
 <main class="shell reading-body">
   <h1>About</h1>
+  <img class="about-hero" src="/screenshots/old_books.jpg" alt="Library of Alexandria" />
   <p>
     This is the Library of Alexandria, a GitCitadel project for reading publications and wiki pages from Nostr.
   </p>
@@ -24,4 +25,5 @@
     <li>Follow wikilinks inside articles to move between encyclopedia pages.</li>
     <li>Sign in with a Nostr extension when you want to rate, comment, highlight, bookmark, or contact GitCitadel.</li>
   </ol>
+  <img class="about-logo" src="/gitcitadel-logo.png" alt="GitCitadel" width="200" />
 </main>

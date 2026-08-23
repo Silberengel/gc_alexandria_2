@@ -18,7 +18,10 @@
 </script>
 
 <header class="top-bar">
-  <a class="brand" href="#/" use:link>Library of Alexandria</a>
+  <a class="brand" href="#/" use:link>
+    <img src="/favicon.png" width="32" height="32" alt="" />
+    <span>Library of Alexandria</span>
+  </a>
   <nav>
     <a href="#/about" use:link>About</a>
     <a href="#/contact" use:link>Contact</a>
