@@ -6,6 +6,7 @@
   import { socialStack } from '$lib/nostr/selector';
   import { firstTag } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
+  import { muteState, isMutedAuthor } from '$lib/mute';
 
   interface Props {
     pubkey: string;
@@ -18,6 +19,7 @@
   let picture = $state('');
   let npub = $state('');
   let pictureFailed = $state(false);
+  const muted = $derived(isMutedAuthor(pubkey, $muteState));
 
   function kind0Value(event: Event, tagName: string, jsonKeys: string[]): string {
     const tagged = firstTag(event, tagName)?.trim();
@@ -70,7 +72,7 @@
   });
 </script>
 
-{#if pubkey}
+{#if pubkey && !muted}
   <a class="userbadge" href={`#/p/${npub || pubkey}`} use:link>
     {#if !compact}
       {#if picture && !pictureFailed}

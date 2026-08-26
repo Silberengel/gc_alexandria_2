@@ -26,7 +26,7 @@ Feature: Landing publication highlights
     Given three different npubs have highlighted edition H via a-tags
     And one of those npubs highlighted it twice
     When I open the home page
-    Then the publication title is the link to the left of the publisher's userbadge
+    Then the publication title is the link
     And the highlighter's userbadge sits above the muted excerpt, indented under the title
 
   Scenario: A section highlight names the edition

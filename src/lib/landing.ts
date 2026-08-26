@@ -1,6 +1,7 @@
 import type { Event, Filter } from 'nostr-tools';
 import { KIND } from './constants';
 import { humanizeTag } from './cover-fallback';
+import { landingLabels } from './labels';
 import {
   LIBRARY_KIND_TAGS,
   addressPath,
@@ -12,18 +13,27 @@ import {
   referencedSectionAddress
 } from './library-scope';
 import { displayTitle } from './metadata';
+import { followPubkeysFromMetadata } from './mute';
 import {
   cacheGetLandingSnapshot,
   cachePutLandingSnapshot,
   cacheScanByKind,
+  type LandingShelfSnap,
   type LandingSnapshot
 } from './nostr/cache';
+import { fetchByAddress, fetchByAddresses, fetchByIds, poolMap } from './nostr/fetch';
 import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
-import { documentStack, highlightStack, socialStack, wikiStack } from './nostr/selector';
+import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
+import { assignShelves, membershipsFromEvents, type Membership, type Shelf } from './shelves';
+import { session } from './stores/session';
 
-export type LandingView = LandingSnapshot & { subjects: string[] };
+export type LandingView = LandingSnapshot & {
+  subjects: string[];
+  shelves: LandingShelfSnap[];
+  labels: string[];
+};
 
 export const LANDING_FEED_LIMIT = 10;
 
@@ -94,7 +104,13 @@ export function orderShelfCovers(events: Event[], unixSeconds: number): Event[] 
 }
 
 export function withSubjects(snap: LandingSnapshot): LandingView {
-  return { ...snap, referenced: snap.referenced ?? [], subjects: subjectsFromPublications(snap.publications) };
+  return {
+    ...snap,
+    referenced: snap.referenced ?? [],
+    shelves: snap.shelves ?? [],
+    labels: snap.labels ?? [],
+    subjects: subjectsFromPublications(snap.publications)
+  };
 }
 
 export function titleForAddress(coord: string, referenced: Event[]): string {
@@ -162,48 +178,11 @@ export function publisherForAddress(coord: string, referenced: Event[]): string 
   return parseAddress(coord)?.pubkey ?? '';
 }
 
-export function publisherForRef(event: Event, referenced: Event[]): string {
-  const work = referencedLibraryAddress(event);
-  const section = referencedSectionAddress(event);
-  const top = topLevelPublicationAddress(section ?? work, referenced);
-  return publisherForAddress(top ?? work ?? '', referenced);
-}
-
 export function hrefForRef(event: Event, referenced: Event[]): string | null {
   const work = referencedLibraryAddress(event);
   const section = referencedSectionAddress(event);
   const top = topLevelPublicationAddress(section ?? work, referenced);
   return addressPath(top ?? work ?? '');
-}
-
-async function fetchByAddress(coord: string): Promise<Event | null> {
-  const parsed = parseAddress(coord);
-  if (!parsed) return null;
-  const filter: Filter = {
-    kinds: [parsed.kind],
-    authors: [parsed.pubkey],
-    '#d': [parsed.d],
-    limit: 1
-  };
-  const mercury = await mercuryFilter(filter);
-  if (mercury[0]) return mercury[0];
-  const stack =
-    parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC ? wikiStack() : documentStack();
-  const ws = await relayPool.query(stack, [filter]);
-  return ws[0] ?? null;
-}
-
-async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  async function worker(): Promise<void> {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]!);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) || 0 }, () => worker()));
-  return out;
 }
 
 async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {
@@ -273,9 +252,67 @@ async function mercuryFilters(filters: Filter[]): Promise<Event[]> {
   return mergeEvents(...batches);
 }
 
+async function resolveShelfPublications(memberships: Membership[], known: Event[]): Promise<Map<string, Event>> {
+  const byAddr = new Map<string, Event>();
+  for (const event of known) {
+    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+  }
+  const missingAddrs = [...new Set(memberships.flatMap((m) => (m.address && !byAddr.has(m.address) ? [m.address] : [])))];
+  for (const event of await fetchByAddresses(missingAddrs.slice(0, 80))) {
+    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+  }
+  const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
+  const byId = new Map((await fetchByIds(missingIds.slice(0, 40))).map((e) => [e.id, e]));
+  for (const membership of memberships) {
+    if (membership.address) continue;
+    if (!membership.eventId) continue;
+    const event = byId.get(membership.eventId);
+    if (event?.kind === KIND.PUBLICATION) {
+      membership.address = eventAddress(event);
+      byAddr.set(membership.address, event);
+    }
+  }
+  return byAddr;
+}
+
+async function loadShelvesAndLabels(
+  knownPubs: Event[],
+  cached?: LandingView | null
+): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
+  const social = socialStack();
+  const [labelWs, bookmarkWs] = await Promise.allSettled([
+    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 200 }], 4000),
+    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 100 }], 4000)
+  ]);
+  const liveLabels = settled(labelWs, []);
+  const liveBookmarks = settled(bookmarkWs, []);
+  const mine = session.getMetadata();
+  const combined = mergeEvents(liveLabels, liveBookmarks, mine);
+  const memberships = membershipsFromEvents(combined);
+  const publications = await resolveShelfPublications(memberships, [
+    ...knownPubs,
+    ...(cached?.shelves ?? []).flatMap((s) => s.events)
+  ]);
+  const viewer = session.getPubkey();
+  const follows = followPubkeysFromMetadata(mine);
+  const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
+  const labels = landingLabels(liveLabels.length ? liveLabels : combined);
+  return {
+    shelves: shelves.map((s) => ({ id: s.id, title: s.title, events: s.events })),
+    labels
+  };
+}
+
 export async function loadCachedLanding(): Promise<LandingView | null> {
   const snap = await cacheGetLandingSnapshot();
-  if (snap && (snap.publications.length || snap.highlights.length || snap.comments.length)) {
+  if (
+    snap &&
+    (snap.publications.length ||
+      snap.highlights.length ||
+      snap.comments.length ||
+      (snap.shelves?.length ?? 0) ||
+      (snap.labels?.length ?? 0))
+  ) {
     return withSubjects({
       ...snap,
       highlights: newestHighlightPerAddress(snap.highlights).slice(0, LANDING_FEED_LIMIT),
@@ -298,7 +335,9 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
     comments,
     referenced: snap?.referenced?.length
       ? snap.referenced
-      : await resolveReferenced([...highlights, ...comments], publications)
+      : await resolveReferenced([...highlights, ...comments], publications),
+    shelves: snap?.shelves ?? [],
+    labels: snap?.labels ?? []
   });
 }
 
@@ -306,15 +345,19 @@ export async function refreshLanding(
   cached: LandingView | null,
   onUpdate?: (view: LandingView) => void
 ): Promise<LandingView> {
-  const [pubsResult, commHttp, commWs, highHttp, highWs] = await Promise.allSettled([
+  const [pubsResult, wikiResult, commHttp, commWs, highHttp, highWs] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
+    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
     mercuryFilters(COMMENT_FILTERS),
     relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
     mercuryFilters(HIGHLIGHT_FILTERS),
     relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000)
   ]);
 
-  const publications = preferLive(settled(pubsResult, []), cached?.publications);
+  const publications = preferLive(
+    mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
+    cached?.publications
+  );
   const comments = newestCommentPerWork(
     preferLive(mergeEvents(settled(commHttp, []), settled(commWs, [])), cached?.comments)
   ).slice(0, LANDING_FEED_LIMIT);
@@ -326,15 +369,24 @@ export async function refreshLanding(
     publications,
     comments,
     highlights,
-    referenced: cached?.referenced ?? []
+    referenced: cached?.referenced ?? [],
+    shelves: cached?.shelves ?? [],
+    labels: cached?.labels ?? []
   });
   onUpdate?.(painted);
 
-  const referenced = await resolveReferenced(
-    [...highlights, ...comments],
-    [...publications, ...(cached?.referenced ?? [])]
-  );
-  const view = withSubjects({ publications, comments, highlights, referenced });
+  const [referenced, shelfPack] = await Promise.all([
+    resolveReferenced([...highlights, ...comments], [...publications, ...(cached?.referenced ?? [])]),
+    loadShelvesAndLabels(publications, cached)
+  ]);
+  const view = withSubjects({
+    publications,
+    comments,
+    highlights,
+    referenced,
+    shelves: shelfPack.shelves.length ? shelfPack.shelves : (cached?.shelves ?? []),
+    labels: shelfPack.labels.length ? shelfPack.labels : (cached?.labels ?? [])
+  });
   onUpdate?.(view);
   void cachePutLandingSnapshot(view);
   return view;

@@ -24,3 +24,5 @@ Feature: Top bar and search
     Then I do not see that global search bar
     And /search, edition, wiki, and profile pages have a filter for text on that page only
     And that page filter does not look up new Nostr events on relays or Mercury
+    And on the reader and a wiki article the filter jumps to the match and highlights it
+    And Enter moves to the next highlighted match

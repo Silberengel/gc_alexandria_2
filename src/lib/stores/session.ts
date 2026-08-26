@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { LOGIN_METADATA_KINDS } from '../constants';
+import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
 import { webSocketRelays } from '../nostr/relay-filters';
@@ -21,6 +22,13 @@ function createSessionStore() {
   });
 
   let metadataEvents: Event[] = [];
+  const metadata = writable<Event[]>([]);
+
+  async function applyMuteFromMetadata(events: Event[]): Promise<void> {
+    const muteEvent = newestMuteList(events);
+    const extra = muteEvent ? await decryptPrivateMuteTags(muteEvent) : [];
+    applyMuteList(parseMuteList(muteEvent, extra));
+  }
 
   async function loadMetadata(pubkey: string): Promise<void> {
     const filter = { authors: [pubkey], kinds: LOGIN_METADATA_KINDS, limit: 100 };
@@ -31,7 +39,9 @@ function createSessionStore() {
     const byId = new Map<string, Event>();
     for (const e of [...mercury, ...ws]) byId.set(e.id, e);
     metadataEvents = [...byId.values()];
+    metadata.set(metadataEvents);
     await cachePutMany(metadataEvents);
+    void applyMuteFromMetadata(metadataEvents);
 
     const relays = metadataEvents.filter((e) => e.kind === 10002);
     const favorites = metadataEvents.filter((e) => e.kind === 10012);
@@ -72,6 +82,8 @@ function createSessionStore() {
   function signOut(): void {
     set({ pubkey: null, npub: null, loading: false });
     metadataEvents = [];
+    metadata.set([]);
+    clearMute();
     setSelectorContext({ signedIn: false, inbox: [], outbox: [], favorites: [], local: [], blocked: [] });
     relayPool.setSignedIn(false);
   }
@@ -82,7 +94,15 @@ function createSessionStore() {
     await cachePutMany([event]);
   }
 
-  return { subscribe, signIn, signOut, publish, getPubkey: () => get({ subscribe }).pubkey };
+  return {
+    subscribe,
+    signIn,
+    signOut,
+    publish,
+    metadata,
+    getPubkey: () => get({ subscribe }).pubkey,
+    getMetadata: () => metadataEvents
+  };
 }
 
 export const session = createSessionStore();
@@ -94,6 +114,12 @@ declare global {
     nostr?: {
       getPublicKey(): Promise<string>;
       signEvent?(event: unknown): Promise<unknown>;
+      nip04?: {
+        decrypt(pubkey: string, ciphertext: string): Promise<string>;
+      };
+      nip44?: {
+        decrypt(pubkey: string, ciphertext: string): Promise<string>;
+      };
     };
   }
 }

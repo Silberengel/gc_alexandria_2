@@ -24,7 +24,7 @@ function parseEvents(data: unknown): Event[] {
 
 const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/json' };
 
-const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier'] as const;
+const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const;
 
 function searchHasQuery(query: Record<string, unknown>): boolean {
   return SEARCH_FIELDS.some((key) => typeof query[key] === 'string' && String(query[key]).trim().length > 0);
@@ -96,27 +96,34 @@ export async function mercurySuggest(q: string): Promise<string[]> {
   return data.suggestions ?? [];
 }
 
-export async function mercuryPublicationMeta(naddr: string): Promise<Record<string, unknown> | null> {
+export async function mercuryPublicationMeta(
+  naddr: string,
+  signal?: AbortSignal
+): Promise<Record<string, unknown> | null> {
   const encoded = encodeURIComponent(naddr);
-  const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/meta`);
+  const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/meta`, { signal });
   if (!res.ok) return null;
   return (await res.json()) as Record<string, unknown>;
 }
 
-export async function mercuryPublicationToc(naddr: string): Promise<unknown[] | null> {
+export async function mercuryPublicationToc(naddr: string, signal?: AbortSignal): Promise<unknown[] | null> {
   const encoded = encodeURIComponent(naddr);
-  const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/toc`);
+  const res = await fetch(`${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/toc`, { signal });
   if (!res.ok) return null;
   const data = await res.json();
   return Array.isArray(data) ? data : (data as { toc?: unknown[] }).toc ?? null;
 }
 
-export async function mercuryPublicationStream(naddr: string, pos?: number): Promise<Event[]> {
+export async function mercuryPublicationStream(
+  naddr: string,
+  pos?: number,
+  signal?: AbortSignal
+): Promise<Event[]> {
   const encoded = encodeURIComponent(naddr);
   const url = pos != null
     ? `${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/stream?pos=${pos}`
     : `${trimSlash(MERCURY_HTTP)}/api/publications/${encoded}/stream`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) return [];
   return parseEvents(await res.json());
 }

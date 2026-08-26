@@ -3,7 +3,7 @@
   import { link } from 'svelte-spa-router';
   import { cardMeta, displayTitle, publicationPath, wikiPath } from '$lib/metadata';
   import Cover from './Cover.svelte';
-  import UserBadge from './UserBadge.svelte';
+  import CardMeta from './CardMeta.svelte';
 
   interface Props {
     event: Event;
@@ -22,29 +22,28 @@
   const summary = $derived(meta.summary?.trim() ?? '');
 </script>
 
-<article class="card pub-card">
+<div class="card pub-card">
   <a class="pub-card-cover" href={`#${href}`} use:link>
     <Cover {event} />
   </a>
   <div class="pub-card-body">
-    <h3><a href={`#${href}`} use:link>{title}</a></h3>
+    <h3>
+      {#if meta.titles.length}
+        {#each meta.titles as name, i}
+          {#if i > 0}<span> · </span>{/if}
+          <a href={`#/search?title=${encodeURIComponent(name)}`} use:link>{name}</a>
+        {/each}
+      {:else}
+        <a href={`#${href}`} use:link>{title}</a>
+      {/if}
+    </h3>
     {#if showMeta}
-      <p class="muted pub-card-line">
-        Published by <UserBadge pubkey={meta.publishedBy} />
-      </p>
-      {#if meta.authors.length}
-        <p class="muted pub-card-line">Author: {meta.authors.join(', ')}</p>
-      {/if}
+      <CardMeta {event} showTitles={false} />
       {#if summary}
-        <p class="muted pub-card-summary">{summary}</p>
-      {/if}
-      {#if meta.subjects.length}
-        <div class="chip-row">
-          {#each meta.subjects.slice(0, 5) as subject}
-            <span class="chip">{subject}</span>
-          {/each}
-        </div>
+        <p class="muted pub-card-summary">
+          <a href={`#${href}`} use:link>{summary}</a>
+        </p>
       {/if}
     {/if}
   </div>
-</article>
+</div>

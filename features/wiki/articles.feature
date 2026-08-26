@@ -40,6 +40,8 @@ Feature: Wiki
     Then I see the header card and the body
     And below that I see kind 9802 highlights whose a-tag is this article and kind 1111 threads for that article
     And I do not see kind 34259 ratings
+    When I type into the page filter
+    Then matching text in the article is highlighted and the page jumps to it
 
   Scenario: Deference forwards to the preferred version
     Given a kind 30818 article A defers to article B with an a-tag or e-tag marker defer

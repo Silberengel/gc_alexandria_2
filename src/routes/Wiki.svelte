@@ -3,14 +3,29 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import EventBody from '$lib/components/EventBody.svelte';
+  import CommentThread from '$lib/components/CommentThread.svelte';
+  import DetailsPanel from '$lib/components/DetailsPanel.svelte';
+  import PublicationCard from '$lib/components/PublicationCard.svelte';
+  import CardMeta from '$lib/components/CardMeta.svelte';
+  import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
-  import { displayTitle, wikiPath } from '$lib/metadata';
+  import { displayTitle, wikiPath, cardMeta } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference } from '$lib/wiki-defer';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack, socialStack } from '$lib/nostr/selector';
-  import { nip19 } from 'nostr-tools';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { fetchById } from '$lib/nostr/fetch';
+  import { muteState, filterMuted } from '$lib/mute';
+  import { createPageFindController, filterPageEvents } from '$lib/page-filter';
+  import { nestComments } from '$lib/comments';
+  import { commentDraft } from '$lib/drafts';
+  import { signAndPublish } from '$lib/sign';
+  import { session } from '$lib/stores/session';
+  import { isLibraryCopyPubkey } from '$lib/hex';
+  import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import type { Event } from 'nostr-tools';
 
   interface Props {
@@ -20,11 +35,37 @@
   let { params = {} }: Props = $props();
 
   let event = $state<Event | null>(null);
+  let versions = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
   let error = $state(false);
   let deferredBy = $state('');
   let forwarding = $state(false);
+  let commentText = $state('');
+  let pageFilter = $state('');
+  let loading = $state(true);
+  let articlePane = $state<HTMLElement | undefined>();
+  const pageFind = createPageFindController();
+
+  const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
+  const visibleHighlights = $derived(filterPageEvents(filterMuted(highlights, $muteState), pageFilter));
+  const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
+  const thread = $derived(event ? nestComments(visibleComments, $muteState) : []);
+  const hideBody = $derived(
+    !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
+  );
+  const headerMeta = $derived(event ? cardMeta(event) : null);
+
+  $effect(() => {
+    const root = articlePane;
+    const q = pageFilter;
+    if (!event || hideBody || !root) return;
+    return pageFind.observe(root, q);
+  });
+
+  function cyclePageFind(): void {
+    if (articlePane) pageFind.next(articlePane);
+  }
 
   function hashQuery(): URLSearchParams {
     const hash = window.location.hash;
@@ -35,8 +76,7 @@
   async function eventFromId(id: string): Promise<Event | null> {
     const mercury = await mercuryFilter({ ids: [id], limit: 1 });
     if (mercury[0]) return mercury[0];
-    const ws = await relayPool.query(wikiStack(), [{ ids: [id], limit: 1 }]);
-    return ws[0] ?? null;
+    return (await relayPool.query(wikiStack(), [{ ids: [id], limit: 1 }]))[0] ?? null;
   }
 
   async function forwardDeference(from: Event): Promise<boolean> {
@@ -62,61 +102,114 @@
     return true;
   }
 
+  async function loadSocial(target: Event): Promise<void> {
+    const addr = eventAddress(target);
+    const [cA, ca, h] = await Promise.all([
+      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [addr], limit: 50 }]),
+      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [addr], limit: 50 }]),
+      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': [addr], limit: 50 }])
+    ]);
+    const byId = new Map<string, Event>();
+    for (const e of [...cA, ...ca]) byId.set(e.id, e);
+    comments = [...byId.values()];
+    highlights = h;
+  }
+
   $effect(() => {
     const dTag = params.d;
     const npubParam = params.npub;
     const naddr = params.naddr;
     let cancelled = false;
     event = null;
+    versions = [];
     comments = [];
     highlights = [];
     error = false;
     forwarding = false;
+    loading = true;
     deferredBy = hashQuery().get('deferredBy') ?? '';
 
     void (async () => {
       try {
-        let pubkey = npubParam ?? '';
-        try {
-          const decodedNpub = nip19.decode(npubParam ?? '');
-          if (decodedNpub.type === 'npub') pubkey = decodedNpub.data;
-        } catch { /* hex */ }
-
-        let fetched: Event | null = null;
         if (naddr) {
-          const decoded = nip19.decode(naddr);
-          if (decoded.type === 'naddr') {
-            const { kind, pubkey: pk, identifier } = decoded.data;
-            fetched = (await relayPool.query(wikiStack(), [{
-              kinds: [kind],
-              authors: [pk],
-              '#d': [identifier],
-              limit: 1
-            }]))[0] ?? null;
+          const decoded = decodePublicationPointer(naddr);
+          if (!decoded) {
+            error = true;
+            return;
           }
-        } else if (dTag && pubkey) {
-          fetched = (await relayPool.query(wikiStack(), [{
+          let fetched: Event | null = null;
+          if (decoded.id) fetched = await fetchById(decoded.id);
+          else if (decoded.pubkey && decoded.d != null) {
+            const filter = {
+              kinds: [decoded.kind ?? KIND.WIKI, KIND.SPEC],
+              authors: [decoded.pubkey],
+              '#d': [decoded.d],
+              limit: 2
+            };
+            fetched =
+              (await mercuryFilter(filter))[0] ??
+              (await relayPool.query(wikiStack(), [filter]))[0] ??
+              null;
+          }
+          if (cancelled) return;
+          if (!fetched || (fetched.kind !== KIND.WIKI && fetched.kind !== KIND.SPEC)) {
+            error = true;
+            return;
+          }
+          replace(wikiPath(fetched));
+          if (await forwardDeference(fetched)) return;
+          event = fetched;
+          await loadSocial(fetched);
+          return;
+        }
+
+        if (dTag && !npubParam) {
+          const filter = { kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 50 };
+          const [m, w] = await Promise.all([
+            mercuryFilter(filter),
+            relayPool.query(wikiStack(), [filter])
+          ]);
+          const byId = new Map<string, Event>();
+          for (const e of [...m, ...w]) byId.set(e.id, e);
+          const found = [...byId.values()];
+          if (cancelled) return;
+          if (!found.length) {
+            error = true;
+            return;
+          }
+          versions = found;
+          return;
+        }
+
+        if (dTag && npubParam) {
+          const pubkey = hexFromNpubParam(npubParam);
+          const fetched = (
+            await relayPool.query(wikiStack(), [{
+              kinds: [KIND.WIKI, KIND.SPEC],
+              authors: [pubkey],
+              '#d': [dTag],
+              limit: 1
+            }])
+          )[0] ?? (await mercuryFilter({
             kinds: [KIND.WIKI, KIND.SPEC],
             authors: [pubkey],
             '#d': [dTag],
             limit: 1
-          }]))[0] ?? null;
+          }))[0] ?? null;
+          if (cancelled) return;
+          if (!fetched) {
+            error = true;
+            return;
+          }
+          if (await forwardDeference(fetched)) return;
+          if (cancelled) return;
+          event = fetched;
+          await loadSocial(fetched);
         }
-        if (cancelled) return;
-        if (!fetched) { error = true; return; }
-        if (await forwardDeference(fetched)) return;
-        if (cancelled) return;
-        event = fetched;
-        const addr = `${fetched.kind}:${fetched.pubkey}:${fetched.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`;
-        const [c, h] = await Promise.all([
-          relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [addr], limit: 50 }]),
-          relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': [addr], limit: 50 }])
-        ]);
-        if (cancelled) return;
-        comments = c;
-        highlights = h;
       } catch {
         if (!cancelled) error = true;
+      } finally {
+        if (!cancelled) loading = false;
       }
     })();
 
@@ -125,9 +218,19 @@
     };
   });
 
-  const hideBody = $derived(
-    !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
-  );
+  async function postComment(): Promise<void> {
+    if (!event) return;
+    if (!$session.pubkey) {
+      await session.signIn();
+      return;
+    }
+    if (!commentText.trim()) return;
+    const signed = await signAndPublish(commentDraft(event, commentText.trim()));
+    if (signed) {
+      comments = [...comments, signed];
+      commentText = '';
+    }
+  }
 </script>
 
 <TopBar />
@@ -135,29 +238,80 @@
   {#if error}
     <ErrorPage title="Wiki page not found" />
   {:else if forwarding}
-    <p class="muted">Opening the preferred version…</p>
+    <p class="loading-hint">Opening the preferred version…</p>
+  {:else if versions.length}
+    <h1>Versions</h1>
+    <PageFilter bind:value={pageFilter} />
+    <div class="card-grid card-grid-results">
+      {#each visibleVersions as version (version.id)}
+        <div>
+          {#if isLibraryCopyPubkey(version.pubkey)}
+            <p class="muted">Library copy</p>
+          {/if}
+          <PublicationCard event={version} />
+        </div>
+      {/each}
+    </div>
   {:else if event}
     {#if deferredBy}
       <p class="wiki-defer-banner">Deferred to by: <UserBadge pubkey={deferredBy} /></p>
     {/if}
-    <article class="card reading-body">
-      <h1>{displayTitle(event)}</h1>
-      <p>Published by <UserBadge pubkey={event.pubkey} /></p>
-      {#if !hideBody}
-        <div>{@html event.content}</div>
+    <PageFilter
+      bind:value={pageFilter}
+      placeholder="Find in this page…"
+      onEnter={cyclePageFind}
+    />
+    <article class="card reading-body" bind:this={articlePane}>
+      <h1>
+        {#if headerMeta?.titles.length}
+          {#each headerMeta.titles as name, i}
+            {#if i > 0}<span> · </span>{/if}
+            <a href={`#/search?title=${encodeURIComponent(name)}`}>{name}</a>
+          {/each}
+        {:else}
+          {displayTitle(event)}
+        {/if}
+      </h1>
+      {#if headerMeta}
+        <CardMeta {event} showIdentifier showTitles={false} />
       {/if}
+      {#if !hideBody}
+        <EventBody {event} />
+      {/if}
+      <DetailsPanel {event} found="the wiki relays and library index" />
     </article>
-    {#if highlights.length}
-      <section class="card" style="margin-top:1rem"><h2>Highlights</h2>
-        {#each highlights as h}<p>{h.content}</p>{/each}
+    {#if visibleHighlights.length}
+      <section class="card" style="margin-top:1rem">
+        <h2>Highlights</h2>
+        {#each visibleHighlights as h (h.id)}
+          <p>
+            <UserBadge pubkey={h.pubkey} />
+          </p>
+          <EventBody event={h} />
+        {/each}
       </section>
     {/if}
-    {#if comments.length}
-      <section class="card" style="margin-top:1rem"><h2>Comments</h2>
-        {#each comments as c}<p>{c.content}</p>{/each}
-      </section>
-    {/if}
+    <section class="card" style="margin-top:1rem">
+      <h2>Comments</h2>
+      {#if thread.length}
+        <ul class="thread-list">
+          {#each thread as node (node.event?.id ?? node.placeholder)}
+            <CommentThread {node} target={event} />
+          {/each}
+        </ul>
+      {:else}
+        <p class="muted">No comments yet.</p>
+      {/if}
+      {#if $session.pubkey}
+        <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
+          <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
+          <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+        </form>
+      {:else}
+        <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to comment</button>
+      {/if}
+    </section>
   {:else}
-    <p class="muted">Loading…</p>
+    <p class="loading-hint">Page is loading...</p>
   {/if}
 </main>

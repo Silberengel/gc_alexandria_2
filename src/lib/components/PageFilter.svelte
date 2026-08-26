@@ -1,14 +1,23 @@
 <script lang="ts">
   interface Props {
+    value?: string;
     placeholder?: string;
+    onEnter?: () => void;
   }
 
-  let { placeholder = 'Filter this page…' }: Props = $props();
-  let filter = $state('');
-
-  export function getFilter(): string {
-    return filter.trim().toLowerCase();
-  }
+  let { value = $bindable(''), placeholder = 'Filter this page…', onEnter }: Props = $props();
 </script>
 
-<input type="search" {placeholder} bind:value={filter} style="max-width:20rem;margin-bottom:1rem" />
+<input
+  class="page-filter"
+  type="search"
+  {placeholder}
+  bind:value={value}
+  style="max-width:20rem;margin-bottom:1rem"
+  onkeydown={(e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onEnter?.();
+    }
+  }}
+/>

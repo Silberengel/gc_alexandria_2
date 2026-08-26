@@ -6,23 +6,36 @@
   import { LANDING_FEED_LIMIT, loadCachedLanding, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
+  import { muteState, filterMuted } from '$lib/mute';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
+  import type { LandingShelfSnap } from '$lib/nostr/cache';
 
-  let publications = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
   let referenced = $state<Event[]>([]);
   let subjects = $state<string[]>([]);
+  let shelves = $state<LandingShelfSnap[]>([]);
+  let labels = $state<string[]>([]);
   const shelfSeed = Math.floor(Date.now() / 1000);
-  const shelfPubs = $derived(orderShelfCovers(publications, shelfSeed).slice(0, 50));
+
+  const visibleShelves = $derived(
+    shelves
+      .map((s) => ({ ...s, events: filterMuted(s.events, $muteState) }))
+      .filter((s) => s.events.length)
+  );
+  const visibleHighlights = $derived(filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT));
+  const visibleComments = $derived(filterMuted(comments, $muteState).slice(0, LANDING_FEED_LIMIT));
+  const visibleSubjects = $derived(subjects);
+  const visibleLabels = $derived(labels);
 
   function apply(view: LandingView): void {
-    publications = view.publications;
     comments = view.comments;
     highlights = view.highlights;
     referenced = view.referenced ?? [];
     subjects = view.subjects;
+    shelves = view.shelves ?? [];
+    labels = view.labels ?? [];
   }
 
   async function loadLanding(): Promise<void> {
@@ -50,37 +63,37 @@
     <h1>Library of Alexandria</h1>
   </header>
 
-  {#if publications.length}
+  {#each visibleShelves as shelf (shelf.id)}
     <section>
-      <h2 class="section-title">Bookshelves</h2>
+      <h2 class="section-title">{shelf.title}</h2>
       <div class="shelf-bar">
-        {#each shelfPubs as pub}
+        {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
           <a class="cover" href={`#${publicationPath(pub)}`} use:link>
             <Cover event={pub} />
           </a>
         {/each}
       </div>
     </section>
-  {/if}
+  {/each}
 
-  {#if highlights.length || comments.length}
+  {#if visibleHighlights.length || visibleComments.length}
     <div class="landing-feeds">
-      {#if highlights.length}
+      {#if visibleHighlights.length}
         <section>
           <h2 class="section-title">Highlights</h2>
           <ul class="landing-ref-list">
-            {#each highlights.slice(0, LANDING_FEED_LIMIT) as h (h.id)}
+            {#each visibleHighlights as h (h.id)}
               <LandingRefRow event={h} {referenced} />
             {/each}
           </ul>
         </section>
       {/if}
 
-      {#if comments.length}
+      {#if visibleComments.length}
         <section>
           <h2 class="section-title">What we are discussing</h2>
           <ul class="landing-ref-list">
-            {#each comments.slice(0, LANDING_FEED_LIMIT) as c (c.id)}
+            {#each visibleComments as c (c.id)}
               <LandingRefRow event={c} {referenced} />
             {/each}
           </ul>
@@ -89,12 +102,23 @@
     </div>
   {/if}
 
-  {#if subjects.length}
+  {#if visibleSubjects.length}
     <section>
       <h2 class="section-title">Subjects</h2>
       <div class="chip-row">
-        {#each subjects as subject}
+        {#each visibleSubjects as subject}
           <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link>{subject}</a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if visibleLabels.length}
+    <section>
+      <h2 class="section-title">Labels</h2>
+      <div class="chip-row">
+        {#each visibleLabels as label}
+          <a class="chip" href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
         {/each}
       </div>
     </section>

@@ -28,12 +28,17 @@ Feature: In-browser reader
     Then the interaction lists are replaced by the reader
     And I stay on /publication/d/{d}/p/{npub}
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
+    And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
+    And the ToC is an unnumbered list of those titles
+    And clicking a ToC heading jumps to that section header
     And the first viewport is readable without the entire book
-    When I click a ToC heading
-    Then the reader jumps to that pos and loads that stream window if needed
     When I scroll later
     Then subsequent sections appear in order
     And missing sections show a placeholder
+    When I type into the page filter
+    Then matching text in the section bodies is highlighted
+    And the reader jumps to the first match
+    And Enter moves to the next match
 
   Scenario: Resume position in this browser
     Given I have read into chapter 3

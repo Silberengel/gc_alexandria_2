@@ -27,7 +27,7 @@ Feature: What we are discussing
 
   Scenario: A row names the work and the commenter
     When a comment in the feed targets a publication or wiki
-    Then the work or wiki title is the link to the left of the publisher's userbadge
+    Then the work or wiki title is the link
     And the commenter's userbadge sits above the muted excerpt, indented under the title
 
   Scenario: A section comment names the edition

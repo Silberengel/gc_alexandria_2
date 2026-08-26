@@ -72,7 +72,7 @@ function maybeAggr(urls: string[]): string[] {
 
 /** Document/search WebSocket stack (Mercury read-only WSS + Citadel + third-party). */
 export function documentStack(): string[] {
-  let relays = [...DOCUMENT_SEARCH_RELAYS];
+  let relays: string[] = [...DOCUMENT_SEARCH_RELAYS];
   if (ctx.signedIn) {
     relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
   }
@@ -86,7 +86,7 @@ export function wikiStack(): string[] {
 
 /** Social/interaction stack */
 export function socialStack(): string[] {
-  let relays = [...SOCIAL_RELAYS];
+  let relays: string[] = [...SOCIAL_RELAYS];
   if (ctx.signedIn) {
     relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
   }

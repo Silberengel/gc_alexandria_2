@@ -32,11 +32,15 @@ const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
 const MAX_SEARCH_SNAPSHOTS = 20;
 
+export type LandingShelfSnap = { id: string; title: string; events: Event[] };
+
 export type LandingSnapshot = {
   publications: Event[];
   highlights: Event[];
   comments: Event[];
   referenced: Event[];
+  shelves?: LandingShelfSnap[];
+  labels?: string[];
 };
 
 function ingestList(rows: unknown): Event[] {
@@ -59,7 +63,15 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
       publications: ingestList(raw.publications),
       highlights: ingestList(raw.highlights),
       comments: ingestList(raw.comments),
-      referenced: ingestList(raw.referenced)
+      referenced: ingestList(raw.referenced),
+      shelves: Array.isArray(raw.shelves)
+        ? raw.shelves.map((s) => ({
+            id: String(s.id),
+            title: String(s.title),
+            events: ingestList(s.events)
+          }))
+        : [],
+      labels: Array.isArray(raw.labels) ? raw.labels.filter((l): l is string => typeof l === 'string') : []
     };
   } catch {
     return null;
@@ -72,7 +84,13 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
     publications: snap.publications.slice(0, 50),
     highlights: snap.highlights.slice(0, 10),
     comments: snap.comments.slice(0, 10),
-    referenced: (snap.referenced ?? []).slice(0, 80)
+    referenced: (snap.referenced ?? []).slice(0, 80),
+    shelves: (snap.shelves ?? []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      events: s.events.slice(0, 50)
+    })),
+    labels: (snap.labels ?? []).slice(0, 25)
   });
   await cache.put(
     LANDING_SNAPSHOT_KEY,
@@ -153,6 +171,37 @@ export async function cachePutEvent(event: Event): Promise<void> {
 
 export async function cachePutMany(events: Event[]): Promise<void> {
   await Promise.all(events.map((e) => cachePutEvent(e)));
+}
+
+export async function cacheDeleteEvent(id: string): Promise<void> {
+  const cache = await openCache();
+  const key = `/event/${id.toLowerCase()}`;
+  const res = await cache.match(key);
+  if (!res) return;
+  const bodyLen = (await res.clone().text()).length;
+  await cache.delete(key);
+  const m = meta();
+  m.ids = m.ids.filter((x) => x !== id.toLowerCase());
+  m.bytes = Math.max(0, m.bytes - bodyLen);
+  saveMeta(m);
+}
+
+export async function cacheScanText(q: string, limit = 100): Promise<Event[]> {
+  const needle = q.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  const cache = await openCache();
+  const m = meta();
+  const out: Event[] = [];
+  for (const id of [...m.ids].reverse()) {
+    if (out.length >= limit) break;
+    const res = await cache.match(`/event/${id}`);
+    if (!res) continue;
+    const e = ingestEvent(await res.json());
+    if (!e) continue;
+    const hay = `${e.content}\n${e.tags.flat().join('\n')}`.toLowerCase();
+    if (hay.includes(needle)) out.push(e);
+  }
+  return out;
 }
 
 export async function cacheScanByKind(kind: number, limit = 100): Promise<Event[]> {
