@@ -29,6 +29,12 @@ export const GITCITADEL_NPUB =
 export const GITCITADEL_CURATOR_NPUB =
   'npub18cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqeyaztw';
 
+export const NIP32_BOOKLIST_LABEL = 'booklist';
+export const NIP32_UGC_NAMESPACE = 'ugc';
+
+export const MUTED_PARENT_PLACEHOLDER =
+  'This npub is muted or the event could not be found.';
+
 export const REPO_OWNER_HEX =
   'fd208ee8c8f283780a9552896e4823cc9dc6bfd442063889577106940fd927c1';
 

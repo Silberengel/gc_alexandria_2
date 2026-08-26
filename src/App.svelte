@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Router from 'svelte-spa-router';
   import Home from './routes/Home.svelte';
   import Search from './routes/Search.svelte';
@@ -10,6 +11,7 @@
   import StartRedirect from './routes/StartRedirect.svelte';
   import Contact from './routes/Contact.svelte';
   import NotFound from './routes/NotFound.svelte';
+  import { scheduleDeletionSweep } from './lib/deletions';
 
   const routes = {
     '/': Home,
@@ -27,6 +29,10 @@
     '/wiki/:naddr': Wiki,
     '*': NotFound
   };
+
+  onMount(() => {
+    scheduleDeletionSweep();
+  });
 </script>
 
 <Router {routes} />
