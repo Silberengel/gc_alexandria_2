@@ -1,6 +1,7 @@
 import { type Event, type Filter } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
 import { cachePutMany } from './cache';
+import { noteEventSource } from './event-sources';
 import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
 import { ingestEvent } from './verify';
 
@@ -22,14 +23,20 @@ class RelayPool {
     const cleanFilters = normalizeRelayFilters(filters);
     if (!wssRelays.length || !cleanFilters.length) return [];
 
-    const batches = await Promise.all(
-      cleanFilters.map((filter) => this.pool.querySync(wssRelays, filter, { maxWait: timeoutMs }))
-    );
     const byId = new Map<string, Event>();
-    for (const event of batches.flat()) {
-      const v = ingestEvent(event);
-      if (v && !byId.has(v.id)) byId.set(v.id, v);
-    }
+    await Promise.all(
+      wssRelays.map(async (url) => {
+        const batches = await Promise.all(
+          cleanFilters.map((filter) => this.pool.querySync([url], filter, { maxWait: timeoutMs }))
+        );
+        for (const event of batches.flat()) {
+          const v = ingestEvent(event);
+          if (!v) continue;
+          noteEventSource(v.id, url);
+          if (!byId.has(v.id)) byId.set(v.id, v);
+        }
+      })
+    );
     const events = [...byId.values()];
     await cachePutMany(events);
     return events;
@@ -40,18 +47,24 @@ class RelayPool {
     const cleanFilters = normalizeRelayFilters(filters);
     if (!wssRelays.length || !cleanFilters.length) return () => {};
 
-    const requests = wssRelays.flatMap((url) => cleanFilters.map((filter) => ({ url, filter })));
-    const sub = this.pool.subscribeMap(requests, {
-      onevent: (event) => {
-        const v = ingestEvent(event);
-        if (v) {
-          void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v));
-          cb.onEvent(v, '');
-        }
-      },
-      oneose: () => cb.onEose?.('')
-    });
-    return () => sub.close();
+    const closers = wssRelays.flatMap((url) =>
+      cleanFilters.map((filter) =>
+        this.pool.subscribe([url], filter, {
+          onevent: (event) => {
+            const v = ingestEvent(event);
+            if (v) {
+              noteEventSource(v.id, url);
+              void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v));
+              cb.onEvent(v, url);
+            }
+          },
+          oneose: () => cb.onEose?.(url)
+        })
+      )
+    );
+    return () => {
+      for (const c of closers) c.close();
+    };
   }
 
   async publish(relays: string[], event: Event): Promise<void> {

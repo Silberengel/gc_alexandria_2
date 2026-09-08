@@ -40,19 +40,21 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
     '#d': [parsed.d],
     limit: 1
   };
-  const mercury = await mercuryFilter(filter);
-  if (mercury[0]) return mercury[0];
-  const ws = await relayPool.query(stackForKind(parsed.kind), [filter]);
-  return ws[0] ?? null;
+  const [mercury, ws] = await Promise.all([
+    mercuryFilter(filter),
+    relayPool.query(stackForKind(parsed.kind), [filter])
+  ]);
+  return mercury[0] ?? ws[0] ?? null;
 }
 
 export async function fetchById(id: string): Promise<Event | null> {
   if (!/^[0-9a-f]{64}$/i.test(id)) return null;
   const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-  const mercury = await mercuryFilter(filter);
-  if (mercury[0]) return mercury[0];
-  const ws = await relayPool.query(documentStack(), [filter]);
-  return ws[0] ?? null;
+  const [mercury, ws] = await Promise.all([
+    mercuryFilter(filter),
+    relayPool.query(documentStack(), [filter])
+  ]);
+  return mercury[0] ?? ws[0] ?? null;
 }
 
 export async function fetchByAddresses(coords: string[], concurrency = 6): Promise<Event[]> {

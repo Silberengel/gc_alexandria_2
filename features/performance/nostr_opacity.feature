@@ -15,3 +15,5 @@ Feature: Nostr stays in the background
     When I open an edition page
     Then I can expand a Details control
     And I can see the event id, coordinate, and where it was found
+    And where it was found lists the relay URLs that returned it
+    And the library index appears as wss://mercury-relay.imwald.eu when Mercury HTTP found it

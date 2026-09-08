@@ -94,6 +94,26 @@ describe('session metadata remember', () => {
     expect(merged.map((e) => e.id)).toEqual([keep.id]);
   });
 
+  it('deletes mixed-case event ids when the e-tag is lowercased', () => {
+    const mixedId = ('AB' + 'cd'.repeat(31)).slice(0, 64);
+    const label = {
+      id: mixedId,
+      pubkey: pk,
+      created_at: 1,
+      kind: KIND.LABEL,
+      tags: [['l', 'booklist', 'ugc'], ['a', addr]],
+      content: '',
+      sig: 'c'.repeat(128)
+    } as Event;
+    const del = ev({
+      id: '5'.repeat(64),
+      kind: KIND.DELETION,
+      tags: [['e', mixedId.toLowerCase()], ['k', String(KIND.LABEL)]]
+    });
+    const merged = mergeRememberedMetadata([label], del);
+    expect(merged).toHaveLength(0);
+  });
+
   it('still replaces bookmarks and directories by kind+d', () => {
     const oldBm = ev({
       id: '2'.repeat(64),

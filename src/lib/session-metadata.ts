@@ -28,7 +28,8 @@ export function publicationLabelDedupeKey(event: Pick<Event, 'tags'>): string | 
  * - DELETION (5): drop referenced e-tagged events from the cache.
  */
 export function mergeRememberedMetadata(existing: Event[], event: Event): Event[] {
-  const byId = new Map(existing.map((e) => [e.id, e]));
+  const byId = new Map(existing.map((e) => [e.id.toLowerCase(), e]));
+  const eventId = event.id.toLowerCase();
 
   if (event.kind === KIND.DELETION) {
     for (const tag of event.tags) {
@@ -38,12 +39,12 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
     return [...byId.values()];
   }
 
-  byId.set(event.id, event);
+  byId.set(eventId, event);
 
   if (event.kind === KIND.DIRECTORY || event.kind === KIND.BOOKMARK) {
     const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
     for (const [id, e] of [...byId]) {
-      if (e.id === event.id) continue;
+      if (id === eventId) continue;
       if (e.kind !== event.kind) continue;
       const ed = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
       if (ed === d && e.created_at <= event.created_at) byId.delete(id);
@@ -52,7 +53,7 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
     const key = publicationLabelDedupeKey(event);
     if (key) {
       for (const [id, e] of [...byId]) {
-        if (e.id === event.id) continue;
+        if (id === eventId) continue;
         if (e.kind !== KIND.LABEL) continue;
         if (publicationLabelDedupeKey(e) === key && e.created_at <= event.created_at) {
           byId.delete(id);

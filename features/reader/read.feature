@@ -23,6 +23,14 @@ Feature: In-browser reader
     When I leave before pressing the button
     Then that fetch is cancelled
 
+  Scenario: Catalog stubs are not readable
+    Given a 30040 with no section a-tags or e-tags (a copyright library card)
+    When I open the publication page
+    Then I see the header and interaction lists
+    And I do not see a "Read the publication" button
+    And I see that this is a catalog entry only
+    And the site does not start /meta, /toc, or /stream for that edition
+
   Scenario: Read shows this naddr's tree
     When I press "Read the publication"
     Then the interaction lists are replaced by the reader

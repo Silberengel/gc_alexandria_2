@@ -15,7 +15,7 @@
   import CardMeta from '$lib/components/CardMeta.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
-  import { displayTitle, publicationPath, cardMeta } from '$lib/metadata';
+  import { displayTitle, publicationPath, cardMeta, hasPublicationSection } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter, mercuryPublicationMeta, mercuryPublicationStream, mercuryPublicationToc } from '$lib/nostr/mercury';
@@ -58,7 +58,10 @@
   let sections = $state<Event[]>([]);
   let toc = $state<TocEntry[]>([]);
   let error = $state(false);
+  /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
+  /** Index/meta says there is no publishable text; keep the interactive page, hide Read. */
+  let textUnavailable = $state(false);
   let loading = $state(true);
   let commentText = $state('');
   let sectionCommentText = $state<Record<string, string>>({});
@@ -89,6 +92,7 @@
   const thread = $derived(nestComments(visibleComments, $muteState));
   const headerMeta = $derived(event ? cardMeta(event) : null);
   const readerToc = $derived(enrichToc(toc, sections));
+  const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
 
   function cancelTree(): void {
     treeAbort?.abort();
@@ -136,7 +140,7 @@
       const meta = await mercuryPublicationMeta(naddr, signal);
       if (signal.aborted) return;
       if (isUnreadableMeta(meta)) {
-        unreadable = true;
+        textUnavailable = true;
         return;
       }
       const rawToc = await mercuryPublicationToc(naddr, signal);
@@ -176,8 +180,11 @@
     event = target;
     error = false;
     unreadable = false;
+    textUnavailable = !hasPublicationSection(target);
     await fetchSocial(target);
     cancelTree();
+    // Catalog stubs (no section a/e tags) are library cards only — no tree to fetch.
+    if (textUnavailable) return;
     treeAbort = new AbortController();
     void prefetchTree(target, treeAbort.signal);
   }
@@ -190,6 +197,7 @@
     loading = true;
     error = false;
     unreadable = false;
+    textUnavailable = false;
     event = null;
     editions = [];
     reading = false;
@@ -216,9 +224,10 @@
               limit: 1
             };
             fetched =
-              (await mercuryFilter(filter))[0] ??
-              (await relayPool.query(documentStack(), [filter]))[0] ??
-              null;
+              (await Promise.all([
+                mercuryFilter(filter),
+                relayPool.query(documentStack(), [filter])
+              ]).then(([m, w]) => m[0] ?? w[0] ?? null));
           }
           if (cancelled) return;
           if (!fetched || fetched.kind !== KIND.PUBLICATION) {
@@ -245,10 +254,11 @@
         if (dTag && npubParam) {
           const pubkey = hexFromNpubParam(npubParam);
           const filter = { kinds: [KIND.PUBLICATION], authors: [pubkey], '#d': [dTag], limit: 1 };
-          const fetched =
-            (await mercuryFilter(filter))[0] ??
-            (await relayPool.query(documentStack(), [filter]))[0] ??
-            null;
+          const [mHits, wHits] = await Promise.all([
+            mercuryFilter(filter),
+            relayPool.query(documentStack(), [filter])
+          ]);
+          const fetched = mHits[0] ?? wHits[0] ?? null;
           if (cancelled) return;
           if (!fetched) {
             error = true;
@@ -272,7 +282,7 @@
   onDestroy(() => cancelTree());
 
   async function startReading(): Promise<void> {
-    if (!event || unreadable) return;
+    if (!event || unreadable || !canRead) return;
     reading = true;
     if (!sections.length) {
       readingBusy = true;
@@ -475,7 +485,13 @@
           <p class="muted">Library copy</p>
         {/if}
         <ShelfActions publication={event} />
-        <button class="btn btn-primary" type="button" onclick={() => void startReading()}>Read the publication</button>
+        {#if canRead}
+          <button class="btn btn-primary" type="button" onclick={() => void startReading()}>Read the publication</button>
+        {:else}
+          <p class="muted">
+            Catalog entry only — the full text is not available in the library (often a copyrighted work we cannot publish).
+          </p>
+        {/if}
         <DetailsPanel {event} />
       </header>
 

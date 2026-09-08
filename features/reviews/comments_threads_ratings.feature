@@ -30,7 +30,7 @@ Feature: Comments, threads, and ratings
     And wikis are not rated
     And an edition has kind 34259 ratings
     When I open that edition
-    Then I see an aggregate on a 1-to-5 star scale and each scored rater's userbadge
+    Then I see an aggregate on a 1-to-5 star scale with star icons and each scored rater's userbadge and stars
     And unscored 34259 events without a valid rating tag do not change the average
     When I am signed in and submit a rating
     Then it references that edition with jumble-compatible tags

@@ -1,13 +1,14 @@
 import type { Filter, Event } from 'nostr-tools';
-import { MERCURY_HTTP } from '../constants';
+import { MERCURY_HTTP, MERCURY_WSS } from '../constants';
 import { ingestEvent } from './verify';
 import { cachePutMany } from './cache';
+import { noteEventSource } from './event-sources';
 
 function trimSlash(base: string): string {
   return base.replace(/\/+$/, '');
 }
 
-function parseEvents(data: unknown): Event[] {
+function parseEvents(data: unknown, source = MERCURY_WSS): Event[] {
   if (!data || typeof data !== 'object') return [];
   const rows = Array.isArray(data)
     ? data
@@ -17,7 +18,10 @@ function parseEvents(data: unknown): Event[] {
   const out: Event[] = [];
   for (const row of rows) {
     const e = ingestEvent(row);
-    if (e) out.push(e);
+    if (e) {
+      noteEventSource(e.id, source);
+      out.push(e);
+    }
   }
   return out;
 }

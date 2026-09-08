@@ -26,7 +26,7 @@ Feature: Landing bookshelves
     And when a shelf has at least 10 publications I see the 3 newest first and the remaining covers shuffled from the current UNIX timestamp
     And empty shelves are omitted
     And a home with no shelves or only one shelf is still the landing page
-    And clicking a cover opens that edition's /publication/d/{d}/p/{npub}
+    And clicking a cover opens that edition's interactive /publication/d/{d}/p/{npub} page (header and social lists), not the in-browser reader
 
   Scenario: Only non-empty shelves are shown
     Given I am not signed in

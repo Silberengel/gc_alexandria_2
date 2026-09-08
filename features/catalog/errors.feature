@@ -17,12 +17,13 @@ Feature: Broken addresses and empty results
     When I follow a card, ToC, or nostr: embed to a missing or invalid event
     Then I see the error page
 
-  Scenario: Unreadable editions get an error page
+  Scenario: Unreadable text stays on the interactive edition page
     When index meta reports an edition is not readable
-    Then I see the unreadable-edition error page
+    Then I still see the edition header and interaction lists
+    And I do not see a "Read the publication" button
     And I do not see an empty reader or raw protocol text
     When Read cannot load a Mercury tree or a document-stack fallback
-    Then I see that error page
+    Then I see the unreadable-edition error page
 
   Scenario: Empty search
     When a search has no matching cards after mute and verify

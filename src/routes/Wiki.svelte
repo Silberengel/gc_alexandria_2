@@ -147,9 +147,10 @@
               limit: 2
             };
             fetched =
-              (await mercuryFilter(filter))[0] ??
-              (await relayPool.query(wikiStack(), [filter]))[0] ??
-              null;
+              (await Promise.all([
+                mercuryFilter(filter),
+                relayPool.query(wikiStack(), [filter])
+              ]).then(([m, w]) => m[0] ?? w[0] ?? null));
           }
           if (cancelled) return;
           if (!fetched || (fetched.kind !== KIND.WIKI && fetched.kind !== KIND.SPEC)) {
@@ -183,19 +184,17 @@
 
         if (dTag && npubParam) {
           const pubkey = hexFromNpubParam(npubParam);
-          const fetched = (
-            await relayPool.query(wikiStack(), [{
-              kinds: [KIND.WIKI, KIND.SPEC],
-              authors: [pubkey],
-              '#d': [dTag],
-              limit: 1
-            }])
-          )[0] ?? (await mercuryFilter({
+          const filter = {
             kinds: [KIND.WIKI, KIND.SPEC],
             authors: [pubkey],
             '#d': [dTag],
             limit: 1
-          }))[0] ?? null;
+          };
+          const [wHits, mHits] = await Promise.all([
+            relayPool.query(wikiStack(), [filter]),
+            mercuryFilter(filter)
+          ]);
+          const fetched = wHits[0] ?? mHits[0] ?? null;
           if (cancelled) return;
           if (!fetched) {
             error = true;
@@ -278,7 +277,7 @@
       {#if !hideBody}
         <EventBody {event} />
       {/if}
-      <DetailsPanel {event} found="the wiki relays and library index" />
+      <DetailsPanel {event} />
     </article>
     {#if visibleHighlights.length}
       <section class="card" style="margin-top:1rem">

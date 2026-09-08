@@ -626,6 +626,59 @@ input[type='search'], input[type='text'], textarea, select {
   margin: 0.35rem 0;
   background: var(--border);
 }
+.rating-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin: 0 0 1.25rem;
+}
+.rater-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.rater-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+.rater-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.review-block {
+  width: 100%;
+  min-width: 0;
+}
+.review-body {
+  margin: 0;
+  max-height: 250px;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.review-body.review-expanded {
+  max-height: none;
+}
+.btn-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.15rem 0 0;
+  font: inherit;
+  font-size: 0.9em;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
 .star-picker {
   display: flex;
   gap: 0.15rem;
@@ -635,19 +688,16 @@ input[type='search'], input[type='text'], textarea, select {
   border: 0;
   background: transparent;
   color: color-mix(in srgb, var(--ink) 35%, transparent);
-  font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
-  padding: 0.1rem;
+  padding: 0.15rem;
+  display: inline-flex;
 }
 .star-btn.star-on {
   color: var(--accent);
 }
-.review-snip {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 14rem;
+.star-btn svg {
+  display: block;
 }
 .interaction-marks {
   display: flex;
@@ -665,16 +715,15 @@ input[type='search'], input[type='text'], textarea, select {
   grid-template-columns: max-content 1fr;
 }
 .details-list code { overflow-wrap: anywhere; }
-.rater-list {
+.found-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  gap: 0.25rem;
 }
-.rater-list li {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  margin: 0.35rem 0;
+.found-list code {
+  font-size: 0.85em;
 }
 .reader-layout {
   display: grid;
