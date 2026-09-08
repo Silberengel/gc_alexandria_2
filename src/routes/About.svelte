@@ -4,12 +4,17 @@
 </script>
 
 <TopBar />
-<main class="shell reading-body">
-  <h1>About</h1>
+<main class="shell reading-body about-page">
+  <header class="about-header">
+    <div class="about-header-text">
+      <h1>About</h1>
+      <p>
+        This is the Library of Alexandria, a GitCitadel project for reading publications and wiki pages from Nostr.
+      </p>
+    </div>
+    <img class="about-logo" src="/gitcitadel-logo.png" alt="" width="72" height="72" />
+  </header>
   <img class="about-hero" src="/screenshots/old_books.jpg" alt="Library of Alexandria" />
-  <p>
-    This is the Library of Alexandria, a GitCitadel project for reading publications and wiki pages from Nostr.
-  </p>
   <ul>
     <li><a href="https://github.com/ShadowySupercode/gitcitadel" target="_blank" rel="noopener">GitHub</a></li>
     <li><a href="https://geyser.fund/project/gitcitadel" target="_blank" rel="noopener">Geyser</a></li>
@@ -25,5 +30,4 @@
     <li>Follow wikilinks inside articles to move between encyclopedia pages.</li>
     <li>Sign in with a Nostr extension when you want to rate, comment, highlight, add lists or bookshelf shelves, bookmark, or contact GitCitadel.</li>
   </ol>
-  <img class="about-logo" src="/gitcitadel-logo.png" alt="GitCitadel" width="200" />
 </main>
