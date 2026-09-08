@@ -309,12 +309,12 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   ] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.LABEL], limit: 100 }),
     mercuryFilter({ kinds: [KIND.LABEL], authors: [curator], limit: 100 }),
-    // Always sample social labels — do not skip when Mercury returned a stale/partial set.
-    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 3500),
+    // Always sample social labels — Mercury currently returns [] for kind 1985.
+    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 2500),
     // GitCitadel shelf membership is curator-authored; pin that author so new labels show up on refresh.
-    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 4000),
-    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 3500),
-    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 3500)
+    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 2500),
+    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 2500),
+    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 2500)
   ]);
   return {
     liveLabels: mergeEvents(
@@ -436,57 +436,79 @@ export async function refreshLanding(
   const viewer = currentViewerPubkey();
   const cacheOk = sameViewer(cached, viewer);
 
-  // Membership REQs run beside feed queries so the GitCitadel shelf is not stuck
-  // behind comments/highlights (and is not skipped when Mercury already has some labels).
-  const [[pubsResult, wikiResult, commHttp, highHttp], membership] = await Promise.all([
-    Promise.allSettled([
-      mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
-      mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
-      mercuryFilters(COMMENT_FILTERS),
-      mercuryFilters(HIGHLIGHT_FILTERS)
-    ]),
-    fetchShelfMembershipEvents()
+  // Membership is social/document WSS — Mercury does not index 1985/10003/30045.
+  // Start it early, but never block the first paint on it (prod looked blank for 30s+).
+  const membershipPromise = fetchShelfMembershipEvents();
+
+  const [pubsResult, wikiResult, commHttp, highHttp] = await Promise.allSettled([
+    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
+    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
+    mercuryFilters(COMMENT_FILTERS),
+    mercuryFilters(HIGHLIGHT_FILTERS)
   ]);
 
-  // Relay social feeds only when Mercury returned nothing — avoids double-stack hammering.
   const mercComments = settled(commHttp, []);
   const mercHighlights = settled(highHttp, []);
-  const [commWs, highWs] = await Promise.allSettled([
+  const publications = preferLive(
+    mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
+    cacheOk ? cached?.publications : undefined
+  );
+
+  // Paint Mercury (and cache) immediately — subjects/chips appear even while shelves load.
+  let comments = newestCommentPerWork(
+    preferLive(mercComments, cacheOk ? cached?.comments : undefined)
+  ).slice(0, LANDING_FEED_LIMIT);
+  let highlights = newestHighlightPerAddress(
+    preferLive(mercHighlights, cacheOk ? cached?.highlights : undefined)
+  ).slice(0, LANDING_FEED_LIMIT);
+
+  onUpdate?.(
+    withSubjects({
+      viewerPubkey: viewer,
+      publications,
+      comments,
+      highlights,
+      referenced: cacheOk ? (cached?.referenced ?? []) : [],
+      shelves: cacheOk ? (cached?.shelves ?? []) : [],
+      labels: cacheOk ? (cached?.labels ?? []) : []
+    })
+  );
+
+  // Relay social feeds only when Mercury returned nothing — run beside membership finish.
+  const [commWs, highWs, membership] = await Promise.all([
     mercComments.length
       ? Promise.resolve([] as Event[])
       : relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
     mercHighlights.length
       ? Promise.resolve([] as Event[])
-      : relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000)
+      : relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
+    membershipPromise
   ]);
 
-  const publications = preferLive(
-    mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
-    cacheOk ? cached?.publications : undefined
-  );
-  const comments = newestCommentPerWork(
+  comments = newestCommentPerWork(
     preferLive(
-      mergeEvents(mercComments, settled(commWs, [])),
+      mergeEvents(mercComments, commWs),
       cacheOk ? cached?.comments : undefined
     )
   ).slice(0, LANDING_FEED_LIMIT);
-  const highlights = newestHighlightPerAddress(
+  highlights = newestHighlightPerAddress(
     preferLive(
-      mergeEvents(mercHighlights, settled(highWs, [])),
+      mergeEvents(mercHighlights, highWs),
       cacheOk ? cached?.highlights : undefined
     )
   ).slice(0, LANDING_FEED_LIMIT);
 
-  const painted = withSubjects({
-    viewerPubkey: viewer,
-    publications,
-    comments,
-    highlights,
-    referenced: cacheOk ? (cached?.referenced ?? []) : [],
-    shelves: cacheOk ? (cached?.shelves ?? []) : [],
-    labels: cacheOk ? (cached?.labels ?? []) : []
-  });
-  onUpdate?.(painted);
+  onUpdate?.(
+    withSubjects({
+      viewerPubkey: viewer,
+      publications,
+      comments,
+      highlights,
+      referenced: cacheOk ? (cached?.referenced ?? []) : [],
+      shelves: cacheOk ? (cached?.shelves ?? []) : [],
+      labels: cacheOk ? (cached?.labels ?? []) : []
+    })
+  );
 
   const [referenced, shelfPack] = await Promise.all([
     resolveReferenced(

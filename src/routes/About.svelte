@@ -5,15 +5,10 @@
 
 <TopBar />
 <main class="shell reading-body about-page">
-  <header class="about-header">
-    <div class="about-header-text">
-      <h1>About</h1>
-      <p>
-        This is the Library of Alexandria, a GitCitadel project for reading publications and wiki pages from Nostr.
-      </p>
-    </div>
-    <img class="about-logo" src="/gitcitadel-logo.png" alt="" width="72" height="72" />
-  </header>
+  <h1>About</h1>
+  <p>
+    This is the Library of Alexandria, a GitCitadel project for reading publications and wiki pages from Nostr.
+  </p>
   <img class="about-hero" src="/screenshots/old_books.jpg" alt="Library of Alexandria" />
   <ul>
     <li><a href="https://github.com/ShadowySupercode/gitcitadel" target="_blank" rel="noopener">GitHub</a></li>

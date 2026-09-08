@@ -96,36 +96,6 @@ a:hover { text-decoration: underline; }
   border-radius: 0.5rem;
   margin: 0.75rem 0 1rem;
 }
-.about-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.25rem;
-}
-.about-header-text {
-  min-width: 0;
-  flex: 1;
-}
-.about-header-text h1 {
-  margin-top: 0;
-}
-.about-header-text p {
-  margin-bottom: 0;
-}
-.about-logo {
-  display: block;
-  width: 4.5rem;
-  height: 4.5rem;
-  object-fit: contain;
-  flex-shrink: 0;
-  opacity: 0.35;
-  border-radius: 0.5rem;
-  margin: 0.15rem 0 0;
-}
-.about-page .about-logo:hover {
-  opacity: 0.55;
-}
 
 .btn {
   font: inherit;

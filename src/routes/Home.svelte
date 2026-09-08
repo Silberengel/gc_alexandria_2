@@ -55,14 +55,18 @@
 
   async function loadLanding(): Promise<void> {
     const gen = ++loadGen;
-    const cached = await loadCachedLanding();
-    if (gen !== loadGen) return;
-    if (cached) apply(cached);
-    const live = await refreshLanding(cached, (view) => {
-      if (gen === loadGen) apply(view);
-    });
-    if (gen !== loadGen) return;
-    apply(live);
+    try {
+      const cached = await loadCachedLanding();
+      if (gen !== loadGen) return;
+      if (cached) apply(cached);
+      const live = await refreshLanding(cached, (view) => {
+        if (gen === loadGen) apply(view);
+      });
+      if (gen !== loadGen) return;
+      apply(live);
+    } catch {
+      /* network/cache failures must not leave home stuck blank forever */
+    }
   }
 
   onMount(() => {
