@@ -37,7 +37,7 @@ Feature: Profile page
     When I open /p/ for that pubkey
     Then the produced list includes the signed and p-tagged events
     And nested 30040 subindexes are omitted when they also have a top-level 30040
-    And the interacted-with list shows those publications and wikis marked labeled, bookmarked, highlighted, or commented-on, and publications marked rated
+    And the interacted-with list shows those publications and wikis marked labeled, shelved, bookmarked, highlighted, or commented-on, and publications marked rated
     And a section or subindex interaction is shown as the parent publication when known
     And a work can appear in both lists
     And this is not a literary author-name catalog

@@ -8,7 +8,7 @@ Feature: Identity
     When I use the site without signing in
     Then I can search, open editions, read, and read wiki pages
     And I am asked to sign in when an action needs a signer
-    And those actions include rate, comment, highlight, booklist, bookmark, and contact publish
+    And those actions include rate, comment, highlight, booklist and other list labels, bookshelf, bookmark, and contact publish
 
   Scenario: Sign in without pasting an nsec
     Given a NIP-07 extension or a NIP-46 remote signer is available

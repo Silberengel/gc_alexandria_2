@@ -11,10 +11,13 @@ Feature: Highlights
     And I see the same highlights marked in the section body once I read
     And I do not need an account to see public highlights
     And a 9802 that only has an i-tag source is not treated as a highlight of this edition
+    And highlights are queried for the edition and its section a-tags, not only the edition address
 
   Scenario: Signed-in reader creates a highlight
     Given I am signed in
     When I select text in a section and save a highlight
     Then it is stored as a kind 9802 NIP-84 highlight whose a-tag is that section's kind:pubkey:d-tag
+    And it also carries e, p, and k tags for that section
+    And it may carry a context tag with surrounding text
     And it is not stored with an i-tag as the publication source
     And it appears in the highlight list after reload

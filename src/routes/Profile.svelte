@@ -16,9 +16,16 @@
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
-  import { publicationTargets, isBooklistEvent } from '$lib/nip32';
+  import { publicationTargets, isPublicationLabelEvent } from '$lib/nip32';
+  import { publicationTargetsFromDirectory } from '$lib/bookshelf';
   import { referencedLibraryAddress, parseAddress } from '$lib/library-scope';
   import { topLevelPublicationAddress } from '$lib/landing';
+  import {
+    interactionMarksFromEvents,
+    marksForPublication,
+    INTERACTION_MARK_LABELS,
+    type InteractionMark
+  } from '$lib/interaction-marks';
   import { nip19, type Event } from 'nostr-tools';
   import { isAllowedHref } from '$lib/markup';
 
@@ -32,6 +39,7 @@
   let profile = $state<Event | null>(null);
   let produced = $state<Event[]>([]);
   let interacted = $state<Event[]>([]);
+  let marksByWork = $state<Map<string, InteractionMark[]>>(new Map());
   let status = $state<Event | null>(null);
   let payments = $state<ReturnType<typeof paymentRows>>([]);
   let pageFilter = $state('');
@@ -65,17 +73,19 @@
     const coords = new Set<string>();
     const ids = new Set<string>();
     for (const event of events) {
-      if (event.kind === KIND.LABEL && !isBooklistEvent(event) && !event.tags.some((t) => t[0] === 'l')) {
-        /* still a label */
-      }
       if (event.kind === KIND.LABEL || event.kind === KIND.BOOKMARK) {
         const t = publicationTargets(event);
         for (const a of t.addresses) coords.add(a);
         for (const id of t.eventIds) ids.add(id);
       }
+      if (event.kind === KIND.DIRECTORY) {
+        const t = publicationTargetsFromDirectory(event);
+        for (const a of t.addresses) coords.add(a);
+        for (const id of t.eventIds) ids.add(id);
+      }
       const lib = referencedLibraryAddress(event);
       if (lib) coords.add(lib);
-      const a = firstTag(event, 'a');
+      const a = firstTag(event, 'a') ?? firstTag(event, 'A');
       if (a) coords.add(a);
     }
     const fetched = await Promise.all([...coords].slice(0, 40).map((c) => fetchByAddress(c)));
@@ -126,20 +136,22 @@
       '#p': [pubkey],
       limit: 40
     };
-    const [p, authored, credited, statusEv, payEv, labels, bookmarks, highs, comms, rates] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
-      relayPool.query(documentStack(), [authoredFilter]),
-      mercuryFilter(creditedFilter).then(async (m) =>
-        m.length ? m : relayPool.query(documentStack(), [creditedFilter])
-      ),
-      relayPool.query(socialStack(), [{ kinds: [KIND.STATUS], authors: [pubkey], limit: 10 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [pubkey], limit: 50 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [pubkey], limit: 5 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [pubkey], limit: 40 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }])
-    ]);
+    const [p, authored, credited, statusEv, payEv, labels, bookmarks, dirs, highs, comms, rates] =
+      await Promise.all([
+        relayPool.query(socialStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
+        relayPool.query(documentStack(), [authoredFilter]),
+        mercuryFilter(creditedFilter).then(async (m) =>
+          m.length ? m : relayPool.query(documentStack(), [creditedFilter])
+        ),
+        relayPool.query(socialStack(), [{ kinds: [KIND.STATUS], authors: [pubkey], limit: 10 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [pubkey], limit: 50 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [pubkey], limit: 5 }]),
+        relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [pubkey], limit: 40 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [pubkey], limit: 40 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
+        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }])
+      ]);
     profile = p[0] ?? null;
     const parsed = parseKind0(profile);
     extraJson = parsed.extra;
@@ -148,7 +160,22 @@
     const byId = new Map<string, Event>();
     for (const e of [...authored, ...credited]) byId.set(e.id, e);
     produced = omitNested([...byId.values()]);
-    interacted = await resolveInteracted([...labels, ...bookmarks, ...highs, ...comms, ...rates]);
+    const interactionEvents = [
+      ...labels.filter(isPublicationLabelEvent),
+      ...bookmarks,
+      ...dirs,
+      ...highs,
+      ...comms,
+      ...rates
+    ];
+    const works = await resolveInteracted(interactionEvents);
+    interacted = works;
+    const markMap = interactionMarksFromEvents(interactionEvents);
+    const byWork = new Map<string, InteractionMark[]>();
+    for (const work of works) {
+      byWork.set(work.id, marksForPublication(markMap, work));
+    }
+    marksByWork = byWork;
   });
 </script>
 
@@ -208,7 +235,17 @@
     <h2 class="section-title">Interacted with</h2>
     <div class="card-grid card-grid-results">
       {#each pagedInteracted as event (event.id)}
-        <EventCard {event} />
+        <div class="interacted-card">
+          <EventCard {event} />
+          {#if marksByWork.get(event.id)?.length}
+            <p class="interaction-marks muted">
+              {#each marksByWork.get(event.id) ?? [] as mark, i}
+                {#if i > 0}<span>·</span>{/if}
+                <span>{INTERACTION_MARK_LABELS[mark]}</span>
+              {/each}
+            </p>
+          {/if}
+        </div>
       {/each}
     </div>
     <Pager page={interactedPage} total={visibleInteracted.length} {pageSize} onPage={(p) => (interactedPage = p)} />

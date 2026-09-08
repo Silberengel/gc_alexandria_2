@@ -1,15 +1,20 @@
 @mvp
 Feature: Landing bookshelves
   As a visitor
-  I want horizontal cover shelves of booklisted and bookmarked publications
+  I want horizontal cover shelves of labeled, bookmarked, and shelved publications
   So that home feels like a library of people
 
   Background:
-    Given booklisted means a kind 1985 NIP-32 label with l=booklist (namespace ugc) targeting a publication
+    Given shelf membership includes a kind 1985 NIP-32 label with any l value targeting a publication
+    And that includes l=booklist (namespace ugc) and custom or home-genre labels such as adventure
     And bookmarked means a kind 10003 NIP-51 a-tag or e-tag targeting a publication
-    And both count as shelf membership
+    And shelved means a kind 30045 directory a-tag or e-tag targeting a publication
+    And all of those count as shelf membership for the priority rows
     And the GitCitadel curator is npub18cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqeyaztw
     And shelf order after dedup is mine, then follows, then GitCitadel, then the rest of the social read stack
+    And signed-in nested 30045 folders (not my-book-collection) appear as extra horizontal rows after those
+    And 1985 and 10003 membership uses the social/interaction stack
+    And 30045 membership uses the document/search stack
     And each shelf is a horizontal row of covers or cover placeholders, not metadata cards
     And each shelf has its own horizontal shelf-bar and scrolls by itself
     And covers use the publication's image tag when present, else a cover placeholder
@@ -63,14 +68,14 @@ Feature: Landing bookshelves
     When I open the home page
     Then Old appears before New on that shelf
 
-  Scenario: Signed-in user can add and remove a booklist label
+  Scenario: Signed-in user can add and remove list labels
     Given I am signed in
-    When I add a work to my booklist from an edition page
-    Then a kind 1985 booklist label is published targeting that publication
+    When I add a work to my booklist or a home-genre or custom list from an edition page
+    Then a kind 1985 ugc label is published targeting that publication
     And it appears on my home shelf after reload
     When I remove it
     Then that 1985 is deleted or no longer targets that publication
-    And my other booklist labels are left intact
+    And my other labels are left intact
     And it no longer appears on my shelf for that reason
 
   Scenario: Signed-in user can add and remove one bookmark

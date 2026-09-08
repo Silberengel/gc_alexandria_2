@@ -16,7 +16,7 @@ Feature: In-browser reader
     And those lists are kind 34259 ratings for this edition's a-tag, kind 1111 threads, and kind 9802 highlights
     And I do not see section bodies
     And I see a "Read the publication" button
-    And when I am signed in I can add or remove a booklist label and a bookmark for this edition
+    And when I am signed in I can add or remove list labels, bookshelf membership, and a bookmark for this edition
     When the header and social lists have fetched
     Then the site starts /meta, /toc, then /stream in the background
     And it does not walk a-tags while that tree exists

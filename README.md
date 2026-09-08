@@ -50,6 +50,7 @@ flowchart LR
 | [`layout/top_bar.feature`](features/layout/top_bar.feature) | Top bar, global Nostr search on `/`, in-page filter |
 | [`layout/mobile_first.feature`](features/layout/mobile_first.feature) | One layout that grows |
 | [`catalog/landing_shelves.feature`](features/catalog/landing_shelves.feature) | Cover shelves, image tags, placeholders, book-icon badge |
+| [`catalog/bookshelf.feature`](features/catalog/bookshelf.feature) | Nested 30045 bookshelves, Android-safe tags |
 | [`catalog/landing_highlights.feature`](features/catalog/landing_highlights.feature) | Newest 10 library 9802s; section titles; publisher and highlighter badges |
 | [`catalog/landing_discussing.feature`](features/catalog/landing_discussing.feature) | Newest 10 library comments per work; section titles |
 | [`catalog/landing_subjects.feature`](features/catalog/landing_subjects.feature) | t-tag buttons |

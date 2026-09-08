@@ -88,6 +88,12 @@ Feature: Search
     And I do not query Mercury language or publication #l as if it were an ISO language
     And I do not also run full-text or the other tag fans
 
+  Scenario: A nested bookshelf search is explicit
+    When I open /search?bookshelf={d}
+    Then the lookup is kind 30045 with that d-tag on the document stack
+    And targeted publications appear as result cards
+    And I do not also run full-text or the other tag fans
+
   Scenario: Publication and wiki lookups
     When I open a /publication/ or /wiki/ route
     Then the lookup uses cache, Mercury, and the matching stack

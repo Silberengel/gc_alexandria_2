@@ -23,7 +23,7 @@
     <li>Open a publication to see ratings, comments, and highlights before reading.</li>
     <li>Press <strong>Read the publication</strong> when you are ready for the text.</li>
     <li>Follow wikilinks inside articles to move between encyclopedia pages.</li>
-    <li>Sign in with a Nostr extension when you want to rate, comment, highlight, bookmark, or contact GitCitadel.</li>
+    <li>Sign in with a Nostr extension when you want to rate, comment, highlight, add lists or bookshelf shelves, bookmark, or contact GitCitadel.</li>
   </ol>
   <img class="about-logo" src="/gitcitadel-logo.png" alt="GitCitadel" width="200" />
 </main>

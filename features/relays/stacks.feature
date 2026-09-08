@@ -25,8 +25,9 @@ Feature: Centralized relay selection
     And NIP-42 is not attempted
     When I open a wiki or spec page
     Then reads add wss://relay.wikifreedia.xyz
-    When I load comments, highlights, ratings, booklists, landing labels, or What we are discussing
-    Then reads go to the social/interaction defaults
+    When I load comments, highlights, ratings, booklists, bookshelves, landing labels, or What we are discussing
+    Then comments, highlights, ratings, booklists, and landing labels go to the social/interaction defaults
+    And kind 30045 bookshelf directories go to the document/search defaults
     And they do not use the Citadel or Mercury WebSockets as the primary social store
     When the landing highlight list loads
     Then it unions the document/search and social/interaction stacks
@@ -45,7 +46,7 @@ Feature: Centralized relay selection
     When I read
     Then inbox, my own 10002 outboxes, favorite, and local relays are added to the matching stack
     And kind 10006 blocked relays are omitted
-    When I publish a comment, rating, highlight, booklist label, bookmark, or bug report
+    When I publish a comment, rating, highlight, booklist or other list label, bookshelf directory, bookmark, or bug report
     Then writes go to my 10002 outboxes, 10012 favorites, and reachable 10432
     And writes are not sent to wss://aggr.nostr.land or wss://mercury-relay.imwald.eu
 

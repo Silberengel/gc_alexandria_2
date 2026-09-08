@@ -30,7 +30,7 @@ Feature: Client event cache
     And if live API and relays return nothing the snapshot stays on screen
 
   Scenario: Local publishes are written to cache
-    When I publish a comment, rating, highlight, booklist label, bookmark, or bug report
+    When I publish a comment, rating, highlight, booklist or other list label, bookshelf directory, bookmark, or bug report
     Then the signed event is written to the client cache as it is sent to write relays
     And I can read that event from cache while relays are unreachable or I am offline
 
