@@ -200,6 +200,11 @@ export function nestedShelvesForViewer(
   return out;
 }
 
+/** Mine, follows, and nested 30045 folder rows — must not carry across identities. */
+export function isViewerBoundShelfId(id: string): boolean {
+  return id === 'mine' || id === 'follows' || id.startsWith('folder:');
+}
+
 export function bookmarkHasPublication(bookmark: Event | null, publication: Event): boolean {
   if (!bookmark) return false;
   const { addresses, eventIds } = publicationTargets(bookmark);

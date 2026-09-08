@@ -10,6 +10,7 @@ Feature: Nostr stays in the background
     When I browse and search
     Then I still see canonical results
     And I do not see REQ, EOSE, kind, or relay in primary UI copy
+    And a dead Mercury, DNS failure, or any single relay timeout never crashes or blanks the client
 
   Scenario: Protocol details are opt-in
     When I open an edition page

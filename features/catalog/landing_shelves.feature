@@ -47,7 +47,8 @@ Feature: Landing bookshelves
     Then shelves reload for Bob
     And Alice's My shelf does not linger while Bob's landing loads
     And sign-in does not fire overlapping full landing refreshes that rate-limit relays
-    And My shelf is built from Bob's login metadata rather than rescanning every social relay for all bookmarks
+    And My shelf is built from Bob's login metadata rather than rescanning every social relay for all of Bob's bookmarks
+    And follows, GitCitadel, and network shelves still sample others' 1985, 10003, and 30045 membership from the social and document stacks
 
   Scenario: Signed-in shelves follow the priority order
     Given I am signed in with a kind 3 follow list or kind 30000 follow sets
@@ -61,6 +62,7 @@ Feature: Landing bookshelves
     And B appears only on the follows shelf
     And C appears only on the GitCitadel shelf
     And D can appear on the remaining shelf
+    And a refresh always re-queries the curator pubkey's kind 1985 labels on the social stack so new GitCitadel labels appear without waiting on a stale Mercury sample
 
   Scenario: Follows shelf uses follow list and follow sets
     Given I am signed in

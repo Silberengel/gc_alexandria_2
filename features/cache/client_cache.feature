@@ -61,6 +61,7 @@ Feature: Client event cache
 
   Scenario: Sign-in metadata is one batch
     When I complete sign-in
-    Then one authors=me filter loads kinds 0, 3, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1985, 30000, and 30315
+    Then one authors=me filter loads kinds 3, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1985, 30000, and 30315 from Mercury and the document stack
+    And kind 0 is loaded separately from the profile relay stack, not Mercury
     And every valid event from that batch is written to the client cache
     And mute, relay lists, bookmarks, labels, payments, follow lists, and follow sets are not fetched one list at a time

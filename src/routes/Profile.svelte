@@ -7,7 +7,7 @@
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
   import { relayPool } from '$lib/nostr/pool';
-  import { documentStack, socialStack } from '$lib/nostr/selector';
+  import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { hexPubkey } from '$lib/search';
@@ -138,7 +138,7 @@
     };
     const [p, authored, credited, statusEv, payEv, labels, bookmarks, dirs, highs, comms, rates] =
       await Promise.all([
-        relayPool.query(socialStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
+        relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
         relayPool.query(documentStack(), [authoredFilter]),
         mercuryFilter(creditedFilter).then(async (m) =>
           m.length ? m : relayPool.query(documentStack(), [creditedFilter])

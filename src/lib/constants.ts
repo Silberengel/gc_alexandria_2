@@ -21,6 +21,13 @@ export const WIKI_RELAYS = ['wss://relay.wikifreedia.xyz'] as const;
 
 export const SOCIAL_RELAYS = ['wss://theforest.nostr1.com', ...THIRD_PARTY_RELAYS] as const;
 
+/** Kind-0 / profile mirrors — same set as jumble `PROFILE_RELAY_URLS` (not Mercury). */
+export const PROFILE_RELAYS = [
+  'wss://profiles.nostr1.com',
+  'wss://indexer.coracle.social',
+  'wss://thecitadel.nostr1.com'
+] as const;
+
 export const AGGR_RELAY = 'wss://aggr.nostr.land';
 
 export const GITCITADEL_NPUB =
@@ -115,4 +122,4 @@ export const CACHE_KINDS = [
   KIND.RATING
 ];
 
-export type StackKind = 'document' | 'wiki' | 'social' | 'highlight';
+export type StackKind = 'document' | 'wiki' | 'social' | 'highlight' | 'profile';

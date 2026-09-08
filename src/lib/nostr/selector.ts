@@ -3,6 +3,7 @@ import {
   DOCUMENT_SEARCH_RELAYS,
   MERCURY_HTTP,
   MERCURY_WSS,
+  PROFILE_RELAYS,
   SOCIAL_RELAYS,
   THIRD_PARTY_RELAYS,
   WIKI_RELAYS,
@@ -93,6 +94,18 @@ export function socialStack(): string[] {
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
+/**
+ * Kind-0 profile hydration — jumble-style profile mirrors plus the signed-in viewer's own relays.
+ * Mercury is document-only and is never included.
+ */
+export function profileStack(): string[] {
+  let relays: string[] = [...PROFILE_RELAYS];
+  if (ctx.signedIn) {
+    relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
+  }
+  return withoutBlocked(stackUrls(relays));
+}
+
 /** Highlight list unions document + social */
 export function highlightStack(): string[] {
   return withoutBlocked(stackUrls([...documentStack(), ...socialStack()]));
@@ -115,6 +128,8 @@ export function stackFor(kind: StackKind): string[] {
       return socialStack();
     case 'highlight':
       return highlightStack();
+    case 'profile':
+      return profileStack();
   }
 }
 

@@ -1,5 +1,6 @@
 import type { Event, Filter } from 'nostr-tools';
 import { KIND } from './constants';
+import { GITCITADEL_CURATOR_HEX } from './hex';
 import { humanizeTag } from './cover-fallback';
 import { landingLabels } from './labels';
 import {
@@ -26,7 +27,7 @@ import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
-import { assignShelves, membershipsFromEvents, nestedShelvesForViewer, type Membership, type Shelf } from './shelves';
+import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -287,25 +288,56 @@ async function resolveShelfPublications(memberships: Membership[], known: Event[
   return byAddr;
 }
 
+type ShelfMembershipPack = {
+  liveLabels: Event[];
+  liveBookmarks: Event[];
+  liveDirs: Event[];
+};
+
+/** Labels/bookmarks/directories for landing shelves — started in parallel with feed queries. */
+async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
+  const social = socialStack();
+  const document = documentStack();
+  const curator = GITCITADEL_CURATOR_HEX;
+  const [
+    mercLabels,
+    mercCuratorLabels,
+    socialLabels,
+    socialCuratorLabels,
+    bookmarkWs,
+    dirWs
+  ] = await Promise.allSettled([
+    mercuryFilter({ kinds: [KIND.LABEL], limit: 100 }),
+    mercuryFilter({ kinds: [KIND.LABEL], authors: [curator], limit: 100 }),
+    // Always sample social labels — do not skip when Mercury returned a stale/partial set.
+    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 3500),
+    // GitCitadel shelf membership is curator-authored; pin that author so new labels show up on refresh.
+    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 4000),
+    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 3500),
+    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 3500)
+  ]);
+  return {
+    liveLabels: mergeEvents(
+      settled(mercLabels, []),
+      settled(mercCuratorLabels, []),
+      settled(socialLabels, []),
+      settled(socialCuratorLabels, [])
+    ),
+    liveBookmarks: settled(bookmarkWs, []),
+    liveDirs: settled(dirWs, [])
+  };
+}
+
 async function loadShelvesAndLabels(
   knownPubs: Event[],
-  cached?: LandingView | null
+  cached?: LandingView | null,
+  membership?: ShelfMembershipPack
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
-  // Viewer's lists already arrived with sign-in metadata — do not re-REQ them
-  // across every inbox/outbox/favorite relay (that rate-limits pipe.imwald.eu etc.).
   const mine = session.getMetadata();
-  let liveLabels: Event[] = [];
-  try {
-    liveLabels = await mercuryFilter({ kinds: [KIND.LABEL], limit: 100 });
-  } catch {
-    liveLabels = [];
-  }
-  if (!liveLabels.length) {
-    // One modest social pass — not parallel label+bookmark+directory stack scans.
-    liveLabels = await relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], limit: 80 }], 3500);
-  }
+  const pack = membership ?? (await fetchShelfMembershipEvents());
+  const { liveLabels, liveBookmarks, liveDirs } = pack;
   const mineDirs = mine.filter((e) => e.kind === KIND.DIRECTORY);
-  const combined = mergeEvents(liveLabels, mine);
+  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mine);
   const memberships = membershipsFromEvents(combined);
   const publications = await resolveShelfPublications(memberships, [
     ...knownPubs,
@@ -315,7 +347,9 @@ async function loadShelvesAndLabels(
   const follows = followPubkeysFromMetadata(mine);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
-    viewer != null ? nestedShelvesForViewer(mineDirs, publications, viewer) : [];
+    viewer != null
+      ? nestedShelvesForViewer(mergeEvents(liveDirs, mineDirs), publications, viewer)
+      : [];
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
   let viewerNpub = '';
   if (viewer) {
@@ -350,8 +384,8 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
       ? {
           ...snap,
           viewerPubkey: viewer,
-          // Never reuse another identity's mine/follows shelves.
-          shelves: (snap.shelves ?? []).filter((s) => s.id !== 'mine' && s.id !== 'follows' && !s.id.startsWith('nested:'))
+          // Never reuse another identity's mine/follows/folder shelves.
+          shelves: (snap.shelves ?? []).filter((s) => !isViewerBoundShelfId(s.id))
         }
       : null;
 
@@ -402,11 +436,16 @@ export async function refreshLanding(
   const viewer = currentViewerPubkey();
   const cacheOk = sameViewer(cached, viewer);
 
-  const [pubsResult, wikiResult, commHttp, highHttp] = await Promise.allSettled([
-    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
-    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
-    mercuryFilters(COMMENT_FILTERS),
-    mercuryFilters(HIGHLIGHT_FILTERS)
+  // Membership REQs run beside feed queries so the GitCitadel shelf is not stuck
+  // behind comments/highlights (and is not skipped when Mercury already has some labels).
+  const [[pubsResult, wikiResult, commHttp, highHttp], membership] = await Promise.all([
+    Promise.allSettled([
+      mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
+      mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
+      mercuryFilters(COMMENT_FILTERS),
+      mercuryFilters(HIGHLIGHT_FILTERS)
+    ]),
+    fetchShelfMembershipEvents()
   ]);
 
   // Relay social feeds only when Mercury returned nothing — avoids double-stack hammering.
@@ -454,7 +493,7 @@ export async function refreshLanding(
       [...highlights, ...comments],
       [...publications, ...(cacheOk ? (cached?.referenced ?? []) : [])]
     ),
-    loadShelvesAndLabels(publications, cacheOk ? cached : null)
+    loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
   ]);
 
   // Always take the shelf pack for this viewer — never fall back to another identity's "My shelf".

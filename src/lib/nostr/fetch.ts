@@ -22,7 +22,11 @@ export async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => 
   async function worker(): Promise<void> {
     while (next < items.length) {
       const i = next++;
-      out[i] = await fn(items[i]!);
+      try {
+        out[i] = await fn(items[i]!);
+      } catch {
+        /* one item failed — leave hole; callers filter */
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) || 0 }, () => worker()));
@@ -35,45 +39,60 @@ function stackForKind(kind: number): string[] {
 }
 
 export async function fetchByAddress(coord: string): Promise<Event | null> {
-  const parsed = parseAddress(coord);
-  if (!parsed) return null;
-  const warm = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
-  const cached = warm ?? (await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d));
-  // Shelf resolution and navigation already have the event — do not REQ every address again.
-  if (cached) return cached;
-
-  const dValues = dTagVariants(parsed.d);
-  const slug = normalizeDTag(parsed.d);
-  if (slug && !dValues.includes(slug)) dValues.unshift(slug);
-  const filter: Filter = {
-    kinds: [parsed.kind],
-    authors: [parsed.pubkey],
-    '#d': dValues.slice(0, 12),
-    limit: 1
-  };
+  let cached: Event | null = null;
   try {
+    const parsed = parseAddress(coord);
+    if (!parsed) return null;
+    cached = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+    if (!cached) {
+      try {
+        cached = await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+      } catch {
+        cached = null;
+      }
+    }
+    // Shelf resolution and navigation already have the event — do not REQ every address again.
+    if (cached) return cached;
+
+    const dValues = dTagVariants(parsed.d);
+    const slug = normalizeDTag(parsed.d);
+    if (slug && !dValues.includes(slug)) dValues.unshift(slug);
+    const filter: Filter = {
+      kinds: [parsed.kind],
+      authors: [parsed.pubkey],
+      '#d': dValues.slice(0, 12),
+      limit: 1
+    };
     const mercury = await mercuryFilter(filter);
     if (mercury[0]) return mercury[0];
     const ws = await relayPool.query(stackForKind(parsed.kind), [filter]);
-    return ws[0] ?? null;
+    return ws[0] ?? cached;
   } catch {
-    return null;
+    return cached;
   }
 }
 
 export async function fetchById(id: string): Promise<Event | null> {
-  if (!/^[0-9a-f]{64}$/i.test(id)) return null;
-  const cached = memoryGetEvent(id) ?? (await cacheGetEvent(id));
-  if (cached) return cached;
-
-  const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
+  let cached: Event | null = null;
   try {
+    if (!/^[0-9a-f]{64}$/i.test(id)) return null;
+    cached = memoryGetEvent(id);
+    if (!cached) {
+      try {
+        cached = await cacheGetEvent(id);
+      } catch {
+        cached = null;
+      }
+    }
+    if (cached) return cached;
+
+    const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
     const mercury = await mercuryFilter(filter);
     if (mercury[0]) return mercury[0];
     const ws = await relayPool.query(documentStack(), [filter]);
-    return ws[0] ?? null;
+    return ws[0] ?? cached;
   } catch {
-    return null;
+    return cached;
   }
 }
 

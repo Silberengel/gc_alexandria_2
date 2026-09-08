@@ -8,6 +8,7 @@
   import { session } from '$lib/stores/session';
   import { muteState, filterMuted } from '$lib/mute';
   import { rememberEvents } from '$lib/nostr/event-memory';
+  import { isViewerBoundShelfId } from '$lib/shelves';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import type { LandingShelfSnap } from '$lib/nostr/cache';
@@ -47,9 +48,7 @@
 
   /** Drop only identity-bound rows; keep GitCitadel/network while the next load runs. */
   function clearIdentityShelves(): void {
-    shelves = shelves.filter(
-      (s) => s.id !== 'mine' && s.id !== 'follows' && !s.id.startsWith('nested:')
-    );
+    shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
   }
 
   async function loadLanding(): Promise<void> {

@@ -1,9 +1,8 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
   import { nip19, type Event } from 'nostr-tools';
-  import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
-  import { socialStack } from '$lib/nostr/selector';
+  import { profileStack } from '$lib/nostr/selector';
   import { firstTag } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { muteState, isMutedAuthor } from '$lib/mute';
@@ -50,17 +49,13 @@
     }
     let cancelled = false;
     void (async () => {
-      const mercury = await mercuryFilter({ kinds: [0], authors: [pk], limit: 1 });
-      let meta = mercury[0] ?? null;
-      if (!meta) {
-        // One quiet relay pass — not the full signed-in social mega-stack.
-        const fetched = await relayPool.query(
-          socialStack().slice(0, 2),
-          [{ kinds: [0], authors: [pk], limit: 1 }],
-          3000
-        );
-        meta = fetched[0] ?? null;
-      }
+      // Mercury is document-only — kind 0 lives on profile mirrors (jumble PROFILE_RELAY_URLS).
+      const fetched = await relayPool.query(
+        profileStack(),
+        [{ kinds: [0], authors: [pk], limit: 1 }],
+        4000
+      );
+      const meta = fetched[0] ?? null;
       if (cancelled || !meta) {
         if (!cancelled && !name) name = (npub || pk).slice(0, 12) + '…';
         return;

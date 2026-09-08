@@ -26,7 +26,7 @@ import {
 } from './ratings';
 import { publicationLabelDraft, highlightDraft, ratingDraft } from './drafts';
 import { slugifyPublicationLabel, HOME_SHELF_SLUGS } from './publication-lists';
-import { membershipsFromEvents, nestedShelvesForViewer } from './shelves';
+import { membershipsFromEvents, nestedShelvesForViewer, isViewerBoundShelfId } from './shelves';
 import { isPublicationLabelEvent } from './nip32';
 import {
   interactionMarksFromEvents,
@@ -240,8 +240,11 @@ describe('bookshelf 30045', () => {
     const pubs = new Map([[`30040:${pk}:mansfield-park`, pub]]);
     const shelves = nestedShelvesForViewer([nested], pubs, pk);
     expect(shelves).toHaveLength(1);
+    expect(shelves[0]?.id).toBe('folder:adventure');
     expect(shelves[0]?.d).toBe('adventure');
     expect(shelves[0]?.events[0]?.id).toBe(pub.id);
+    expect(isViewerBoundShelfId('folder:adventure')).toBe(true);
+    expect(isViewerBoundShelfId('nested:adventure')).toBe(false);
   });
 });
 

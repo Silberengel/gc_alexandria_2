@@ -1,7 +1,9 @@
 import { type Event, type Filter } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
+import { MERCURY_WSS } from '../constants';
 import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
+import { isMercuryUnavailable } from './mercury';
 import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
 import { ingestEvent } from './verify';
 
@@ -9,6 +11,17 @@ type SubCallback = {
   onEvent: (event: Event, relay: string) => void;
   onEose?: (relay: string) => void;
 };
+
+function usableRelays(urls: string[], max: number): string[] {
+  const mercury = MERCURY_WSS.replace(/\/+$/, '').toLowerCase();
+  return webSocketRelays(urls)
+    .filter((url) => {
+      // Mercury HTTP outage usually means its WSS is unreachable too — skip instead of hanging DNS.
+      if (isMercuryUnavailable() && url.replace(/\/+$/, '').toLowerCase() === mercury) return false;
+      return true;
+    })
+    .slice(0, max);
+}
 
 class RelayPool {
   private pool = new SimplePool();
@@ -36,78 +49,119 @@ class RelayPool {
     }
   }
 
+  /** Never throws — dead relays return []. */
   async query(relays: string[], filters: Filter[], timeoutMs = 8000): Promise<Event[]> {
-    // Tor/I2P already dropped in webSocketRelays(); still cap fan-out.
-    const wssRelays = webSocketRelays(relays).slice(0, RelayPool.MAX_RELAYS_PER_QUERY);
-    const cleanFilters = normalizeRelayFilters(filters);
-    if (!wssRelays.length || !cleanFilters.length) return [];
+    try {
+      const wssRelays = usableRelays(relays, RelayPool.MAX_RELAYS_PER_QUERY);
+      const cleanFilters = normalizeRelayFilters(filters);
+      if (!wssRelays.length || !cleanFilters.length) return [];
 
-    return this.withQuerySlot(async () => {
-      const byId = new Map<string, Event>();
-      // Cap concurrent REQs — relays (e.g. sovbit) reject "too many concurrent REQs".
-      const concurrency = 1;
-      const pool = this.pool;
-      let next = 0;
-      async function worker(): Promise<void> {
-        while (next < wssRelays.length) {
-          const i = next++;
-          const url = wssRelays[i]!;
-          for (const filter of cleanFilters) {
-            try {
-              const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
-              for (const event of batch) {
-                const v = ingestEvent(event);
-                if (!v) continue;
-                noteEventSource(v.id, url);
-                if (!byId.has(v.id)) byId.set(v.id, v);
+      return await this.withQuerySlot(async () => {
+        const byId = new Map<string, Event>();
+        const concurrency = 1;
+        const pool = this.pool;
+        let next = 0;
+        async function worker(): Promise<void> {
+          while (next < wssRelays.length) {
+            const i = next++;
+            const url = wssRelays[i]!;
+            for (const filter of cleanFilters) {
+              try {
+                const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
+                for (const event of batch) {
+                  const v = ingestEvent(event);
+                  if (!v) continue;
+                  noteEventSource(v.id, url);
+                  if (!byId.has(v.id)) byId.set(v.id, v);
+                }
+              } catch {
+                /* one relay failed — continue */
               }
-            } catch {
-              /* relay timeout / NOTICE — keep other relays */
             }
           }
         }
-      }
-      await Promise.all(Array.from({ length: Math.min(concurrency, wssRelays.length) }, () => worker()));
-      const events = [...byId.values()];
-      await cachePutMany(events);
-      return events;
-    });
+        await Promise.all(Array.from({ length: Math.min(concurrency, wssRelays.length) }, () => worker()));
+        const events = [...byId.values()];
+        try {
+          await cachePutMany(events);
+        } catch {
+          /* cache write must not fail the read path */
+        }
+        return events;
+      });
+    } catch {
+      return [];
+    }
   }
 
+  /** Never throws — returns a no-op closer if subscribe cannot start. */
   subscribe(relays: string[], filters: Filter[], cb: SubCallback): () => void {
-    const wssRelays = webSocketRelays(relays).slice(0, RelayPool.MAX_RELAYS_PER_QUERY);
-    const cleanFilters = normalizeRelayFilters(filters);
-    if (!wssRelays.length || !cleanFilters.length) return () => {};
+    try {
+      const wssRelays = usableRelays(relays, RelayPool.MAX_RELAYS_PER_QUERY);
+      const cleanFilters = normalizeRelayFilters(filters);
+      if (!wssRelays.length || !cleanFilters.length) return () => {};
 
-    const closers = wssRelays.flatMap((url) =>
-      cleanFilters.map((filter) =>
-        this.pool.subscribe([url], filter, {
-          onevent: (event) => {
-            const v = ingestEvent(event);
-            if (v) {
-              noteEventSource(v.id, url);
-              void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v));
-              cb.onEvent(v, url);
-            }
-          },
-          oneose: () => cb.onEose?.(url)
+      const closers = wssRelays.flatMap((url) =>
+        cleanFilters.map((filter) => {
+          try {
+            return this.pool.subscribe([url], filter, {
+              onevent: (event) => {
+                try {
+                  const v = ingestEvent(event);
+                  if (v) {
+                    noteEventSource(v.id, url);
+                    void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v)).catch(() => {});
+                    cb.onEvent(v, url);
+                  }
+                } catch {
+                  /* bad event — ignore */
+                }
+              },
+              oneose: () => {
+                try {
+                  cb.onEose?.(url);
+                } catch {
+                  /* ignore */
+                }
+              }
+            });
+          } catch {
+            return { close: () => {} };
+          }
         })
-      )
-    );
-    return () => {
-      for (const c of closers) c.close();
-    };
+      );
+      return () => {
+        for (const c of closers) {
+          try {
+            c.close();
+          } catch {
+            /* ignore */
+          }
+        }
+      };
+    } catch {
+      return () => {};
+    }
   }
 
+  /** Never throws — failed publishes are ignored. */
   async publish(relays: string[], event: Event): Promise<void> {
     if (!this.signedIn) return;
-    const wssRelays = writeWebSocketRelays(relays);
-    if (!wssRelays.length) return;
-    await Promise.allSettled(wssRelays.map((r) => this.pool.publish([r], event)));
+    try {
+      const wssRelays = writeWebSocketRelays(relays);
+      if (!wssRelays.length) return;
+      await Promise.allSettled(wssRelays.map((r) => this.pool.publish([r], event)));
+    } catch {
+      /* ignore */
+    }
   }
 
   close(): void {
-    this.pool.close([]);
+    try {
+      this.pool.close([]);
+    } catch {
+      /* ignore */
+    }
   }
 }
 

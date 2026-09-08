@@ -6,6 +6,8 @@ Feature: Profile page
 
   Background:
     Given /p/{npub}, /p/{nprofile}, and /p/{hex-pubkey} open the same profile
+    And kind 0 is fetched from profile relays (profiles.nostr1.com, indexer.coracle.social, thecitadel.nostr1.com), never from Mercury
+    And when signed in those queries also include my inbox, outbox, favorites, and local relays
     And kind 0 fields come from tags first, then JSON content, then are deduped
     And NIP-38 status is kind 30315 with d-tag general or music
     And payment targets merge kind 10133 payto tags with kind 0 lud16, lud06, w, and payto
