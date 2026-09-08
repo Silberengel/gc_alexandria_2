@@ -1,12 +1,13 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Event } from 'nostr-tools';
-import { LOGIN_METADATA_KINDS, KIND } from '../constants';
+import { LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
 import { webSocketRelays } from '../nostr/relay-filters';
 import { documentStack, setSelectorContext, writeStack } from '../nostr/selector';
 import { mercuryFilter } from '../nostr/mercury';
+import { mergeRememberedMetadata } from '../session-metadata';
 
 export type SessionState = {
   pubkey: string | null;
@@ -98,20 +99,7 @@ function createSessionStore() {
   function rememberEvent(event: Event): void {
     const pk = get({ subscribe }).pubkey;
     if (!pk || event.pubkey.toLowerCase() !== pk) return;
-    const byId = new Map(metadataEvents.map((e) => [e.id, e]));
-    byId.set(event.id, event);
-    // Replaceable: keep newest per kind+d
-    if (event.kind === KIND.DIRECTORY || event.kind === KIND.BOOKMARK || event.kind === KIND.LABEL) {
-      const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
-      for (const [id, e] of [...byId]) {
-        if (e.id === event.id) continue;
-        if (e.kind !== event.kind) continue;
-        if (event.kind === KIND.LABEL) continue;
-        const ed = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
-        if (ed === d && e.created_at <= event.created_at) byId.delete(id);
-      }
-    }
-    metadataEvents = [...byId.values()];
+    metadataEvents = mergeRememberedMetadata(metadataEvents, event);
     metadata.set(metadataEvents);
   }
 
