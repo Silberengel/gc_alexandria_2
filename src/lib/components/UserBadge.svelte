@@ -53,7 +53,12 @@
       const mercury = await mercuryFilter({ kinds: [0], authors: [pk], limit: 1 });
       let meta = mercury[0] ?? null;
       if (!meta) {
-        const fetched = await relayPool.query(socialStack(), [{ kinds: [0], authors: [pk], limit: 1 }]);
+        // One quiet relay pass — not the full signed-in social mega-stack.
+        const fetched = await relayPool.query(
+          socialStack().slice(0, 2),
+          [{ kinds: [0], authors: [pk], limit: 1 }],
+          3000
+        );
         meta = fetched[0] ?? null;
       }
       if (cancelled || !meta) {

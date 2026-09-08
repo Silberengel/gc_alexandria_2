@@ -19,7 +19,10 @@ export function normalizeWebSocketRelay(url: string): string | null {
   if (!normalized.startsWith('ws://') && !normalized.startsWith('wss://')) return null;
   try {
     const u = new URL(normalized);
-    if (u.hostname.toLowerCase() === MERCURY_HOST) {
+    const host = u.hostname.toLowerCase();
+    // Clearnet browser clients cannot reach Tor or I2P without a local proxy.
+    if (host.endsWith('.onion') || host.endsWith('.i2p')) return null;
+    if (host === MERCURY_HOST) {
       const path = u.pathname.replace(/\/+$/, '') || '';
       if (path === '/relay') u.pathname = '';
     }
@@ -29,6 +32,17 @@ export function normalizeWebSocketRelay(url: string): string | null {
     return null;
   }
   return normalized;
+}
+
+/** True for Tor (.onion) or I2P (.i2p) relay hosts — always skipped. */
+export function isTorOrI2pRelay(url: string): boolean {
+  try {
+    const host = new URL(url.trim()).hostname.toLowerCase();
+    return host.endsWith('.onion') || host.endsWith('.i2p');
+  } catch {
+    const lower = url.toLowerCase();
+    return lower.includes('.onion') || lower.includes('.i2p');
+  }
 }
 
 export function isWebSocketRelay(url: string): boolean {

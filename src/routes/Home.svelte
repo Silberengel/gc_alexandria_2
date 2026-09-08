@@ -45,14 +45,15 @@
     ]);
   }
 
+  /** Drop only identity-bound rows; keep GitCitadel/network while the next load runs. */
   function clearIdentityShelves(): void {
-    shelves = [];
-    labels = [];
+    shelves = shelves.filter(
+      (s) => s.id !== 'mine' && s.id !== 'follows' && !s.id.startsWith('nested:')
+    );
   }
 
   async function loadLanding(): Promise<void> {
     const gen = ++loadGen;
-    clearIdentityShelves();
     const cached = await loadCachedLanding();
     if (gen !== loadGen) return;
     if (cached) apply(cached);
@@ -65,18 +66,29 @@
 
   onMount(() => {
     let lastPk: string | null | undefined;
-    let lastMetaKey = '';
+    let lastMetaKey: string | undefined;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    function scheduleLoad(): void {
+      if (debounce) clearTimeout(debounce);
+      // Coalesce sign-in (pubkey + metadata clear + metadata fill) into one refresh.
+      debounce = setTimeout(() => {
+        debounce = null;
+        void loadLanding();
+      }, 250);
+    }
+
     const unsubSession = session.subscribe(($s) => {
       if ($s.pubkey === lastPk && lastPk !== undefined) return;
       lastPk = $s.pubkey;
-      lastMetaKey = '';
-      void loadLanding();
+      lastMetaKey = undefined;
+      clearIdentityShelves();
+      scheduleLoad();
     });
-    // Sign-in sets pubkey before metadata finishes; membership lists arrive later.
     const unsubMeta = session.metadata.subscribe((events) => {
       const pk = session.getPubkey();
       if (!pk) {
-        lastMetaKey = '';
+        lastMetaKey = undefined;
         return;
       }
       const key = events
@@ -86,9 +98,10 @@
         .join(',');
       if (key === lastMetaKey) return;
       lastMetaKey = key;
-      void loadLanding();
+      scheduleLoad();
     });
     return () => {
+      if (debounce) clearTimeout(debounce);
       unsubSession();
       unsubMeta();
     };

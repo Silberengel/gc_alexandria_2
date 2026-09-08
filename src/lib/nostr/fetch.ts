@@ -39,6 +39,9 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
   if (!parsed) return null;
   const warm = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
   const cached = warm ?? (await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d));
+  // Shelf resolution and navigation already have the event — do not REQ every address again.
+  if (cached) return cached;
+
   const dValues = dTagVariants(parsed.d);
   const slug = normalizeDTag(parsed.d);
   if (slug && !dValues.includes(slug)) dValues.unshift(slug);
@@ -49,33 +52,29 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
     limit: 1
   };
   try {
-    const [mercury, ws] = await Promise.all([
-      mercuryFilter(filter),
-      relayPool.query(stackForKind(parsed.kind), [filter])
-    ]);
-    const live = mercury[0] ?? ws[0] ?? null;
-    if (live && (!cached || live.created_at >= cached.created_at)) return live;
+    const mercury = await mercuryFilter(filter);
+    if (mercury[0]) return mercury[0];
+    const ws = await relayPool.query(stackForKind(parsed.kind), [filter]);
+    return ws[0] ?? null;
   } catch {
-    /* fall through to cache */
+    return null;
   }
-  return cached;
 }
 
 export async function fetchById(id: string): Promise<Event | null> {
   if (!/^[0-9a-f]{64}$/i.test(id)) return null;
   const cached = memoryGetEvent(id) ?? (await cacheGetEvent(id));
+  if (cached) return cached;
+
   const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
   try {
-    const [mercury, ws] = await Promise.all([
-      mercuryFilter(filter),
-      relayPool.query(documentStack(), [filter])
-    ]);
-    const live = mercury[0] ?? ws[0] ?? null;
-    if (live) return live;
+    const mercury = await mercuryFilter(filter);
+    if (mercury[0]) return mercury[0];
+    const ws = await relayPool.query(documentStack(), [filter]);
+    return ws[0] ?? null;
   } catch {
-    /* fall through */
+    return null;
   }
-  return cached;
 }
 
 /** Load a 30040 by d + pubkey, preferring cache when Mercury/relays fail. */
@@ -83,13 +82,13 @@ export async function fetchPublication(d: string, pubkey: string): Promise<Event
   return fetchByAddress(`${KIND.PUBLICATION}:${pubkey.toLowerCase()}:${d}`);
 }
 
-export async function fetchByAddresses(coords: string[], concurrency = 6): Promise<Event[]> {
+export async function fetchByAddresses(coords: string[], concurrency = 3): Promise<Event[]> {
   const unique = [...new Set(coords.filter(Boolean))];
   const fetched = await poolMap(unique, concurrency, fetchByAddress);
   return fetched.filter((e): e is Event => !!e);
 }
 
-export async function fetchByIds(ids: string[], concurrency = 6): Promise<Event[]> {
+export async function fetchByIds(ids: string[], concurrency = 3): Promise<Event[]> {
   const unique = [...new Set(ids.map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id)))];
   const fetched = await poolMap(unique, concurrency, fetchById);
   return fetched.filter((e): e is Event => !!e);

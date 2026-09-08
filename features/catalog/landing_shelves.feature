@@ -46,6 +46,8 @@ Feature: Landing bookshelves
     When I sign in as Bob
     Then shelves reload for Bob
     And Alice's My shelf does not linger while Bob's landing loads
+    And sign-in does not fire overlapping full landing refreshes that rate-limit relays
+    And My shelf is built from Bob's login metadata rather than rescanning every social relay for all bookmarks
 
   Scenario: Signed-in shelves follow the priority order
     Given I am signed in with a kind 3 follow list or kind 30000 follow sets

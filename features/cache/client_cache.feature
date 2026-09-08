@@ -17,6 +17,7 @@ Feature: Client event cache
     When I open a landing shelf cover whose edition is in the landing snapshot
     Then the edition page paints from cache even if Mercury or relays fail
     And relay queries stay limited so NOTICE "too many concurrent REQs" is less likely
+    And browser clients always skip Tor (.onion) and I2P (.i2p) relays and cap how many relays each query fans out to
     When I click a cover or card for an edition already shown on home or search
     Then the edition header metadata appears immediately from that known event
     And opening it does not re-query relays just to render that same 30040

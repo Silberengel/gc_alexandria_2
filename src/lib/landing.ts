@@ -226,7 +226,7 @@ export async function resolveReferenced(events: Event[], known: Event[]): Promis
 
   const missing = [...needed].filter((addr) => !byAddr.has(addr)).slice(0, 40);
   if (missing.length) {
-    const fetched = await poolMap(missing, 6, fetchByAddress);
+    const fetched = await poolMap(missing, 3, fetchByAddress);
     for (const event of fetched) {
       if (event) byAddr.set(eventAddress(event), event);
     }
@@ -236,7 +236,7 @@ export async function resolveReferenced(events: Event[], known: Event[]): Promis
     const parsed = parseAddress(addr);
     return parsed && (parsed.kind === KIND.SECTION || parsed.kind === KIND.PUBLICATION);
   });
-  const parents = await poolMap(children.slice(0, 20), 4, fetchContainingPublication);
+  const parents = await poolMap(children.slice(0, 12), 2, fetchContainingPublication);
   for (const event of parents) {
     if (!event) continue;
     byAddr.set(eventAddress(event), event);
@@ -291,19 +291,21 @@ async function loadShelvesAndLabels(
   knownPubs: Event[],
   cached?: LandingView | null
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
-  const social = socialStack();
-  const document = documentStack();
-  const [labelWs, bookmarkWs, dirWs] = await Promise.allSettled([
-    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 200 }], 4000),
-    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 100 }], 4000),
-    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 100 }], 4000)
-  ]);
-  const liveLabels = settled(labelWs, []);
-  const liveBookmarks = settled(bookmarkWs, []);
-  const liveDirs = settled(dirWs, []);
+  // Viewer's lists already arrived with sign-in metadata — do not re-REQ them
+  // across every inbox/outbox/favorite relay (that rate-limits pipe.imwald.eu etc.).
   const mine = session.getMetadata();
+  let liveLabels: Event[] = [];
+  try {
+    liveLabels = await mercuryFilter({ kinds: [KIND.LABEL], limit: 100 });
+  } catch {
+    liveLabels = [];
+  }
+  if (!liveLabels.length) {
+    // One modest social pass — not parallel label+bookmark+directory stack scans.
+    liveLabels = await relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], limit: 80 }], 3500);
+  }
   const mineDirs = mine.filter((e) => e.kind === KIND.DIRECTORY);
-  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mine);
+  const combined = mergeEvents(liveLabels, mine);
   const memberships = membershipsFromEvents(combined);
   const publications = await resolveShelfPublications(memberships, [
     ...knownPubs,
@@ -313,9 +315,7 @@ async function loadShelvesAndLabels(
   const follows = followPubkeysFromMetadata(mine);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
-    viewer != null
-      ? nestedShelvesForViewer(mergeEvents(liveDirs, mineDirs), publications, viewer)
-      : [];
+    viewer != null ? nestedShelvesForViewer(mineDirs, publications, viewer) : [];
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
   let viewerNpub = '';
   if (viewer) {
@@ -402,13 +402,23 @@ export async function refreshLanding(
   const viewer = currentViewerPubkey();
   const cacheOk = sameViewer(cached, viewer);
 
-  const [pubsResult, wikiResult, commHttp, commWs, highHttp, highWs] = await Promise.allSettled([
+  const [pubsResult, wikiResult, commHttp, highHttp] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
     mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
     mercuryFilters(COMMENT_FILTERS),
-    relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
-    mercuryFilters(HIGHLIGHT_FILTERS),
-    relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000)
+    mercuryFilters(HIGHLIGHT_FILTERS)
+  ]);
+
+  // Relay social feeds only when Mercury returned nothing — avoids double-stack hammering.
+  const mercComments = settled(commHttp, []);
+  const mercHighlights = settled(highHttp, []);
+  const [commWs, highWs] = await Promise.allSettled([
+    mercComments.length
+      ? Promise.resolve([] as Event[])
+      : relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
+    mercHighlights.length
+      ? Promise.resolve([] as Event[])
+      : relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000)
   ]);
 
   const publications = preferLive(
@@ -417,13 +427,13 @@ export async function refreshLanding(
   );
   const comments = newestCommentPerWork(
     preferLive(
-      mergeEvents(settled(commHttp, []), settled(commWs, [])),
+      mergeEvents(mercComments, settled(commWs, [])),
       cacheOk ? cached?.comments : undefined
     )
   ).slice(0, LANDING_FEED_LIMIT);
   const highlights = newestHighlightPerAddress(
     preferLive(
-      mergeEvents(settled(highHttp, []), settled(highWs, [])),
+      mergeEvents(mercHighlights, settled(highWs, [])),
       cacheOk ? cached?.highlights : undefined
     )
   ).slice(0, LANDING_FEED_LIMIT);
