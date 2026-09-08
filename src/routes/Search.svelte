@@ -12,6 +12,7 @@
     runTitleSearch,
     runIdentifierSearch,
     runLanguageSearch,
+    runBookshelfSearch,
     npubFromInput
   } from '$lib/search';
   import { muteState, filterMuted } from '$lib/mute';
@@ -32,7 +33,7 @@
   }
 
   function searchKey(params: URLSearchParams): string {
-    return ['q', 'subject', 'label', 'author', 'title', 'identifier', 'language']
+    return ['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'npub']
       .map((k) => `${k}=${params.get(k) ?? ''}`)
       .join('&');
   }
@@ -49,14 +50,16 @@
     const title = params.get('title') ?? '';
     const identifier = params.get('identifier') ?? '';
     const language = params.get('language') ?? '';
-    const term = q || subject || label || author || title || identifier || language;
+    const bookshelf = params.get('bookshelf') ?? '';
+    const shelfNpub = params.get('npub') ?? '';
+    const term = q || subject || label || author || title || identifier || language || bookshelf;
     if (!term) {
       events = [];
       loading = false;
       return;
     }
     const npub = npubFromInput(term);
-    if (npub) {
+    if (npub && !bookshelf) {
       window.location.hash = `#/p/${npub}`;
       return;
     }
@@ -65,7 +68,8 @@
       events = r.events;
       loading = r.loading;
     };
-    if (subject) void runSubjectSearch(subject, onUpdate);
+    if (bookshelf) void runBookshelfSearch(bookshelf, onUpdate, shelfNpub || undefined);
+    else if (subject) void runSubjectSearch(subject, onUpdate);
     else if (label) void runLabelSearch(label, onUpdate);
     else if (author) void runAuthorSearch(author, onUpdate);
     else if (title) void runTitleSearch(title, onUpdate);

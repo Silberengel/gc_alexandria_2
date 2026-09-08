@@ -32,7 +32,7 @@ const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
 const MAX_SEARCH_SNAPSHOTS = 20;
 
-export type LandingShelfSnap = { id: string; title: string; events: Event[] };
+export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
 
 export type LandingSnapshot = {
   publications: Event[];
@@ -68,7 +68,8 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
         ? raw.shelves.map((s) => ({
             id: String(s.id),
             title: String(s.title),
-            events: ingestList(s.events)
+            events: ingestList(s.events),
+            href: typeof (s as { href?: string }).href === 'string' ? (s as { href: string }).href : undefined
           }))
         : [],
       labels: Array.isArray(raw.labels) ? raw.labels.filter((l): l is string => typeof l === 'string') : []
@@ -88,7 +89,8 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
     shelves: (snap.shelves ?? []).map((s) => ({
       id: s.id,
       title: s.title,
-      events: s.events.slice(0, 50)
+      events: s.events.slice(0, 50),
+      ...(s.href ? { href: s.href } : {})
     })),
     labels: (snap.labels ?? []).slice(0, 25)
   });

@@ -26,7 +26,7 @@ import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
-import { assignShelves, membershipsFromEvents, type Membership, type Shelf } from './shelves';
+import { assignShelves, membershipsFromEvents, nestedShelvesForViewer, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -280,14 +280,18 @@ async function loadShelvesAndLabels(
   cached?: LandingView | null
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
   const social = socialStack();
-  const [labelWs, bookmarkWs] = await Promise.allSettled([
+  const document = documentStack();
+  const [labelWs, bookmarkWs, dirWs] = await Promise.allSettled([
     relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 200 }], 4000),
-    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 100 }], 4000)
+    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 100 }], 4000),
+    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 100 }], 4000)
   ]);
   const liveLabels = settled(labelWs, []);
   const liveBookmarks = settled(bookmarkWs, []);
+  const liveDirs = settled(dirWs, []);
   const mine = session.getMetadata();
-  const combined = mergeEvents(liveLabels, liveBookmarks, mine);
+  const mineDirs = mine.filter((e) => e.kind === KIND.DIRECTORY);
+  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mine);
   const memberships = membershipsFromEvents(combined);
   const publications = await resolveShelfPublications(memberships, [
     ...knownPubs,
@@ -296,9 +300,31 @@ async function loadShelvesAndLabels(
   const viewer = session.getPubkey();
   const follows = followPubkeysFromMetadata(mine);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
+  const nested =
+    viewer != null
+      ? nestedShelvesForViewer(mergeEvents(liveDirs, mineDirs), publications, viewer)
+      : [];
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
+  let viewerNpub = '';
+  if (viewer) {
+    try {
+      const { nip19 } = await import('nostr-tools');
+      viewerNpub = nip19.npubEncode(viewer);
+    } catch {
+      viewerNpub = '';
+    }
+  }
+  const shelfSnaps: LandingShelfSnap[] = [
+    ...shelves.map((s) => ({ id: s.id, title: s.title, events: s.events })),
+    ...nested.map((s) => ({
+      id: s.id,
+      title: s.title,
+      events: s.events,
+      href: `/search?bookshelf=${encodeURIComponent(s.d)}${viewerNpub ? `&npub=${viewerNpub}` : ''}`
+    }))
+  ];
   return {
-    shelves: shelves.map((s) => ({ id: s.id, title: s.title, events: s.events })),
+    shelves: shelfSnaps,
     labels
   };
 }

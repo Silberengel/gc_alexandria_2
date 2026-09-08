@@ -7,6 +7,9 @@ import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack, socialStack } from './nostr/selector';
 import { hexPubkey, npubFromInput, sortSearchResults } from './metadata';
 import { isTopLevel30040 } from './nostr/verify';
+import { publicationTargetsFromDirectory } from './bookshelf';
+import { fetchByAddresses, fetchByIds } from './nostr/fetch';
+import { session } from './stores/session';
 import { nip19, type Event, type Filter } from 'nostr-tools';
 
 export type SearchResult = {
@@ -341,6 +344,57 @@ export async function searchByLabel(l: string): Promise<Event[]> {
     if (hit) results.set(hit.id, hit);
   }
   return [...results.values()];
+}
+
+/** Explicit 30045 bookshelf lookup — no fan-out. Optional `npub` scopes to one author. */
+export async function searchByBookshelf(d: string, npubOrHex?: string): Promise<Event[]> {
+  const slug = normalizeDTag(d) || d.trim();
+  if (!slug) return [];
+  const authors: string[] = [];
+  if (npubOrHex) {
+    const hex = hexPubkey(npubOrHex);
+    if (hex) authors.push(hex);
+  } else {
+    const me = session.getPubkey();
+    if (me) authors.push(me);
+  }
+  const filter: Filter = {
+    kinds: [KIND.DIRECTORY],
+    '#d': [slug],
+    limit: authors.length ? 5 : 20,
+    ...(authors.length ? { authors } : {})
+  };
+  const [m, w] = await Promise.all([
+    mercuryFilter(filter),
+    relayPool.query(documentStack(), [filter])
+  ]);
+  const dirs = mergeById([...m, ...w]);
+  if (!dirs.length) return [];
+  const addresses = new Set<string>();
+  const eventIds = new Set<string>();
+  for (const dir of dirs) {
+    const t = publicationTargetsFromDirectory(dir);
+    for (const a of t.addresses) addresses.add(a);
+    for (const id of t.eventIds) eventIds.add(id);
+  }
+  const byAddr = await fetchByAddresses([...addresses].slice(0, 80));
+  const byId = await fetchByIds([...eventIds].slice(0, 40));
+  return preferTopLevelPublications(
+    mergeById([
+      ...byAddr.filter((e) => e.kind === KIND.PUBLICATION),
+      ...byId.filter((e) => e.kind === KIND.PUBLICATION)
+    ])
+  );
+}
+
+export async function runBookshelfSearch(
+  d: string,
+  onUpdate: (r: SearchResult) => void,
+  npubOrHex?: string
+): Promise<void> {
+  const key = `bookshelf:${normalizeSearchKey(d)}:${npubOrHex ?? ''}`;
+  const cached = await paintCached(key, onUpdate);
+  finish(key, await searchByBookshelf(d, npubOrHex), cached, onUpdate);
 }
 
 export { hexPubkey, npubFromInput };

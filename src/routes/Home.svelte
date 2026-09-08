@@ -65,7 +65,13 @@
 
   {#each visibleShelves as shelf (shelf.id)}
     <section>
-      <h2 class="section-title">{shelf.title}</h2>
+      <h2 class="section-title">
+        {#if shelf.href}
+          <a href={`#${shelf.href}`} use:link>{shelf.title}</a>
+        {:else}
+          {shelf.title}
+        {/if}
+      </h2>
       <div class="shelf-bar">
         {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
           <a class="cover" href={`#${publicationPath(pub)}`} use:link>

@@ -1,7 +1,8 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { GITCITADEL_CURATOR_HEX } from './hex';
-import { isBooklistEvent, publicationTargets } from './nip32';
+import { isPublicationLabelEvent, publicationTargets } from './nip32';
+import { publicationTargetsFromDirectory } from './bookshelf';
 import { eventAddress } from './nostr/verify';
 
 export type ShelfId = 'mine' | 'follows' | 'gitcitadel' | 'network';
@@ -12,11 +13,22 @@ export type Shelf = {
   events: Event[];
 };
 
+/** Extra horizontal shelf from a nested 30045 folder (viewer only). */
+export type NestedShelf = {
+  id: string;
+  title: string;
+  d: string;
+  events: Event[];
+};
+
 export type Membership = {
   address?: string;
   eventId?: string;
   author: string;
   created_at: number;
+  /** Optional nested folder slug when membership comes from a non-root 30045. */
+  folderD?: string;
+  folderTitle?: string;
 };
 
 export const SHELF_TITLES: Record<ShelfId, string> = {
@@ -28,18 +40,43 @@ export const SHELF_TITLES: Record<ShelfId, string> = {
 
 const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'gitcitadel', 'network'];
 
-export function membershipsFromEvents(labelsAndBookmarks: Event[]): Membership[] {
+function targetsFromMembershipEvent(event: Event): {
+  addresses: string[];
+  eventIds: string[];
+} {
+  if (event.kind === KIND.DIRECTORY) return publicationTargetsFromDirectory(event);
+  return publicationTargets(event);
+}
+
+export function membershipsFromEvents(labelsBookmarksAndDirs: Event[]): Membership[] {
   const out: Membership[] = [];
-  for (const event of labelsAndBookmarks) {
+  for (const event of labelsBookmarksAndDirs) {
     const isBookmark = event.kind === KIND.BOOKMARK;
-    const isBooklist = isBooklistEvent(event);
-    if (!isBookmark && !isBooklist) continue;
-    const { addresses, eventIds } = publicationTargets(event);
+    const isLabel = isPublicationLabelEvent(event);
+    const isDir = event.kind === KIND.DIRECTORY;
+    if (!isBookmark && !isLabel && !isDir) continue;
+    const { addresses, eventIds } = targetsFromMembershipEvent(event);
+    const folderD =
+      isDir && event.tags.find((t) => t[0] === 'd')?.[1] !== 'my-book-collection'
+        ? event.tags.find((t) => t[0] === 'd')?.[1]
+        : undefined;
     for (const address of addresses) {
-      out.push({ address, author: event.pubkey.toLowerCase(), created_at: event.created_at });
+      out.push({
+        address,
+        author: event.pubkey.toLowerCase(),
+        created_at: event.created_at,
+        folderD,
+        folderTitle: folderD
+      });
     }
     for (const eventId of eventIds) {
-      out.push({ eventId, author: event.pubkey.toLowerCase(), created_at: event.created_at });
+      out.push({
+        eventId,
+        author: event.pubkey.toLowerCase(),
+        created_at: event.created_at,
+        folderD,
+        folderTitle: folderD
+      });
     }
   }
   return out;
@@ -118,6 +155,51 @@ export function assignShelves(
   return shelves;
 }
 
+/**
+ * Viewer's nested 30045 folders as extra home rows (root my-book-collection excluded —
+ * those pubs already appear on "My shelf").
+ */
+export function nestedShelvesForViewer(
+  directories: Event[],
+  publications: Map<string, Event>,
+  viewer: string
+): NestedShelf[] {
+  const out: NestedShelf[] = [];
+  for (const dir of directories) {
+    if (dir.kind !== KIND.DIRECTORY) continue;
+    if (dir.pubkey.toLowerCase() !== viewer) continue;
+    const d = dir.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
+    if (!d || d === 'my-book-collection') continue;
+    const { addresses, eventIds } = publicationTargetsFromDirectory(dir);
+    const events: Event[] = [];
+    const seen = new Set<string>();
+    for (const address of addresses) {
+      const pub = publications.get(address);
+      if (pub && !seen.has(address)) {
+        seen.add(address);
+        events.push(pub);
+      }
+    }
+    for (const eventId of eventIds) {
+      for (const [addr, pub] of publications) {
+        if (pub.id.toLowerCase() === eventId && !seen.has(addr)) {
+          seen.add(addr);
+          events.push(pub);
+        }
+      }
+    }
+    if (!events.length) continue;
+    events.sort((a, b) => b.created_at - a.created_at);
+    out.push({
+      id: `folder:${d}`,
+      title: d,
+      d,
+      events
+    });
+  }
+  return out;
+}
+
 export function bookmarkHasPublication(bookmark: Event | null, publication: Event): boolean {
   if (!bookmark) return false;
   const { addresses, eventIds } = publicationTargets(bookmark);
@@ -126,7 +208,11 @@ export function bookmarkHasPublication(bookmark: Event | null, publication: Even
   return addresses.includes(addr);
 }
 
-export function withBookmarkTag(bookmark: Event | null, publication: Event, add: boolean): string[][] {
+export function withBookmarkTag(
+  bookmark: Event | null,
+  publication: Event,
+  add: boolean
+): string[][] {
   const addr = eventAddress(publication);
   const existing = bookmark?.tags ?? [];
   const without = existing.filter((t) => {
