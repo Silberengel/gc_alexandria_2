@@ -42,6 +42,7 @@ Feature: Landing bookshelves
     Given I was signed in as Alice and My shelf showed her books
     When I sign out
     Then My shelf and Follows disappear immediately
+    And label chips from the previous identity are cleared until the next landing load finishes
     And a cached Alice snapshot is not reused as anonymous shelves
     When I sign in as Bob
     Then shelves reload for Bob

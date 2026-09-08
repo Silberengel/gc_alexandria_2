@@ -46,9 +46,11 @@
     ]);
   }
 
-  /** Drop only identity-bound rows; keep GitCitadel/network while the next load runs. */
+  /** Drop identity-bound rows and label chips; keep GitCitadel/network while the next load runs. */
   function clearIdentityShelves(): void {
     shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
+    // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
+    labels = [];
   }
 
   async function loadLanding(): Promise<void> {
