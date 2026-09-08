@@ -24,8 +24,9 @@
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
   import { nestComments } from '$lib/comments';
-  import { newestRatingPerAuthor } from '$lib/ratings';
+  import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
+  import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { loadResume, saveResume } from '$lib/resume';
@@ -60,6 +61,7 @@
   let unreadable = $state(false);
   let loading = $state(true);
   let commentText = $state('');
+  let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
   let treeAbort: AbortController | null = null;
   let pageFilter = $state('');
@@ -95,17 +97,37 @@
 
   async function fetchSocial(target: Event): Promise<void> {
     const a = eventAddress(target);
-    const [r, cA, cA2, h] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': [a], limit: 50 }]),
+    const ratingKeys = publicationRatingATagsForQuery(target);
+    const sectionAddrs = target.tags
+      .filter((t) => t[0] === 'a' && t[1])
+      .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
+    const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
+    const [rA, rA2, cA, cA2, ...highlightBatches] = await Promise.all([
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }]),
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }]),
       relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [a], limit: 80 }]),
       relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [a], limit: 80 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': [a], limit: 50 }])
+      ...chunk(highlightAddrs, 20).map((batch) =>
+        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
+      )
     ]);
-    ratings = r;
+    const ratingById = new Map<string, Event>();
+    for (const e of [...rA, ...rA2]) ratingById.set(e.id, e);
+    ratings = [...ratingById.values()];
     const byId = new Map<string, Event>();
     for (const e of [...cA, ...cA2]) byId.set(e.id, e);
     comments = [...byId.values()];
-    highlights = h;
+    const hById = new Map<string, Event>();
+    for (const batch of highlightBatches) {
+      for (const e of batch) hById.set(e.id, e);
+    }
+    highlights = [...hById.values()];
+  }
+
+  function chunk<T>(items: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+    return out.length ? out : [[]];
   }
 
   async function prefetchTree(target: Event, signal: AbortSignal): Promise<void> {
@@ -122,7 +144,10 @@
       toc = parseToc(rawToc, target);
       const streamed = await mercuryPublicationStream(naddr, undefined, signal);
       if (signal.aborted) return;
-      if (streamed.length) sections = streamed;
+      if (streamed.length) {
+        sections = streamed;
+        void enrichHighlightsFromSections(streamed);
+      }
     } catch {
       if (signal.aborted) return;
     }
@@ -258,6 +283,7 @@
           sections = [];
         }
         if (!sections.length) sections = await fallbackSections(event);
+        if (sections.length) void enrichHighlightsFromSections(sections);
         if (!toc.length) toc = parseToc(null, event);
         if (!sections.length) {
           unreadable = true;
@@ -339,22 +365,73 @@
     }
   }
 
+  async function postSectionComment(section: Event): Promise<void> {
+    if (!$session.pubkey) {
+      await session.signIn();
+      return;
+    }
+    const a = eventAddress(section);
+    const text = (sectionCommentText[a] ?? '').trim();
+    if (!text) return;
+    const signed = await signAndPublish(commentDraft(section, text));
+    if (signed) {
+      sectionComments = {
+        ...sectionComments,
+        [a]: [...(sectionComments[a] ?? []), signed]
+      };
+      sectionCommentText = { ...sectionCommentText, [a]: '' };
+    }
+  }
+
   async function saveHighlight(section: Event): Promise<void> {
     if (!$session.pubkey) {
       await session.signIn();
       return;
     }
-    const sel = window.getSelection()?.toString().trim() ?? '';
-    if (!sel) return;
-    const signed = await signAndPublish(highlightDraft(section, sel));
+    const sel = window.getSelection();
+    const quote = sel?.toString().trim() ?? '';
+    if (!quote) return;
+    let context: string | undefined;
+    try {
+      const node = sel?.anchorNode;
+      const el =
+        node instanceof Element ? node : node?.parentElement;
+      const block = el?.closest('p, li, blockquote, pre, div.paragraph, article');
+      const full = block?.textContent?.trim();
+      if (full && full !== quote && full.includes(quote)) context = full.slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+    const signed = await signAndPublish(highlightDraft(section, quote, context));
     if (signed) highlights = [...highlights, signed];
   }
 
   function quotesFor(section: Event): string[] {
     const a = eventAddress(section);
+    const keys = new Set(publicationCoordinateLookupKeys(a));
     return mutedHighlights
-      .filter((h) => h.tags.some((t) => t[0] === 'a' && t[1] === a))
+      .filter(
+        (h) =>
+          h.tags.some((t) => t[0] === 'a' && t[1] && keys.has(t[1])) ||
+          h.tags.some((t) => t[0] === 'e' && t[1]?.toLowerCase() === section.id.toLowerCase())
+      )
       .map((h) => h.content);
+  }
+
+  async function enrichHighlightsFromSections(secs: Event[]): Promise<void> {
+    if (!secs.length) return;
+    const ids = secs.map((s) => s.id.toLowerCase()).slice(0, 40);
+    const addrs = secs.flatMap((s) => publicationCoordinateLookupKeys(eventAddress(s)));
+    const [byE, ...byA] = await Promise.all([
+      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#e': ids, limit: 80 }]),
+      ...chunk([...new Set(addrs)], 20).map((batch) =>
+        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
+      )
+    ]);
+    const byId = new Map(highlights.map((h) => [h.id, h]));
+    for (const e of byE) byId.set(e.id, e);
+    for (const batch of byA) for (const e of batch) byId.set(e.id, e);
+    highlights = [...byId.values()];
   }
 </script>
 
@@ -512,6 +589,37 @@
                   </ul>
                 {:else}
                   <p class="muted">No comments yet.</p>
+                {/if}
+                {#if $session.pubkey}
+                  <form
+                    class="compose"
+                    onsubmit={(e) => {
+                      e.preventDefault();
+                      void postSectionComment(section);
+                    }}
+                  >
+                    <textarea
+                      value={sectionCommentText[eventAddress(section)] ?? ''}
+                      oninput={(e) => {
+                        sectionCommentText = {
+                          ...sectionCommentText,
+                          [eventAddress(section)]: (e.currentTarget as HTMLTextAreaElement).value
+                        };
+                      }}
+                      rows="3"
+                      placeholder="Write a comment on this section"
+                    ></textarea>
+                    <button
+                      class="btn btn-primary"
+                      type="submit"
+                      disabled={!(sectionCommentText[eventAddress(section)] ?? '').trim()}
+                      >Post</button
+                    >
+                  </form>
+                {:else}
+                  <button class="btn" type="button" onclick={() => session.signIn()}
+                    >Sign in to comment</button
+                  >
                 {/if}
               </details>
             </article>
