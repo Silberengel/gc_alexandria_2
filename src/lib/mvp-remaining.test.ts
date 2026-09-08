@@ -241,14 +241,14 @@ describe('ratings', () => {
       pubkey: '2'.repeat(64),
       kind: KIND.RATING,
       created_at: 1,
-      tags: [['a', addr], ['rating', '0.2']]
+      tags: [['a', addr], ['m', 'book'], ['rating', '0.200']]
     });
     const a2 = ev({
       id: '3'.repeat(64),
       pubkey: '2'.repeat(64),
       kind: KIND.RATING,
       created_at: 2,
-      tags: [['a', addr], ['rating', '1']]
+      tags: [['a', addr], ['m', 'book'], ['rating', '1.000']]
     });
     const newest = newestRatingPerAuthor([a, a2], addr);
     expect(newest).toHaveLength(1);

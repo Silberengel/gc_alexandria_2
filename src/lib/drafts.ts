@@ -4,17 +4,28 @@ import { nip22TagsForTarget } from './comments';
 import { ratingTags } from './ratings';
 import { eventAddress } from './nostr/verify';
 import { withBookmarkTag } from './shelves';
+import { slugifyPublicationLabel } from './publication-lists';
 
-export function booklistLabelDraft(publication: Event): { kind: number; content: string; tags: string[][] } {
+export function publicationLabelDraft(
+  publication: Event,
+  label: string = NIP32_BOOKLIST_LABEL
+): { kind: number; content: string; tags: string[][] } {
+  const slug = slugifyPublicationLabel(label);
   return {
     kind: KIND.LABEL,
     content: '',
     tags: [
       ['L', NIP32_UGC_NAMESPACE],
-      ['l', NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE],
+      ['l', slug, NIP32_UGC_NAMESPACE],
       ['a', eventAddress(publication)]
     ]
   };
+}
+
+export function booklistLabelDraft(
+  publication: Event
+): { kind: number; content: string; tags: string[][] } {
+  return publicationLabelDraft(publication, NIP32_BOOKLIST_LABEL);
 }
 
 export function deletionDraft(target: Event): { kind: number; content: string; tags: string[][] } {
@@ -54,27 +65,34 @@ export function commentDraft(
 
 export function ratingDraft(
   publication: Event,
-  value: number
+  stars: number,
+  review = ''
 ): { kind: number; content: string; tags: string[][] } {
+  const content = review.trim();
   return {
     kind: KIND.RATING,
-    content: '',
-    tags: ratingTags(eventAddress(publication), value)
+    content,
+    tags: ratingTags(publication, stars, content.length > 0)
   };
 }
 
 export function highlightDraft(
   section: Event,
-  quote: string
+  quote: string,
+  context?: string
 ): { kind: number; content: string; tags: string[][] } {
   const addr = eventAddress(section);
+  const tags: string[][] = [
+    ['a', addr],
+    ['e', section.id.toLowerCase()],
+    ['p', section.pubkey.toLowerCase()],
+    ['k', String(section.kind)]
+  ];
+  const ctx = context?.trim();
+  if (ctx) tags.push(['context', ctx]);
   return {
     kind: KIND.HIGHLIGHT,
     content: quote,
-    tags: [
-      ['a', addr],
-      ['p', section.pubkey],
-      ['k', String(section.kind)]
-    ]
+    tags
   };
 }

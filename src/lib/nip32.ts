@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools';
-import { KIND, NIP32_BOOKLIST_LABEL } from './constants';
+import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { parseAddress } from './library-scope';
 
 export function extractNip32LabelValues(tags: string[][]): string[] {
@@ -27,6 +27,31 @@ export function labelEventHasBooklistTag(event: Pick<Event, 'tags'>): boolean {
 
 export function isBooklistEvent(event: Event): boolean {
   return event.kind === KIND.LABEL && labelEventHasBooklistTag(event);
+}
+
+/** Kind 1985 with an `l` tag targeting a publication (any slug, optionally ugc). */
+export function isPublicationLabelEvent(event: Event): boolean {
+  if (event.kind !== KIND.LABEL) return false;
+  if (!extractNip32LabelValues(event.tags).length) return false;
+  const { addresses, eventIds } = publicationTargets(event);
+  return addresses.length > 0 || eventIds.length > 0;
+}
+
+export function labelEventHasSlug(event: Pick<Event, 'tags'>, slug: string): boolean {
+  const needle = slug.trim().toLowerCase();
+  return extractNip32LabelValues(event.tags).some((v) => v.toLowerCase() === needle);
+}
+
+export function labelSlugFromEvent(event: Pick<Event, 'tags'>): string | null {
+  return extractNip32LabelValues(event.tags)[0] ?? null;
+}
+
+export function isUgcLabelEvent(event: Pick<Event, 'tags'>): boolean {
+  return event.tags.some(
+    (t) =>
+      (t[0] === 'L' && t[1]?.toLowerCase() === NIP32_UGC_NAMESPACE) ||
+      (t[0] === 'l' && t[2]?.toLowerCase() === NIP32_UGC_NAMESPACE)
+  );
 }
 
 /** Publication coordinates (30040 only) and event ids targeted by a label or bookmark. */
