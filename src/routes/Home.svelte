@@ -7,6 +7,7 @@
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
   import { muteState, filterMuted } from '$lib/mute';
+  import { rememberEvents } from '$lib/nostr/event-memory';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import type { LandingShelfSnap } from '$lib/nostr/cache';
@@ -18,6 +19,7 @@
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
   const shelfSeed = Math.floor(Date.now() / 1000);
+  let loadGen = 0;
 
   const visibleShelves = $derived(
     shelves
@@ -36,22 +38,60 @@
     subjects = view.subjects;
     shelves = view.shelves ?? [];
     labels = view.labels ?? [];
+    rememberEvents([
+      ...view.publications,
+      ...(view.referenced ?? []),
+      ...(view.shelves ?? []).flatMap((s) => s.events)
+    ]);
+  }
+
+  function clearIdentityShelves(): void {
+    shelves = [];
+    labels = [];
   }
 
   async function loadLanding(): Promise<void> {
+    const gen = ++loadGen;
+    clearIdentityShelves();
     const cached = await loadCachedLanding();
+    if (gen !== loadGen) return;
     if (cached) apply(cached);
-    apply(await refreshLanding(cached, apply));
+    const live = await refreshLanding(cached, (view) => {
+      if (gen === loadGen) apply(view);
+    });
+    if (gen !== loadGen) return;
+    apply(live);
   }
 
   onMount(() => {
     let lastPk: string | null | undefined;
-    const unsub = session.subscribe(($s) => {
+    let lastMetaKey = '';
+    const unsubSession = session.subscribe(($s) => {
       if ($s.pubkey === lastPk && lastPk !== undefined) return;
       lastPk = $s.pubkey;
+      lastMetaKey = '';
       void loadLanding();
     });
-    return unsub;
+    // Sign-in sets pubkey before metadata finishes; membership lists arrive later.
+    const unsubMeta = session.metadata.subscribe((events) => {
+      const pk = session.getPubkey();
+      if (!pk) {
+        lastMetaKey = '';
+        return;
+      }
+      const key = events
+        .filter((e) => e.kind === 3 || e.kind === 10003 || e.kind === 1985 || e.kind === 30045)
+        .map((e) => e.id)
+        .sort()
+        .join(',');
+      if (key === lastMetaKey) return;
+      lastMetaKey = key;
+      void loadLanding();
+    });
+    return () => {
+      unsubSession();
+      unsubMeta();
+    };
   });
 </script>
 

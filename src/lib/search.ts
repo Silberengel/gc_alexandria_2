@@ -1,6 +1,7 @@
 import { KIND } from './constants';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
+import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
@@ -80,12 +81,14 @@ export function isNsec(input: string): boolean {
 
 async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Promise<Event[]> {
   const cached = await cacheGetSearchSnapshot(key);
+  rememberEvents(cached);
   onUpdate({ events: cached, loading: true, done: false });
   return cached;
 }
 
 function finish(key: string, live: Event[], cached: Event[], onUpdate: (r: SearchResult) => void): Event[] {
   const events = rankEvents(preferLive(live, cached)).slice(0, 100);
+  rememberEvents(events);
   void cachePutSearchSnapshot(key, events);
   void cachePutMany(events);
   onUpdate({ events, loading: false, done: true });
@@ -289,6 +292,26 @@ export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) 
 export async function suggestTitles(q: string): Promise<string[]> {
   if (q.length < 2) return [];
   return mercurySuggest(q);
+}
+
+export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+  const slug = normalizeDTag(d);
+  const key = `d:${normalizeSearchKey(slug || d)}`;
+  const cached = await paintCached(key, onUpdate);
+  if (!slug) {
+    finish(key, [], cached, onUpdate);
+    return;
+  }
+  const variants = dTagVariants(d);
+  const kinds = [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.DIRECTORY];
+  const filter: Filter = { kinds, '#d': variants.slice(0, 12), limit: 100 };
+  const [mercuryPubs, mercuryWiki, relays, filtered] = await Promise.all([
+    mercuryPublicationSearch({ d: slug, limit: 100 }),
+    mercuryWikiSearch({ d: slug, limit: 100 }),
+    relayPool.query(documentStack(), [filter]),
+    mercuryFilter(filter)
+  ]);
+  finish(key, mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered]), cached, onUpdate);
 }
 
 export async function searchByDTag(d: string): Promise<Event[]> {

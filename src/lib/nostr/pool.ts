@@ -24,19 +24,30 @@ class RelayPool {
     if (!wssRelays.length || !cleanFilters.length) return [];
 
     const byId = new Map<string, Event>();
-    await Promise.all(
-      wssRelays.map(async (url) => {
-        const batches = await Promise.all(
-          cleanFilters.map((filter) => this.pool.querySync([url], filter, { maxWait: timeoutMs }))
-        );
-        for (const event of batches.flat()) {
-          const v = ingestEvent(event);
-          if (!v) continue;
-          noteEventSource(v.id, url);
-          if (!byId.has(v.id)) byId.set(v.id, v);
+    // Cap concurrent REQs — relays (e.g. sovbit) reject "too many concurrent REQs".
+    const concurrency = 2;
+    const pool = this.pool;
+    let next = 0;
+    async function worker(): Promise<void> {
+      while (next < wssRelays.length) {
+        const i = next++;
+        const url = wssRelays[i]!;
+        for (const filter of cleanFilters) {
+          try {
+            const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
+            for (const event of batch) {
+              const v = ingestEvent(event);
+              if (!v) continue;
+              noteEventSource(v.id, url);
+              if (!byId.has(v.id)) byId.set(v.id, v);
+            }
+          } catch {
+            /* relay timeout / NOTICE — keep other relays */
+          }
         }
-      })
-    );
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, wssRelays.length) }, () => worker()));
     const events = [...byId.values()];
     await cachePutMany(events);
     return events;

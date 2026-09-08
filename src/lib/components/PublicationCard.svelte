@@ -2,6 +2,7 @@
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
   import { cardMeta, displayTitle, publicationPath, wikiPath } from '$lib/metadata';
+  import { rememberEvents } from '$lib/nostr/event-memory';
   import Cover from './Cover.svelte';
   import CardMeta from './CardMeta.svelte';
 
@@ -11,6 +12,10 @@
   }
 
   let { event, showMeta = true }: Props = $props();
+
+  $effect(() => {
+    rememberEvents([event]);
+  });
 
   const meta = $derived(cardMeta(event));
   const title = $derived(displayTitle(event));

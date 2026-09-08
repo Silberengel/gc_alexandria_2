@@ -12,17 +12,19 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
-  import CardMeta from '$lib/components/CardMeta.svelte';
+  import EditionHeader from '$lib/components/EditionHeader.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
-  import { displayTitle, publicationPath, cardMeta, hasPublicationSection } from '$lib/metadata';
+  import { publicationPath, hasPublicationSection } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter, mercuryPublicationMeta, mercuryPublicationStream, mercuryPublicationToc } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
-  import { fetchById } from '$lib/nostr/fetch';
+  import { fetchById, fetchPublication } from '$lib/nostr/fetch';
+  import { cacheFindByAddress } from '$lib/nostr/cache';
+  import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { nestComments } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
@@ -42,6 +44,7 @@
     type TocEntry
   } from '$lib/publication-load';
   import { searchByDTag } from '$lib/search';
+  import { normalizeDTag } from '$lib/dtag';
 
   interface Props {
     params?: { d?: string; npub?: string; naddr?: string };
@@ -90,7 +93,6 @@
   const visibleHighlights = $derived(filterPageEvents(mutedHighlights, pageFilter));
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
   const thread = $derived(nestComments(visibleComments, $muteState));
-  const headerMeta = $derived(event ? cardMeta(event) : null);
   const readerToc = $derived(enrichToc(toc, sections));
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
 
@@ -140,7 +142,8 @@
       const meta = await mercuryPublicationMeta(naddr, signal);
       if (signal.aborted) return;
       if (isUnreadableMeta(meta)) {
-        textUnavailable = true;
+        // Index meta can mark a tree missing; keep Read when the 30040 itself lists sections.
+        if (!hasPublicationSection(target)) textUnavailable = true;
         return;
       }
       const rawToc = await mercuryPublicationToc(naddr, signal);
@@ -166,6 +169,8 @@
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
       if (!kind || !pubkey || !d) continue;
+      // Nested 30040 indexes are editions, not readable sections.
+      if (kind === KIND.PUBLICATION) continue;
       const [m, w] = await Promise.all([
         mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
         relayPool.query(documentStack(), [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }])
@@ -176,12 +181,14 @@
     return out;
   }
 
-  async function loadEdition(target: Event): Promise<void> {
+  function paintEdition(target: Event): void {
+    rememberEvents([target]);
     event = target;
     error = false;
     unreadable = false;
     textUnavailable = !hasPublicationSection(target);
-    await fetchSocial(target);
+    loading = false;
+    void fetchSocial(target);
     cancelTree();
     // Catalog stubs (no section a/e tags) are library cards only — no tree to fetch.
     if (textUnavailable) return;
@@ -194,17 +201,31 @@
     const npubParam = params.npub;
     const pointer = params.naddr;
     let cancelled = false;
-    loading = true;
-    error = false;
-    unreadable = false;
-    textUnavailable = false;
-    event = null;
+
     editions = [];
     reading = false;
     tocOpen = false;
     sections = [];
     toc = [];
     cancelTree();
+    error = false;
+    unreadable = false;
+
+    const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
+    const slug = dTag ? normalizeDTag(dTag) || dTag : '';
+    const warm =
+      dTag && npubParam && pubkey
+        ? memoryFindByAddress(KIND.PUBLICATION, pubkey, slug)
+        : null;
+
+    if (warm) {
+      // Already had this event on a shelf/search card — show header before any I/O.
+      paintEdition(warm);
+    } else {
+      event = null;
+      textUnavailable = false;
+      loading = true;
+    }
 
     void (async () => {
       try {
@@ -215,19 +236,29 @@
             return;
           }
           let fetched: Event | null = null;
-          if (decoded.id) fetched = await fetchById(decoded.id);
-          else if (decoded.pubkey && decoded.d != null) {
-            const filter = {
-              kinds: [decoded.kind ?? KIND.PUBLICATION],
-              authors: [decoded.pubkey],
-              '#d': [decoded.d],
-              limit: 1
-            };
-            fetched =
-              (await Promise.all([
-                mercuryFilter(filter),
-                relayPool.query(documentStack(), [filter])
-              ]).then(([m, w]) => m[0] ?? w[0] ?? null));
+          if (decoded.id) {
+            fetched = memoryGetEvent(decoded.id) ?? (await fetchById(decoded.id));
+          } else if (decoded.pubkey && decoded.d != null) {
+            const fromMem = memoryFindByAddress(
+              decoded.kind ?? KIND.PUBLICATION,
+              decoded.pubkey,
+              decoded.d
+            );
+            if (fromMem) {
+              fetched = fromMem;
+            } else {
+              const filter = {
+                kinds: [decoded.kind ?? KIND.PUBLICATION],
+                authors: [decoded.pubkey],
+                '#d': [decoded.d],
+                limit: 1
+              };
+              fetched =
+                (await Promise.all([
+                  mercuryFilter(filter),
+                  relayPool.query(documentStack(), [filter])
+                ]).then(([m, w]) => m[0] ?? w[0] ?? null));
+            }
           }
           if (cancelled) return;
           if (!fetched || fetched.kind !== KIND.PUBLICATION) {
@@ -235,7 +266,7 @@
             return;
           }
           replace(publicationPath(fetched));
-          await loadEdition(fetched);
+          paintEdition(fetched);
           return;
         }
 
@@ -247,24 +278,24 @@
             error = true;
             return;
           }
+          rememberEvents(top);
           editions = top;
           return;
         }
 
         if (dTag && npubParam) {
-          const pubkey = hexFromNpubParam(npubParam);
-          const filter = { kinds: [KIND.PUBLICATION], authors: [pubkey], '#d': [dTag], limit: 1 };
-          const [mHits, wHits] = await Promise.all([
-            mercuryFilter(filter),
-            relayPool.query(documentStack(), [filter])
-          ]);
-          const fetched = mHits[0] ?? wHits[0] ?? null;
+          // Cover/search already showed this event — paint from memory/cache only.
+          // Do not REQ the same 30040 from relays just to render the header.
+          const cached = warm ?? (await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug));
           if (cancelled) return;
-          if (!fetched) {
-            error = true;
+          if (cached) {
+            if (!warm || cached.created_at > warm.created_at) paintEdition(cached);
             return;
           }
-          await loadEdition(fetched);
+          const fetched = await fetchPublication(slug, pubkey);
+          if (cancelled) return;
+          if (fetched) paintEdition(fetched);
+          else error = true;
         }
       } catch {
         if (!cancelled) error = true;
@@ -468,22 +499,7 @@
     {#if !reading}
       <PageFilter bind:value={pageFilter} />
       <header class="card" style="margin-bottom:1.5rem">
-        <h1>
-          {#if headerMeta?.titles.length}
-            {#each headerMeta.titles as name, i}
-              {#if i > 0}<span> · </span>{/if}
-              <a href={`#/search?title=${encodeURIComponent(name)}`}>{name}</a>
-            {/each}
-          {:else}
-            {displayTitle(event)}
-          {/if}
-        </h1>
-        {#if headerMeta}
-          <CardMeta {event} showIdentifier showTitles={false} />
-        {/if}
-        {#if isLibraryCopyPubkey(event.pubkey)}
-          <p class="muted">Library copy</p>
-        {/if}
+        <EditionHeader {event} />
         <ShelfActions publication={event} />
         {#if canRead}
           <button class="btn btn-primary" type="button" onclick={() => void startReading()}>Read the publication</button>

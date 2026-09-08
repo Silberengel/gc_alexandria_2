@@ -1,6 +1,9 @@
 import type { Event, Filter } from 'nostr-tools';
 import { KIND } from '../constants';
+import { dTagVariants, normalizeDTag } from '../dtag';
 import { parseAddress } from '../library-scope';
+import { cacheFindByAddress, cacheGetEvent } from './cache';
+import { memoryFindByAddress, memoryGetEvent } from './event-memory';
 import { mercuryFilter } from './mercury';
 import { relayPool } from './pool';
 import { documentStack, wikiStack } from './selector';
@@ -34,27 +37,50 @@ function stackForKind(kind: number): string[] {
 export async function fetchByAddress(coord: string): Promise<Event | null> {
   const parsed = parseAddress(coord);
   if (!parsed) return null;
+  const warm = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+  const cached = warm ?? (await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d));
+  const dValues = dTagVariants(parsed.d);
+  const slug = normalizeDTag(parsed.d);
+  if (slug && !dValues.includes(slug)) dValues.unshift(slug);
   const filter: Filter = {
     kinds: [parsed.kind],
     authors: [parsed.pubkey],
-    '#d': [parsed.d],
+    '#d': dValues.slice(0, 12),
     limit: 1
   };
-  const [mercury, ws] = await Promise.all([
-    mercuryFilter(filter),
-    relayPool.query(stackForKind(parsed.kind), [filter])
-  ]);
-  return mercury[0] ?? ws[0] ?? null;
+  try {
+    const [mercury, ws] = await Promise.all([
+      mercuryFilter(filter),
+      relayPool.query(stackForKind(parsed.kind), [filter])
+    ]);
+    const live = mercury[0] ?? ws[0] ?? null;
+    if (live && (!cached || live.created_at >= cached.created_at)) return live;
+  } catch {
+    /* fall through to cache */
+  }
+  return cached;
 }
 
 export async function fetchById(id: string): Promise<Event | null> {
   if (!/^[0-9a-f]{64}$/i.test(id)) return null;
+  const cached = memoryGetEvent(id) ?? (await cacheGetEvent(id));
   const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-  const [mercury, ws] = await Promise.all([
-    mercuryFilter(filter),
-    relayPool.query(documentStack(), [filter])
-  ]);
-  return mercury[0] ?? ws[0] ?? null;
+  try {
+    const [mercury, ws] = await Promise.all([
+      mercuryFilter(filter),
+      relayPool.query(documentStack(), [filter])
+    ]);
+    const live = mercury[0] ?? ws[0] ?? null;
+    if (live) return live;
+  } catch {
+    /* fall through */
+  }
+  return cached;
+}
+
+/** Load a 30040 by d + pubkey, preferring cache when Mercury/relays fail. */
+export async function fetchPublication(d: string, pubkey: string): Promise<Event | null> {
+  return fetchByAddress(`${KIND.PUBLICATION}:${pubkey.toLowerCase()}:${d}`);
 }
 
 export async function fetchByAddresses(coords: string[], concurrency = 6): Promise<Event[]> {

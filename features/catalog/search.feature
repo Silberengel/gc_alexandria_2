@@ -81,6 +81,12 @@ Feature: Search
     And a title click queries Mercury title and T, and relays only #T
     And I do not also run full-text or the other tag fans
 
+  Scenario: A wikilink d-tag search is explicit
+    When I open /search?d={slug} from a wikilink
+    Then the lookup is #d equal to the normalized slug
+    And kinds include 30040, 30041, 30818, 30817, and 30045
+    And I do not also run full-text or the other tag fans
+
   Scenario: A landing label is not a language search
     When I open /search from a landing label button
     Then the lookup is kind 1985 with #l equal to that label

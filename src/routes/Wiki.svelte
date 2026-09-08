@@ -7,10 +7,10 @@
   import CommentThread from '$lib/components/CommentThread.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
-  import CardMeta from '$lib/components/CardMeta.svelte';
+  import EditionHeader from '$lib/components/EditionHeader.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
-  import { displayTitle, wikiPath, cardMeta } from '$lib/metadata';
+  import { wikiPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference } from '$lib/wiki-defer';
   import { mercuryFilter } from '$lib/nostr/mercury';
@@ -54,7 +54,6 @@
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );
-  const headerMeta = $derived(event ? cardMeta(event) : null);
 
   $effect(() => {
     const root = articlePane;
@@ -261,19 +260,7 @@
       onEnter={cyclePageFind}
     />
     <article class="card reading-body" bind:this={articlePane}>
-      <h1>
-        {#if headerMeta?.titles.length}
-          {#each headerMeta.titles as name, i}
-            {#if i > 0}<span> · </span>{/if}
-            <a href={`#/search?title=${encodeURIComponent(name)}`}>{name}</a>
-          {/each}
-        {:else}
-          {displayTitle(event)}
-        {/if}
-      </h1>
-      {#if headerMeta}
-        <CardMeta {event} showIdentifier showTitles={false} />
-      {/if}
+      <EditionHeader {event} />
       {#if !hideBody}
         <EventBody {event} />
       {/if}

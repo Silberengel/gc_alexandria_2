@@ -26,3 +26,15 @@ Feature: Publication and wiki card metadata
     Then the header shows them
     And an i-tag opens /search for that identifier as an explicit identifier lookup
     And an l-tag opens /search for that language as an explicit language lookup
+
+  Scenario: Full edition header is thorough like a library card
+    When I open a /publication/ edition page
+    Then I see the cover beside the bibliographic block on a wide viewport
+    And I see titles, authors with roles when present, the Nostr publisher badge, and summary
+    And I see chips for type, language, published_by imprint, version, and section count when those tags exist
+    And I see a released date from published_on or release_date when present
+    And I see provenance chips for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
+    And subject t-tags appear as #chips
+    And L NIP-32 namespace tags are not shown as the language
+    When I opened that page from a shelf or search card that already showed the edition
+    Then that header paints from the known event before any relay round-trip

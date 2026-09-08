@@ -70,6 +70,9 @@ function createSessionStore() {
       const pubkey = (await ext.getPublicKey()).toLowerCase();
       const { nip19 } = await import('nostr-tools');
       const npub = nip19.npubEncode(pubkey);
+      // Drop prior identity's lists before the new pubkey is visible to the UI.
+      metadataEvents = [];
+      metadata.set([]);
       set({ pubkey, npub, loading: false });
       relayPool.setSignedIn(true);
       await loadMetadata(pubkey);

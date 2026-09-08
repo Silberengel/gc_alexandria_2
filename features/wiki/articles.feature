@@ -16,7 +16,7 @@ Feature: Wiki
     When I choose one
     Then I am on /wiki/d/istanbul/p/{npub} and I see the body
 
-  Scenario: Wikilinks open /wiki/d
+  Scenario: Wikilinks open a d-tag search
     Given a body contains a wikilink written as one of:
       | markup   | form                         |
       | Djot     | [[constantinople]]           |
@@ -27,13 +27,17 @@ Feature: Wiki
       | AsciiDoc | [[constantinople]]           |
       | AsciiDoc | [[constantinople|Byzantium]] |
     When I follow that link from a wiki article or a publication section
-    Then I open /wiki/d/constantinople
-    And I am not sent to /search
+    Then I open /search?d=constantinople
+    And the lookup is an explicit #d search for wiki, spec, publication, and directory events
+    And the link is a real hyperlink, not raw [[…]] or Markdown left in AsciiDoc
 
   Scenario: Spec documents are readable
     Given a 30817 with d-tag "nip-54"
     When I open it
     Then I can read the specification body
+    And the body is rendered as Markdown (headings, lists, links)
+    And the header does not repeat the raw Markdown source as a summary
+    And the published-by avatar stays badge-sized
 
   Scenario: Wiki page shows header, body, and interactions
     When I open a wiki article

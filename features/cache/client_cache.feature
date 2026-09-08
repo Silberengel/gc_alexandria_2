@@ -14,6 +14,12 @@ Feature: Client event cache
     When I leave and return in this browser, including while offline
     Then those ids and covers are served from cache
     And replaceable events may still refresh if a newer version exists
+    When I open a landing shelf cover whose edition is in the landing snapshot
+    Then the edition page paints from cache even if Mercury or relays fail
+    And relay queries stay limited so NOTICE "too many concurrent REQs" is less likely
+    When I click a cover or card for an edition already shown on home or search
+    Then the edition header metadata appears immediately from that known event
+    And opening it does not re-query relays just to render that same 30040
 
   Scenario: Landing paints from a snapshot
     Given I have opened the home page before in this browser
@@ -21,6 +27,9 @@ Feature: Client event cache
     Then shelves, highlights, and What we are discussing appear from the landing snapshot before live relays answer
     And live results replace that snapshot when they arrive
     And if live relays or Mercury return nothing the snapshot stays on screen
+    And the snapshot is tagged with the viewer pubkey or null when anonymous
+    When I open home signed out after browsing signed in as Alice
+    Then Alice's My shelf and Follows are not shown from her snapshot
 
   Scenario: Repeat search paints from a snapshot
     Given I have searched for a term, subject, or label in this browser

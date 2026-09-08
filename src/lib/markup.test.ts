@@ -76,3 +76,13 @@ describe('renderWithFallback', () => {
     expect(html).toContain('Label');
   });
 });
+
+describe('asciidoc wikilink html', () => {
+  it('turns [[NKBIP-01]] into an anchor to d-tag search', async () => {
+    const { renderFormat } = await import('./markup');
+    const html = await renderFormat('asciidoc', 'See [[NKBIP-01]] for directories.');
+    expect(html).toContain('href="#/search?d=nkbip-01"');
+    expect(html).toContain('NKBIP-01');
+    expect(html).not.toContain('[[NKBIP-01]]');
+  });
+});

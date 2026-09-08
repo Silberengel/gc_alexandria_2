@@ -26,11 +26,31 @@ function ev(over: Partial<Event> & { tags?: string[][] }): Event {
 }
 
 describe('wikilinks', () => {
-  it('rewrites djot/markdown/asciidoc wikilinks to /wiki/d', () => {
-    expect(rewriteWikilinks('see [[constantinople]]')).toContain('#/wiki/d/constantinople');
-    expect(rewriteWikilinks('[[constantinople|Byzantium]]')).toContain('Byzantium');
-    expect(rewriteWikilinks('[[constantinople|Byzantium]]')).toContain('#/wiki/d/constantinople');
-    expect(rewriteWikilinks('[constantinople][]')).toContain('#/wiki/d/constantinople');
+  it('rewrites djot/markdown wikilinks to d-tag search', () => {
+    expect(rewriteWikilinks('see [[constantinople]]', 'markdown')).toContain(
+      '#/search?d=constantinople'
+    );
+    expect(rewriteWikilinks('[[constantinople|Byzantium]]', 'djot')).toContain('Byzantium');
+    expect(rewriteWikilinks('[[constantinople|Byzantium]]', 'djot')).toContain(
+      '#/search?d=constantinople'
+    );
+    expect(rewriteWikilinks('[constantinople][]', 'markdown')).toContain('#/search?d=constantinople');
+  });
+
+  it('rewrites asciidoc wikilinks as link: macros so they become hyperlinks', () => {
+    const out = rewriteWikilinks('see [[NKBIP-01]] and [[nkbip-01|NKBIP-01]]', 'asciidoc');
+    expect(out).toContain('link:#/search?d=nkbip-01[NKBIP-01]');
+    expect(out).not.toContain('[[NKBIP-01]]');
+    expect(out).not.toMatch(/\[[^\]]+\]\(#\//);
+  });
+
+  it('normalizes existing wiki hash links to d-tag search', () => {
+    expect(rewriteWikilinks('[NKBIP-01](#/wiki/d/nkbip-01)', 'markdown')).toContain(
+      '#/search?d=nkbip-01'
+    );
+    expect(rewriteWikilinks('link:#/wiki/d/nkbip-01[NKBIP-01]', 'asciidoc')).toContain(
+      'link:#/search?d=nkbip-01[NKBIP-01]'
+    );
   });
 });
 
@@ -39,6 +59,7 @@ describe('sanitize', () => {
     expect(isAllowedHref('javascript:alert(1)')).toBe(false);
     expect(isAllowedHref('https://example.com')).toBe(true);
     expect(isAllowedHref('#/wiki/d/foo')).toBe(true);
+    expect(isAllowedHref('#/search?d=foo')).toBe(true);
     expect(sanitizeHtml('<script>alert(1)</script>hi')).not.toContain('script');
   });
 });

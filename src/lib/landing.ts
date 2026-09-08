@@ -33,7 +33,19 @@ export type LandingView = LandingSnapshot & {
   subjects: string[];
   shelves: LandingShelfSnap[];
   labels: string[];
+  viewerPubkey?: string | null;
 };
+
+function currentViewerPubkey(): string | null {
+  return session.getPubkey()?.toLowerCase() ?? null;
+}
+
+function sameViewer(cached: LandingView | LandingSnapshot | null | undefined, viewer: string | null): boolean {
+  if (!cached) return false;
+  // Legacy snapshots without viewerPubkey are treated as anonymous-only.
+  const cachedViewer = cached.viewerPubkey === undefined ? null : cached.viewerPubkey;
+  return (cachedViewer ?? null) === (viewer ?? null);
+}
 
 export const LANDING_FEED_LIMIT = 10;
 
@@ -330,19 +342,34 @@ async function loadShelvesAndLabels(
 }
 
 export async function loadCachedLanding(): Promise<LandingView | null> {
+  const viewer = currentViewerPubkey();
   const snap = await cacheGetLandingSnapshot();
+  const snapForViewer = sameViewer(snap, viewer)
+    ? snap
+    : snap
+      ? {
+          ...snap,
+          viewerPubkey: viewer,
+          // Never reuse another identity's mine/follows shelves.
+          shelves: (snap.shelves ?? []).filter((s) => s.id !== 'mine' && s.id !== 'follows' && !s.id.startsWith('nested:'))
+        }
+      : null;
+
   if (
-    snap &&
-    (snap.publications.length ||
-      snap.highlights.length ||
-      snap.comments.length ||
-      (snap.shelves?.length ?? 0) ||
-      (snap.labels?.length ?? 0))
+    snapForViewer &&
+    (snapForViewer.publications.length ||
+      snapForViewer.highlights.length ||
+      snapForViewer.comments.length ||
+      (snapForViewer.shelves?.length ?? 0) ||
+      (snapForViewer.labels?.length ?? 0))
   ) {
     return withSubjects({
-      ...snap,
-      highlights: newestHighlightPerAddress(snap.highlights).slice(0, LANDING_FEED_LIMIT),
-      comments: newestCommentPerWork(snap.comments).slice(0, LANDING_FEED_LIMIT)
+      ...snapForViewer,
+      viewerPubkey: viewer,
+      highlights: newestHighlightPerAddress(snapForViewer.highlights).slice(0, LANDING_FEED_LIMIT),
+      comments: newestCommentPerWork(snapForViewer.comments).slice(0, LANDING_FEED_LIMIT),
+      shelves: snapForViewer.shelves ?? [],
+      labels: snapForViewer.labels ?? []
     });
   }
 
@@ -356,14 +383,15 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
   const highlights = newestHighlightPerAddress(rawHighlights).slice(0, LANDING_FEED_LIMIT);
   const comments = newestCommentPerWork(rawComments).slice(0, LANDING_FEED_LIMIT);
   return withSubjects({
+    viewerPubkey: viewer,
     publications,
     highlights,
     comments,
-    referenced: snap?.referenced?.length
-      ? snap.referenced
+    referenced: snapForViewer?.referenced?.length
+      ? snapForViewer.referenced
       : await resolveReferenced([...highlights, ...comments], publications),
-    shelves: snap?.shelves ?? [],
-    labels: snap?.labels ?? []
+    shelves: [],
+    labels: snapForViewer?.labels ?? []
   });
 }
 
@@ -371,6 +399,9 @@ export async function refreshLanding(
   cached: LandingView | null,
   onUpdate?: (view: LandingView) => void
 ): Promise<LandingView> {
+  const viewer = currentViewerPubkey();
+  const cacheOk = sameViewer(cached, viewer);
+
   const [pubsResult, wikiResult, commHttp, commWs, highHttp, highWs] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
     mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
@@ -382,36 +413,49 @@ export async function refreshLanding(
 
   const publications = preferLive(
     mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
-    cached?.publications
+    cacheOk ? cached?.publications : undefined
   );
   const comments = newestCommentPerWork(
-    preferLive(mergeEvents(settled(commHttp, []), settled(commWs, [])), cached?.comments)
+    preferLive(
+      mergeEvents(settled(commHttp, []), settled(commWs, [])),
+      cacheOk ? cached?.comments : undefined
+    )
   ).slice(0, LANDING_FEED_LIMIT);
   const highlights = newestHighlightPerAddress(
-    preferLive(mergeEvents(settled(highHttp, []), settled(highWs, [])), cached?.highlights)
+    preferLive(
+      mergeEvents(settled(highHttp, []), settled(highWs, [])),
+      cacheOk ? cached?.highlights : undefined
+    )
   ).slice(0, LANDING_FEED_LIMIT);
 
   const painted = withSubjects({
+    viewerPubkey: viewer,
     publications,
     comments,
     highlights,
-    referenced: cached?.referenced ?? [],
-    shelves: cached?.shelves ?? [],
-    labels: cached?.labels ?? []
+    referenced: cacheOk ? (cached?.referenced ?? []) : [],
+    shelves: cacheOk ? (cached?.shelves ?? []) : [],
+    labels: cacheOk ? (cached?.labels ?? []) : []
   });
   onUpdate?.(painted);
 
   const [referenced, shelfPack] = await Promise.all([
-    resolveReferenced([...highlights, ...comments], [...publications, ...(cached?.referenced ?? [])]),
-    loadShelvesAndLabels(publications, cached)
+    resolveReferenced(
+      [...highlights, ...comments],
+      [...publications, ...(cacheOk ? (cached?.referenced ?? []) : [])]
+    ),
+    loadShelvesAndLabels(publications, cacheOk ? cached : null)
   ]);
+
+  // Always take the shelf pack for this viewer — never fall back to another identity's "My shelf".
   const view = withSubjects({
+    viewerPubkey: viewer,
     publications,
     comments,
     highlights,
     referenced,
-    shelves: shelfPack.shelves.length ? shelfPack.shelves : (cached?.shelves ?? []),
-    labels: shelfPack.labels.length ? shelfPack.labels : (cached?.labels ?? [])
+    shelves: shelfPack.shelves,
+    labels: shelfPack.labels.length ? shelfPack.labels : cacheOk ? (cached?.labels ?? []) : []
   });
   onUpdate?.(view);
   void cachePutLandingSnapshot(view);

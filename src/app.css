@@ -217,6 +217,81 @@ input[type='search'], input[type='text'], textarea, select {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.edition-header {
+  margin-bottom: 1rem;
+}
+.edition-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.1rem;
+  min-width: 0;
+}
+.edition-cover {
+  flex: 0 0 7.5rem;
+  width: 7.5rem;
+  max-width: 34%;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.35rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.edition-cover .cover-frame,
+.edition-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.edition-meta {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.edition-meta h1 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.edition-authors {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.edition-publisher {
+  margin: 0 0 0.55rem;
+}
+.edition-chips,
+.edition-provenance {
+  margin: 0.35rem 0;
+}
+.chip.chip-static {
+  cursor: default;
+}
+.edition-released {
+  margin: 0.25rem 0 0.45rem;
+  font-size: 0.92rem;
+}
+.edition-summary {
+  margin: 1rem 0 0;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+@media (max-width: 560px) {
+  .edition-hero {
+    flex-direction: column;
+  }
+  .edition-cover {
+    max-width: 9rem;
+    width: 9rem;
+    flex-basis: auto;
+  }
+}
+
 .pub-card {
   display: flex;
   align-items: stretch;
@@ -244,7 +319,7 @@ input[type='search'], input[type='text'], textarea, select {
 .pub-card-cover img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
@@ -395,6 +470,18 @@ input[type='search'], input[type='text'], textarea, select {
   object-fit: contain;
 }
 
+/* Keep userbadges tiny even inside .reading-body (wiki header). */
+.reading-body .userbadge-avatar,
+.event-body .userbadge-avatar,
+.reader-section .userbadge-avatar,
+.edition-header .userbadge-avatar {
+  display: inline-block;
+  width: 1.35rem !important;
+  height: 1.35rem !important;
+  max-width: 1.35rem !important;
+  object-fit: cover;
+}
+
 .reading-body .imageblock,
 .reading-body .image,
 .event-body .imageblock,
@@ -416,6 +503,68 @@ input[type='search'], input[type='text'], textarea, select {
 .reading-body table,
 .event-body table {
   display: block;
+}
+
+/* AsciiDoc admonitions use a 2-column table; display:block collapses the icon cell. */
+.reading-body .admonitionblock,
+.event-body .admonitionblock,
+.reader-section .admonitionblock {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 0.28rem solid var(--accent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.reading-body .admonitionblock table,
+.event-body .admonitionblock table,
+.reader-section .admonitionblock table {
+  display: table;
+  width: 100%;
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: visible;
+}
+
+.reading-body .admonitionblock td.icon,
+.event-body .admonitionblock td.icon,
+.reader-section .admonitionblock td.icon {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+  padding: 0 0.85rem 0 0;
+  font-weight: 650;
+  color: var(--accent);
+}
+
+.reading-body .admonitionblock td.icon .title,
+.event-body .admonitionblock td.icon .title,
+.reader-section .admonitionblock td.icon .title {
+  white-space: nowrap;
+}
+
+.reading-body .admonitionblock td.content,
+.event-body .admonitionblock td.content,
+.reader-section .admonitionblock td.content {
+  width: 99%;
+  vertical-align: top;
+  padding: 0;
+}
+
+.reading-body .admonitionblock td.content > :first-child,
+.event-body .admonitionblock td.content > :first-child,
+.reader-section .admonitionblock td.content > :first-child {
+  margin-top: 0;
+}
+
+.reading-body .admonitionblock td.content > :last-child,
+.event-body .admonitionblock td.content > :last-child,
+.reader-section .admonitionblock td.content > :last-child {
+  margin-bottom: 0;
 }
 
 .section-title { font-size: 1.25rem; margin: 1.5rem 0 0.75rem; }

@@ -107,21 +107,56 @@ export function markupForKind(kind: number): MarkupFormat {
   return resolveMarkup(kind);
 }
 
-export function rewriteWikilinks(src: string): string {
-  let out = src.replace(/\[\[([^\]|#]+)\|([^\]]+)\]\]/g, (_m, target: string, label: string) => {
+export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown'): string {
+  const hrefFor = (slug: string) => `#/search?d=${encodeURIComponent(slug)}`;
+  const toLink = (label: string, slug: string): string => {
+    if (!slug) return label;
+    if (format === 'asciidoc') return `link:${hrefFor(slug)}[${label}]`;
+    return `[${label}](${hrefFor(slug)})`;
+  };
+
+  let out = src;
+
+  // [[target|label]] and [[target]] — skip citation:: markers
+  out = out.replace(/\[\[([^\]|#]+)\|([^\]]+)\]\]/g, (match, target: string, label: string) => {
+    if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     const slug = normalizeDTag(String(target).trim());
-    return `[${label}](#/wiki/d/${encodeURIComponent(slug)})`;
+    return toLink(String(label).trim() || String(target).trim(), slug);
   });
-  out = out.replace(/\[\[([^\]|#]+)\]\]/g, (_m, target: string) => {
+  out = out.replace(/\[\[([^\]|#]+)\]\]/g, (match, target: string) => {
+    if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     const text = String(target).trim();
-    const slug = normalizeDTag(text);
-    return `[${text}](#/wiki/d/${encodeURIComponent(slug)})`;
+    return toLink(text, normalizeDTag(text));
   });
+
+  // Djot/MD unresolved reference links: [text][]
   out = out.replace(/\[([^\]\n]+)\]\[\]/g, (_m, target: string) => {
     const text = String(target).trim();
-    const slug = normalizeDTag(text);
-    return `[${text}](#/wiki/d/${encodeURIComponent(slug)})`;
+    return toLink(text, normalizeDTag(text));
   });
+
+  // Existing markdown / already-rewritten wiki or d-search links → normalize to d-search
+  out = out.replace(
+    /\[([^\]]+)\]\((#\/(?:wiki\/d\/|search\?d=)([^)#\s]+))\)/g,
+    (_m, label: string, _href: string, raw: string) => {
+      const decoded = decodeURIComponent(String(raw).replace(/\+/g, ' '));
+      const slug = normalizeDTag(decoded);
+      return toLink(String(label).trim() || decoded, slug);
+    }
+  );
+
+  // AsciiDoc link:#/wiki/d/slug[label] → d-search
+  if (format === 'asciidoc') {
+    out = out.replace(
+      /link:#\/wiki\/d\/([^[\s\]]+)\[([^\]]*)\]/g,
+      (_m, raw: string, label: string) => {
+        const decoded = decodeURIComponent(String(raw));
+        const slug = normalizeDTag(decoded);
+        return toLink(String(label).trim() || decoded, slug);
+      }
+    );
+  }
+
   return out;
 }
 
@@ -208,13 +243,13 @@ async function renderAsciidocHtml(src: string): Promise<string> {
 }
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
-  const rewritten = rewriteWikilinks(content ?? '');
+  const rewritten = rewriteWikilinks(content ?? '', format);
   try {
     if (format === 'asciidoc') return sanitizeHtml(await renderAsciidocHtml(rewritten));
     if (format === 'djot') return sanitizeHtml(renderDjotHtml(rewritten));
     return sanitizeHtml(renderMarkdownHtml(rewritten));
   } catch {
-    return sanitizeHtml(renderMarkdownHtml(rewritten));
+    return sanitizeHtml(renderMarkdownHtml(rewriteWikilinks(content ?? '', 'markdown')));
   }
 }
 

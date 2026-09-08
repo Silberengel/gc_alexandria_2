@@ -19,7 +19,7 @@ Feature: Landing bookshelves
     And each shelf has its own horizontal shelf-bar and scrolls by itself
     And covers use the publication's image tag when present, else a cover placeholder
     And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
-    And a cover shows a book-icon badge at the bottom-right when that publication's index has at least one section a-tag or e-tag, of any kind
+    And a cover shows a book-icon badge at the bottom-right when that publication's index has at least one e-tag or a non-30040 a-tag (nested 30040s alone do not count)
     And covers load when they enter view
     And publications on a shelf are ranked newest first
     And when a shelf has fewer than 10 publications I see all of them
@@ -37,6 +37,15 @@ Feature: Landing bookshelves
     When every shelf is empty
     Then I still see the global search bar
     And I see no shelf rows
+
+  Scenario: Shelves refresh when identity changes
+    Given I was signed in as Alice and My shelf showed her books
+    When I sign out
+    Then My shelf and Follows disappear immediately
+    And a cached Alice snapshot is not reused as anonymous shelves
+    When I sign in as Bob
+    Then shelves reload for Bob
+    And Alice's My shelf does not linger while Bob's landing loads
 
   Scenario: Signed-in shelves follow the priority order
     Given I am signed in with a kind 3 follow list or kind 30000 follow sets

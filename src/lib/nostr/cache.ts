@@ -1,6 +1,8 @@
 import type { Event } from 'nostr-tools';
 import { CACHE_KINDS } from '../constants';
-import { ingestEvent } from './verify';
+import { dTagVariants, normalizeDTag } from '../dtag';
+import { memoryFindByAddress, rememberEvents } from './event-memory';
+import { firstTag, ingestEvent } from './verify';
 
 const CACHE_NAME = 'alexandria-events-v1';
 const META_KEY = 'alexandria-cache-meta';
@@ -35,6 +37,8 @@ const MAX_SEARCH_SNAPSHOTS = 20;
 export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
 
 export type LandingSnapshot = {
+  /** Hex pubkey of the signed-in viewer when this snapshot was saved; null = anonymous. */
+  viewerPubkey?: string | null;
   publications: Event[];
   highlights: Event[];
   comments: Event[];
@@ -60,6 +64,12 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
   try {
     const raw = (await res.json()) as LandingSnapshot;
     return {
+      viewerPubkey:
+        raw.viewerPubkey === undefined
+          ? undefined
+          : raw.viewerPubkey === null
+            ? null
+            : String(raw.viewerPubkey).toLowerCase(),
       publications: ingestList(raw.publications),
       highlights: ingestList(raw.highlights),
       comments: ingestList(raw.comments),
@@ -82,6 +92,7 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
 export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<void> {
   const cache = await openCache();
   const body = JSON.stringify({
+    viewerPubkey: snap.viewerPubkey === undefined ? null : snap.viewerPubkey,
     publications: snap.publications.slice(0, 50),
     highlights: snap.highlights.slice(0, 10),
     comments: snap.comments.slice(0, 10),
@@ -98,6 +109,13 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
     LANDING_SNAPSHOT_KEY,
     new Response(body, { headers: { 'Content-Type': 'application/json' } })
   );
+  // Also index shelf/cover events so /publication/d/... can open offline / without Mercury.
+  const indexed = [
+    ...snap.publications,
+    ...(snap.referenced ?? []),
+    ...(snap.shelves ?? []).flatMap((s) => s.events)
+  ];
+  void cachePutMany(indexed);
 }
 
 function searchSnapshotUrl(key: string): string {
@@ -157,6 +175,7 @@ export async function cachePutEvent(event: Event): Promise<void> {
   if (!CACHE_KINDS.includes(event.kind as (typeof CACHE_KINDS)[number])) return;
   const verified = ingestEvent(event);
   if (!verified) return;
+  rememberEvents([verified]);
   const cache = await openCache();
   const body = JSON.stringify(verified);
   await cache.put(
@@ -218,6 +237,46 @@ export async function cacheScanByKind(kind: number, limit = 100): Promise<Event[
     if (e && e.kind === kind) out.push(e);
   }
   return out;
+}
+
+/** Newest cached replaceable/addressable event for kind + author + d (NIP-01 #d variants). */
+export async function cacheFindByAddress(
+  kind: number,
+  pubkey: string,
+  d: string
+): Promise<Event | null> {
+  const pk = pubkey.toLowerCase();
+  const wanted = new Set(dTagVariants(d));
+  const normalized = normalizeDTag(d);
+  if (normalized) wanted.add(normalized);
+
+  let best: Event | null = memoryFindByAddress(kind, pk, d);
+  const consider = (e: Event | null) => {
+    if (!e || e.kind !== kind || e.pubkey !== pk) return;
+    const ed = firstTag(e, 'd') ?? '';
+    if (!wanted.has(ed) && !wanted.has(normalizeDTag(ed))) return;
+    if (!best || e.created_at >= best.created_at) best = e;
+  };
+
+  // Memory already has shelf/search hits — skip the slow Cache Storage scan when present.
+  if (best) return best;
+
+  const cache = await openCache();
+  const m = meta();
+  for (const id of [...m.ids].reverse()) {
+    const res = await cache.match(`/event/${id}`);
+    if (!res) continue;
+    consider(ingestEvent(await res.json()));
+  }
+
+  const landing = await cacheGetLandingSnapshot();
+  if (landing) {
+    for (const e of landing.publications) consider(e);
+    for (const e of landing.referenced ?? []) consider(e);
+    for (const shelf of landing.shelves ?? []) for (const e of shelf.events) consider(e);
+  }
+
+  return best;
 }
 
 export function cacheSizeHuman(): string {
