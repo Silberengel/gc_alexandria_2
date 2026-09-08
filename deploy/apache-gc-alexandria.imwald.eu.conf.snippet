@@ -1,0 +1,17 @@
+# Apache VirtualHost snippet for https://gc-alexandria.imwald.eu/
+#
+# Place inside the TLS vhost for that ServerName (after SSLEngine / certificates).
+# Container listens on 127.0.0.1:9071 (see docker-compose.prod.yml).
+#
+# Unlike Imwald/jumble, this SPA has no WebSocket app server and no /api/* sidecars;
+# the browser talks to Nostr relays and Mercury HTTPS directly.
+
+ProxyPreserveHost On
+ProxyRequests Off
+
+ProxyPass        / http://127.0.0.1:9071/
+ProxyPassReverse / http://127.0.0.1:9071/
+
+ProxyAddHeaders On
+Header always set X-Forwarded-Proto "https"
+Header always set X-Forwarded-Port "443"

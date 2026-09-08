@@ -23,6 +23,22 @@ npm run build    # static output in dist/
 npm test
 ```
 
+## Deploy (Docker + Apache)
+
+Image: `silberengel/gc-alexandria-2` on Docker Hub. Container serves the static SPA on host port **9071**.
+
+```bash
+# Local: build and push
+docker login
+./scripts/build-and-push.sh
+
+# Server
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Point the `gc-alexandria.imwald.eu` TLS vhost at `127.0.0.1:9071` using [`deploy/apache-gc-alexandria.imwald.eu.conf.snippet`](deploy/apache-gc-alexandria.imwald.eu.conf.snippet). Production Mercury uses `https://mercury-relay.imwald.eu` directly (no `/mercury` proxy required).
+
 
 ```mermaid
 flowchart LR

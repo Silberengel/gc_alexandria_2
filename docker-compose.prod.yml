@@ -1,0 +1,14 @@
+# Library of Alexandria — production container
+# Host: https://gc-alexandria.imwald.eu/  (Apache → 127.0.0.1:9071)
+#
+# Local:  docker compose -f docker-compose.prod.yml up -d --build
+# Server: docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+services:
+  alexandria:
+    image: silberengel/gc-alexandria-2:latest
+    build: .
+    container_name: gc-alexandria-2
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9071:80"
