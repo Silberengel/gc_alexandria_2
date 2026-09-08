@@ -13,7 +13,9 @@ Feature: Top bar and search
   Scenario: Top bar is on every page
     When I open any page
     Then I see an Alexandria Library logo that opens /
-    And I can open /about, /contact, and /settings from the top bar
+    And I can open /about and /settings from the top bar
+    And when I am signed in I can also open /contact from the top bar
+    And when I am not signed in Contact is omitted from the top bar
     And I see sign-in or my signed-in userbadge
     And I do not see compose, events, or visualize controls
 

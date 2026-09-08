@@ -18,5 +18,5 @@ Feature: Routes
       | /wiki/{naddr\|nevent}        | that page; bar becomes /wiki/d/{d}/p/{npub}         |
       | /settings                    | appearance and cache                                |
       | /about                       | About and getting started                           |
-      | /contact                     | Contact                                             |
+      | /contact                     | Contact when signed in; otherwise redirects to /    |
     Then that is the path for that surface

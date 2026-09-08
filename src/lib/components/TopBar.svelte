@@ -54,7 +54,9 @@
   </a>
   <nav>
     <a href="#/about" use:link>About</a>
-    <a href="#/contact" use:link>Contact</a>
+    {#if $session.pubkey}
+      <a href="#/contact" use:link>Contact</a>
+    {/if}
     <a href="#/settings" use:link>Settings</a>
   </nav>
   {#if showSearch}
