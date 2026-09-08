@@ -12,6 +12,7 @@
   import Contact from './routes/Contact.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { scheduleDeletionSweep } from './lib/deletions';
+  import { session } from './lib/stores/session';
 
   const routes = {
     '/': Home,
@@ -30,9 +31,17 @@
     '*': NotFound
   };
 
+  let ready = $state(false);
+
   onMount(() => {
     scheduleDeletionSweep();
+    // Hydrate from localStorage immediately, then wait briefly for window.nostr.
+    void session.restore().finally(() => {
+      ready = true;
+    });
   });
 </script>
 
-<Router {routes} />
+{#if ready}
+  <Router {routes} />
+{/if}

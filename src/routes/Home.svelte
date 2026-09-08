@@ -6,6 +6,7 @@
   import { LANDING_FEED_LIMIT, loadCachedLanding, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
+  import { get } from 'svelte/store';
   import { muteState, filterMuted } from '$lib/mute';
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { isViewerBoundShelfId } from '$lib/shelves';
@@ -88,7 +89,9 @@
       lastPk = $s.pubkey;
       lastMetaKey = undefined;
       clearIdentityShelves();
-      scheduleLoad();
+      // Signed-in: wait for metadata (loading flips false) so we do not run an empty-mine refresh
+      // that fights the real one for relay slots for minutes.
+      if (!$s.pubkey) scheduleLoad();
     });
     const unsubMeta = session.metadata.subscribe((events) => {
       const pk = session.getPubkey();
@@ -96,6 +99,8 @@
         lastMetaKey = undefined;
         return;
       }
+      // Still fetching login lists — skip the empty clear from applyPubkey.
+      if (get(session).loading) return;
       const key = events
         .filter((e) => e.kind === 3 || e.kind === 10003 || e.kind === 1985 || e.kind === 30045)
         .map((e) => e.id)
@@ -105,10 +110,17 @@
       lastMetaKey = key;
       scheduleLoad();
     });
+    // When metadata load finishes (even with empty lists), refresh once for My shelf.
+    let wasLoading = false;
+    const unsubLoading = session.subscribe(($s) => {
+      if (wasLoading && !$s.loading && $s.pubkey) scheduleLoad();
+      wasLoading = $s.loading;
+    });
     return () => {
       if (debounce) clearTimeout(debounce);
       unsubSession();
       unsubMeta();
+      unsubLoading();
     };
   });
 </script>

@@ -69,18 +69,23 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   const content = event.content?.trim();
   if (!content) return [];
   const ext = window.nostr;
-  const decrypt = ext?.nip04?.decrypt ?? ext?.nip44?.decrypt;
-  if (!decrypt) return [];
-  try {
-    const plain = await decrypt(event.pubkey, content);
-    const parsed = JSON.parse(plain) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (row): row is string[] => Array.isArray(row) && typeof row[0] === 'string'
-    );
-  } catch {
-    return [];
+  // Prefer nip44; many mute lists are not nip04, and nos2x logs loudly on bad nip04 input.
+  const decryptors = [ext?.nip44?.decrypt, ext?.nip04?.decrypt].filter(
+    (fn): fn is (pubkey: string, ciphertext: string) => Promise<string> => typeof fn === 'function'
+  );
+  for (const decrypt of decryptors) {
+    try {
+      const plain = await decrypt(event.pubkey, content);
+      const parsed = JSON.parse(plain) as unknown;
+      if (!Array.isArray(parsed)) continue;
+      return parsed.filter(
+        (row): row is string[] => Array.isArray(row) && typeof row[0] === 'string'
+      );
+    } catch {
+      /* try next decryptor */
+    }
   }
+  return [];
 }
 
 export const mutedPubkeys = derived(muteState, ($s) => $s.pubkeys);

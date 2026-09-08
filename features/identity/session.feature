@@ -20,3 +20,12 @@ Feature: Identity
     Given I am signed in
     When I sign out
     Then I am back to anonymous browse
+
+  Scenario: Refresh keeps NIP-07 session
+    Given a NIP-07 extension is available and I am signed in
+    When I reload the page
+    Then the site restores that pubkey from this browser's local storage and confirms via getPublicKey when the extension is ready
+    And I do not paste an nsec into the page
+    And My shelf can rebuild from login metadata without waiting minutes on per-address relay fetches
+    When I sign out
+    Then the persisted session is cleared and reload stays anonymous

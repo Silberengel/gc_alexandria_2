@@ -22,10 +22,12 @@ import {
   type LandingShelfSnap,
   type LandingSnapshot
 } from './nostr/cache';
-import { fetchByAddress, fetchByAddresses, fetchByIds, poolMap } from './nostr/fetch';
+import { fetchByAddress, fetchByIds, poolMap } from './nostr/fetch';
 import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
+import { cacheFindByAddress } from './nostr/cache';
+import { memoryFindByAddress } from './nostr/event-memory';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
 import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
@@ -270,12 +272,72 @@ async function resolveShelfPublications(memberships: Membership[], known: Event[
   for (const event of known) {
     if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
   }
-  const missingAddrs = [...new Set(memberships.flatMap((m) => (m.address && !byAddr.has(m.address) ? [m.address] : [])))];
-  for (const event of await fetchByAddresses(missingAddrs.slice(0, 80))) {
-    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+
+  const missingAddrs = [
+    ...new Set(memberships.flatMap((m) => (m.address && !byAddr.has(m.address) ? [m.address] : [])))
+  ].slice(0, 80);
+
+  // Local cache/memory first — My shelf should paint without waiting on relays.
+  await poolMap(missingAddrs, 8, async (addr) => {
+    const parsed = parseAddress(addr);
+    if (!parsed || parsed.kind !== KIND.PUBLICATION) return;
+    let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+    if (!event) {
+      try {
+        event = await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+      } catch {
+        event = null;
+      }
+    }
+    if (event?.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+  });
+
+  // Batch remaining by author — one Mercury/WS round-trip per author, not per address.
+  type AuthorGroup = { pubkey: string; ds: string[] };
+  const groups = new Map<string, AuthorGroup>();
+  for (const addr of missingAddrs) {
+    if (byAddr.has(addr)) continue;
+    const parsed = parseAddress(addr);
+    if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+    const g = groups.get(parsed.pubkey) ?? { pubkey: parsed.pubkey, ds: [] };
+    if (!g.ds.includes(parsed.d)) g.ds.push(parsed.d);
+    groups.set(parsed.pubkey, g);
   }
+
+  await poolMap([...groups.values()], 4, async (group) => {
+    const dValues = group.ds.slice(0, 40);
+    if (!dValues.length) return;
+    const filter = {
+      kinds: [KIND.PUBLICATION],
+      authors: [group.pubkey],
+      '#d': dValues,
+      limit: Math.min(100, dValues.length)
+    };
+    try {
+      for (const event of await mercuryFilter(filter)) {
+        if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+      }
+    } catch {
+      /* mercury soft-fail */
+    }
+    const still = dValues.filter((d) => !byAddr.has(`${KIND.PUBLICATION}:${group.pubkey}:${d}`));
+    if (!still.length) return;
+    try {
+      const ws = await relayPool.query(
+        documentStack(),
+        [{ kinds: [KIND.PUBLICATION], authors: [group.pubkey], '#d': still, limit: still.length }],
+        2000
+      );
+      for (const event of ws) {
+        if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+      }
+    } catch {
+      /* relay soft-fail */
+    }
+  });
+
   const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
-  const byId = new Map((await fetchByIds(missingIds.slice(0, 40))).map((e) => [e.id, e]));
+  const byId = new Map((await fetchByIds(missingIds.slice(0, 40), 6)).map((e) => [e.id, e]));
   for (const membership of memberships) {
     if (membership.address) continue;
     if (!membership.eventId) continue;
@@ -292,6 +354,12 @@ type ShelfMembershipPack = {
   liveLabels: Event[];
   liveBookmarks: Event[];
   liveDirs: Event[];
+};
+
+const EMPTY_MEMBERSHIP: ShelfMembershipPack = {
+  liveLabels: [],
+  liveBookmarks: [],
+  liveDirs: []
 };
 
 /** Labels/bookmarks/directories for landing shelves — started in parallel with feed queries. */
@@ -474,16 +542,41 @@ export async function refreshLanding(
     })
   );
 
+  // My shelf from login metadata — resolve in parallel with social membership (not after).
+  const minePackPromise =
+    viewer && session.getMetadata().length
+      ? loadShelvesAndLabels(publications, cacheOk ? cached : null, EMPTY_MEMBERSHIP)
+      : Promise.resolve(null);
+
   // Relay social feeds only when Mercury returned nothing — run beside membership finish.
-  const [commWs, highWs, membership] = await Promise.all([
+  const [commWs, highWs, membership, minePack] = await Promise.all([
     mercComments.length
       ? Promise.resolve([] as Event[])
       : relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
     mercHighlights.length
       ? Promise.resolve([] as Event[])
       : relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
-    membershipPromise
+    membershipPromise,
+    minePackPromise
   ]);
+
+  if (minePack?.shelves.some((s) => s.events.length)) {
+    onUpdate?.(
+      withSubjects({
+        viewerPubkey: viewer,
+        publications,
+        comments: newestCommentPerWork(
+          preferLive(mercComments, cacheOk ? cached?.comments : undefined)
+        ).slice(0, LANDING_FEED_LIMIT),
+        highlights: newestHighlightPerAddress(
+          preferLive(mercHighlights, cacheOk ? cached?.highlights : undefined)
+        ).slice(0, LANDING_FEED_LIMIT),
+        referenced: cacheOk ? (cached?.referenced ?? []) : [],
+        shelves: minePack.shelves,
+        labels: minePack.labels.length ? minePack.labels : cacheOk ? (cached?.labels ?? []) : []
+      })
+    );
+  }
 
   comments = newestCommentPerWork(
     preferLive(
@@ -498,6 +591,20 @@ export async function refreshLanding(
     )
   ).slice(0, LANDING_FEED_LIMIT);
 
+  // Keep My shelf visible while follows/GitCitadel/network membership finishes resolving.
+  const shelvesWhileWaiting =
+    minePack?.shelves.some((s) => s.events.length)
+      ? minePack.shelves
+      : cacheOk
+        ? (cached?.shelves ?? [])
+        : [];
+  const labelsWhileWaiting =
+    minePack?.labels.length
+      ? minePack.labels
+      : cacheOk
+        ? (cached?.labels ?? [])
+        : [];
+
   onUpdate?.(
     withSubjects({
       viewerPubkey: viewer,
@@ -505,8 +612,8 @@ export async function refreshLanding(
       comments,
       highlights,
       referenced: cacheOk ? (cached?.referenced ?? []) : [],
-      shelves: cacheOk ? (cached?.shelves ?? []) : [],
-      labels: cacheOk ? (cached?.labels ?? []) : []
+      shelves: shelvesWhileWaiting,
+      labels: labelsWhileWaiting
     })
   );
 
