@@ -167,13 +167,12 @@ function createSessionStore() {
   async function applyPubkey(pubkey: string, waitMetadata = true): Promise<void> {
     const { nip19 } = await import('nostr-tools');
     const npub = nip19.npubEncode(pubkey);
-    // Drop prior identity's lists before the new pubkey is visible to the UI.
-    // Keep loading=true until metadata finishes so Home does not refresh twice.
-    metadataEvents = [];
-    metadata.set([]);
+    // loading=true before metadata clear so Home skips the empty-list notify.
     set({ pubkey, npub, loading: true });
     writePersistedSession(pubkey, npub);
     relayPool.setSignedIn(true);
+    metadataEvents = [];
+    metadata.set([]);
     const meta = loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     if (waitMetadata) await meta;
   }
@@ -205,10 +204,10 @@ function createSessionStore() {
 
     const persisted = readPersistedSession();
     if (persisted) {
-      metadataEvents = [];
-      metadata.set([]);
       set({ pubkey: persisted.pubkey, npub: persisted.npub, loading: true });
       relayPool.setSignedIn(true);
+      metadataEvents = [];
+      metadata.set([]);
       void confirmRestoredSession(persisted);
       return true;
     }
