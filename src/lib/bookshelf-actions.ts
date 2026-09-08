@@ -73,22 +73,22 @@ export async function toggleBookshelfShelf(
   shelf: BookshelfShelfOption,
   state: BookshelfState
 ): Promise<BookshelfState | { error: string }> {
-  if (!canPublishBookshelfReplacement(state.root, state.rootConfirmed) && shelf.isRoot) {
-    return { error: 'Bookshelf not ready' };
-  }
   const existing =
     shelf.event ??
     (shelf.isRoot ? state.root : state.nestedByCoord.get(shelf.coordinate)) ??
     (await fetchDirectoryByD(pubkey, shelf.d));
-  if (!shelf.isRoot && !existing && !state.rootConfirmed) {
+
+  if (shelf.isRoot) {
+    // Root may be created on first add once load confirmed it missing.
+    if (!canPublishBookshelfReplacement(existing ?? state.root, state.rootConfirmed)) {
+      return { error: 'Bookshelf not ready' };
+    }
+  } else if (!existing) {
+    // Nested toggle must replace a loaded directory; new folders use addNewBookshelf only.
+    // Publishing with existing=null would mint a sparse 30045 and can wipe unseen memberships.
     return { error: 'Bookshelf not ready' };
   }
-  if (
-    !shelf.isRoot &&
-    !canPublishBookshelfReplacement(existing, existing === null)
-  ) {
-    /* nested may be new via create path only */
-  }
+
   const draft = createBookshelfDirectoryDraft(
     existing,
     shelf.d || MY_BOOK_COLLECTION_D_TAG,

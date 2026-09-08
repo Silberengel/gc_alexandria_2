@@ -317,7 +317,8 @@ export function publicationTargetsFromDirectory(event: Event): {
 
 /**
  * Wipe-guard: do not publish a replacement until the existing replaceable is known
- * (loaded) or confirmed missing (`confirmedMissing`).
+ * (loaded) or confirmed missing (`confirmedMissing`). Nested toggles must require a
+ * loaded event; only addNewBookshelf creates new nested directories.
  */
 export function canPublishBookshelfReplacement(
   existing: Event | null | undefined,
