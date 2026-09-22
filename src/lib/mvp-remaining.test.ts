@@ -25,7 +25,7 @@ import { landingLabels } from './labels';
 import { assignShelves, membershipsFromEvents, withBookmarkTag } from './shelves';
 import { aggregateRating, ratingValue, newestRatingPerAuthor, newestRatingPerPublication } from './ratings';
 import { parseKind0, paymentRows } from './profile-fields';
-import { uniqueMedia, contentWithoutMediaUrls } from './media';
+import { uniqueMedia, contentWithoutMediaUrls, rewriteBareImageUrls, promoteImageAutolinks } from './media';
 import { nip19, type Event } from 'nostr-tools';
 import { GITCITADEL_CURATOR_HEX } from './hex';
 
@@ -645,5 +645,19 @@ describe('media once', () => {
     const media = uniqueMedia(event);
     expect(media).toHaveLength(1);
     expect(contentWithoutMediaUrls(event.content, media)).toBe('see');
+  });
+
+  it('rewrites bare image urls into inline image markup', () => {
+    const gif = 'https://c.tenor.com/slhfg2cHPXgAAAAd/tenor.gif';
+    expect(rewriteBareImageUrls(`before\n${gif}\nafter`, 'markdown')).toContain(`![](${gif})`);
+    expect(rewriteBareImageUrls(gif, 'asciidoc')).toContain(`image::${gif}[]`);
+    expect(rewriteBareImageUrls(`![](${gif})`, 'markdown')).toBe(`![](${gif})`);
+  });
+
+  it('promotes linkified image autolinks to img tags', () => {
+    const url = 'https://i.nostr.build/cover.webp';
+    const html = `<p><a href="${url}">${url}</a></p>`;
+    expect(promoteImageAutolinks(html)).toContain(`<img src="${url}"`);
+    expect(promoteImageAutolinks(html)).not.toContain('<a ');
   });
 });

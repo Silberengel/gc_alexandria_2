@@ -8,7 +8,9 @@ export const THIRD_PARTY_RELAYS = [
   'wss://nostr.land',
   'wss://nostr21.com',
   'wss://relay.sovbit.host',
-  'wss://nostr.wine'
+  'wss://nostr.wine',
+  'wss://nostr.xmr.rocks',
+  'wss://pipe.imwald.eu'
 ] as const;
 
 export const DOCUMENT_SEARCH_RELAYS = [

@@ -49,9 +49,13 @@ Feature: In-browser reader
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
     And Mercury /toc lists nested 30040 indexes as headings (not every leaf section)
     And those nested indexes keep their titles and render indented by depth under their parent index
+    And nested layers expand and collapse in the ToC (not a flat stack of buttons)
+    And under any 30040, leaf sections are listed before nested 30040 indexes
+    And the edition's own sections come before nested indexes in the ToC and reading pane
+    And nested 30040 titles appear as headings in the reading pane (not only in the ToC)
     And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
-    And the ToC is an unnumbered list of those titles
+    And the ToC is a nested outline of those titles (expandable where nested)
     And clicking a ToC heading jumps to that section header
     And ToC entries whose section is not in the pane yet are shown disabled until that section loads
     And nested 30040 headings stay clickable so a jump can open that part

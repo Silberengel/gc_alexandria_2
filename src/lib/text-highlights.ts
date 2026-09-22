@@ -150,7 +150,8 @@ export function attachHighlightBadges(node: HTMLElement): () => void {
         img.src = profile.picture;
         img.alt = '';
         img.addEventListener('error', () => {
-          img.replaceWith(anon);
+          // Clone — `anon` may still be in the tree until replaceChildren; never move it with replaceWith.
+          by.replaceChildren(anon.cloneNode(true));
         });
         by.replaceChildren(img);
       }

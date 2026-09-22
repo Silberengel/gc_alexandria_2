@@ -37,13 +37,17 @@
   import {
     decodePublicationPointer,
     enrichToc,
+    buildTocTree,
+    ensureIndexHeadings,
     hexFromNpubParam,
     isUnreadableMeta,
     naddrFor,
     parseToc,
     sectionHeading,
+    tocEntryKey,
     type TocEntry
   } from '$lib/publication-load';
+  import TocPanel from '$lib/components/TocPanel.svelte';
   import { searchByDTag } from '$lib/search';
   import { normalizeDTag } from '$lib/dtag';
   import { parseAddress } from '$lib/library-scope';
@@ -81,6 +85,8 @@
   let jumpBusy = $state(false);
   let jumpLabel = $state('');
   let tocOpen = $state(false);
+  /** Expand/collapse state for nested ToC branches (default: top-level open). */
+  let tocExpanded = $state<Record<string, boolean>>({});
   let readingPane = $state<HTMLElement | undefined>();
   const pageFind = createPageFindController();
 
@@ -101,6 +107,7 @@
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
+  const tocTree = $derived(buildTocTree(readerToc));
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
   const urlFocusComment = $derived(
@@ -149,24 +156,40 @@
       const naddr = naddrFor(target);
       const meta = await mercuryPublicationMeta(naddr, signal);
       if (signal.aborted) return;
-      if (isUnreadableMeta(meta)) {
-        // Index meta can mark a tree missing; keep Read when the 30040 itself lists sections.
-        if (!hasPublicationSection(target)) textUnavailable = true;
+      if (isUnreadableMeta(meta) && !hasPublicationSection(target)) {
+        textUnavailable = true;
         return;
       }
       const rawToc = await mercuryPublicationToc(naddr, signal);
       if (signal.aborted) return;
       toc = parseToc(rawToc, target);
-      const streamed = await mercuryPublicationStream(naddr, undefined, signal);
+      const streamed = await loadSectionEvents(target, signal);
       if (signal.aborted) return;
       if (streamed.length) {
-        sections = streamed;
-        freezeTocFromSections(streamed);
-        void enrichHighlightsFromSections(streamed);
+        adoptSections(streamed, target);
+        void enrichHighlightsFromSections(sections);
       }
     } catch {
       if (signal.aborted) return;
     }
+  }
+
+  /** Mercury /stream is often indexes-only; walk a-tags when leaf bodies are missing. */
+  async function loadSectionEvents(edition: Event, signal?: AbortSignal): Promise<Event[]> {
+    let streamed: Event[] = [];
+    try {
+      streamed = await mercuryPublicationStream(naddrFor(edition), undefined, signal);
+    } catch {
+      streamed = [];
+    }
+    if (signal?.aborted) return streamed;
+    const hasLeafBody = streamed.some((e) => e.kind !== KIND.PUBLICATION);
+    if (!streamed.length || !hasLeafBody) {
+      const walked = await fallbackSections(edition);
+      if (signal?.aborted) return streamed;
+      streamed = mergeSections(streamed, walked);
+    }
+    return streamed;
   }
 
   async function fallbackSections(target: Event): Promise<Event[]> {
@@ -179,7 +202,7 @@
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
       if (!kind || !pubkey || !d) return;
-      // Nested 30040 indexes are walked for their children, not shown as bodies.
+      // Nested 30040 indexes appear as reading-pane headings, then their children.
       if (kind === KIND.PUBLICATION) {
         const [m, w] = await Promise.all([
           mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
@@ -188,6 +211,8 @@
         const nested = m[0] ?? w[0];
         if (!nested || seen.has(nested.id)) return;
         seen.add(nested.id);
+        // Keep the root edition out of the pane; nested indexes are titled headings.
+        if (nested.id !== target.id) out.push(nested);
         for (const tag of nested.tags) {
           if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
           else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
@@ -211,6 +236,7 @@
       if (!hit || seen.has(hit.id)) return;
       seen.add(hit.id);
       if (hit.kind === KIND.PUBLICATION) {
+        if (hit.id !== target.id) out.push(hit);
         for (const tag of hit.tags) {
           if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
           else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
@@ -326,6 +352,24 @@
     toc = enrichToc([], list);
   }
 
+  async function ensureToc(edition: Event): Promise<void> {
+    if (toc.length) return;
+    try {
+      const rawToc = await mercuryPublicationToc(naddrFor(edition));
+      toc = parseToc(rawToc, edition);
+    } catch {
+      toc = parseToc(null, edition);
+    }
+  }
+
+  /** Prefer a real ToC (Mercury / partition) before inventing one from loaded leaves. */
+  function adoptSections(list: Event[], edition: Event): void {
+    if (!toc.length) toc = parseToc(null, edition);
+    const merged = ensureIndexHeadings(list, toc);
+    sections = orderSectionsByToc(merged, toc);
+    freezeTocFromSections(sections);
+  }
+
   let focusKey = '';
 
   async function ensureReadingSections(): Promise<boolean> {
@@ -334,18 +378,12 @@
     if (sections.length) return true;
     readingBusy = true;
     try {
-      try {
-        sections = await mercuryPublicationStream(naddrFor(event));
-      } catch {
-        sections = [];
-      }
-      if (!sections.length) sections = await fallbackSections(event);
-      if (sections.length) {
-        freezeTocFromSections(sections);
+      const loaded = await loadSectionEvents(event);
+      if (loaded.length) {
+        await ensureToc(event);
+        adoptSections(loaded, event);
         void enrichHighlightsFromSections(sections);
       }
-      if (!toc.length) toc = parseToc(null, event);
-      freezeTocFromSections(sections);
       if (!sections.length) {
         unreadable = true;
         reading = false;
@@ -386,17 +424,6 @@
           (await fetchByAddress(focusAddr));
       }
       if (focusKey !== key || event !== edition) return;
-      if (focused) {
-        rememberEvents([focused]);
-        sections = [focused];
-        freezeTocFromSections(sections);
-        void enrichHighlightsFromSections([focused]);
-        readingBusy = false;
-        queueMicrotask(() => {
-          scrollToSection(0, focused!.id, eventAddress(focused!));
-          if (focusQuote) scrollToHighlightQuote(focusQuote);
-        });
-      }
 
       if (!toc.length) {
         try {
@@ -407,6 +434,17 @@
           if (focusKey !== key || event !== edition) return;
           toc = parseToc(null, edition);
         }
+      }
+
+      if (focused) {
+        rememberEvents([focused]);
+        adoptSections([focused], edition);
+        void enrichHighlightsFromSections([focused]);
+        readingBusy = false;
+        queueMicrotask(() => {
+          scrollToSection(0, focused!.id, eventAddress(focused!));
+          if (focusQuote) scrollToHighlightQuote(focusQuote);
+        });
       }
 
       const entry = toc.find((t) => t.address === focusAddr);
@@ -422,15 +460,16 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      if (!streamed.length) streamed = await fallbackSections(edition);
+      if (!streamed.length || !streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
+        streamed = mergeSections(streamed, await fallbackSections(edition));
+      }
       if (focusKey !== key || event !== edition) return;
       if (streamed.length) {
-        sections = orderSectionsByToc(mergeSections(focused ? [focused] : [], streamed), toc);
-        freezeTocFromSections(sections);
+        adoptSections(mergeSections(focused ? [focused] : [], streamed), edition);
         void enrichHighlightsFromSections(sections);
+      } else if (focused) {
+        adoptSections([focused], edition);
       }
-      if (!toc.length) toc = parseToc(null, edition);
-      freezeTocFromSections(sections);
 
       if (focused || sections.length) {
         queueMicrotask(() => {
@@ -670,24 +709,28 @@
     if (!sections.length) {
       readingBusy = true;
       try {
-        try {
-          sections = await mercuryPublicationStream(naddrFor(event));
-        } catch {
-          sections = [];
-        }
-        if (!sections.length) sections = await fallbackSections(event);
-        if (sections.length) {
-          freezeTocFromSections(sections);
+        const loaded = await loadSectionEvents(event);
+        if (loaded.length) {
+          await ensureToc(event);
+          adoptSections(loaded, event);
           void enrichHighlightsFromSections(sections);
         }
-        if (!toc.length) toc = parseToc(null, event);
-        freezeTocFromSections(sections);
         if (!sections.length) {
           unreadable = true;
           reading = false;
           setReadQuery(false);
           return;
         }
+      } finally {
+        readingBusy = false;
+      }
+    } else if (!sections.some((e) => e.kind !== KIND.PUBLICATION)) {
+      // Prefetch may have left indexes-only; fill leaf bodies before reading.
+      readingBusy = true;
+      try {
+        const loaded = await loadSectionEvents(event);
+        if (loaded.length) adoptSections(loaded, event);
+        void enrichHighlightsFromSections(sections);
       } finally {
         readingBusy = false;
       }
@@ -731,6 +774,13 @@
     if (jumpBusy) return true;
     if (entry.index) return false;
     return !tocEntryLoaded(entry);
+  }
+
+  function toggleTocBranch(key: string): void {
+    const entry = readerToc.find((e) => tocEntryKey(e) === key);
+    const defaultOpen = (entry?.depth ?? 0) === 0;
+    const currently = key in tocExpanded ? !!tocExpanded[key] : defaultOpen;
+    tocExpanded = { ...tocExpanded, [key]: !currently };
   }
 
   async function resolveTocSection(entry: TocEntry): Promise<Event | null> {
@@ -794,9 +844,7 @@
 
       if (focused) {
         rememberEvents([focused]);
-        const merged = mergeSections(sections, [focused]);
-        sections = orderSectionsByToc(merged, toc);
-        freezeTocFromSections(sections);
+        adoptSections(mergeSections(sections, [focused]), edition);
         void enrichHighlightsFromSections([focused]);
         jumpBusy = false;
         readingBusy = false;
@@ -819,18 +867,14 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      if (!streamed.length && !focused) {
-        streamed = await fallbackSections(edition);
+      if (!streamed.length || !streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
+        streamed = mergeSections(streamed, await fallbackSections(edition));
       }
       if (focusKey !== key || event !== edition) return;
 
       if (streamed.length || focused) {
-        const merged = mergeSections(sections, streamed);
-        sections = orderSectionsByToc(merged, toc);
-        freezeTocFromSections(sections);
+        adoptSections(mergeSections(sections, streamed), edition);
         void enrichHighlightsFromSections(sections);
-        if (!toc.length) toc = parseToc(null, edition);
-        freezeTocFromSections(sections);
         queueMicrotask(() => {
           if (focusKey !== key) return;
           const scrollId = focused?.id ?? findLoadedSection(entry)?.id;
@@ -1029,28 +1073,16 @@
     {:else}
       <div class="reader-layout">
         {#if readerToc.length}
-          <nav class="toc card" class:toc-open={tocOpen}>
+          <nav class="toc card" class:toc-open={tocOpen} aria-label="Table of contents">
             <h2>Contents</h2>
-            <ul>
-              {#each readerToc as entry}
-                {@const loaded = tocEntryLoaded(entry)}
-                {@const unavailable = tocEntryDisabled(entry)}
-                <li
-                  class:toc-index={!!entry.index}
-                  class:toc-unloaded={!loaded}
-                  style={entry.depth ? `padding-left: ${entry.depth * 0.85}rem` : undefined}
-                >
-                  <button
-                    class="btn"
-                    class:toc-index-btn={!!entry.index}
-                    type="button"
-                    disabled={unavailable}
-                    title={loaded ? undefined : entry.index ? 'Open this part' : 'Not loaded yet'}
-                    onclick={() => void jumpTo(entry)}>{entry.title}</button
-                  >
-                </li>
-              {/each}
-            </ul>
+            <TocPanel
+              nodes={tocTree}
+              expanded={tocExpanded}
+              isLoaded={tocEntryLoaded}
+              isDisabled={tocEntryDisabled}
+              onToggle={toggleTocBranch}
+              onJump={(entry) => void jumpTo(entry)}
+            />
           </nav>
           <button
             class="toc-fab"
@@ -1089,16 +1121,20 @@
           {/if}
           {#each sections as section, i (section.id)}
             {@const sectionKey = eventAddress(section)}
+            {@const isIndex = section.kind === KIND.PUBLICATION}
             {@const pos =
               readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? i}
             <article
               class="reader-section"
+              class:reader-index={isIndex}
               data-read-pos={pos}
               data-section-addr={sectionKey}
               data-section-id={section.id}
             >
               <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
-              {#if isMarkupKind(section.kind)}
+              {#if isIndex}
+                <!-- Nested 30040: title heading only (no catalog card body). -->
+              {:else if isMarkupKind(section.kind)}
                 <div
                   role="presentation"
                   onmouseup={() => rememberPos(pos, section)}
@@ -1108,6 +1144,7 @@
               {:else}
                 <EventCard event={section} />
               {/if}
+              {#if !isIndex}
               <div class="section-toolbar">
                 <div class="menu-wrap">
                   <button
@@ -1214,6 +1251,7 @@
                     >
                   {/if}
                 </div>
+              {/if}
               {/if}
             </article>
           {/each}

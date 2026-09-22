@@ -2198,32 +2198,120 @@ a.listing-row:hover {
 .toc {
   min-width: 0;
   max-width: 100%;
+  font-family: var(--ui-font);
 }
-.toc ul {
+.toc > h2 {
+  margin: 0 0 0.75rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-family: var(--ui-font);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.toc-tree {
   list-style: none;
   margin: 0;
   padding: 0;
 }
-.toc li { margin: 0.35rem 0; }
-.toc .btn {
-  white-space: normal;
+.toc-tree .toc-tree {
+  margin: 0.15rem 0 0.25rem;
+  padding-left: 0.85rem;
+  border-left: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+.toc-item {
+  margin: 0;
+}
+.toc-row {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 0.2rem;
+  align-items: start;
+  min-width: 0;
+}
+.toc-twist,
+.toc-twist-spacer {
+  width: 1.1rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.toc-twist {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 0.2rem;
+}
+.toc-twist:hover,
+.toc-twist:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.toc-twist-icon {
+  display: block;
+  width: 0;
+  height: 0;
+  border-top: 0.28rem solid transparent;
+  border-bottom: 0.28rem solid transparent;
+  border-left: 0.38rem solid currentColor;
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+}
+.toc-item.toc-open > .toc-row .toc-twist-icon {
+  transform: rotate(90deg);
+}
+.toc-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0.2rem 0.15rem;
+  margin: 0;
   text-align: left;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 0.2rem;
+  min-width: 0;
   width: 100%;
 }
-.toc li.toc-index .toc-index-btn {
-  font-weight: 700;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+.toc-link-text {
+  display: inline;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
+  transition: text-decoration-color 0.15s ease, color 0.15s ease;
 }
-.toc li.toc-unloaded > .btn:not(:disabled) {
-  opacity: 0.72;
-  color: var(--text-muted);
-  border-style: dashed;
+.toc-link:hover .toc-link-text,
+.toc-link:focus-visible .toc-link-text {
+  text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
 }
-.toc li.toc-unloaded > .btn:disabled {
-  opacity: 0.45;
-  color: var(--text-muted);
+.toc-link:disabled {
   cursor: not-allowed;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.toc-link:disabled .toc-link-text {
+  text-decoration: none;
+}
+.toc-item.toc-index > .toc-row .toc-link {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.toc-item.toc-unloaded:not(.toc-index) > .toc-row .toc-link:not(:disabled) {
+  color: var(--text-muted);
+}
+.toc-item.toc-unloaded.toc-index > .toc-row .toc-link:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
 }
 .toc-fab {
   display: none;
@@ -2303,6 +2391,18 @@ mark.text-highlight.highlight-flash,
   object-fit: cover;
 }
 .reader-section { margin-bottom: 2rem; scroll-margin-top: 6.5rem; max-width: 100%; min-width: 0; }
+.reader-section.reader-index {
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+.reader-section.reader-index .section-heading {
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-bottom: 0.35rem;
+  color: color-mix(in srgb, var(--text) 92%, var(--accent));
+}
 .section-heading {
   font-size: 1.35rem;
   line-height: 1.3;
@@ -2561,26 +2661,6 @@ a.user-status-line:hover {
       0 0.85rem 2rem color-mix(in srgb, var(--text) 16%, transparent);
   }
   .toc.toc-open { display: block; }
-  .toc h2 {
-    margin: 0 0 0.65rem;
-    padding-bottom: 0.45rem;
-    border-bottom: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
-    font-family: var(--ui-font);
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-  .toc .btn {
-    background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
-    border-color: color-mix(in srgb, var(--border) 70%, transparent);
-  }
-  .toc .btn:hover,
-  .toc .btn:focus-visible {
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-    background: color-mix(in srgb, var(--accent) 10%, var(--surface));
-  }
   .toc-fab {
     display: inline-flex;
     position: fixed;

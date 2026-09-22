@@ -23,6 +23,12 @@ Feature: Generic event card
     And a different imeta file is still shown
     And content is stripped of URLs already shown as media
 
+  Scenario: Bare image URLs render inline
+    Given a section, wiki, note, or comment body contains a bare https image URL (png/jpeg/gif/webp/avif/svg)
+    When that body is rendered
+    Then I see an inline image for that URL, not only linkified text
+    And URLs already used in image:: or markdown image markup are left alone
+
   Scenario: nostr: prefixes become embeds or compact userbadges
     Given a comment, wiki body, or section contains a nostr: prefix immediately before a valid bech32 npub, nprofile, naddr, nevent, or note
     When the target is an npub or nprofile

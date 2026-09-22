@@ -3,6 +3,7 @@ import { parse as parseDjot, renderHTML as renderDjot } from '@djot/djot';
 import MarkdownIt from 'markdown-it';
 import { KIND } from './constants';
 import { normalizeDTag } from './dtag';
+import { promoteImageAutolinks, rewriteBareImageUrls } from './media';
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
@@ -245,13 +246,19 @@ async function renderAsciidocHtml(src: string): Promise<string> {
 }
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
-  const rewritten = rewriteWikilinks(content ?? '', format);
+  const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
   try {
-    if (format === 'asciidoc') return sanitizeHtml(await renderAsciidocHtml(rewritten));
-    if (format === 'djot') return sanitizeHtml(renderDjotHtml(rewritten));
-    return sanitizeHtml(renderMarkdownHtml(rewritten));
+    if (format === 'asciidoc') {
+      return sanitizeHtml(promoteImageAutolinks(await renderAsciidocHtml(rewritten)));
+    }
+    if (format === 'djot') {
+      return sanitizeHtml(promoteImageAutolinks(renderDjotHtml(rewritten)));
+    }
+    return sanitizeHtml(promoteImageAutolinks(renderMarkdownHtml(rewritten)));
   } catch {
-    return sanitizeHtml(renderMarkdownHtml(rewriteWikilinks(content ?? '', 'markdown')));
+    return sanitizeHtml(
+      promoteImageAutolinks(renderMarkdownHtml(rewriteBareImageUrls(rewriteWikilinks(content ?? '', 'markdown'), 'markdown')))
+    );
   }
 }
 
