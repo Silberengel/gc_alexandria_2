@@ -77,6 +77,9 @@
   let treeAbort: AbortController | null = null;
   let pageFilter = $state('');
   let readingBusy = $state(false);
+  /** ToC jump to a section that is not in the pane yet. */
+  let jumpBusy = $state(false);
+  let jumpLabel = $state('');
   let tocOpen = $state(false);
   let readingPane = $state<HTMLElement | undefined>();
   const pageFind = createPageFindController();
@@ -158,6 +161,7 @@
       if (signal.aborted) return;
       if (streamed.length) {
         sections = streamed;
+        freezeTocFromSections(streamed);
         void enrichHighlightsFromSections(streamed);
       }
     } catch {
@@ -166,22 +170,66 @@
   }
 
   async function fallbackSections(target: Event): Promise<Event[]> {
-    const aTags = target.tags.filter((t) => t[0] === 'a' && t[1]).map((t) => t[1]!);
     const out: Event[] = [];
-    for (const coord of aTags.slice(0, 40)) {
+    const seen = new Set<string>();
+
+    async function pushCoord(coord: string): Promise<void> {
       const parts = coord.split(':');
       const kind = Number(parts[0]);
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
-      if (!kind || !pubkey || !d) continue;
-      // Nested 30040 indexes are editions, not readable sections.
-      if (kind === KIND.PUBLICATION) continue;
+      if (!kind || !pubkey || !d) return;
+      // Nested 30040 indexes are walked for their children, not shown as bodies.
+      if (kind === KIND.PUBLICATION) {
+        const [m, w] = await Promise.all([
+          mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
+          relayPool.query(documentStack(), [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }])
+        ]);
+        const nested = m[0] ?? w[0];
+        if (!nested || seen.has(nested.id)) return;
+        seen.add(nested.id);
+        for (const tag of nested.tags) {
+          if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
+          else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
+        }
+        return;
+      }
       const [m, w] = await Promise.all([
         mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
         relayPool.query(documentStack(), [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }])
       ]);
       const hit = m[0] ?? w[0];
-      if (hit) out.push(hit);
+      if (!hit || seen.has(hit.id)) return;
+      seen.add(hit.id);
+      out.push(hit);
+    }
+
+    async function pushId(id: string): Promise<void> {
+      const key = id.toLowerCase();
+      if (seen.has(key)) return;
+      const hit = memoryGetEvent(key) ?? (await fetchById(key));
+      if (!hit || seen.has(hit.id)) return;
+      seen.add(hit.id);
+      if (hit.kind === KIND.PUBLICATION) {
+        for (const tag of hit.tags) {
+          if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
+          else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
+        }
+        return;
+      }
+      out.push(hit);
+    }
+
+    let n = 0;
+    for (const tag of target.tags) {
+      if (n >= 80) break;
+      if (tag[0] === 'a' && tag[1]) {
+        await pushCoord(tag[1]);
+        n += 1;
+      } else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
+        await pushId(tag[1]);
+        n += 1;
+      }
     }
     return out;
   }
@@ -252,6 +300,32 @@
     return [...byId.values()];
   }
 
+  function orderSectionsByToc(list: Event[], entries: TocEntry[]): Event[] {
+    if (list.length < 2) return list;
+    const rank = new Map<string, number>();
+    for (const e of entries) {
+      if (e.address) rank.set(e.address.toLowerCase(), e.pos);
+      if (e.id) rank.set(e.id.toLowerCase(), e.pos);
+    }
+    // Stable: unranked leaves keep stream order (important when /toc is index-only).
+    return [...list]
+      .map((event, i) => ({
+        event,
+        i,
+        r:
+          rank.get(eventAddress(event).toLowerCase()) ??
+          rank.get(event.id.toLowerCase()) ??
+          1_000_000_000 + i
+      }))
+      .sort((a, b) => a.r - b.r || a.i - b.i)
+      .map((row) => row.event);
+  }
+
+  function freezeTocFromSections(list: Event[]): void {
+    if (toc.length || !list.length) return;
+    toc = enrichToc([], list);
+  }
+
   let focusKey = '';
 
   async function ensureReadingSections(): Promise<boolean> {
@@ -266,8 +340,12 @@
         sections = [];
       }
       if (!sections.length) sections = await fallbackSections(event);
-      if (sections.length) void enrichHighlightsFromSections(sections);
+      if (sections.length) {
+        freezeTocFromSections(sections);
+        void enrichHighlightsFromSections(sections);
+      }
       if (!toc.length) toc = parseToc(null, event);
+      freezeTocFromSections(sections);
       if (!sections.length) {
         unreadable = true;
         reading = false;
@@ -311,6 +389,7 @@
       if (focused) {
         rememberEvents([focused]);
         sections = [focused];
+        freezeTocFromSections(sections);
         void enrichHighlightsFromSections([focused]);
         readingBusy = false;
         queueMicrotask(() => {
@@ -346,10 +425,12 @@
       if (!streamed.length) streamed = await fallbackSections(edition);
       if (focusKey !== key || event !== edition) return;
       if (streamed.length) {
-        sections = mergeSections(focused ? [focused] : [], streamed);
+        sections = orderSectionsByToc(mergeSections(focused ? [focused] : [], streamed), toc);
+        freezeTocFromSections(sections);
         void enrichHighlightsFromSections(sections);
       }
       if (!toc.length) toc = parseToc(null, edition);
+      freezeTocFromSections(sections);
 
       if (focused || sections.length) {
         queueMicrotask(() => {
@@ -595,8 +676,12 @@
           sections = [];
         }
         if (!sections.length) sections = await fallbackSections(event);
-        if (sections.length) void enrichHighlightsFromSections(sections);
+        if (sections.length) {
+          freezeTocFromSections(sections);
+          void enrichHighlightsFromSections(sections);
+        }
         if (!toc.length) toc = parseToc(null, event);
+        freezeTocFromSections(sections);
         if (!sections.length) {
           unreadable = true;
           reading = false;
@@ -616,9 +701,54 @@
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
     const el =
       (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
-      (address ? document.querySelector(`[data-section-addr="${address}"]`) : null) ??
+      (address
+        ? document.querySelector(`[data-section-addr="${CSS.escape(address)}"] .section-heading`) ??
+          document.querySelector(`[data-section-addr="${CSS.escape(address)}"]`)
+        : null) ??
+      document.querySelector(`[data-read-pos="${pos}"] .section-heading`) ??
       document.querySelector(`[data-read-pos="${pos}"]`);
-    el?.scrollIntoView({ block: 'start' });
+    if (!el) return;
+    const topBar = document.querySelector('.top-bar');
+    const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
+    const top = el.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }
+
+  function findLoadedSection(entry: TocEntry): Event | undefined {
+    return sections.find(
+      (s) =>
+        (entry.id && s.id === entry.id) ||
+        (entry.address != null && entry.address !== '' && eventAddress(s) === entry.address)
+    );
+  }
+
+  function tocEntryLoaded(entry: TocEntry): boolean {
+    return !!findLoadedSection(entry);
+  }
+
+  /** Leaf sections stay disabled until in the pane; nested 30040 headings stay jumpable. */
+  function tocEntryDisabled(entry: TocEntry): boolean {
+    if (jumpBusy) return true;
+    if (entry.index) return false;
+    return !tocEntryLoaded(entry);
+  }
+
+  async function resolveTocSection(entry: TocEntry): Promise<Event | null> {
+    const loaded = findLoadedSection(entry);
+    if (loaded) return loaded;
+    if (entry.address) {
+      const parsed = parseAddress(entry.address);
+      if (parsed) {
+        const hit =
+          memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
+          (await fetchByAddress(entry.address));
+        if (hit) return hit;
+      }
+    }
+    if (entry.id) {
+      return memoryGetEvent(entry.id) ?? (await fetchById(entry.id));
+    }
+    return null;
   }
 
   $effect(() => {
@@ -641,10 +771,81 @@
     if (readingPane) pageFind.next(readingPane);
   }
 
-  function jumpTo(entry: TocEntry): void {
+  async function jumpTo(entry: TocEntry): Promise<void> {
     tocOpen = false;
-    scrollToSection(entry.pos, entry.id, entry.address);
-    if (event) saveResume(eventAddress(event), { pos: entry.pos, sectionId: entry.id });
+    if (!event || unreadable || !canRead) return;
+
+    const existing = findLoadedSection(entry);
+    if (existing) {
+      scrollToSection(entry.pos, existing.id, eventAddress(existing));
+      saveResume(eventAddress(event), { pos: entry.pos, sectionId: existing.id });
+      return;
+    }
+
+    const edition = event;
+    const key = `toc:${entry.address ?? entry.id ?? entry.pos}`;
+    focusKey = key;
+    jumpLabel = entry.title;
+    jumpBusy = true;
+    readingBusy = true;
+    try {
+      const focused = await resolveTocSection(entry);
+      if (focusKey !== key || event !== edition) return;
+
+      if (focused) {
+        rememberEvents([focused]);
+        const merged = mergeSections(sections, [focused]);
+        sections = orderSectionsByToc(merged, toc);
+        freezeTocFromSections(sections);
+        void enrichHighlightsFromSections([focused]);
+        jumpBusy = false;
+        readingBusy = false;
+        queueMicrotask(() => {
+          if (focusKey !== key) return;
+          scrollToSection(entry.pos, focused.id, eventAddress(focused));
+        });
+        saveResume(eventAddress(edition), { pos: entry.pos, sectionId: focused.id });
+      }
+
+      let streamed: Event[] = [];
+      try {
+        if (Number.isFinite(entry.pos)) {
+          streamed = await mercuryPublicationStream(naddrFor(edition), entry.pos);
+        }
+        if (!streamed.length) {
+          streamed = await mercuryPublicationStream(naddrFor(edition));
+        }
+      } catch {
+        streamed = [];
+      }
+      if (focusKey !== key || event !== edition) return;
+      if (!streamed.length && !focused) {
+        streamed = await fallbackSections(edition);
+      }
+      if (focusKey !== key || event !== edition) return;
+
+      if (streamed.length || focused) {
+        const merged = mergeSections(sections, streamed);
+        sections = orderSectionsByToc(merged, toc);
+        freezeTocFromSections(sections);
+        void enrichHighlightsFromSections(sections);
+        if (!toc.length) toc = parseToc(null, edition);
+        freezeTocFromSections(sections);
+        queueMicrotask(() => {
+          if (focusKey !== key) return;
+          const scrollId = focused?.id ?? findLoadedSection(entry)?.id;
+          scrollToSection(entry.pos, scrollId, entry.address);
+        });
+      } else if (!sections.length) {
+        unreadable = true;
+        reading = false;
+      }
+    } finally {
+      if (focusKey === key) {
+        jumpBusy = false;
+        readingBusy = false;
+      }
+    }
   }
 
   function rememberPos(pos: number, section: Event): void {
@@ -832,8 +1033,21 @@
             <h2>Contents</h2>
             <ul>
               {#each readerToc as entry}
-                <li>
-                  <button class="btn" type="button" onclick={() => jumpTo(entry)}>{entry.title}</button>
+                {@const loaded = tocEntryLoaded(entry)}
+                {@const unavailable = tocEntryDisabled(entry)}
+                <li
+                  class:toc-index={!!entry.index}
+                  class:toc-unloaded={!loaded}
+                  style={entry.depth ? `padding-left: ${entry.depth * 0.85}rem` : undefined}
+                >
+                  <button
+                    class="btn"
+                    class:toc-index-btn={!!entry.index}
+                    type="button"
+                    disabled={unavailable}
+                    title={loaded ? undefined : entry.index ? 'Open this part' : 'Not loaded yet'}
+                    onclick={() => void jumpTo(entry)}>{entry.title}</button
+                  >
                 </li>
               {/each}
             </ul>
@@ -853,18 +1067,30 @@
             </svg>
           </button>
         {/if}
+        {#if jumpBusy}
+          <p class="jump-busy-toast" aria-live="polite">
+            <span class="jump-busy-spinner" aria-hidden="true"></span>
+            Opening “{jumpLabel || 'section'}”…
+          </p>
+        {/if}
         <div class="reading-body" bind:this={readingPane}>
           <PageFilter
             bind:value={pageFilter}
             placeholder="Find in this publication…"
             onEnter={cyclePageFind}
           />
-          {#if readingBusy || !sections.length}
+          {#if jumpBusy && !sections.length}
+            <p class="loading-hint jump-busy" aria-hidden="true">
+              <span class="jump-busy-spinner" aria-hidden="true"></span>
+              Opening “{jumpLabel || 'section'}”…
+            </p>
+          {:else if readingBusy || !sections.length}
             <p class="loading-hint">Publication is loading...</p>
           {/if}
           {#each sections as section, i (section.id)}
-            {@const pos = readerToc.find((e) => e.id === section.id)?.pos ?? readerToc[i]?.pos ?? i}
             {@const sectionKey = eventAddress(section)}
+            {@const pos =
+              readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? i}
             <article
               class="reader-section"
               data-read-pos={pos}

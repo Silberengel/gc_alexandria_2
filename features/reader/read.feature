@@ -7,6 +7,7 @@ Feature: In-browser reader
   Background:
     Given a readable edition with a table of contents and multiple 30041 sections
     And Mercury trees are used when GET /api/publications/:naddr/meta, /toc, and /stream exist for this naddr
+    And /stream is NDJSON of pos-ordered wrappers (from/limit), including nested index headings and leaf kinds such as 30041 and 30023
     And HTTP tree events are verified before they are shown
     And Read always loads this page's 30040 (kind + pubkey + d-tag), never another pubkey's tree for the same d-tag
 
@@ -46,9 +47,17 @@ Feature: In-browser reader
     And the URL includes read=1 so a refresh stays in the reader
     And I stay on /publication/d/{d}/p/{npub}
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
+    And Mercury /toc lists nested 30040 indexes as headings (not every leaf section)
+    And those nested indexes keep their titles and render indented by depth under their parent index
+    And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
     And the ToC is an unnumbered list of those titles
     And clicking a ToC heading jumps to that section header
+    And ToC entries whose section is not in the pane yet are shown disabled until that section loads
+    And nested 30040 headings stay clickable so a jump can open that part
+    And clicking a nested 30040 heading jumps to that index position in the stream
+    And if that section is not in the pane yet, it is fetched and shown before waiting for the rest of the publication
+    And the reader shows a short opening state for that section so the jump does not look inert
     And the first viewport is readable without the entire book
     When I scroll later
     Then subsequent sections appear in order

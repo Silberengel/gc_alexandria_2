@@ -73,7 +73,7 @@
     height: 100%;
   }
   .star-outline {
-    color: color-mix(in srgb, var(--ink) 32%, transparent);
+    color: color-mix(in srgb, var(--text) 32%, transparent);
   }
   .star-fill {
     position: absolute;

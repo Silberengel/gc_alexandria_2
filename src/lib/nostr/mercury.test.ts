@@ -33,3 +33,28 @@ describe('mercury unavailable cooldown', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('parsePublicationStreamNdjson', () => {
+  it('unwraps NDJSON publication stream rows in pos order', async () => {
+    const { finalizeEvent, generateSecretKey, getPublicKey } = await import('nostr-tools');
+    const { parsePublicationStreamNdjson } = await import('./mercury');
+    const sk = generateSecretKey();
+    const pk = getPublicKey(sk);
+    const a = finalizeEvent(
+      { kind: 30041, created_at: 1, tags: [['d', 'ch1']], content: 'one' },
+      sk
+    );
+    const b = finalizeEvent(
+      { kind: 30023, created_at: 1, tags: [['d', 'ch2']], content: 'two' },
+      sk
+    );
+    expect(a.pubkey).toBe(pk);
+    const text = [
+      JSON.stringify({ pos: 0, kind: 30041, d: 'ch1', id: a.id, event: a }),
+      JSON.stringify({ pos: 1, kind: 30023, d: 'ch2', id: b.id, event: b })
+    ].join('\n');
+    const events = parsePublicationStreamNdjson(text);
+    expect(events.map((e) => e.id)).toEqual([a.id, b.id]);
+    expect(events[1]?.kind).toBe(30023);
+  });
+});

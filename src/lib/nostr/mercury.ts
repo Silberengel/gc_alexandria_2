@@ -26,6 +26,31 @@ function parseEvents(data: unknown, source = MERCURY_WSS): Event[] {
   return out;
 }
 
+/** Mercury /stream and /export are NDJSON rows: `{ pos, kind, d, id, event }` (or a bare event). */
+export function parsePublicationStreamNdjson(text: string, source = MERCURY_WSS): Event[] {
+  const out: Event[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!row || typeof row !== 'object') continue;
+    const wrapped = row as { event?: unknown };
+    const candidate = wrapped.event && typeof wrapped.event === 'object' ? wrapped.event : row;
+    const e = ingestEvent(candidate);
+    if (!e || seen.has(e.id)) continue;
+    seen.add(e.id);
+    noteEventSource(e.id, source);
+    out.push(e);
+  }
+  return out;
+}
+
 const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/json' };
 
 const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const;
@@ -184,15 +209,53 @@ export async function mercuryPublicationStream(
   signal?: AbortSignal
 ): Promise<Event[]> {
   const encoded = encodeURIComponent(naddr);
-  const path =
-    pos != null
-      ? `/api/publications/${encoded}/stream?pos=${pos}`
-      : `/api/publications/${encoded}/stream`;
-  const res = await mercuryRequest(path, { signal });
-  if (!res?.ok) return [];
-  try {
-    return parseEvents(await res.json());
-  } catch {
-    return [];
+  const pageSize = 200;
+  let from = pos != null && Number.isFinite(pos) ? Math.max(0, Math.floor(pos)) : 0;
+  const out: Event[] = [];
+  const seen = new Set<string>();
+
+  for (;;) {
+    if (signal?.aborted) break;
+    const path = `/api/publications/${encoded}/stream?from=${from}&limit=${pageSize}`;
+    const res = await mercuryRequest(path, { signal });
+    if (!res?.ok) break;
+    let page: Event[] = [];
+    try {
+      const text = await res.text();
+      // Prefer NDJSON (current Mercury). Fall back to a JSON array of events/wrappers.
+      page = parsePublicationStreamNdjson(text);
+      if (!page.length) {
+        try {
+          const data = JSON.parse(text) as unknown;
+          const rows = Array.isArray(data)
+            ? data
+            : data && typeof data === 'object' && Array.isArray((data as { data?: unknown }).data)
+              ? ((data as { data: unknown[] }).data)
+              : [];
+          for (const row of rows) {
+            if (!row || typeof row !== 'object') continue;
+            const wrapped = row as { event?: unknown };
+            const candidate = wrapped.event && typeof wrapped.event === 'object' ? wrapped.event : row;
+            const e = ingestEvent(candidate);
+            if (e) page.push(e);
+          }
+        } catch {
+          page = [];
+        }
+      }
+    } catch {
+      break;
+    }
+    if (!page.length) break;
+    for (const e of page) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      out.push(e);
+    }
+    if (page.length < pageSize) break;
+    from += page.length;
   }
+
+  if (out.length) void cachePutMany(out).catch(() => {});
+  return out;
 }
