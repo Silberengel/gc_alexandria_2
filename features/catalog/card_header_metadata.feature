@@ -36,9 +36,11 @@ Feature: Publication and wiki card metadata
   Scenario: Full edition header is thorough like a library card
     When I open a /publication/ edition page
     Then I see the cover beside the bibliographic block on a wide viewport
+    And on a narrow screen the cover stacks above the bibliographic block
     And I see titles, authors with roles when present, the Nostr publisher badge, and summary
     And type, imprint, version, section count, and release date appear as labeled facts (not search chips)
     And language appears as a labeled fact with a search link when present
+    And the Details accordion stacks label-above-value on a narrow screen so long ids and relay URLs wrap without horizontal scroll
     And I see a Sources section for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
     And a non-URL source string is a plain source label
     And subject t-tags appear under Topics as #links

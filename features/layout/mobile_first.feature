@@ -7,7 +7,9 @@ Feature: Mobile-first layout
   Scenario: One layout at every width
     When I open the site at a phone width
     Then each page is a usable single column
+    And the top bar stacks cleanly: brand and session on the first row, nav links on the next, search full-width when shown
     And primary actions and comment threads do not require the page itself to scroll horizontally
+    And edition headers and the Details accordion wrap without forcing page-wide horizontal scroll
     And each shelf may scroll horizontally inside its own shelf-bar
     When I widen to a tablet, then a laptop or desktop
     Then the catalog gains columns and the top bar fills the width

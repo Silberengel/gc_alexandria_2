@@ -24,7 +24,7 @@
   import { fetchById, fetchPublication, fetchByAddress } from '$lib/nostr/fetch';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
-  import { nestComments } from '$lib/comments';
+  import { nestComments, fetchThreadEvents } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
@@ -69,6 +69,7 @@
   let textUnavailable = $state(false);
   let loading = $state(true);
   let commentText = $state('');
+  let replyOpenId = $state<string | null>(null);
   let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
   let sectionMenuOpen = $state<string | null>(null);
@@ -95,7 +96,7 @@
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
-  const thread = $derived(nestComments(visibleComments, $muteState));
+  const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
 
@@ -111,11 +112,10 @@
       .filter((t) => t[0] === 'a' && t[1])
       .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
     const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
-    const [rA, rA2, cA, cA2, ...highlightBatches] = await Promise.all([
+    const [rA, rA2, threadEvents, ...highlightBatches] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }]),
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [a], limit: 80 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [a], limit: 80 }]),
+      fetchThreadEvents(target, 80),
       ...chunk(highlightAddrs, 20).map((batch) =>
         relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
       )
@@ -123,9 +123,7 @@
     const ratingById = new Map<string, Event>();
     for (const e of [...rA, ...rA2]) ratingById.set(e.id, e);
     ratings = [...ratingById.values()];
-    const byId = new Map<string, Event>();
-    for (const e of [...cA, ...cA2]) byId.set(e.id, e);
-    comments = [...byId.values()];
+    comments = threadEvents;
     const hById = new Map<string, Event>();
     for (const batch of highlightBatches) {
       for (const e of batch) hById.set(e.id, e);
@@ -327,6 +325,7 @@
     sections = [];
     toc = [];
     focusKey = '';
+    replyOpenId = null;
     cancelTree();
     error = false;
     unreadable = false;
@@ -510,13 +509,7 @@
   async function loadSectionComments(section: Event): Promise<void> {
     const a = eventAddress(section);
     if (sectionComments[a]) return;
-    const [cA, ca] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [a], limit: 40 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [a], limit: 40 }])
-    ]);
-    const byId = new Map<string, Event>();
-    for (const e of [...cA, ...ca]) byId.set(e.id, e);
-    sectionComments = { ...sectionComments, [a]: [...byId.values()] };
+    sectionComments = { ...sectionComments, [a]: await fetchThreadEvents(section, 40) };
   }
 
   async function postComment(): Promise<void> {
@@ -656,18 +649,18 @@
         {#if thread.length}
           <ul class="thread-list">
             {#each thread as node (node.event?.id ?? node.placeholder)}
-              <CommentThread {node} target={event} />
+              <CommentThread {node} target={event} bind:replyOpenId />
             {/each}
           </ul>
         {:else}
           <p class="muted">No comments yet.</p>
         {/if}
-        {#if $session.pubkey}
+        {#if $session.pubkey && !replyOpenId}
           <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
             <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
             <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
           </form>
-        {:else}
+        {:else if !$session.pubkey}
           <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to comment</button>
         {/if}
       </section>
@@ -795,14 +788,14 @@
                 <div class="section-comments">
                   {#if sectionComments[sectionKey]?.length}
                     <ul class="thread-list">
-                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState) as node}
-                        <CommentThread {node} target={section} />
+                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node}
+                        <CommentThread {node} target={section} bind:replyOpenId />
                       {/each}
                     </ul>
                   {:else}
                     <p class="muted">No comments yet.</p>
                   {/if}
-                  {#if $session.pubkey}
+                  {#if $session.pubkey && !replyOpenId}
                     <form
                       class="compose"
                       onsubmit={(e) => {
@@ -828,7 +821,7 @@
                         >Post</button
                       >
                     </form>
-                  {:else}
+                  {:else if !$session.pubkey}
                     <button class="btn" type="button" onclick={() => session.signIn()}
                       >Sign in to comment</button
                     >

@@ -73,6 +73,16 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).toContain('Wiki');
     expect(svg).toContain('Aristotle');
     expect(svg).not.toContain('fill-opacity="0.28"'); // book spine shadow
+    expect(svg).toContain('width="180" height="280"'); // tight parchment inset
+    expect(svg).toMatch(/y="274"[^>]*>Wiki</);
+  });
+
+  it('keeps Spec inside the parchment panel', () => {
+    const spec = { ...ev([['title', 'Nkbip 04'], ['d', 'nkbip-04']]), kind: 30817 };
+    const svg = coverPlaceholderSvg(spec);
+    expect(svg).toContain('>Spec</text>');
+    expect(svg).toContain('y="274"');
+    expect(svg).not.toContain('y="286"');
   });
 });
 

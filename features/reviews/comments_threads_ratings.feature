@@ -6,9 +6,12 @@ Feature: Comments, threads, and ratings
 
   Scenario: Edition threads nest replies
     Given an edition has a kind 1111 comment targeted at that 30040, with a reply
+    And kind 1 notes that e-tag the edition or a comment in the thread are shown too
     When I open that edition
     Then I see the root and its reply nested on the edition page before Read
     And I see each commenter's userbadge
+    And each comment shows a relative created-at time (with the absolute time on hover)
+    And kind 1 replies nest under their parent e-tag (or as roots when that e-tag is the edition)
 
   Scenario: Section comments sit behind a more menu
     When I am reading a section
@@ -16,6 +19,7 @@ Feature: Comments, threads, and ratings
     And there is no horizontal rule above those controls
     When I open Comments from that menu
     Then I see kind 1111 comments targeted at that section
+    And kind 1 replies that e-tag that section or those comments
     And when I am signed in I can compose a new root comment on that section
 
   Scenario: Comments stay scoped
@@ -23,6 +27,10 @@ Feature: Comments, threads, and ratings
     When I comment or reply on an edition, section, or wiki
     Then a kind 1111 NIP-22 event is targeted at that item
     And it does not appear on an unrelated work
+    When I reply to a kind 1 note
+    Then that reply is a kind 1 NIP-10 note with root and reply e-tags
+    When I reply to a kind 1111 comment or a kind 9802 highlight
+    Then that reply is a kind 1111 NIP-22 comment
 
   Scenario: Ratings use kind 34259 on an edition
     Given ratings are kind 34259 events with m=book whose d and a/A tags are 30040:<pubkey>:<d-tag>

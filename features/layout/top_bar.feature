@@ -18,6 +18,8 @@ Feature: Top bar and search
     And when I am not signed in Contact is omitted from the top bar
     And I see sign-in or my signed-in userbadge
     And I do not see compose, events, or visualize controls
+    And on a narrow screen the brand and session share the first row while nav sits on the row below
+    And on a narrow screen the signed-in badge shows the profile picture without the display name
 
   Scenario: Global Nostr search is on the landing page
     When I am on /

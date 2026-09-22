@@ -20,7 +20,7 @@
   import { fetchById } from '$lib/nostr/fetch';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { nestComments } from '$lib/comments';
+  import { nestComments, fetchThreadEvents } from '$lib/comments';
   import { commentDraft } from '$lib/drafts';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
@@ -44,6 +44,7 @@
   let deferredByList = $state<string[]>([]);
   let forwarding = $state(false);
   let commentText = $state('');
+  let replyOpenId = $state<string | null>(null);
   let pageFilter = $state('');
   let loading = $state(true);
   let articlePane = $state<HTMLElement | undefined>();
@@ -53,7 +54,7 @@
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
   const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
   const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
-  const thread = $derived(event ? nestComments(visibleComments, $muteState) : []);
+  const thread = $derived(event ? nestComments(visibleComments, $muteState, [event.id]) : []);
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );
@@ -88,19 +89,30 @@
     const seeds = seedDeferrersFromUrl();
     const addr = eventAddress(target);
     const dTag = target.tags.find((t) => t[0] === 'd')?.[1];
+    // Mercury-first — avoid a second full wikiStack fan-out on every page load.
     const filters = [
-      { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 80 },
-      ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 80 }] : [])
+      { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 40 },
+      ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 40 }] : [])
     ];
-    const batches = await Promise.all(
-      filters.flatMap((filter) => [
-        mercuryFilter(filter),
-        relayPool.query(wikiStack(), [filter])
-      ])
-    );
+    const batches = await Promise.all(filters.map((filter) => mercuryFilter(filter)));
     const byId = new Map<string, Event>();
     for (const batch of batches) for (const e of batch) byId.set(e.id, e);
+    if (byId.size < 2) {
+      const relayHits = await relayPool.query(wikiStack(), filters, 4000, 2);
+      for (const e of relayHits) byId.set(e.id, e);
+    }
     return deferrerPubkeys([...byId.values()], target, seeds);
+  }
+
+  async function paintWiki(fetched: Event): Promise<void> {
+    if (await forwardDeference(fetched)) return;
+    event = fetched;
+    loading = false;
+    // Social + deferrers after first paint — waiting on them left the page stuck under rate limits.
+    void loadSocial(fetched);
+    void loadDeferrers(fetched).then((deferrers) => {
+      deferredByList = deferrers;
+    });
   }
 
   async function eventFromId(id: string): Promise<Event | null> {
@@ -134,26 +146,20 @@
 
   async function loadSocial(target: Event): Promise<void> {
     const addr = eventAddress(target);
-    const highlightAddrs = [...new Set(publicationCoordinateLookupKeys(addr))];
-    const [cA, ca, ...highlightBatches] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [addr], limit: 50 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [addr], limit: 50 }]),
-      ...highlightAddrs
-        .reduce<string[][]>((chunks, key, i) => {
-          const c = Math.floor(i / 20);
-          (chunks[c] ??= []).push(key);
-          return chunks;
-        }, [])
-        .map((batch) =>
-          relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
-        )
+    const highlightAddrs = [...new Set(publicationCoordinateLookupKeys(addr))].slice(0, 20);
+    const [threadEvents, highlightsHit] = await Promise.all([
+      fetchThreadEvents(target, 40),
+      highlightAddrs.length
+        ? relayPool.query(
+            socialStack(),
+            [{ kinds: [KIND.HIGHLIGHT], '#a': highlightAddrs, limit: 40 }],
+            4000,
+            2
+          )
+        : Promise.resolve([] as Event[])
     ]);
-    const byId = new Map<string, Event>();
-    for (const e of [...cA, ...ca]) byId.set(e.id, e);
-    comments = [...byId.values()];
-    const hById = new Map<string, Event>();
-    for (const batch of highlightBatches) for (const e of batch) hById.set(e.id, e);
-    highlights = [...hById.values()];
+    comments = threadEvents;
+    highlights = highlightsHit;
   }
 
   $effect(() => {
@@ -165,6 +171,7 @@
     versions = [];
     comments = [];
     highlights = [];
+    replyOpenId = null;
     error = false;
     forwarding = false;
     loading = true;
@@ -198,11 +205,14 @@
             error = true;
             return;
           }
-          replace(wikiPath(fetched));
-          if (await forwardDeference(fetched)) return;
-          event = fetched;
-          const [, deferrers] = await Promise.all([loadSocial(fetched), loadDeferrers(fetched)]);
-          if (!cancelled) deferredByList = deferrers;
+          const path = wikiPath(fetched);
+          const here = window.location.hash.replace(/^#/, '').split('?')[0];
+          if (here !== path) {
+            // Let the d/npub route effect load once — avoid double social fan-out.
+            replace(path);
+            return;
+          }
+          await paintWiki(fetched);
           return;
         }
 
@@ -210,7 +220,7 @@
           const filter = { kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 50 };
           const [m, w] = await Promise.all([
             mercuryFilter(filter),
-            relayPool.query(wikiStack(), [filter])
+            relayPool.query(wikiStack(), [filter], 5000, 2)
           ]);
           const byId = new Map<string, Event>();
           for (const e of [...m, ...w]) byId.set(e.id, e);
@@ -233,7 +243,7 @@
             limit: 1
           };
           const [wHits, mHits] = await Promise.all([
-            relayPool.query(wikiStack(), [filter]),
+            relayPool.query(wikiStack(), [filter], 5000, 2),
             mercuryFilter(filter)
           ]);
           const fetched = wHits[0] ?? mHits[0] ?? null;
@@ -242,11 +252,7 @@
             error = true;
             return;
           }
-          if (await forwardDeference(fetched)) return;
-          if (cancelled) return;
-          event = fetched;
-          const [, deferrers] = await Promise.all([loadSocial(fetched), loadDeferrers(fetched)]);
-          if (!cancelled) deferredByList = deferrers;
+          await paintWiki(fetched);
         }
       } catch {
         if (!cancelled) error = true;
@@ -322,18 +328,18 @@
       {#if thread.length}
         <ul class="thread-list">
           {#each thread as node (node.event?.id ?? node.placeholder)}
-            <CommentThread {node} target={event} />
+            <CommentThread {node} target={event} bind:replyOpenId />
           {/each}
         </ul>
       {:else}
         <p class="muted">No comments yet.</p>
       {/if}
-      {#if $session.pubkey}
+      {#if $session.pubkey && !replyOpenId}
         <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
           <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
           <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
         </form>
-      {:else}
+      {:else if !$session.pubkey}
         <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to comment</button>
       {/if}
     </section>

@@ -22,10 +22,10 @@
   <PictureCard {event} />
 {:else if event.kind === KIND.VIDEO}
   <VideoCard {event} />
-{:else if event.kind === KIND.HIGHLIGHT || event.kind === KIND.COMMENT}
+{:else if event.kind === KIND.HIGHLIGHT || event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE}
   <article class="card">
     <p class="muted">
-      {event.kind === KIND.HIGHLIGHT ? 'Highlight' : 'Comment'} by
+      {event.kind === KIND.HIGHLIGHT ? 'Highlight' : event.kind === KIND.COMMENT ? 'Comment' : 'Note'} by
       <UserBadge pubkey={event.pubkey} />
     </p>
     <EventBody {event} />

@@ -5,7 +5,7 @@ Feature: Generic event card
   So that search hits, comments, and embeds never become a blank hole
 
   Background:
-    Given dedicated cards win for publications, wiki and spec pages, highlights, comments, kind 20, and kind 21
+    Given dedicated cards win for publications, wiki and spec pages, highlights, comments, kind 1 notes, kind 20, and kind 21
     And one shared generic card is the fallback everywhere else
     And the same card pipeline is used in search, threads, the reader, wiki bodies, and nostr embeds
 

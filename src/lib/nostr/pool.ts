@@ -29,8 +29,8 @@ class RelayPool {
   /** Cap parallel query() calls — landing used to fire many stack scans at once. */
   private activeQueries = 0;
   private queryWaiters: Array<() => void> = [];
-  private static readonly MAX_PARALLEL_QUERIES = 3;
-  private static readonly MAX_RELAYS_PER_QUERY = 5;
+  private static readonly MAX_PARALLEL_QUERIES = 2;
+  private static readonly MAX_RELAYS_PER_QUERY = 3;
 
   setSignedIn(signedIn: boolean): void {
     this.signedIn = signedIn;
@@ -50,16 +50,21 @@ class RelayPool {
   }
 
   /** Never throws — dead relays return []. */
-  async query(relays: string[], filters: Filter[], timeoutMs = 8000): Promise<Event[]> {
+  async query(
+    relays: string[],
+    filters: Filter[],
+    timeoutMs = 8000,
+    maxRelays = RelayPool.MAX_RELAYS_PER_QUERY
+  ): Promise<Event[]> {
     try {
-      const wssRelays = usableRelays(relays, RelayPool.MAX_RELAYS_PER_QUERY);
+      const wssRelays = usableRelays(relays, maxRelays);
       const cleanFilters = normalizeRelayFilters(filters);
       if (!wssRelays.length || !cleanFilters.length) return [];
 
       return await this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
         // Hit a few relays in parallel — sequential maxWait per relay made landing shelves stall for 30s+.
-        const concurrency = Math.min(3, wssRelays.length);
+        const concurrency = Math.min(2, wssRelays.length);
         const pool = this.pool;
         let next = 0;
         async function worker(): Promise<void> {

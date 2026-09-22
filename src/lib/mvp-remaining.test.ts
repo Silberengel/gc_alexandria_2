@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { nestComments } from './comments';
+import { commentDraft } from './drafts';
 import { rewriteWikilinks, isAllowedHref, sanitizeHtml } from './markup';
 import { parseMuteList, filterMuted, isMutedEvent } from './mute';
 import { extractNip32LabelValues, isBooklistEvent, publicationTargets } from './nip32';
@@ -100,6 +101,37 @@ describe('comments nest', () => {
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
   });
 
+  it('nests a kind 1 reply under a kind 1111 parent', () => {
+    const rootId = '1'.repeat(64);
+    const editionId = 'a'.repeat(64);
+    const root = ev({ id: rootId, kind: KIND.COMMENT, tags: [['A', '30040:pk:d']] });
+    const reply = ev({
+      id: '2'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['e', editionId, '', 'root'],
+        ['e', rootId, '', 'reply']
+      ]
+    });
+    const tree = nestComments([root, reply], undefined, [editionId]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.event?.id).toBe(rootId);
+    expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+  });
+
+  it('treats a kind 1 e-tag of the edition as a root', () => {
+    const editionId = 'a'.repeat(64);
+    const note = ev({
+      id: '2'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [['e', editionId, '', 'root']]
+    });
+    const tree = nestComments([note], undefined, [editionId]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.event?.id).toBe(note.id);
+    expect(tree[0]?.placeholder).toBeNull();
+  });
+
   it('uses the shared placeholder for a missing parent', () => {
     const reply = ev({
       id: '2'.repeat(64),
@@ -109,6 +141,50 @@ describe('comments nest', () => {
     const tree = nestComments([reply]);
     expect(tree[0]?.placeholder).toBe(MUTED_PARENT_PLACEHOLDER);
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+  });
+});
+
+describe('comment draft kinds', () => {
+  it('replies to any kind 1 with kind 1', () => {
+    const editionId = 'a'.repeat(64);
+    const edition = ev({
+      id: editionId,
+      kind: KIND.PUBLICATION,
+      pubkey: '1'.repeat(64),
+      tags: [['d', 'book']]
+    });
+    const note = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: '2'.repeat(64),
+      tags: [['e', editionId, '', 'root']]
+    });
+    const draft = commentDraft(edition, 'chain', note);
+    expect(draft.kind).toBe(KIND.TEXT_NOTE);
+    expect(draft.tags).toContainEqual(['e', editionId, '', 'root']);
+    expect(draft.tags).toContainEqual(['e', note.id, '', 'reply']);
+    expect(draft.tags.some((t) => t[0] === 'p' && t[1] === note.pubkey)).toBe(true);
+  });
+
+  it('replies to kind 1111 and 9802 with kind 1111', () => {
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: '1'.repeat(64),
+      tags: [['d', 'book']]
+    });
+    const comment = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.COMMENT,
+      tags: [['A', `30040:${edition.pubkey}:book`]]
+    });
+    const highlight = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.HIGHLIGHT,
+      tags: [['a', `30041:${edition.pubkey}:ch1`]]
+    });
+    expect(commentDraft(edition, 'c', comment).kind).toBe(KIND.COMMENT);
+    expect(commentDraft(edition, 'h', highlight).kind).toBe(KIND.COMMENT);
   });
 });
 

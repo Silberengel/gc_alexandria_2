@@ -117,41 +117,46 @@ function isWikiKind(event: Event): boolean {
 
 export function coverPlaceholderSvg(event: Event): string {
   const palette = paletteFor(event);
+  const wiki = isWikiKind(event);
+  const textX = wiki ? 100 : 114;
   const titleLines = wrapWords(coverTitle(event), 16, 7).map(escapeXml);
   const authorLines = wrapWords(coverAuthor(event), 18, 3).map(escapeXml);
   const titleH = titleLines.length * 22;
-  const titleY = Math.max(86, 70 + (150 - titleH) / 2);
-  const authorY = 272 - Math.max(0, authorLines.length - 1) * 15;
+  const titleY = Math.max(wiki ? 78 : 86, (wiki ? 64 : 70) + (150 - titleH) / 2);
+  // Leave room above the kind label on wiki/spec covers.
+  const authorY = (wiki ? 248 : 272) - Math.max(0, authorLines.length - 1) * 15;
 
   const titleTs = titleLines
     .map(
       (line, i) =>
-        `<text x="114" y="${titleY + i * 22}" text-anchor="middle" font-size="15" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
+        `<text x="${textX}" y="${titleY + i * 22}" text-anchor="middle" font-size="15" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
     )
     .join('');
   const authorTs = authorLines
     .map(
       (line, i) =>
-        `<text x="114" y="${authorY + i * 15}" text-anchor="middle" font-size="11" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.88">${line}</text>`
+        `<text x="${textX}" y="${authorY + i * 15}" text-anchor="middle" font-size="11" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.88">${line}</text>`
     )
     .join('');
   const ruleY = authorLines.length ? authorY - 16 : 0;
   const rule = authorLines.length
-    ? `<line x1="62" y1="${ruleY}" x2="166" y2="${ruleY}" stroke="${palette.gold}" stroke-width="0.8" stroke-opacity="0.75"/>`
+    ? `<line x1="${textX - 52}" y1="${ruleY}" x2="${textX + 52}" y2="${ruleY}" stroke="${palette.gold}" stroke-width="0.8" stroke-opacity="0.75"/>`
     : '';
 
-  if (isWikiKind(event)) {
+  if (wiki) {
     const kindLabel = event.kind === KIND.SPEC ? 'Spec' : 'Wiki';
+    // Tighter cloth margin than the old 18/20 inset — wide borders wasted card space
+    // and pushed the kind label into the clipped dark strip below the panel.
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
 <rect width="200" height="300" fill="${palette.cloth}"/>
-<rect x="18" y="20" width="164" height="260" rx="4" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.4"/>
-<rect x="28" y="32" width="144" height="8" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
-<rect x="28" y="48" width="110" height="6" rx="2" fill="${palette.gold}" fill-opacity="0.22"/>
-<rect x="28" y="60" width="128" height="6" rx="2" fill="${palette.gold}" fill-opacity="0.18"/>
+<rect x="10" y="10" width="180" height="280" rx="3" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.2"/>
+<rect x="22" y="24" width="156" height="7" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
+<rect x="22" y="38" width="118" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.22"/>
+<rect x="22" y="48" width="136" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.18"/>
 ${titleTs}
 ${rule}
 ${authorTs}
-<text x="114" y="286" text-anchor="middle" font-size="11" font-family="system-ui,sans-serif" fill="${palette.panel}" fill-opacity="0.95">${kindLabel}</text>
+<text x="100" y="274" text-anchor="middle" font-size="11" font-family="system-ui,sans-serif" letter-spacing="0.06em" fill="${palette.ink}" fill-opacity="0.55">${kindLabel}</text>
 </svg>`;
   }
 
