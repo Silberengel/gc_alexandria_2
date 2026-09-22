@@ -80,7 +80,7 @@ export function looksLikeLegacyMarkdown(content: string): boolean {
 /**
  * Pick a renderer.
  * - 30041 is always AsciiDoc
- * - 30818 is Djot unless tags or native AsciiDoc say otherwise
+ * - 30818 prefers native AsciiDoc signals, else Djot (tagged, signals, or default)
  * - 11 is Djot unless tags or CommonMark (without Djot signals) say otherwise
  * - everything else is CommonMark
  */
@@ -89,8 +89,10 @@ export function resolveMarkup(kind: number, content = '', tags?: string[][]): Ma
   if (kind === KIND.SECTION) return 'asciidoc';
   if (kind === KIND.WIKI) {
     if (tagged === 'asciidoc' || tagged === 'djot') return tagged;
-    if (looksLikeDjot(content)) return 'djot';
+    // Prefer AsciiDoc when document-level AD signals are present — Djot-first
+    // mis-classifies GitCitadel wiki bodies that also contain `[[wikilinks]]`.
     if (looksLikeNativeAsciidoc(content)) return 'asciidoc';
+    if (looksLikeDjot(content)) return 'djot';
     return 'djot';
   }
   if (kind === KIND.DJOT) {

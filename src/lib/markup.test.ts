@@ -39,6 +39,12 @@ describe('resolveMarkup', () => {
     expect(resolveMarkup(KIND.WIKI, adoc, [['m', 'text/djot']])).toBe('djot');
   });
 
+  it('prefers AsciiDoc over Djot when a wiki has AD signals and wikilinks', () => {
+    const mixed = '== Chapter\n\nSee [[NKBIP-01]] for details.\n\n[source, json]\n----\n{}\n----\n';
+    expect(looksLikeNativeAsciidoc(mixed)).toBe(true);
+    expect(resolveMarkup(KIND.WIKI, mixed)).toBe('asciidoc');
+  });
+
   it('keeps Djot when a wiki has NIP-54 reference wikilinks', () => {
     const djot = 'See [Constantinople][] for the later name.\n';
     expect(looksLikeDjot(djot)).toBe(true);

@@ -476,18 +476,44 @@ input[type='search'], input[type='text'], textarea, select {
 }
 
 .reading-body pre,
-.reading-body table,
 .event-body pre,
-.event-body table,
-.reader-section pre,
-.reader-section table {
+.reader-section pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Asciidoctor wraps tables in .tableblock — scroll the wrapper, keep table layout. */
+.reading-body .tableblock,
+.event-body .tableblock,
+.reader-section .tableblock {
   max-width: 100%;
   overflow-x: auto;
 }
 
 .reading-body table,
-.event-body table {
-  display: block;
+.event-body table,
+.reader-section table {
+  display: table;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+.reading-body .tableblock table,
+.event-body .tableblock table,
+.reader-section .tableblock table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+}
+
+.reading-body .tableblock img,
+.event-body .tableblock img,
+.reader-section .tableblock img,
+.reading-body .imageblock img,
+.event-body .imageblock img {
+  max-width: min(100%, 20rem);
+  height: auto;
 }
 
 /* AsciiDoc admonitions use a 2-column table; display:block collapses the icon cell. */

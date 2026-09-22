@@ -64,7 +64,9 @@ Feature: In-browser reader
   Scenario: Markup is per section kind
     Given I am reading a 30040 whose children include several kinds
     Then 30041 is AsciiDoc
-    And 30818 is Djot falling back to AsciiDoc
+    And 30818 is AsciiDoc when the body has native AsciiDoc signals, otherwise Djot
+    And wiki and section bodies are rendered as one markup document so listing and table blocks stay intact
+    And citation macros and nostr: bech32 tokens become embeds after that render
     And 30817 and 30023 are Markdown
     And 11 is Djot falling back to Markdown
     And 20 and 21 use their dedicated cards

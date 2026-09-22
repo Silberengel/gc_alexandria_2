@@ -3,7 +3,13 @@
   import UserBadge from './UserBadge.svelte';
   import { KIND } from '$lib/constants';
   import { renderWithFallback, markHighlights } from '$lib/markup';
-  import { splitNostrRefs } from '$lib/nostr-refs';
+  import {
+    expandNostrRefPlaceholders,
+    protectNostrRefsForMarkup,
+    splitNostrRefs,
+    type RenderSegment,
+    type ContentSegment
+  } from '$lib/nostr-refs';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
 
   interface Props {
@@ -19,50 +25,80 @@
   const source = $derived(event?.content ?? content);
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
-  const segments = $derived(splitNostrRefs(source));
+  /** Full-document render for markup kinds — splitting first breaks AsciiDoc listings/tables. */
+  const wholeDocument = $derived(
+    sourceKind === KIND.SECTION ||
+      sourceKind === KIND.WIKI ||
+      sourceKind === KIND.SPEC ||
+      sourceKind === KIND.LONG_FORM ||
+      sourceKind === KIND.DJOT
+  );
   const loadingLabel = $derived(
     sourceKind === KIND.SECTION || sourceKind === KIND.PUBLICATION
       ? 'Publication is loading...'
       : 'Page is loading...'
   );
 
-  let htmlByIndex = $state<string[]>([]);
+  let segments = $state<Array<ContentSegment | RenderSegment>>([]);
   let resolved = $state<Record<number, Event | null>>({});
-  const bodyPending = $derived(
-    segments.some((seg, i) => seg.type === 'text' && !!seg.text.trim() && htmlByIndex[i] == null)
-  );
+  let bodyPending = $state(true);
 
   $effect(() => {
-    const segs = segments;
+    const src = source;
     const k = sourceKind;
     const tags = sourceTags;
+    const whole = wholeDocument;
     let cancelled = false;
-    htmlByIndex = [];
+    bodyPending = true;
+    segments = [];
     resolved = {};
     void (async () => {
-      const html: string[] = [];
       const found: Record<number, Event | null> = {};
-      await Promise.all(
-        segs.map(async (seg, i) => {
-          if (seg.type === 'text') {
-            const rendered = await renderWithFallback(k, seg.text, tags);
-            html[i] = markHighlights(rendered, quotes);
-            return;
-          }
-          html[i] = '';
-          if (embedDepth > 1) return;
-          if (seg.kind === 'naddr' && seg.naddr) {
-            found[i] = await fetchByAddress(
-              `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
-            );
-          } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
-            found[i] = await fetchById(seg.id);
-          }
-        })
-      );
+      let next: Array<ContentSegment | RenderSegment> = [];
+
+      if (whole) {
+        const { text, refs } = protectNostrRefsForMarkup(src);
+        const rendered = markHighlights(await renderWithFallback(k, text, tags), quotes);
+        next = expandNostrRefPlaceholders(rendered, refs);
+        await Promise.all(
+          next.map(async (seg, i) => {
+            if (seg.type !== 'ref' || embedDepth > 1) return;
+            if (seg.kind === 'naddr' && seg.naddr) {
+              found[i] = await fetchByAddress(
+                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
+              );
+            } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
+              found[i] = await fetchById(seg.id);
+            }
+          })
+        );
+      } else {
+        const segs = splitNostrRefs(src);
+        next = [];
+        await Promise.all(
+          segs.map(async (seg, i) => {
+            if (seg.type === 'text') {
+              const rendered = await renderWithFallback(k, seg.text, tags);
+              next[i] = { type: 'html', html: markHighlights(rendered, quotes) };
+              return;
+            }
+            next[i] = seg;
+            if (embedDepth > 1) return;
+            if (seg.kind === 'naddr' && seg.naddr) {
+              found[i] = await fetchByAddress(
+                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
+              );
+            } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
+              found[i] = await fetchById(seg.id);
+            }
+          })
+        );
+      }
+
       if (!cancelled) {
-        htmlByIndex = html;
+        segments = next;
         resolved = found;
+        bodyPending = false;
       }
     })();
     return () => {
@@ -82,8 +118,10 @@
     <p class="loading-hint">{loadingLabel}</p>
   {/if}
   {#each segments as seg, i (i)}
-    {#if seg.type === 'text'}
-      {@html htmlByIndex[i] ?? ''}
+    {#if seg.type === 'html'}
+      {@html seg.html}
+    {:else if seg.type === 'text'}
+      {@html seg.text}
     {:else if seg.kind === 'npub' || seg.kind === 'nprofile'}
       {#if seg.pubkey}
         <UserBadge pubkey={seg.pubkey} compact />
