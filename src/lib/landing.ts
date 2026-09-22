@@ -228,20 +228,36 @@ export function publisherForAddress(coord: string, referenced: Event[]): string 
   return parseAddress(coord)?.pubkey ?? '';
 }
 
-export function hrefForRef(event: Event, referenced: Event[]): string | null {
+/** Path to the work page top (no deep-link query). */
+export function pathForRef(event: Event, referenced: Event[]): string | null {
   const work = referencedLibraryAddress(event);
   const section = referencedSectionAddress(event);
   const top = topLevelPublicationAddress(section ?? work, referenced);
-  const path = addressPath(top ?? work ?? '');
+  return addressPath(top ?? work ?? '');
+}
+
+/** Path that opens/scrolls to this highlight, review, or comment on the work page. */
+export function focusHrefForRef(event: Event, referenced: Event[]): string | null {
+  const path = pathForRef(event, referenced);
   if (!path) return null;
   const params = new URLSearchParams();
-  if (section) params.set('section', section);
-  if (event.kind === KIND.HIGHLIGHT) {
+  if (event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE) {
+    params.set('comment', event.id.toLowerCase());
+  } else if (event.kind === KIND.RATING) {
+    params.set('rating', event.id.toLowerCase());
+  } else if (event.kind === KIND.HIGHLIGHT) {
+    const section = referencedSectionAddress(event);
+    if (section) params.set('section', section);
     const q = event.content.replace(/\s+/g, ' ').trim().slice(0, 160);
     if (q) params.set('quote', q);
   }
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
+}
+
+/** @deprecated Prefer {@link pathForRef} (title) or {@link focusHrefForRef} (View …). */
+export function hrefForRef(event: Event, referenced: Event[]): string | null {
+  return focusHrefForRef(event, referenced);
 }
 
 async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {

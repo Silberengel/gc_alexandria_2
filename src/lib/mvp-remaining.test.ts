@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nestComments } from './comments';
+import { nestComments, threadNodeKey } from './comments';
 import { commentDraft } from './drafts';
+import {
+  DEFAULT_LIKE_REACTION_CONTENT,
+  DEFAULT_LIKE_REACTION_DISPLAY_EMOJI,
+  isPositiveLikeContent,
+  likeCount,
+  myLikeReaction,
+  reactionDraft
+} from './reactions';
 import { rewriteWikilinks, isAllowedHref, sanitizeHtml } from './markup';
 import { parseMuteList, filterMuted, isMutedEvent } from './mute';
 import { extractNip32LabelValues, isBooklistEvent, publicationTargets } from './nip32';
@@ -138,8 +146,17 @@ describe('comments nest', () => {
       kind: KIND.COMMENT,
       tags: [['e', '9'.repeat(64)]]
     });
-    const tree = nestComments([reply]);
+    const other = ev({
+      id: '3'.repeat(64),
+      kind: KIND.COMMENT,
+      tags: [['e', '8'.repeat(64)]]
+    });
+    const tree = nestComments([reply, other]);
+    expect(tree).toHaveLength(2);
     expect(tree[0]?.placeholder).toBe(MUTED_PARENT_PLACEHOLDER);
+    expect(tree[0]?.missingParentId).toBe('9'.repeat(64));
+    expect(tree[1]?.missingParentId).toBe('8'.repeat(64));
+    expect(threadNodeKey(tree[0]!)).not.toBe(threadNodeKey(tree[1]!));
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
   });
 });
@@ -185,6 +202,91 @@ describe('comment draft kinds', () => {
     });
     expect(commentDraft(edition, 'c', comment).kind).toBe(KIND.COMMENT);
     expect(commentDraft(edition, 'h', highlight).kind).toBe(KIND.COMMENT);
+  });
+
+  it('replies to a rating with kind 1111 targeted at that rating', () => {
+    const rating = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.RATING,
+      pubkey: '2'.repeat(64),
+      tags: [['d', `30040:${'1'.repeat(64)}:book`], ['a', `30040:${'1'.repeat(64)}:book`]]
+    });
+    const draft = commentDraft(rating, 'nice take');
+    expect(draft.kind).toBe(KIND.COMMENT);
+    expect(draft.tags).toContainEqual(['A', `34259:${rating.pubkey}:30040:${'1'.repeat(64)}:book`]);
+    expect(draft.tags).toContainEqual(['K', String(KIND.RATING)]);
+  });
+});
+
+describe('reactions', () => {
+  it('uses jumble + / heart defaults', () => {
+    expect(DEFAULT_LIKE_REACTION_CONTENT).toBe('+');
+    expect(DEFAULT_LIKE_REACTION_DISPLAY_EMOJI).toBe('\u2665\uFE0F');
+    expect(isPositiveLikeContent('+')).toBe(true);
+    expect(isPositiveLikeContent('❤️')).toBe(true);
+    expect(isPositiveLikeContent('-')).toBe(false);
+  });
+
+  it('drafts kind 7 + reactions with e/p and k/a when needed', () => {
+    const note = ev({ id: 'a'.repeat(64), kind: KIND.TEXT_NOTE, pubkey: '1'.repeat(64) });
+    const noteDraft = reactionDraft(note);
+    expect(noteDraft.kind).toBe(KIND.REACTION);
+    expect(noteDraft.content).toBe('+');
+    expect(noteDraft.tags).toContainEqual(['e', note.id]);
+    expect(noteDraft.tags).toContainEqual(['p', note.pubkey]);
+    expect(noteDraft.tags.some((t) => t[0] === 'k')).toBe(false);
+
+    const rating = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.RATING,
+      pubkey: '2'.repeat(64),
+      tags: [['d', '30040:pk:book']]
+    });
+    const ratingDraftRx = reactionDraft(rating);
+    expect(ratingDraftRx.tags).toContainEqual(['k', String(KIND.RATING)]);
+    expect(ratingDraftRx.tags).toContainEqual(['a', `34259:${rating.pubkey}:30040:pk:book`]);
+
+    const highlight = ev({ id: 'c'.repeat(64), kind: KIND.HIGHLIGHT, pubkey: '3'.repeat(64) });
+    expect(reactionDraft(highlight).tags).toContainEqual(['k', String(KIND.HIGHLIGHT)]);
+    expect(reactionDraft(highlight).tags.some((t) => t[0] === 'a')).toBe(false);
+  });
+
+  it('counts one like per pubkey and finds mine', () => {
+    const target = 'a'.repeat(64);
+    const a = ev({
+      id: '1'.repeat(64),
+      pubkey: 'p'.repeat(64),
+      kind: KIND.REACTION,
+      content: '+',
+      created_at: 1,
+      tags: [['e', target]]
+    });
+    const aNewer = ev({
+      id: '2'.repeat(64),
+      pubkey: 'p'.repeat(64),
+      kind: KIND.REACTION,
+      content: '❤️',
+      created_at: 2,
+      tags: [['e', target]]
+    });
+    const b = ev({
+      id: '3'.repeat(64),
+      pubkey: 'q'.repeat(64),
+      kind: KIND.REACTION,
+      content: '+',
+      created_at: 1,
+      tags: [['e', target]]
+    });
+    const dislike = ev({
+      id: '4'.repeat(64),
+      pubkey: 'r'.repeat(64),
+      kind: KIND.REACTION,
+      content: '-',
+      tags: [['e', target]]
+    });
+    expect(likeCount([a, aNewer, b, dislike])).toBe(2);
+    expect(myLikeReaction([a, aNewer, b], 'p'.repeat(64))?.id).toBe(aNewer.id);
+    expect(myLikeReaction([a, b], null)).toBeNull();
   });
 });
 

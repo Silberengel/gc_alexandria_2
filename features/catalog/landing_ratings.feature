@@ -22,5 +22,9 @@ Feature: Landing publication ratings
   Scenario: A row is usable
     When I open the home page and ratings are present
     Then the publication title is the link
-    And the rater's userbadge, star score, and optional review excerpt sit under the title
-    And clicking the title opens that edition's /publication/d/{d}/p/{npub}
+    And the rater's userbadge, star score, and optional review excerpt sit in a review card
+    And ratings use a responsive grid up to three cards wide
+    And a View review control opens that edition with ?rating={id} and scrolls to that review
+    And clicking the title opens that edition's /publication/d/{d}/p/{npub} at the top (without focusing the rating)
+    And highlights and discussing rows use the same title-vs-View pattern
+    And the landing page does not show reaction or reply controls on ratings

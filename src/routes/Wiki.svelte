@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { replace } from 'svelte-spa-router';
+  import { replace, querystring } from 'svelte-spa-router';
   import TopBar from '$lib/components/TopBar.svelte';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
@@ -20,7 +20,7 @@
   import { fetchById } from '$lib/nostr/fetch';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { nestComments, fetchThreadEvents } from '$lib/comments';
+  import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { commentDraft } from '$lib/drafts';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
@@ -58,6 +58,41 @@
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );
+  const urlFocusComment = $derived(
+    (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
+  );
+
+  let commentFocusApplied = $state('');
+
+  $effect(() => {
+    if (!event || loading) return;
+    void $querystring;
+    const id = urlFocusComment;
+    if (!id) {
+      commentFocusApplied = '';
+      queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+      return;
+    }
+    void comments;
+    if (id === commentFocusApplied) return;
+    let attempts = 20;
+    let timer = 0;
+    const tryScroll = () => {
+      const el = document.getElementById(`comment-${id}`);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        commentFocusApplied = id;
+        return;
+      }
+      if (attempts-- <= 0) return;
+      timer = window.setTimeout(tryScroll, 100);
+    };
+    const tick = requestAnimationFrame(tryScroll);
+    return () => {
+      cancelAnimationFrame(tick);
+      clearTimeout(timer);
+    };
+  });
 
   $effect(() => {
     const root = articlePane;
@@ -327,8 +362,8 @@
       <h2>Comments</h2>
       {#if thread.length}
         <ul class="thread-list">
-          {#each thread as node (node.event?.id ?? node.placeholder)}
-            <CommentThread {node} target={event} bind:replyOpenId />
+          {#each thread as node (threadNodeKey(node))}
+            <CommentThread {node} target={event} bind:replyOpenId focusId={urlFocusComment} />
           {/each}
         </ul>
       {:else}

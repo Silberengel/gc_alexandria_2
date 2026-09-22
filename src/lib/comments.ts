@@ -8,8 +8,17 @@ import { eventAddress, firstTag } from './nostr/verify';
 export type ThreadNode = {
   event: Event | null;
   placeholder: string | null;
+  /** Parent event id when this node is a muted/missing-parent placeholder. */
+  missingParentId?: string;
   children: ThreadNode[];
 };
+
+/** Stable keyed-each id for a thread node (placeholders share the same label text). */
+export function threadNodeKey(node: ThreadNode): string {
+  if (node.event?.id) return node.event.id.toLowerCase();
+  if (node.missingParentId) return `ph:${node.missingParentId}`;
+  return `ph:${node.placeholder ?? 'unknown'}`;
+}
 
 /** Kind 1111 NIP-22 comments and kind 1 NIP-10 notes that participate in a thread. */
 export function isThreadEvent(event: Event): boolean {
@@ -86,7 +95,12 @@ export function nestComments(
     }
     let placeholder = placeholders.get(parentId);
     if (!placeholder) {
-      placeholder = { event: null, placeholder: MUTED_PARENT_PLACEHOLDER, children: [] };
+      placeholder = {
+        event: null,
+        placeholder: MUTED_PARENT_PLACEHOLDER,
+        missingParentId: parentId,
+        children: []
+      };
       placeholders.set(parentId, placeholder);
       roots.push(placeholder);
     }

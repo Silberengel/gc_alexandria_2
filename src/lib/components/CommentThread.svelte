@@ -7,51 +7,56 @@
   import { signAndPublish } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import type { ThreadNode } from '$lib/comments';
+  import { threadNodeKey } from '$lib/comments';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
+  import HeartButton from './HeartButton.svelte';
 
   interface Props {
     node: ThreadNode;
     target: Event;
     /** Shared across the thread — only one reply composer open at a time. */
     replyOpenId?: string | null;
+    /** When set, highlight/scroll target for deep links (?comment=). */
+    focusId?: string;
   }
 
-  let { node, target, replyOpenId = $bindable(null) }: Props = $props();
+  let { node, target, replyOpenId = $bindable(null), focusId = '' }: Props = $props();
   let reply = $state('');
   let posting = $state(false);
 
   const open = $derived(!!node.event && replyOpenId === node.event.id);
   const relative = $derived(node.event ? formatRelativeTime(node.event.created_at) : '');
   const absolute = $derived(node.event ? formatAbsoluteTime(node.event.created_at) : '');
+  const signedIn = $derived(!!$session.pubkey);
+  const canReply = $derived(signedIn);
 
   async function sendReply(): Promise<void> {
-    if (!node.event) return;
-    if (!$session.pubkey) {
-      await session.signIn();
-      return;
-    }
-    if (!reply.trim()) return;
+    if (!node.event || !canReply) return;
+    if (!reply.trim() || posting) return;
     posting = true;
-    const signed = await signAndPublish(commentDraft(target, reply.trim(), node.event));
-    posting = false;
-    if (signed) {
-      node.children = [...node.children, { event: signed, placeholder: null, children: [] }];
-      reply = '';
-      replyOpenId = null;
+    try {
+      const signed = await signAndPublish(commentDraft(target, reply.trim(), node.event));
+      if (signed) {
+        node.children = [...node.children, { event: signed, placeholder: null, children: [] }];
+        reply = '';
+        replyOpenId = null;
+      }
+    } finally {
+      posting = false;
     }
   }
 
-  async function onReplyClick(): Promise<void> {
-    if (!$session.pubkey) {
-      await session.signIn();
-      return;
-    }
-    if (!node.event) return;
+  function onReplyClick(): void {
+    if (!canReply || !node.event) return;
     replyOpenId = replyOpenId === node.event.id ? null : node.event.id;
   }
 </script>
 
-<li class="thread-node">
+<li
+  class="thread-node"
+  class:thread-node-focus={!!node.event && !!focusId && node.event.id.toLowerCase() === focusId.toLowerCase()}
+  id={node.event ? `comment-${node.event.id.toLowerCase()}` : undefined}
+>
   {#if node.placeholder}
     <p class="muted">{node.placeholder}</p>
   {:else if node.event}
@@ -69,13 +74,15 @@
       <EventBody event={node.event} />
     </div>
     <div class="thread-actions">
+      <HeartButton event={node.event} />
       <button
         class="btn btn-icon thread-reply"
         type="button"
-        aria-label={$session.pubkey ? (open ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-        title={$session.pubkey ? (open ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+        disabled={!canReply}
+        aria-label={canReply ? (open ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+        title={canReply ? (open ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
         aria-expanded={open}
-        onclick={() => void onReplyClick()}
+        onclick={onReplyClick}
       >
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path
@@ -85,7 +92,7 @@
         </svg>
       </button>
     </div>
-    {#if open}
+    {#if open && canReply}
       <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendReply(); }}>
         <textarea bind:value={reply} rows="3" placeholder="Write a reply"></textarea>
         <button class="btn btn-primary" type="submit" disabled={posting || !reply.trim()}>Post</button>
@@ -94,8 +101,8 @@
   {/if}
   {#if node.children.length}
     <ul class="thread-children">
-      {#each node.children as child (child.event?.id ?? child.placeholder)}
-        <CommentThread node={child} {target} bind:replyOpenId />
+      {#each node.children as child (threadNodeKey(child))}
+        <CommentThread node={child} {target} bind:replyOpenId {focusId} />
       {/each}
     </ul>
   {/if}

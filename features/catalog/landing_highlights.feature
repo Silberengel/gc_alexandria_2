@@ -11,7 +11,8 @@ Feature: Landing publication highlights
     And an i-tag as the highlight source is for websites, not publications, and is omitted here
     And this list reads the document/search and social/interaction selectors
     And live hits merge Mercury, relay, and client-cache highlights so a just-published quote is not dropped when Mercury still has older rows
-    And clicking a row opens that edition's /publication/d/{d}/p/{npub}
+    And the publication title opens that edition at the top
+    And View highlight opens the reader focused on that quote (?section=&quote= when section-scoped, else ?quote=)
     And the landing page shows at most 10 of those highlights
 
   Scenario: One newest highlight per edition
@@ -27,12 +28,15 @@ Feature: Landing publication highlights
     Given three different npubs have highlighted edition H via a-tags
     And one of those npubs highlighted it twice
     When I open the home page
-    Then the publication title is the link
-    And the highlighter's userbadge sits above the muted excerpt, indented under the title
+    Then the publication title is the link to the edition top
+    And the highlighter's userbadge sits above the muted excerpt under the title
     And that userbadge shows their profile picture (including when the highlighter is me)
+    And a View highlight control deep-links to that quote in the reader
+    And the landing page does not show reaction or reply controls on highlights
 
   Scenario: A section highlight names the edition
     When a highlight's a-tag is a 30041 section
     Then the title is "Publication Title: Section Title"
-    And clicking it opens the parent 30040 with ?section={section address}&quote={excerpt}
+    And the title opens the parent 30040 at the top
+    And View highlight opens the parent 30040 with ?section={section address}&quote={excerpt}
     And the reader opens that section first (without waiting for the full stream) and scrolls the quote into view

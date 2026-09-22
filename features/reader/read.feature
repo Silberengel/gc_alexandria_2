@@ -43,6 +43,7 @@ Feature: In-browser reader
   Scenario: Read shows this naddr's tree
     When I press "Read the publication"
     Then the interaction lists are replaced by the reader
+    And the URL includes read=1 so a refresh stays in the reader
     And I stay on /publication/d/{d}/p/{npub}
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
@@ -61,6 +62,8 @@ Feature: In-browser reader
     Given I have read into chapter 3
     When I leave and reopen the same edition on this device and press "Read the publication"
     Then I return near the last position
+    When I refresh while reading
+    Then I stay in the reader (via read=1) near that position
 
   Scenario: Landing highlight deep-link opens the section first
     When I open /publication/d/{d}/p/{npub}?section={30041 address}&quote={excerpt}

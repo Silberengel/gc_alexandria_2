@@ -152,10 +152,18 @@
 
 <TopBar showSearch />
 
-<main class="shell">
+<main class="shell landing-page">
   <header class="landing-hero">
-    <img src="/screenshots/old_books.jpg" alt="" />
-    <h1>Library of Alexandria</h1>
+    <div class="landing-hero-media">
+      <img src="/screenshots/old_books.jpg" alt="" />
+    </div>
+    <div class="landing-hero-copy">
+      <p class="landing-hero-eyebrow">GitCitadel</p>
+      <h1>Library of Alexandria</h1>
+      <p class="landing-hero-lede muted">
+        A calm shelf of publications, reviews, and quotes from the Nostr library.
+      </p>
+    </div>
   </header>
 
   {#if visibleShelves.length}
@@ -170,7 +178,7 @@
     {/if}
   {:else}
     {#each visibleShelves as shelf (shelf.id)}
-      <section>
+      <section class="landing-section">
         <h2 class="section-title">
           {#if shelf.href}
             <a href={`#${shelf.href}`} use:link>{shelf.title}</a>
@@ -198,9 +206,9 @@
   {/if}
 
   {#if visibleRatings.length}
-    <section>
+    <section class="landing-section">
       <h2 class="section-title">Ratings</h2>
-      <ul class="landing-ref-list">
+      <ul class="landing-review-grid">
         {#each visibleRatings as r (r.id)}
           <LandingRatingRow event={r} {referenced} />
         {/each}
@@ -211,7 +219,7 @@
   {#if visibleHighlights.length || visibleComments.length}
     <div class="landing-feeds">
       {#if visibleHighlights.length}
-        <section>
+        <section class="landing-section">
           <h2 class="section-title">Highlights</h2>
           <ul class="landing-ref-list">
             {#each visibleHighlights as h (h.id)}
@@ -222,7 +230,7 @@
       {/if}
 
       {#if visibleComments.length}
-        <section>
+        <section class="landing-section">
           <h2 class="section-title">What we are discussing</h2>
           <ul class="landing-ref-list">
             {#each visibleComments as c (c.id)}
@@ -235,7 +243,7 @@
   {/if}
 
   {#if visibleSubjects.length}
-    <section>
+    <section class="landing-section">
       <h2 class="section-title">Subjects</h2>
       <div class="chip-row">
         {#each visibleSubjects as subject}
@@ -246,7 +254,7 @@
   {/if}
 
   {#if visibleLabels.length}
-    <section>
+    <section class="landing-section">
       <h2 class="section-title">Labels</h2>
       <div class="chip-row">
         {#each visibleLabels as label}

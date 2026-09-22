@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { preferLive, subjectsFromPublications, orderShelfCovers, titleForAddress, publisherForAddress, displayRefTitle, hrefForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
+import { preferLive, subjectsFromPublications, orderShelfCovers, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
 import type { Event } from 'nostr-tools';
 import type { LandingShelfSnap } from './nostr/cache';
 
@@ -129,11 +129,15 @@ describe('referenced work titles', () => {
     const referenced = [publication, section];
     expect(displayRefTitle(comment, referenced)).toBe('Jane Eyre: Chapter 1');
     expect(topLevelPublicationAddress(secAddr, referenced)).toBe(pubAddr);
-    expect(hrefForRef(comment, referenced)).toContain('/publication/d/jane-eyre/');
-    const href = hrefForRef(highlight, referenced)!;
+    expect(pathForRef(comment, referenced)).toContain('/publication/d/jane-eyre/');
+    expect(pathForRef(comment, referenced)).not.toContain('?');
+    expect(focusHrefForRef(comment, referenced)).toContain(`comment=${comment.id}`);
+    expect(focusHrefForRef(comment, referenced)).not.toContain('section=');
+    const href = focusHrefForRef(highlight, referenced)!;
     const q = href.indexOf('?');
     expect(q).toBeGreaterThan(0);
     expect(href.slice(0, q)).toContain('/publication/d/jane-eyre/');
+    expect(pathForRef(highlight, referenced)).toBe(href.slice(0, q));
     const params = new URLSearchParams(href.slice(q + 1));
     expect(params.get('section')).toBe(secAddr);
     expect(params.get('quote')).toBe('It was a cold winter morning on the moor.');

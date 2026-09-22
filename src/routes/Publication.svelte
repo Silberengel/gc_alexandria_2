@@ -24,7 +24,7 @@
   import { fetchById, fetchPublication, fetchByAddress } from '$lib/nostr/fetch';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
-  import { nestComments, fetchThreadEvents } from '$lib/comments';
+  import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
@@ -99,6 +99,10 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
+  const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
+  const urlFocusComment = $derived(
+    (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
+  );
 
   function cancelTree(): void {
     treeAbort?.abort();
@@ -182,27 +186,64 @@
     return out;
   }
 
-  function focusFromUrl(): { section: string; quote: string } {
+  function focusFromUrl(): {
+    section: string;
+    quote: string;
+    comment: string;
+    rating: string;
+    read: boolean;
+  } {
     const q = new URLSearchParams($querystring ?? '');
     return {
       section: (q.get('section') ?? '').trim(),
-      quote: (q.get('quote') ?? '').trim()
+      quote: (q.get('quote') ?? '').trim(),
+      comment: (q.get('comment') ?? '').trim().toLowerCase(),
+      rating: (q.get('rating') ?? '').trim().toLowerCase(),
+      read: q.get('read') === '1'
     };
   }
 
-  function scrollToHighlightQuote(quote: string, attempts = 12): void {
+  function hashPathOnly(): string {
+    return window.location.hash.replace(/^#/, '').split('?')[0] || (event ? publicationPath(event) : '');
+  }
+
+  /** Sync ?read=1 without clobbering other deep-link params. */
+  function setReadQuery(on: boolean): void {
+    const q = new URLSearchParams($querystring ?? '');
+    const has = q.get('read') === '1';
+    if (on === has) return;
+    if (on) q.set('read', '1');
+    else q.delete('read');
+    const qs = q.toString();
+    const path = hashPathOnly();
+    replace(qs ? `${path}?${qs}` : path);
+  }
+
+  function scrollToHighlightQuote(quote: string, attempts = 40): void {
     const needle = quote.replace(/\s+/g, ' ').trim().slice(0, 80).toLowerCase();
     if (!needle) return;
     const marks = [...document.querySelectorAll<HTMLElement>('mark.text-highlight')];
-    const hit =
+    let hit =
       marks.find((m) => (m.textContent ?? '').replace(/\s+/g, ' ').toLowerCase().includes(needle)) ??
-      marks[0];
+      null;
+    if (!hit) {
+      const nodes = [
+        ...document.querySelectorAll<HTMLElement>(
+          '.reader-section mark.text-highlight, .reader-section p, .reader-section li, .reader-section blockquote, .reader-section .event-body'
+        )
+      ];
+      hit =
+        nodes.find((n) => (n.textContent ?? '').replace(/\s+/g, ' ').toLowerCase().includes(needle)) ??
+        null;
+    }
     if (hit) {
       hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      hit.classList.add('highlight-flash');
+      window.setTimeout(() => hit?.classList.remove('highlight-flash'), 1600);
       return;
     }
     if (attempts <= 0) return;
-    setTimeout(() => scrollToHighlightQuote(quote, attempts - 1), 100);
+    setTimeout(() => scrollToHighlightQuote(quote, attempts - 1), 120);
   }
 
   function mergeSections(primary: Event[], rest: Event[]): Event[] {
@@ -212,6 +253,42 @@
   }
 
   let focusKey = '';
+
+  async function ensureReadingSections(): Promise<boolean> {
+    if (!event || unreadable || !canRead) return false;
+    reading = true;
+    if (sections.length) return true;
+    readingBusy = true;
+    try {
+      try {
+        sections = await mercuryPublicationStream(naddrFor(event));
+      } catch {
+        sections = [];
+      }
+      if (!sections.length) sections = await fallbackSections(event);
+      if (sections.length) void enrichHighlightsFromSections(sections);
+      if (!toc.length) toc = parseToc(null, event);
+      if (!sections.length) {
+        unreadable = true;
+        reading = false;
+        return false;
+      }
+      return true;
+    } finally {
+      readingBusy = false;
+    }
+  }
+
+  /** Open reader for a quote with no section (edition-level highlight). */
+  async function openQuoteReading(quote: string): Promise<void> {
+    const key = `\0${quote}`;
+    focusKey = key;
+    const ok = await ensureReadingSections();
+    if (!ok || focusKey !== key) return;
+    queueMicrotask(() => {
+      if (focusKey === key && quote) scrollToHighlightQuote(quote);
+    });
+  }
 
   async function openFocusedReading(sectionAddr: string, quote: string): Promise<void> {
     if (!event || unreadable || !canRead) return;
@@ -290,13 +367,67 @@
   }
 
   function applyUrlFocus(): void {
-    if (!event || textUnavailable || unreadable || !canRead) return;
+    if (!event || loading) return;
     const focus = focusFromUrl();
-    if (!focus.section) return;
-    const key = `${focus.section}\0${focus.quote}`;
-    if (key === focusKey && reading) return;
-    void openFocusedReading(focus.section, focus.quote);
+    // Landing comment / rating deep links stay on the info page, not the reader.
+    if (focus.comment || focus.rating) {
+      if (reading) reading = false;
+      return;
+    }
+    if (focus.section) {
+      const key = `${focus.section}\0${focus.quote}`;
+      if (key === focusKey && reading) return;
+      if (textUnavailable || unreadable || !canRead) return;
+      void openFocusedReading(focus.section, focus.quote);
+      return;
+    }
+    if (focus.quote) {
+      const key = `\0${focus.quote}`;
+      if (key === focusKey && reading) return;
+      if (textUnavailable || unreadable || !canRead) return;
+      void openQuoteReading(focus.quote);
+      return;
+    }
+    if (focus.read) {
+      if (!reading && canRead && !unreadable && !textUnavailable) {
+        void startReading({ fromUrl: true });
+      }
+      return;
+    }
+    // Plain info URL (title links from landing) — metadata view, forced to top.
+    if (reading) reading = false;
+    focusKey = '';
+    commentFocusApplied = '';
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
+
+  let commentFocusApplied = $state('');
+
+  $effect(() => {
+    if (!event || loading || reading) return;
+    void $querystring;
+    void comments;
+    const id = focusFromUrl().comment;
+    if (!id || id === commentFocusApplied) return;
+    let attempts = 20;
+    let timer = 0;
+    const tryScroll = () => {
+      if (reading) return;
+      const el = document.getElementById(`comment-${id}`);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        commentFocusApplied = id;
+        return;
+      }
+      if (attempts-- <= 0) return;
+      timer = window.setTimeout(tryScroll, 100);
+    };
+    const tick = requestAnimationFrame(tryScroll);
+    return () => {
+      cancelAnimationFrame(tick);
+      clearTimeout(timer);
+    };
+  });
 
   function paintEdition(target: Event): void {
     rememberEvents([target]);
@@ -325,10 +456,21 @@
     sections = [];
     toc = [];
     focusKey = '';
+    commentFocusApplied = '';
     replyOpenId = null;
     cancelTree();
     error = false;
     unreadable = false;
+
+    // Hash navigations keep the previous page's scroll — reset unless a deep-link will re-scroll.
+    const q = new URLSearchParams(
+      typeof window !== 'undefined' ? (window.location.hash.split('?')[1] ?? '') : ''
+    );
+    const deep =
+      q.has('comment') || q.has('rating') || q.has('section') || q.has('quote') || q.get('read') === '1';
+    if (!deep) {
+      queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    }
 
     const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
     const slug = dTag ? normalizeDTag(dTag) || dTag : '';
@@ -432,15 +574,18 @@
   onDestroy(() => cancelTree());
 
   $effect(() => {
-    // Re-apply ?section=&quote= when the hash query changes on the same edition route.
-    if (!event || loading || textUnavailable) return;
+    // Re-apply deep links (?section=&quote=, ?comment=, ?rating=, or plain path → top).
+    if (!event || loading) return;
     void $querystring;
     applyUrlFocus();
   });
 
-  async function startReading(): Promise<void> {
+  async function startReading(opts?: { fromUrl?: boolean }): Promise<void> {
     if (!event || unreadable || !canRead) return;
+    // URL sync can re-enter; ignore if we are already in (or entering) the reader.
+    if (reading && opts?.fromUrl) return;
     reading = true;
+    if (!opts?.fromUrl) setReadQuery(true);
     if (!sections.length) {
       readingBusy = true;
       try {
@@ -455,6 +600,7 @@
         if (!sections.length) {
           unreadable = true;
           reading = false;
+          setReadQuery(false);
           return;
         }
       } finally {
@@ -582,7 +728,18 @@
         h.tags.some((t) => t[0] === 'a' && t[1] && keys.has(t[1])) ||
         h.tags.some((t) => t[0] === 'e' && t[1]?.toLowerCase() === section.id.toLowerCase())
     );
-    return textHighlightsFromEvents(forSection);
+    const fromEvents = textHighlightsFromEvents(forSection);
+    // Deep-link ?quote= from landing: mark even before the kind-9802 event is fetched.
+    if (
+      urlFocusQuote &&
+      !fromEvents.some((h) => h.quote.replace(/\s+/g, ' ').toLowerCase().includes(urlFocusQuote.slice(0, 80).toLowerCase()))
+    ) {
+      const body = section.content.replace(/\s+/g, ' ').toLowerCase();
+      if (body.includes(urlFocusQuote.slice(0, 80).toLowerCase())) {
+        return [...fromEvents, { quote: urlFocusQuote, pubkey: '' }];
+      }
+    }
+    return fromEvents;
   }
 
   async function enrichHighlightsFromSections(secs: Event[]): Promise<void> {
@@ -642,14 +799,18 @@
         <DetailsPanel {event} />
       </header>
 
-      <RatingPanel ratings={visibleRatings} publication={event} />
+      <RatingPanel
+        ratings={visibleRatings}
+        publication={event}
+        focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
+      />
 
       <section class="card" style="margin-bottom:1rem">
         <h2>Comments</h2>
         {#if thread.length}
           <ul class="thread-list">
-            {#each thread as node (node.event?.id ?? node.placeholder)}
-              <CommentThread {node} target={event} bind:replyOpenId />
+            {#each thread as node (threadNodeKey(node))}
+              <CommentThread {node} target={event} bind:replyOpenId focusId={urlFocusComment} />
             {/each}
           </ul>
         {:else}
@@ -788,7 +949,7 @@
                 <div class="section-comments">
                   {#if sectionComments[sectionKey]?.length}
                     <ul class="thread-list">
-                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node}
+                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node (threadNodeKey(node))}
                         <CommentThread {node} target={section} bind:replyOpenId />
                       {/each}
                     </ul>

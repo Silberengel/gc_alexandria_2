@@ -12,6 +12,7 @@ Feature: Comments, threads, and ratings
     And I see each commenter's userbadge
     And each comment shows a relative created-at time (with the absolute time on hover)
     And kind 1 replies nest under their parent e-tag (or as roots when that e-tag is the edition)
+    And each kind 1 or kind 1111 response has a heart button that shows the count of kind 7 "+" likes (rendered as the jumble heart emoji)
 
   Scenario: Section comments sit behind a more menu
     When I am reading a section
@@ -31,6 +32,13 @@ Feature: Comments, threads, and ratings
     Then that reply is a kind 1 NIP-10 note with root and reply e-tags
     When I reply to a kind 1111 comment or a kind 9802 highlight
     Then that reply is a kind 1111 NIP-22 comment
+    When I reply to a kind 34259 rating
+    Then that reply is a kind 1111 NIP-22 comment targeted at that rating
+    When I like a rating, highlight, kind 1 note, or kind 1111 comment
+    Then a kind 7 reaction with content "+" is published (shown as a heart with a count)
+    And liking again removes my reaction with a kind 5 deletion
+    And I cannot like my own events (heart button disabled)
+    And when I am signed out the heart and reply buttons are disabled
 
   Scenario: Ratings use kind 34259 on an edition
     Given ratings are kind 34259 events with m=book whose d and a/A tags are 30040:<pubkey>:<d-tag>
@@ -46,7 +54,12 @@ Feature: Comments, threads, and ratings
     And my previous rating of the same d-tag is replaced
     And a rating of another edition of the same i-tag is a different rating
     And kind 1111 remains the comment thread, separate from the rating form
+    And each listed rating has a heart button and a reply control for kind 1111 replies
+    And when I already have a published rating the form is closed until I click the edit control on my review
+    And a liked heart is filled red; an unliked heart is a line icon with a normal-weight count
     When I clear the rating form
     Then my stars and review text in the form are cleared
     And no kind 5 deletion is published
     And any preexisting rating of mine stays listed
+    When I cancel editing an existing rating
+    Then the form closes and my published review stays listed unchanged
