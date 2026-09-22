@@ -11,10 +11,12 @@ export type TocEntry = {
   title: string;
   address?: string;
   id?: string;
-  /** Nesting depth under the root edition (0 = direct child). */
+  /** Nesting depth under the root edition (0 = edition itself). */
   depth: number;
-  /** True for nested kind-30040 index headings (Mercury /toc). */
+  /** True for kind-30040 index headings (edition or nested). */
   index?: boolean;
+  /** True for the top-level edition ToC row (link to publication top). */
+  root?: boolean;
   kind?: number;
   /** Embedded index event from Mercury /toc (for reading-pane headings). */
   event?: Event;
@@ -26,6 +28,22 @@ export function naddrFor(event: Event): string {
     pubkey: event.pubkey,
     identifier: firstTag(event, 'd') ?? ''
   });
+}
+
+/** Clipboard target for a section/event: naddr when addressable, else nevent. */
+export function copyPointerForEvent(event: Event): { label: 'Copy naddr' | 'Copy nevent'; text: string } {
+  const d = firstTag(event, 'd');
+  if (d != null && event.kind >= 30_000 && event.kind < 40_000) {
+    return { label: 'Copy naddr', text: naddrFor(event) };
+  }
+  return {
+    label: 'Copy nevent',
+    text: nip19.neventEncode({
+      id: event.id,
+      kind: event.kind,
+      author: event.pubkey
+    })
+  };
 }
 
 export function isUnreadableMeta(meta: Record<string, unknown> | null): boolean {
@@ -45,11 +63,29 @@ export function humanizeHeading(title: string): string {
   return humanizeTag(raw) || raw;
 }
 
+/**
+ * Short label for an index d-tag when Mercury omits title
+ * (e.g. `…-category-politics` → `Politics`).
+ */
+export function shortIndexTitle(d: string): string {
+  const raw = d.trim();
+  if (!raw) return 'Untitled';
+  const category = raw.match(/(?:^|-)category-(.+)$/i);
+  if (category?.[1]) return humanizeHeading(category[1]);
+  const parts = raw.split('-').filter(Boolean);
+  if (parts.length > 5) return humanizeHeading(parts.slice(-2).join('-'));
+  return humanizeHeading(raw);
+}
+
 function isPublicationIndexKind(kind: number | undefined): boolean {
   return kind === KIND.PUBLICATION;
 }
 
-function tocAddressFromItem(o: Record<string, unknown>, fallbackKind?: number): string | undefined {
+function tocAddressFromItem(
+  o: Record<string, unknown>,
+  fallbackKind?: number,
+  fallbackPubkey?: string
+): string | undefined {
   if (typeof o.a === 'string' && o.a.includes(':')) return o.a;
   if (typeof o.address === 'string' && o.address.includes(':')) return o.address;
   const embedded = o.event;
@@ -67,7 +103,7 @@ function tocAddressFromItem(o: Record<string, unknown>, fallbackKind?: number): 
       ? o.pubkey
       : embedded && typeof embedded === 'object' && typeof (embedded as { pubkey?: string }).pubkey === 'string'
         ? (embedded as { pubkey: string }).pubkey
-        : undefined;
+        : fallbackPubkey;
   if (Number.isInteger(kind) && pubkey && /^[0-9a-f]{64}$/i.test(pubkey) && d != null) {
     return `${kind}:${pubkey.toLowerCase()}:${d}`;
   }
@@ -276,21 +312,25 @@ export function parseToc(raw: unknown[] | null, publication: Event): TocEntry[] 
       if (item && typeof item === 'object') {
         const o = item as Record<string, unknown>;
         const kind = Number(o.kind);
-        const address = tocAddressFromItem(o, Number.isFinite(kind) ? kind : undefined);
-        const title = humanizeHeading(
-          String(
-            o.title ??
-              o.T ??
-              o.name ??
-              (typeof o.d === 'string' ? o.d : undefined) ??
-              `Section ${i + 1}`
-          )
+        const address = tocAddressFromItem(
+          o,
+          Number.isFinite(kind) ? kind : undefined,
+          publication.pubkey
         );
-        const pos = Number(o.pos ?? o.position ?? i);
-        const id = typeof o.id === 'string' ? o.id : undefined;
+        const rawTitle =
+          (typeof o.title === 'string' && o.title.trim()) ||
+          (typeof o.T === 'string' && o.T.trim()) ||
+          (typeof o.name === 'string' && o.name.trim()) ||
+          '';
+        const d = typeof o.d === 'string' ? o.d : address ? parseAddress(address)?.d : undefined;
         const index =
           isPublicationIndexKind(kind) ||
           Boolean(address && parseAddress(address)?.kind === KIND.PUBLICATION);
+        const title = humanizeHeading(
+          rawTitle || (index && d ? shortIndexTitle(d) : d ? d : `Section ${i + 1}`)
+        );
+        const pos = Number(o.pos ?? o.position ?? i);
+        const id = typeof o.id === 'string' ? o.id : undefined;
         if (address) {
           childAddrs.set(address.toLowerCase(), childAddressesFromItem(o));
           rawByKey.set(address.toLowerCase(), o);
@@ -336,21 +376,54 @@ export function parseToc(raw: unknown[] | null, publication: Event): TocEntry[] 
     const seen = new Set(mercury.map((e) => tocEntryKey(e)));
     // Edition-level sections belong before nested indexes (Mercury /toc omits them).
     const rootLeaves = rootLeafEntries(publication).filter((e) => !seen.has(tocEntryKey(e)));
-    return [...rootLeaves, ...mercury].sort(
-      (a, b) => a.pos - b.pos || Number(!!a.index) - Number(!!b.index)
+    return withEditionRoot(
+      publication,
+      [...rootLeaves, ...mercury].sort(
+        (a, b) => a.pos - b.pos || Number(!!a.index) - Number(!!b.index)
+      )
     );
   }
-  return partitionRootTags(publication);
+  return withEditionRoot(publication, partitionRootTags(publication));
+}
+
+/** Prepend the top-level 30040 as ToC root (title link → publication top). */
+export function withEditionRoot(publication: Event, entries: TocEntry[]): TocEntry[] {
+  if (publication.kind !== KIND.PUBLICATION) return entries;
+  const addr = eventAddress(publication);
+  const addrKey = addr.toLowerCase();
+  if (entries.some((e) => e.root || (e.address && e.address.toLowerCase() === addrKey))) {
+    return entries;
+  }
+  const root: TocEntry = {
+    pos: -1000,
+    title: sectionHeading(publication),
+    address: addr,
+    id: publication.id,
+    depth: 0,
+    index: true,
+    root: true,
+    kind: KIND.PUBLICATION,
+    event: publication
+  };
+  return [
+    root,
+    ...entries.map((entry) => ({
+      ...entry,
+      depth: (entry.depth ?? 0) + 1
+    }))
+  ];
 }
 
 /**
- * Ensure nested 30040 index events from the ToC appear in the reading pane
- * (Mercury /stream may omit them; fallback walks children only).
+ * Ensure edition / nested 30040 events from the ToC appear in the reading pane.
+ * Uses embedded or already-fetched events only — never invents placeholders here
+ * (those block relay fetches for indexes Mercury listed without an embed).
  */
 export function ensureIndexHeadings(sections: Event[], toc: TocEntry[]): Event[] {
   if (!toc.length) return sections;
   const have = new Set<string>();
   for (const section of sections) {
+    if (isPlaceholderIndex(section)) continue;
     have.add(section.id.toLowerCase());
     have.add(eventAddress(section).toLowerCase());
   }
@@ -359,15 +432,113 @@ export function ensureIndexHeadings(sections: Event[], toc: TocEntry[]): Event[]
     if (!entry.index) continue;
     if (entry.id && have.has(entry.id.toLowerCase())) continue;
     if (entry.address && have.has(entry.address.toLowerCase())) continue;
-    const ev = entry.event;
-    if (!ev || ev.kind !== KIND.PUBLICATION) continue;
+    const ev = entry.event?.kind === KIND.PUBLICATION ? entry.event : null;
+    if (!ev || isPlaceholderIndex(ev)) continue;
     if (have.has(ev.id.toLowerCase())) continue;
     have.add(ev.id.toLowerCase());
     have.add(eventAddress(ev).toLowerCase());
     extra.push(ev);
   }
-  if (!extra.length) return sections;
-  return [...sections, ...extra];
+  if (!extra.length) return dropSupersededPlaceholders(sections);
+  return dropSupersededPlaceholders([...sections, ...extra]);
+}
+
+/** Synthetic title-only index (created_at 0, zero sig) used when relays have no event. */
+export function isPlaceholderIndex(event: Event): boolean {
+  return event.kind === KIND.PUBLICATION && event.created_at === 0 && /^0+$/.test(event.sig);
+}
+
+/** Drop placeholder 30040s when a real event for the same address is present. */
+export function dropSupersededPlaceholders(sections: Event[]): Event[] {
+  const realAddrs = new Set(
+    sections.filter((e) => !isPlaceholderIndex(e)).map((e) => eventAddress(e).toLowerCase())
+  );
+  return sections.filter(
+    (e) => !isPlaceholderIndex(e) || !realAddrs.has(eventAddress(e).toLowerCase())
+  );
+}
+
+/** Merge section lists by id, preferring real events over placeholders. */
+export function mergePublicationSections(...lists: Event[][]): Event[] {
+  const byId = new Map<string, Event>();
+  for (const list of lists) {
+    for (const event of list) {
+      const cur = byId.get(event.id);
+      if (!cur || (isPlaceholderIndex(cur) && !isPlaceholderIndex(event))) {
+        byId.set(event.id, event);
+      }
+    }
+  }
+  return dropSupersededPlaceholders([...byId.values()]);
+}
+
+/** Bind fetched index events onto ToC rows and expand their leaf children. */
+export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEntry[] {
+  if (!toc.length || !sections.length) return toc;
+  const byAddr = new Map<string, Event>();
+  for (const section of sections) {
+    if (section.kind !== KIND.PUBLICATION || isPlaceholderIndex(section)) continue;
+    byAddr.set(eventAddress(section).toLowerCase(), section);
+  }
+  const bound = toc.map((entry) => {
+    if (!entry.index || !entry.address) return entry;
+    const hit = byAddr.get(entry.address.toLowerCase());
+    if (!hit) return entry;
+    return {
+      ...entry,
+      id: hit.id,
+      title: sectionHeading(hit) || entry.title,
+      event: hit
+    };
+  });
+  const seen = new Set(bound.map((e) => tocEntryKey(e)));
+  const leaves: TocEntry[] = [];
+  for (const entry of bound) {
+    if (!entry.index || entry.root || !entry.event) continue;
+    for (const leaf of leafEntriesFromItem({ event: entry.event }, entry)) {
+      const key = tocEntryKey(leaf);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      leaves.push(leaf);
+    }
+  }
+  if (!leaves.length) return bound;
+  return [...bound, ...leaves].sort(
+    (a, b) => a.pos - b.pos || Number(!!a.index) - Number(!!b.index)
+  );
+}
+
+/** Deterministic placeholder id for ghost Mercury index rows (no published event). */
+function placeholderEventId(seed: string): string {
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < seed.length; i++) {
+    bytes[i % 32] ^= seed.charCodeAt(i) & 0xff;
+    bytes[(i + 7) % 32] = (bytes[(i + 7) % 32]! + seed.charCodeAt(i)) & 0xff;
+  }
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Build a title-only 30040 when Mercury lists an index with no fetchable event. */
+export function placeholderIndexEvent(entry: TocEntry): Event | null {
+  if (!entry.index || !entry.address) return null;
+  const parsed = parseAddress(entry.address);
+  if (!parsed || parsed.kind !== KIND.PUBLICATION) return null;
+  const title =
+    entry.title && entry.title !== humanizeHeading(parsed.d)
+      ? entry.title
+      : shortIndexTitle(parsed.d);
+  return {
+    id: entry.id && /^[0-9a-f]{64}$/i.test(entry.id) ? entry.id.toLowerCase() : placeholderEventId(entry.address),
+    pubkey: parsed.pubkey.toLowerCase(),
+    created_at: 0,
+    kind: KIND.PUBLICATION,
+    tags: [
+      ['d', parsed.d],
+      ['title', title]
+    ],
+    content: '',
+    sig: '0'.repeat(128)
+  };
 }
 
 function sectionMatchesEntry(section: Event, entry: TocEntry): boolean {

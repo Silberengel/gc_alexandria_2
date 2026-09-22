@@ -63,3 +63,10 @@ export function coverImageUrl(event: Event): string | undefined {
 
   return undefined;
 }
+
+/** Explicit `image` tag for reader section/index heroes (no Gutenberg/imeta fallback). */
+export function sectionHeroImageUrl(event: Event): string | undefined {
+  const image = firstTag(event, 'image')?.trim();
+  if (image && DIRECT_IMAGE.test(image)) return toNostrBuildThumbUrl(image);
+  return undefined;
+}

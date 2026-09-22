@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { coverImageUrl, gutenbergCoverUrl } from './cover';
+import { coverImageUrl, gutenbergCoverUrl, sectionHeroImageUrl } from './cover';
 
 function ev(tags: string[][]): Event {
   return {
@@ -30,5 +30,18 @@ describe('coverImageUrl', () => {
     );
     expect(coverImageUrl(ev([['d', 'pg141-mansfield-park']]))).toBe(gutenbergCoverUrl('141'));
     expect(coverImageUrl(ev([['i', 'gutenberg:141']]))).toBe(gutenbergCoverUrl('141'));
+  });
+});
+
+describe('sectionHeroImageUrl', () => {
+  it('uses only an explicit image tag', () => {
+    expect(sectionHeroImageUrl(ev([['image', 'https://example.com/hero.jpg']]))).toBe(
+      'https://example.com/hero.jpg'
+    );
+    expect(sectionHeroImageUrl(ev([['image', 'https://i.nostr.build/hero.webp']]))).toBe(
+      'https://i.nostr.build/thumb/hero.webp'
+    );
+    expect(sectionHeroImageUrl(ev([['d', 'pg141-mansfield-park']]))).toBeUndefined();
+    expect(sectionHeroImageUrl(ev([['s', 'https://www.gutenberg.org/ebooks/141']]))).toBeUndefined();
   });
 });

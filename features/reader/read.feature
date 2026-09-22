@@ -52,6 +52,9 @@ Feature: In-browser reader
     And nested layers expand and collapse in the ToC (not a flat stack of buttons)
     And under any 30040, leaf sections are listed before nested 30040 indexes
     And the edition's own sections come before nested indexes in the ToC and reading pane
+    And the top-level 30040 title is the first ToC link (jumps to the publication top) and the first reading-pane heading
+    And an index or section with an image tag shows that image as a hero above its heading
+    And a Mercury index row with no event still shows as a titled heading in the ToC and reading pane
     And nested 30040 titles appear as headings in the reading pane (not only in the ToC)
     And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag

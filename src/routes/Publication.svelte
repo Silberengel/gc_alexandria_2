@@ -34,15 +34,22 @@
   import { session } from '$lib/stores/session';
   import { loadResume, saveResume } from '$lib/resume';
   import { isLibraryCopyPubkey } from '$lib/hex';
+  import { sectionHeroImageUrl } from '$lib/cover';
+  import { isAllowedMediaUrl } from '$lib/markup';
   import {
     decodePublicationPointer,
     enrichToc,
     buildTocTree,
+    copyPointerForEvent,
     ensureIndexHeadings,
+    expandTocFromSections,
     hexFromNpubParam,
+    isPlaceholderIndex,
     isUnreadableMeta,
+    mergePublicationSections,
     naddrFor,
     parseToc,
+    placeholderIndexEvent,
     sectionHeading,
     tocEntryKey,
     type TocEntry
@@ -174,7 +181,7 @@
     }
   }
 
-  /** Mercury /stream is often indexes-only; walk a-tags when leaf bodies are missing. */
+  /** Mercury /stream often omits leaves or whole indexes; always merge the a-tag walk. */
   async function loadSectionEvents(edition: Event, signal?: AbortSignal): Promise<Event[]> {
     let streamed: Event[] = [];
     try {
@@ -183,13 +190,9 @@
       streamed = [];
     }
     if (signal?.aborted) return streamed;
-    const hasLeafBody = streamed.some((e) => e.kind !== KIND.PUBLICATION);
-    if (!streamed.length || !hasLeafBody) {
-      const walked = await fallbackSections(edition);
-      if (signal?.aborted) return streamed;
-      streamed = mergeSections(streamed, walked);
-    }
-    return streamed;
+    const walked = await fallbackSections(edition);
+    if (signal?.aborted) return streamed;
+    return mergePublicationSections(streamed, walked);
   }
 
   async function fallbackSections(target: Event): Promise<Event[]> {
@@ -321,9 +324,7 @@
   }
 
   function mergeSections(primary: Event[], rest: Event[]): Event[] {
-    const byId = new Map<string, Event>();
-    for (const e of [...primary, ...rest]) byId.set(e.id, e);
-    return [...byId.values()];
+    return mergePublicationSections(primary, rest);
   }
 
   function orderSectionsByToc(list: Event[], entries: TocEntry[]): Event[] {
@@ -366,6 +367,7 @@
   function adoptSections(list: Event[], edition: Event): void {
     if (!toc.length) toc = parseToc(null, edition);
     const merged = ensureIndexHeadings(list, toc);
+    toc = expandTocFromSections(toc, merged);
     sections = orderSectionsByToc(merged, toc);
     freezeTocFromSections(sections);
   }
@@ -460,9 +462,7 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      if (!streamed.length || !streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
-        streamed = mergeSections(streamed, await fallbackSections(edition));
-      }
+      streamed = mergeSections(streamed, await fallbackSections(edition));
       if (focusKey !== key || event !== edition) return;
       if (streamed.length) {
         adoptSections(mergeSections(focused ? [focused] : [], streamed), edition);
@@ -758,15 +758,17 @@
   }
 
   function findLoadedSection(entry: TocEntry): Event | undefined {
-    return sections.find(
+    const matches = sections.filter(
       (s) =>
         (entry.id && s.id === entry.id) ||
         (entry.address != null && entry.address !== '' && eventAddress(s) === entry.address)
     );
+    return matches.find((s) => !isPlaceholderIndex(s)) ?? matches[0];
   }
 
   function tocEntryLoaded(entry: TocEntry): boolean {
-    return !!findLoadedSection(entry);
+    const hit = findLoadedSection(entry);
+    return !!hit && !isPlaceholderIndex(hit);
   }
 
   /** Leaf sections stay disabled until in the pane; nested 30040 headings stay jumpable. */
@@ -785,7 +787,7 @@
 
   async function resolveTocSection(entry: TocEntry): Promise<Event | null> {
     const loaded = findLoadedSection(entry);
-    if (loaded) return loaded;
+    if (loaded && !isPlaceholderIndex(loaded)) return loaded;
     if (entry.address) {
       const parsed = parseAddress(entry.address);
       if (parsed) {
@@ -796,8 +798,12 @@
       }
     }
     if (entry.id) {
-      return memoryGetEvent(entry.id) ?? (await fetchById(entry.id));
+      const byId = memoryGetEvent(entry.id) ?? (await fetchById(entry.id));
+      if (byId) return byId;
     }
+    // Keep an existing placeholder, or synthesize one for true ghost Mercury rows.
+    if (loaded) return loaded;
+    if (entry.index) return placeholderIndexEvent(entry);
     return null;
   }
 
@@ -867,9 +873,7 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      if (!streamed.length || !streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
-        streamed = mergeSections(streamed, await fallbackSections(edition));
-      }
+      streamed = mergeSections(streamed, await fallbackSections(edition));
       if (focusKey !== key || event !== edition) return;
 
       if (streamed.length || focused) {
@@ -889,6 +893,15 @@
         jumpBusy = false;
         readingBusy = false;
       }
+    }
+  }
+
+  async function copySectionPointer(section: Event): Promise<void> {
+    const { text } = copyPointerForEvent(section);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard unavailable */
     }
   }
 
@@ -1122,15 +1135,22 @@
           {#each sections as section, i (section.id)}
             {@const sectionKey = eventAddress(section)}
             {@const isIndex = section.kind === KIND.PUBLICATION}
+            {@const heroUrl = sectionHeroImageUrl(section)}
             {@const pos =
               readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? i}
             <article
               class="reader-section"
               class:reader-index={isIndex}
+              class:reader-edition={!!event && section.id === event.id}
               data-read-pos={pos}
               data-section-addr={sectionKey}
               data-section-id={section.id}
             >
+              {#if heroUrl && isAllowedMediaUrl(heroUrl)}
+                <figure class="section-hero">
+                  <img src={heroUrl} alt="" loading="lazy" />
+                </figure>
+              {/if}
               <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
               {#if isIndex}
                 <!-- Nested 30040: title heading only (no catalog card body). -->
@@ -1164,6 +1184,7 @@
                     </svg>
                   </button>
                   {#if sectionMenuOpen === sectionKey}
+                    {@const copyPtr = copyPointerForEvent(section)}
                     <ul class="menu-panel menu-panel-end" role="menu">
                       <li>
                         {#if $session.pubkey}
@@ -1189,6 +1210,18 @@
                             Sign in to highlight
                           </button>
                         {/if}
+                      </li>
+                      <li>
+                        <button
+                          class="menu-item"
+                          type="button"
+                          onclick={() => {
+                            sectionMenuOpen = null;
+                            void copySectionPointer(section);
+                          }}
+                        >
+                          {copyPtr.label}
+                        </button>
                       </li>
                       <li>
                         <button

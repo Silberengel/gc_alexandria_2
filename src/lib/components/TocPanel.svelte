@@ -27,6 +27,7 @@
         class="toc-item"
         class:toc-branch={hasKids}
         class:toc-index={!!entry.index}
+        class:toc-root={!!entry.root}
         class:toc-unloaded={!loaded}
         class:toc-open={open}
       >
