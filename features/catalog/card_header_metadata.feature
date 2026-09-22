@@ -13,7 +13,8 @@ Feature: Publication and wiki card metadata
     Then published by is a userbadge for the signing pubkey
     And author is every author-tag, else every N-tag, omitted if neither; each opens /search as an explicit author lookup (Mercury author and N; relays #N)
     And title is every title-tag, else every T-tag, omitted if neither
-    And on a card the title, cover, and summary open that edition or wiki page
+    And on a card the title and cover open that edition or wiki page
+    And the summary is plain text (not a link)
     And on a full-page header each title opens /search as an explicit title lookup (Mercury title and T; relays #T)
     And subject is every t-tag, omitted if none; each opens /search as an explicit #t lookup
     And summary is the summary-tag, else a short content excerpt, omitted if neither
@@ -30,16 +31,18 @@ Feature: Publication and wiki card metadata
     When I open its full /publication/ or /wiki/ page
     Then the header shows them
     And an i-tag opens /search for that identifier as an explicit identifier lookup
-    And an l-tag opens /search for that language as an explicit language lookup
+    And an l-tag language value is shown as a labeled fact with a search link
 
   Scenario: Full edition header is thorough like a library card
     When I open a /publication/ edition page
     Then I see the cover beside the bibliographic block on a wide viewport
     And I see titles, authors with roles when present, the Nostr publisher badge, and summary
-    And I see chips for type, language, published_by imprint, version, and section count when those tags exist
-    And I see a released date from published_on or release_date when present
-    And I see provenance chips for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
-    And subject t-tags appear as #chips
+    And type, imprint, version, section count, and release date appear as labeled facts (not search chips)
+    And language appears as a labeled fact with a search link when present
+    And I see a Sources section for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
+    And a non-URL source string is a plain source label
+    And subject t-tags appear under Topics as #links
+    And shelf and Read actions are grouped separately from those labels
     And L NIP-32 namespace tags are not shown as the language
     When I opened that page from a shelf or search card that already showed the edition
     Then that header paints from the known event before any relay round-trip

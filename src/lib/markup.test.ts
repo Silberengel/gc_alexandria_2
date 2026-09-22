@@ -92,3 +92,25 @@ describe('asciidoc wikilink html', () => {
     expect(html).not.toContain('[[NKBIP-01]]');
   });
 });
+
+describe('markHighlights', () => {
+  it('marks plain quotes and quotes split by markup tags', async () => {
+    const { markHighlights } = await import('./markup');
+    const pk = 'a'.repeat(64);
+    const plain = markHighlights(
+      '<p>For non-text embeddings, the source tag may contain a URL.</p>',
+      [{ quote: 'the source tag may contain a URL', pubkey: pk }]
+    );
+    expect(plain).toContain('class="text-highlight"');
+    expect(plain).toContain(`data-highlight-pubkey="${pk}"`);
+    expect(plain).toContain('the source tag may contain a URL');
+
+    const nested = markHighlights(
+      '<p>For non-text embeddings, the <strong>source</strong> tag may contain a URL.</p>',
+      [{ quote: 'the source tag may contain a URL', pubkey: pk }]
+    );
+    expect(nested).toContain('<mark class="text-highlight"');
+    expect(nested).toContain('<strong>source</strong>');
+    expect(nested).toMatch(/text-highlight[\s\S]*source[\s\S]*URL/);
+  });
+});

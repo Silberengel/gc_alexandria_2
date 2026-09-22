@@ -12,6 +12,8 @@ Feature: Profile page
     And display_name is the heading when present; otherwise name
     And picture and display name render once (no duplicate userbadge under the header)
     And website and nip05 tags are listed (all values), not only the first
+    And each NIP-05 is verified against that domain's /.well-known/nostr.json
+    And a green checkmark is shown when the address maps to this profile's pubkey
     And remaining non-standard tags and extra JSON keys still appear
     And NIP-38 status is kind 30315 with d-tag general or music
     And payment targets merge kind 0 lud16, lud06, payto (type+authority), wallet-shaped w tags, and kind 10133, as in jumble and Imwald
@@ -28,9 +30,11 @@ Feature: Profile page
 
   Scenario: /p/ lists profile, status, and payments
     When I open /p/ for a pubkey that has a kind 0
-    Then I see a 16:9 banner when present, an unskewed circular picture, and the title once
+    Then I see a 16:5 banner when present (or a theme-tinted pubkey fallback when missing), an unskewed circular picture, and the title once
     And the title is display_name when set, otherwise name
     And I see about, websites, NIP-05 values, and other tags when present
+    And a GrapeRank badge shows their trusted-assertion score when known
+    And when I am signed in and follow them, a Following badge is shown (not on my own profile)
     And a field in both tags and JSON is shown once, with the tag winning
     And extra JSON keys still appear (not displayName aliases)
     And an unexpired kind 30315 general or music status is shown with its r-tag link

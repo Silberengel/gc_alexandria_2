@@ -52,10 +52,17 @@
       {/if}
     </div>
   </div>
-  {#if showMeta && summary}
-    <p class="muted pub-card-summary">
-      <a href={`#${href}`} use:link>{summary}</a>
-    </p>
+  {#if showMeta && meta.defers}
+    <div class="pub-card-defer">
+      <p class="pub-card-defer-label">The author defers to another version</p>
+      {#if meta.deferHref}
+        <a class="pub-card-defer-link" href={`#${meta.deferHref}`} use:link>Open preferred version</a>
+      {:else}
+        <a class="pub-card-defer-link" href={`#${href}`} use:link>Open this version</a>
+      {/if}
+    </div>
+  {:else if showMeta && summary}
+    <p class="muted pub-card-summary">{summary}</p>
   {/if}
   {#if showMeta && subjects.length}
     <div class="pub-card-tags chip-row">

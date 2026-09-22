@@ -271,13 +271,51 @@ export async function renderWithFallback(
   return renderMarkup(kind, content, tags);
 }
 
-export function markHighlights(html: string, quotes: string[]): string {
+export type HighlightQuote = { quote: string; pubkey?: string };
+
+/** Allow markup tags / whitespace between words so quotes still match after AsciiDoc/Markdown render. */
+export function flexibleQuotePattern(quote: string): string {
+  const words = quote
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!words.length) return '';
+  return words.join('(?:\\s|\\u00a0|&nbsp;|&#160;|<[^>]+>)+');
+}
+
+function highlightOpenTag(pubkey: string): string {
+  const pk = pubkey.trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(pk)
+    ? `<mark class="text-highlight" data-highlight-pubkey="${pk}"><span class="text-highlight-text">`
+    : `<mark class="text-highlight"><span class="text-highlight-text">`;
+}
+
+export function markHighlights(html: string, quotes: Array<string | HighlightQuote>): string {
   let out = html;
-  for (const quote of quotes) {
+  for (const item of quotes) {
+    const quote = typeof item === 'string' ? item : item.quote;
+    const pubkey = typeof item === 'string' ? '' : (item.pubkey ?? '');
     const trimmed = quote.replace(/\s+/g, ' ').trim();
     if (trimmed.length < 8) continue;
-    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(escaped, 'i'), `<mark>$&</mark>`);
+    const open = highlightOpenTag(pubkey);
+    const close = '</span></mark>';
+
+    // Prefer an exact contiguous match when the rendered HTML still has plain text.
+    const exact = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exactRe = new RegExp(exact, 'i');
+    if (exactRe.test(out) && !out.match(exactRe)?.[0]?.includes('<mark')) {
+      out = out.replace(exactRe, (m) => `${open}${m}${close}`);
+      continue;
+    }
+
+    const flexible = flexibleQuotePattern(trimmed);
+    if (!flexible) continue;
+    const flexRe = new RegExp(flexible, 'i');
+    const hit = out.match(flexRe)?.[0];
+    if (!hit || hit.includes('<mark')) continue;
+    out = out.replace(flexRe, `${open}${hit}${close}`);
   }
   return out;
 }

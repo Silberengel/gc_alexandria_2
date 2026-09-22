@@ -11,7 +11,7 @@
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { hexPubkey } from '$lib/search';
   import { parseKind0, paymentRows, activeStatus, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
-  import { muteState, filterMuted } from '$lib/mute';
+  import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
@@ -27,6 +27,11 @@
   } from '$lib/interaction-marks';
   import { nip19, type Event } from 'nostr-tools';
   import { isAllowedHref } from '$lib/markup';
+  import Nip05Badge from '$lib/components/Nip05Badge.svelte';
+  import { session } from '$lib/stores/session';
+  import { trustedAssertions } from '$lib/trusted-assertions';
+  import { hasKnownRank } from '$lib/nip85-trusted-assertions';
+  import { profileBannerFallbackStyle } from '$lib/profile-banner';
 
   interface Props {
     params?: { id?: string };
@@ -45,6 +50,8 @@
   let pageFilter = $state('');
   let producedPage = $state(1);
   let interactedPage = $state(1);
+  let grapevineRank = $state<number | null>(null);
+  let viewerFollows = $state(false);
   const pageSize = 25;
 
   const fields = $derived(parseKind0(profile));
@@ -59,6 +66,44 @@
     pageFilter;
     producedPage = 1;
     interactedPage = 1;
+  });
+
+  $effect(() => {
+    const pk = pubkey;
+    const viewer = $session.pubkey;
+    if (!pk || !viewer || viewer.toLowerCase() === pk.toLowerCase()) {
+      viewerFollows = false;
+      return;
+    }
+    const unsub = session.metadata.subscribe((events) => {
+      viewerFollows = followPubkeysFromMetadata(events).has(pk.toLowerCase());
+    });
+    return unsub;
+  });
+
+  $effect(() => {
+    const pk = pubkey;
+    if (!pk) {
+      grapevineRank = null;
+      return;
+    }
+    let cancelled = false;
+    const applyScore = () => {
+      if (cancelled) return;
+      const score = trustedAssertions.getScore(pk);
+      grapevineRank = hasKnownRank(score) ? Math.round(score!.rank as number) : null;
+    };
+    const unsub = trustedAssertions.subscribe(applyScore);
+    applyScore();
+    void trustedAssertions
+      .resolveProvider(session.getPubkey())
+      .then(() => trustedAssertions.requestScoresAndWait([pk]))
+      .then(applyScore)
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   });
 
   function omitNested(events: Event[]): Event[] {
@@ -196,7 +241,11 @@
         {#if fields.banner && isAllowedHref(fields.banner)}
           <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
         {:else}
-          <div class="profile-banner profile-banner-empty" aria-hidden="true"></div>
+          <div
+            class="profile-banner profile-banner-empty"
+            style={profileBannerFallbackStyle(pubkey)}
+            aria-hidden="true"
+          ></div>
         {/if}
         {#if fields.picture && isAllowedHref(fields.picture)}
           <img class="profile-avatar" src={toNostrBuildThumbUrl(fields.picture)} alt="" />
@@ -204,7 +253,21 @@
       </div>
       <div class="profile-header">
         <div class="profile-header-text">
-          <h2>{fields.title || 'Unknown'}</h2>
+          <div class="profile-title-row">
+            <h2>{fields.title || 'Unknown'}</h2>
+            {#if grapevineRank != null || viewerFollows}
+              <div class="profile-badges">
+                {#if grapevineRank != null}
+                  <span class="profile-badge profile-badge-rank" title="GrapeRank score">
+                    GrapeRank {grapevineRank}
+                  </span>
+                {/if}
+                {#if viewerFollows}
+                  <span class="profile-badge profile-badge-following">Following</span>
+                {/if}
+              </div>
+            {/if}
+          </div>
           {#if fields.displayName && fields.name && fields.name !== fields.displayName}
             <p class="muted">{fields.name}</p>
           {/if}
@@ -226,9 +289,9 @@
         </ul>
       {/if}
       {#if fields.nip05List.length}
-        <ul class="profile-tag-list">
+        <ul class="profile-tag-list profile-nip05-list">
           {#each fields.nip05List as n}
-            <li class="muted">{n}</li>
+            <li><Nip05Badge nip05={n} {pubkey} /></li>
           {/each}
         </ul>
       {/if}

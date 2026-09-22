@@ -4,11 +4,14 @@ Feature: Highlights
   I want NIP-84 highlights listed and marked in the text
   So that quotes on a section are visible here
 
-  Scenario: Public highlights are listed and marked
+  Scenario: Public highlights are marked in the text
     Given a section has public kind 9802 highlights whose a-tag is that section's kind:pubkey:d-tag
-    When I open that edition
-    Then I see those highlights with the quoted passage and the highlighter's userbadge
-    And I see the same highlights marked in the section body once I read
+    When I open that edition and read
+    Then I see those quotes highlighted in the section body
+    And each highlight shows a small highlighter avatar beside the marked text
+    And hovering or focusing that avatar shows their display_name or name
+    And clicking the avatar opens /p/ for that pubkey
+    And I do not see a separate Highlights list at the bottom
     And I do not need an account to see public highlights
     And a 9802 that only has an i-tag source is not treated as a highlight of this edition
     And highlights are queried for the edition and its section a-tags, not only the edition address
@@ -20,4 +23,4 @@ Feature: Highlights
     And it also carries e, p, and k tags for that section
     And it may carry a context tag with surrounding text
     And it is not stored with an i-tag as the publication source
-    And it appears in the highlight list after reload
+    And the quote is marked in the section body after save

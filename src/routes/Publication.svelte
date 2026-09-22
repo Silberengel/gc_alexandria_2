@@ -5,7 +5,6 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
-  import UserBadge from '$lib/components/UserBadge.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import CommentThread from '$lib/components/CommentThread.svelte';
@@ -29,6 +28,7 @@
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
+  import { textHighlightsFromEvents } from '$lib/text-highlights';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { loadResume, saveResume } from '$lib/resume';
@@ -92,7 +92,6 @@
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
-  const visibleHighlights = $derived(filterPageEvents(mutedHighlights, pageFilter));
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
   const thread = $derived(nestComments(visibleComments, $muteState));
   const readerToc = $derived(enrichToc(toc, sections));
@@ -500,13 +499,18 @@
   {:else if event}
     {#if !reading}
       <PageFilter bind:value={pageFilter} />
-      <header class="card" style="margin-bottom:1.5rem">
+      <header class="card edition-page-card" style="margin-bottom:1.5rem">
         <EditionHeader {event} />
-        <ShelfActions publication={event} />
-        {#if canRead}
-          <button class="btn btn-primary" type="button" onclick={() => void startReading()}>Read the publication</button>
-        {:else}
-          <p class="muted">
+        <div class="edition-actions">
+          <ShelfActions publication={event} />
+          {#if canRead}
+            <button class="btn btn-primary" type="button" onclick={() => void startReading()}
+              >Read the publication</button
+            >
+          {/if}
+        </div>
+        {#if !canRead}
+          <p class="muted edition-unavailable">
             Catalog entry only — the full text is not available in the library (often a copyrighted work we cannot publish).
           </p>
         {/if}
@@ -514,18 +518,6 @@
       </header>
 
       <RatingPanel ratings={visibleRatings} publication={event} />
-
-      {#if visibleHighlights.length}
-        <section class="card" style="margin-bottom:1rem">
-          <h2>Highlights</h2>
-          {#each visibleHighlights as h (h.id)}
-            <p>
-              <UserBadge pubkey={h.pubkey} />
-            </p>
-            <EventBody event={h} />
-          {/each}
-        </section>
-      {/if}
 
       <section class="card" style="margin-bottom:1rem">
         <h2>Comments</h2>

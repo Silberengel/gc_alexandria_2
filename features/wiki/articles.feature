@@ -42,14 +42,20 @@ Feature: Wiki
   Scenario: Wiki page shows header, body, and interactions
     When I open a wiki article
     Then I see the header card and the body
-    And below that I see kind 9802 highlights whose a-tag is this article and kind 1111 threads for that article
+    And below that I see kind 1111 threads for that article
+    And kind 9802 highlights for this article are marked inline in the body with a highlighter avatar
+    And I do not see a separate Highlights list under the article
     And I do not see kind 34259 ratings
     When I type into the page filter
     Then matching text in the article is highlighted and the page jumps to it
 
   Scenario: Deference forwards to the preferred version
     Given a kind 30818 article A defers to article B with an a-tag or e-tag marker defer
+    And other versions C and D also defer to B
     When I open A's /wiki/d/{d}/p/{npub}
     Then I am forwarded to B
-    And I see a banner "Deferred to by:" with A's userbadge
+    And I see a "Deferred to by" list with userbadges for A, C, and D
     And I do not see the placeholder body "Read nostr:naddr instead."
+    When A appears as a search or versions card
+    Then I see "The author defers to another version" instead of the raw naddr placeholder
+    And I can open the preferred version from that notice

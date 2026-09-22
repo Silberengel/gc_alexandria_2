@@ -12,7 +12,7 @@
   import { KIND } from '$lib/constants';
   import { wikiPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
-  import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference } from '$lib/wiki-defer';
+  import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys } from '$lib/wiki-defer';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack, socialStack } from '$lib/nostr/selector';
@@ -26,6 +26,8 @@
   import { session } from '$lib/stores/session';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
+  import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
   import type { Event } from 'nostr-tools';
 
   interface Props {
@@ -39,7 +41,7 @@
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
   let error = $state(false);
-  let deferredBy = $state('');
+  let deferredByList = $state<string[]>([]);
   let forwarding = $state(false);
   let commentText = $state('');
   let pageFilter = $state('');
@@ -48,7 +50,8 @@
   const pageFind = createPageFindController();
 
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
-  const visibleHighlights = $derived(filterPageEvents(filterMuted(highlights, $muteState), pageFilter));
+  const mutedHighlights = $derived(filterMuted(highlights, $muteState));
+  const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
   const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
   const thread = $derived(event ? nestComments(visibleComments, $muteState) : []);
   const hideBody = $derived(
@@ -70,6 +73,34 @@
     const hash = window.location.hash;
     const i = hash.indexOf('?');
     return new URLSearchParams(i >= 0 ? hash.slice(i + 1) : '');
+  }
+
+  function seedDeferrersFromUrl(): string[] {
+    const q = hashQuery();
+    return q
+      .getAll('deferredBy')
+      .flatMap((v) => v.split(','))
+      .map((s) => s.trim().toLowerCase())
+      .filter((pk) => /^[0-9a-f]{64}$/.test(pk));
+  }
+
+  async function loadDeferrers(target: Event): Promise<string[]> {
+    const seeds = seedDeferrersFromUrl();
+    const addr = eventAddress(target);
+    const dTag = target.tags.find((t) => t[0] === 'd')?.[1];
+    const filters = [
+      { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 80 },
+      ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 80 }] : [])
+    ];
+    const batches = await Promise.all(
+      filters.flatMap((filter) => [
+        mercuryFilter(filter),
+        relayPool.query(wikiStack(), [filter])
+      ])
+    );
+    const byId = new Map<string, Event>();
+    for (const batch of batches) for (const e of batch) byId.set(e.id, e);
+    return deferrerPubkeys([...byId.values()], target, seeds);
   }
 
   async function eventFromId(id: string): Promise<Event | null> {
@@ -103,15 +134,26 @@
 
   async function loadSocial(target: Event): Promise<void> {
     const addr = eventAddress(target);
-    const [cA, ca, h] = await Promise.all([
+    const highlightAddrs = [...new Set(publicationCoordinateLookupKeys(addr))];
+    const [cA, ca, ...highlightBatches] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#A': [addr], limit: 50 }]),
       relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], '#a': [addr], limit: 50 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': [addr], limit: 50 }])
+      ...highlightAddrs
+        .reduce<string[][]>((chunks, key, i) => {
+          const c = Math.floor(i / 20);
+          (chunks[c] ??= []).push(key);
+          return chunks;
+        }, [])
+        .map((batch) =>
+          relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
+        )
     ]);
     const byId = new Map<string, Event>();
     for (const e of [...cA, ...ca]) byId.set(e.id, e);
     comments = [...byId.values()];
-    highlights = h;
+    const hById = new Map<string, Event>();
+    for (const batch of highlightBatches) for (const e of batch) hById.set(e.id, e);
+    highlights = [...hById.values()];
   }
 
   $effect(() => {
@@ -126,7 +168,7 @@
     error = false;
     forwarding = false;
     loading = true;
-    deferredBy = hashQuery().get('deferredBy') ?? '';
+    deferredByList = seedDeferrersFromUrl();
 
     void (async () => {
       try {
@@ -159,7 +201,8 @@
           replace(wikiPath(fetched));
           if (await forwardDeference(fetched)) return;
           event = fetched;
-          await loadSocial(fetched);
+          const [, deferrers] = await Promise.all([loadSocial(fetched), loadDeferrers(fetched)]);
+          if (!cancelled) deferredByList = deferrers;
           return;
         }
 
@@ -202,7 +245,8 @@
           if (await forwardDeference(fetched)) return;
           if (cancelled) return;
           event = fetched;
-          await loadSocial(fetched);
+          const [, deferrers] = await Promise.all([loadSocial(fetched), loadDeferrers(fetched)]);
+          if (!cancelled) deferredByList = deferrers;
         }
       } catch {
         if (!cancelled) error = true;
@@ -251,8 +295,15 @@
       {/each}
     </div>
   {:else if event}
-    {#if deferredBy}
-      <p class="wiki-defer-banner">Deferred to by: <UserBadge pubkey={deferredBy} /></p>
+    {#if deferredByList.length}
+      <div class="wiki-defer-banner">
+        <p class="wiki-defer-banner-title">Deferred to by</p>
+        <ul class="wiki-defer-list">
+          {#each deferredByList as pk (pk)}
+            <li><UserBadge pubkey={pk} /></li>
+          {/each}
+        </ul>
+      </div>
     {/if}
     <PageFilter
       bind:value={pageFilter}
@@ -262,21 +313,10 @@
     <article class="card reading-body" bind:this={articlePane}>
       <EditionHeader {event} />
       {#if !hideBody}
-        <EventBody {event} />
+        <EventBody {event} quotes={bodyHighlights} />
       {/if}
       <DetailsPanel {event} />
     </article>
-    {#if visibleHighlights.length}
-      <section class="card" style="margin-top:1rem">
-        <h2>Highlights</h2>
-        {#each visibleHighlights as h (h.id)}
-          <p>
-            <UserBadge pubkey={h.pubkey} />
-          </p>
-          <EventBody event={h} />
-        {/each}
-      </section>
-    {/if}
     <section class="card" style="margin-top:1rem">
       <h2>Comments</h2>
       {#if thread.length}

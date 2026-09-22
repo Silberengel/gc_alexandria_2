@@ -37,8 +37,10 @@ export type ProvenanceChip = {
   label: string;
   /** External URL when the chip should leave the site. */
   href?: string;
-  /** Raw identifier for /search?identifier= (preferred over href when set). */
+  /** Query value for /search when set. */
   search?: string;
+  /** Search query key; defaults to identifier. Plain source labels use subject (topic). */
+  searchKey?: 'identifier' | 'subject';
   /** ISBN digits to copy instead of navigating. */
   copyText?: string;
 };
@@ -221,7 +223,8 @@ export function buildProvenanceChips(
       const key = `label:${source.toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
-        chips.push({ label: source, search: source });
+        // Plain source strings are descriptive labels, not search targets.
+        chips.push({ label: source });
       }
     }
   }

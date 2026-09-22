@@ -7,6 +7,11 @@ import { looksLikeNativeAsciidoc } from './markup';
 import { firstTag, tagValue } from './nostr/verify';
 import { indexSlug } from './dtag';
 import { coverImageUrl } from './cover';
+import {
+  isDeferralPlaceholderContent,
+  isWikiDeference,
+  wikiDeferTargetHref
+} from './wiki-defer';
 
 export type CardMeta = {
   publishedBy: string;
@@ -18,6 +23,9 @@ export type CardMeta = {
   language?: string;
   image?: string;
   summary?: string;
+  /** Wiki deference — show elegant notice instead of placeholder body. */
+  defers?: boolean;
+  deferHref?: string;
   dTag: string;
   kind: number;
 };
@@ -39,9 +47,17 @@ export function cardMeta(event: Event): CardMeta {
   const tTags = tagValue(event, 'T');
   const summaryTag = firstTag(event, 'summary');
   const rawSummary = summaryTag?.trim() || event.content.trim().slice(0, 800) || '';
-  const markup =
-    looksLikeNativeAsciidoc(rawSummary) ? 'asciidoc' : blurbMarkupForKind(event.kind);
-  const summary = cardBlurb(rawSummary, { markup, max: 280 }) || undefined;
+  const defers = isWikiDeference(event) || isDeferralPlaceholderContent(event.content);
+  const deferHref = defers ? wikiDeferTargetHref(event) ?? undefined : undefined;
+  let summary: string | undefined;
+  if (!defers || (summaryTag && !isDeferralPlaceholderContent(summaryTag))) {
+    const markup =
+      looksLikeNativeAsciidoc(rawSummary) ? 'asciidoc' : blurbMarkupForKind(event.kind);
+    const fromContent = cardBlurb(rawSummary, { markup, max: 280 }) || undefined;
+    // Never surface deferral placeholders as the teaser.
+    summary =
+      fromContent && !isDeferralPlaceholderContent(fromContent) ? fromContent : undefined;
+  }
   return {
     publishedBy: event.pubkey,
     authors: authors.length ? authors : nTags,
@@ -52,6 +68,8 @@ export function cardMeta(event: Event): CardMeta {
     language: firstTag(event, 'l'),
     image: coverImageUrl(event),
     summary,
+    defers: defers || undefined,
+    deferHref,
     dTag: firstTag(event, 'd') ?? '',
     kind: event.kind
   };

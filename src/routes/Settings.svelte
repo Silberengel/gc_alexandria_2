@@ -1,10 +1,40 @@
 <script lang="ts">
   import TopBar from '$lib/components/TopBar.svelte';
-  import { appearance } from '$lib/stores/appearance';
+  import { appearance, type Scheme } from '$lib/stores/appearance';
   import { trust } from '$lib/stores/trust';
   import { cacheSizeHuman, clearEventCache } from '$lib/nostr/cache';
+  import {
+    UI_FONT_CHOICES,
+    READING_FONT_CHOICES,
+    fontSelectValue,
+    isKnownFont
+  } from '$lib/fonts';
 
   let size = $state('0 B');
+
+  const schemes: { id: Scheme; label: string; blurb: string; swatches: string[] }[] = [
+    {
+      id: 'antique',
+      label: 'Antique',
+      blurb: 'Warm leather and parchment',
+      swatches: ['#efe6dc', '#c6a885', '#795c39', '#2a241c']
+    },
+    {
+      id: 'ocean',
+      label: 'Ocean',
+      blurb: 'Cool coastal blues',
+      swatches: ['#ecf8ff', '#61b6fb', '#0284c7', '#0c4a6e']
+    },
+    {
+      id: 'forrest',
+      label: 'Forrest',
+      blurb: 'Deep library greens',
+      swatches: ['#eaf7ea', '#5fa65f', '#2e6b2e', '#0c230c']
+    }
+  ];
+
+  const uiFontValue = $derived(fontSelectValue($appearance.uiFont, UI_FONT_CHOICES));
+  const readingFontValue = $derived(fontSelectValue($appearance.readingFont, READING_FONT_CHOICES));
 
   async function refreshSize() {
     size = cacheSizeHuman();
@@ -15,46 +45,154 @@
     await refreshSize();
   }
 
+  function setReadingSize(raw: string) {
+    appearance.setFonts($appearance.uiFont, $appearance.readingFont, Number(raw));
+  }
+
+  function setUiFont(stack: string) {
+    appearance.setFonts(stack, $appearance.readingFont, $appearance.readingSize);
+  }
+
+  function setReadingFont(stack: string) {
+    appearance.setFonts($appearance.uiFont, stack, $appearance.readingSize);
+  }
+
   $effect(() => {
     void refreshSize();
   });
 </script>
 
 <TopBar />
-<main class="shell">
-  <h1>Settings</h1>
+<main class="shell settings-shell">
+  <header class="page-header">
+    <p class="page-kicker">Preferences</p>
+    <h1>Settings</h1>
+    <p class="page-lede muted">Tune reading comfort, palette, and trust without leaving the library.</p>
+  </header>
 
-  <section class="card" style="margin-bottom:1rem">
-    <h2>Appearance</h2>
-    <p class="muted">Scheme</p>
-    <div class="chip-row">
-      <button class="btn" type="button" onclick={() => appearance.setScheme('antique')}>Antique</button>
-      <button class="btn" type="button" onclick={() => appearance.setScheme('ocean')}>Ocean</button>
-      <button class="btn" type="button" onclick={() => appearance.setScheme('forrest')}>Forrest</button>
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Appearance</h2>
+      <p class="muted">Scheme, type, and scale for the whole interface.</p>
+    </header>
+
+    <div class="settings-block">
+      <h3 class="settings-label">Color scheme</h3>
+      <div class="scheme-grid" role="group" aria-label="Color scheme">
+        {#each schemes as s}
+          <button
+            class="scheme-card"
+            class:scheme-card-active={$appearance.scheme === s.id}
+            type="button"
+            aria-pressed={$appearance.scheme === s.id}
+            onclick={() => appearance.setScheme(s.id)}
+          >
+            <span class="scheme-swatches" aria-hidden="true">
+              {#each s.swatches as c}
+                <span style="background:{c}"></span>
+              {/each}
+            </span>
+            <span class="scheme-copy">
+              <span class="scheme-name">{s.label}</span>
+              <span class="scheme-blurb muted">{s.blurb}</span>
+            </span>
+          </button>
+        {/each}
+      </div>
     </div>
-    <label style="display:block;margin:1rem 0">
-      <input type="checkbox" checked={$appearance.dark} onchange={(e) => appearance.setDark((e.target as HTMLInputElement).checked)} />
-      Dark mode
+
+    <label class="settings-toggle" class:settings-toggle-on={$appearance.dark}>
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Dark mode</span>
+        <span class="muted">Lower luminance for evening reading</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={$appearance.dark}
+        onchange={(e) => appearance.setDark((e.target as HTMLInputElement).checked)}
+      />
     </label>
-    <label>UI font<input type="text" value={$appearance.uiFont} onchange={(e) => appearance.setFonts((e.target as HTMLInputElement).value, $appearance.readingFont, $appearance.readingSize)} /></label>
-    <label>Reading font<input type="text" value={$appearance.readingFont} onchange={(e) => appearance.setFonts($appearance.uiFont, (e.target as HTMLInputElement).value, $appearance.readingSize)} /></label>
-    <label>Reading size<input type="number" min="14" max="28" value={$appearance.readingSize} onchange={(e) => appearance.setFonts($appearance.uiFont, $appearance.readingFont, Number((e.target as HTMLInputElement).value))} /></label>
-    <button class="btn" type="button" onclick={() => appearance.resetColors()}>Reset colors</button>
+
+    <div class="settings-fields">
+      <label class="settings-field">
+        <span>UI font</span>
+        <select
+          class="settings-font-select"
+          style="font-family: {uiFontValue}"
+          value={uiFontValue}
+          onchange={(e) => setUiFont((e.target as HTMLSelectElement).value)}
+        >
+          {#each UI_FONT_CHOICES as f}
+            <option value={f.stack} style="font-family: {f.stack}">{f.label}</option>
+          {/each}
+          {#if !isKnownFont($appearance.uiFont, UI_FONT_CHOICES)}
+            <option value={$appearance.uiFont}>Custom</option>
+          {/if}
+        </select>
+      </label>
+      <label class="settings-field">
+        <span>Reading font</span>
+        <select
+          class="settings-font-select"
+          style="font-family: {readingFontValue}"
+          value={readingFontValue}
+          onchange={(e) => setReadingFont((e.target as HTMLSelectElement).value)}
+        >
+          {#each READING_FONT_CHOICES as f}
+            <option value={f.stack} style="font-family: {f.stack}">{f.label}</option>
+          {/each}
+          {#if !isKnownFont($appearance.readingFont, READING_FONT_CHOICES)}
+            <option value={$appearance.readingFont}>Custom</option>
+          {/if}
+        </select>
+      </label>
+      <div class="settings-field">
+        <div class="settings-field-row">
+          <label for="settings-text-size">Text size</label>
+          <span class="settings-size-value" aria-hidden="true">{$appearance.readingSize}px</span>
+        </div>
+        <p class="muted settings-hint" id="settings-text-size-hint">
+          Scales chrome, controls, and reading text together
+        </p>
+        <input
+          id="settings-text-size"
+          class="settings-range"
+          type="range"
+          min="14"
+          max="28"
+          step="1"
+          value={$appearance.readingSize}
+          aria-describedby="settings-text-size-hint"
+          oninput={(e) => setReadingSize((e.target as HTMLInputElement).value)}
+        />
+      </div>
+    </div>
+
+    {#if $appearance.customPrimary}
+      <button class="btn" type="button" onclick={() => appearance.resetColors()}>Reset custom color</button>
+    {/if}
   </section>
 
-  <section class="card" style="margin-bottom:1rem">
-    <h2>Trust filter</h2>
-    <p class="muted">GrapeRank from Brainstorm (NIP-85). Applied to fan-out search ranking and spam filtering.</p>
-    <label style="display:block;margin:1rem 0">
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Trust filter</h2>
+      <p class="muted">GrapeRank from Brainstorm (NIP-85) for search ranking and spam filtering.</p>
+    </header>
+
+    <label class="settings-toggle" class:settings-toggle-on={$trust.enabled}>
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Prefer trusted authors</span>
+        <span class="muted">Hide authors below the minimum GrapeRank</span>
+      </span>
       <input
         type="checkbox"
         checked={$trust.enabled}
         onchange={(e) => trust.setEnabled((e.target as HTMLInputElement).checked)}
       />
-      Prefer trusted authors (hide low GrapeRank)
     </label>
-    <label>
-      Minimum rank
+
+    <label class="settings-field">
+      <span>Minimum rank</span>
       <input
         type="number"
         min="1"
@@ -65,10 +203,14 @@
     </label>
   </section>
 
-  <section class="card">
-    <h2>Cache</h2>
-    <p>Cache size: {size}</p>
-    <button class="btn" type="button" onclick={clearCache}>Clear Cache</button>
-    <p class="muted">Appearance and trust settings are kept.</p>
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Cache</h2>
+      <p class="muted">Local event cache only. Appearance and trust settings are kept.</p>
+    </header>
+    <div class="settings-cache-row">
+      <p class="settings-cache-size">Cache size <strong>{size}</strong></p>
+      <button class="btn" type="button" onclick={clearCache}>Clear cache</button>
+    </div>
   </section>
 </main>

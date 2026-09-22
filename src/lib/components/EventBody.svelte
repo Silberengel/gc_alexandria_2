@@ -2,7 +2,8 @@
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import { KIND } from '$lib/constants';
-  import { renderWithFallback, markHighlights } from '$lib/markup';
+  import { renderWithFallback, markHighlights, type HighlightQuote } from '$lib/markup';
+  import { attachHighlightBadges } from '$lib/text-highlights';
   import {
     expandNostrRefPlaceholders,
     protectNostrRefsForMarkup,
@@ -17,7 +18,7 @@
     content?: string;
     kind?: number;
     embedDepth?: number;
-    quotes?: string[];
+    quotes?: Array<string | HighlightQuote>;
   }
 
   let { event, content = '', kind, embedDepth = 0, quotes = [] }: Props = $props();
@@ -42,12 +43,14 @@
   let segments = $state<Array<ContentSegment | RenderSegment>>([]);
   let resolved = $state<Record<number, Event | null>>({});
   let bodyPending = $state(true);
+  let bodyEl = $state<HTMLElement | null>(null);
 
   $effect(() => {
     const src = source;
     const k = sourceKind;
     const tags = sourceTags;
     const whole = wholeDocument;
+    const q = quotes;
     let cancelled = false;
     bodyPending = true;
     segments = [];
@@ -58,7 +61,7 @@
 
       if (whole) {
         const { text, refs } = protectNostrRefsForMarkup(src);
-        const rendered = markHighlights(await renderWithFallback(k, text, tags), quotes);
+        const rendered = markHighlights(await renderWithFallback(k, text, tags), q);
         next = expandNostrRefPlaceholders(rendered, refs);
         await Promise.all(
           next.map(async (seg, i) => {
@@ -79,7 +82,7 @@
           segs.map(async (seg, i) => {
             if (seg.type === 'text') {
               const rendered = await renderWithFallback(k, seg.text, tags);
-              next[i] = { type: 'html', html: markHighlights(rendered, quotes) };
+              next[i] = { type: 'html', html: markHighlights(rendered, q) };
               return;
             }
             next[i] = seg;
@@ -105,6 +108,14 @@
       cancelled = true;
     };
   });
+
+  $effect(() => {
+    const el = bodyEl;
+    const ready = !bodyPending;
+    const q = quotes;
+    if (!el || !ready || !q.length) return;
+    return attachHighlightBadges(el);
+  });
 </script>
 
 {#snippet embedCard(hit: Event)}
@@ -113,7 +124,7 @@
   {/await}
 {/snippet}
 
-<div class="event-body">
+<div class="event-body" bind:this={bodyEl}>
   {#if bodyPending}
     <p class="loading-hint">{loadingLabel}</p>
   {/if}

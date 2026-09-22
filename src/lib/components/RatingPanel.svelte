@@ -4,7 +4,7 @@
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { signAndPublish } from '$lib/sign';
-  import { ratingDraft } from '$lib/drafts';
+  import { ratingDraft, deletionDraft } from '$lib/drafts';
   import {
     aggregateRating,
     ratingHasScore,
@@ -20,6 +20,7 @@
   let list = $state<Event[]>([]);
   let expanded = $state<Record<string, boolean>>({});
   let overflow = $state<Record<string, boolean>>({});
+  let busy = $state(false);
 
   $effect(() => {
     list = ratings;
@@ -30,6 +31,9 @@
   const avgStars = $derived(agg.average * 5);
   let mineStars = $state(0);
   let review = $state('');
+
+  const myRating = $derived(list.find((r) => r.pubkey === $session.pubkey) ?? null);
+  const canClear = $derived(mineStars > 0 || !!myRating);
 
   $effect(() => {
     const pk = $session.pubkey;
@@ -69,6 +73,27 @@
     const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
     if (signed) {
       list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
+    }
+  }
+
+  async function clearRating(): Promise<void> {
+    if (!$session.pubkey) {
+      await session.signIn();
+      return;
+    }
+    if (!canClear || busy) return;
+    busy = true;
+    try {
+      const existing = myRating;
+      if (existing) {
+        const signed = await signAndPublish(deletionDraft(existing));
+        if (!signed) return;
+        list = list.filter((r) => r.id !== existing.id && r.pubkey !== existing.pubkey);
+      }
+      mineStars = 0;
+      review = '';
+    } finally {
+      busy = false;
     }
   }
 </script>
@@ -126,7 +151,7 @@
           aria-pressed={mineStars >= n}
           onclick={() => (mineStars = n)}
         >
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="1.375rem" height="1.375rem" aria-hidden="true">
             <path
               d="M12 2.5l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.77l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.5z"
               fill={mineStars >= n ? 'currentColor' : 'none'}
@@ -142,9 +167,19 @@
       Review (optional)
       <textarea bind:value={review} rows="3" placeholder="Write a short review"></textarea>
     </label>
-    <button class="btn btn-primary" type="button" disabled={mineStars < 1} onclick={() => void submit()}
-      >Save rating</button
-    >
+    <div class="rating-actions">
+      <button class="btn btn-primary" type="button" disabled={mineStars < 1 || busy} onclick={() => void submit()}
+        >Save rating</button
+      >
+      <button
+        class="btn"
+        type="button"
+        disabled={!canClear || busy}
+        onclick={() => void clearRating()}
+      >
+        {busy ? 'Clearing…' : 'Clear rating'}
+      </button>
+    </div>
   {:else}
     <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to rate</button>
   {/if}

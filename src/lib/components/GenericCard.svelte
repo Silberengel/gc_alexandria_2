@@ -30,7 +30,7 @@
   {#if meta.subjects.length}
     <div class="chip-row">
       {#each meta.subjects.slice(0, 8) as subject}
-        <span class="chip">{subject}</span>
+        <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`}>{subject}</a>
       {/each}
     </div>
   {/if}

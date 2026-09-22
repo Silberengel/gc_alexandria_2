@@ -19,16 +19,19 @@ Feature: Appearance
 
   Scenario: Anonymous visitors can customize
     Given I am not signed in
-    When I set custom colors, UI font, reading font, and size
-    Then the top bar and the rest of the UI use the UI font and custom colors
-    And publication and wiki bodies use the reading font and size
+    When I choose UI font, reading font, and text size from the Settings controls
+    Then the top bar and the rest of the UI use the UI font
+    And publication and wiki bodies use the reading font
+    And text size sets the rem root so chrome, controls, and reading text all scale together
     And the choices persist in this browser
-    When I reset colors
+    When a custom primary color was saved and I reset colors
     Then the active scheme tokens are restored
 
   Scenario: Settings is the appearance page
     When I open /settings
-    Then I see scheme, colors, UI font, reading font, and size
+    Then I see scheme swatches, dark mode, UI and reading font dropdowns, and text size
+    And the active scheme control is marked selected (pressed)
+    And toggles show a clear on state
     And I see Trust filter controls for GrapeRank minimum and on/off
     And Trust filter defaults to on with minimum 10
     And those Trust choices persist in this browser across Clear Cache

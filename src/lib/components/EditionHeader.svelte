@@ -19,6 +19,28 @@
   let { event }: Props = $props();
   const meta = $derived(editionMetadata(event));
 
+  const facts = $derived.by(() => {
+    const rows: { label: string; value: string; href?: string }[] = [];
+    if (meta.type) rows.push({ label: 'Type', value: formatPublicationType(meta.type) });
+    if (meta.publishedBy) rows.push({ label: 'Imprint', value: meta.publishedBy });
+    if (meta.language) {
+      rows.push({
+        label: 'Language',
+        value: meta.language.toUpperCase(),
+        href: `#/search?language=${encodeURIComponent(meta.language)}`
+      });
+    }
+    if (meta.version) rows.push({ label: 'Version', value: `v${meta.version}` });
+    if (meta.sectionCount > 0) {
+      rows.push({
+        label: 'Length',
+        value: `${meta.sectionCount} ${meta.sectionCount === 1 ? 'section' : 'sections'}`
+      });
+    }
+    if (meta.releaseDate) rows.push({ label: 'Released', value: meta.releaseDate });
+    return rows;
+  });
+
   async function onProvenanceClick(chip: ProvenanceChip): Promise<void> {
     if (!chip.copyText) return;
     try {
@@ -38,8 +60,8 @@
       <h1>
         {#if meta.titles.length}
           {#each meta.titles as name, i}
-            {#if i > 0}<span> · </span>{/if}
-            <a href={`#/search?title=${encodeURIComponent(name)}`} use:link>{name}</a>
+            {#if i > 0}<span class="edition-title-sep"> · </span>{/if}
+            <a class="edition-title-link" href={`#/search?title=${encodeURIComponent(name)}`} use:link>{name}</a>
           {/each}
         {:else}
           Untitled
@@ -50,9 +72,11 @@
         <p class="edition-authors">
           {#each meta.authors as author, i}
             {#if i > 0}<span> · </span>{/if}
-            <a href={`#/search?author=${encodeURIComponent(author.slug || author.name)}`} use:link
-              >{formatAuthorLabel(author)}</a
-            >
+            <a
+              class="edition-inline-link"
+              href={`#/search?author=${encodeURIComponent(author.slug || author.name)}`}
+              use:link
+            >{formatAuthorLabel(author)}</a>
           {/each}
         </p>
       {/if}
@@ -60,65 +84,71 @@
       <p class="muted edition-publisher">
         Published by <UserBadge pubkey={event.pubkey} />
         {#if isLibraryCopyPubkey(event.pubkey)}
-          <span class="muted"> · Library copy</span>
+          <span> · Library copy</span>
         {/if}
       </p>
 
-      {#if meta.type || meta.language || meta.publishedBy || meta.version || meta.sectionCount > 0}
-        <div class="chip-row edition-chips">
-          {#if meta.type}
-            <span class="chip chip-static">{formatPublicationType(meta.type)}</span>
-          {/if}
-          {#if meta.language}
-            <a class="chip" href={`#/search?language=${encodeURIComponent(meta.language)}`} use:link
-              >{meta.language.toUpperCase()}</a
-            >
-          {/if}
-          {#if meta.publishedBy}
-            <span class="chip chip-static">{meta.publishedBy}</span>
-          {/if}
-          {#if meta.version}
-            <span class="chip chip-static">v{meta.version}</span>
-          {/if}
-          {#if meta.sectionCount > 0}
-            <span class="chip chip-static"
-              >{meta.sectionCount} {meta.sectionCount === 1 ? 'section' : 'sections'}</span
-            >
-          {/if}
-        </div>
-      {/if}
-
-      {#if meta.releaseDate}
-        <p class="muted edition-released">Released {meta.releaseDate}</p>
-      {/if}
-
-      {#if meta.provenance.length}
-        <div class="chip-row edition-provenance">
-          {#each meta.provenance as chip}
-            {#if chip.search}
-              <a
-                class="chip"
-                href={`#/search?identifier=${encodeURIComponent(chip.search)}`}
-                use:link
-                title={chip.copyText ? `Search · also copies ${chip.copyText}` : undefined}
-                onclick={() => void onProvenanceClick(chip)}
-              >
-                {chip.label}
-              </a>
-            {:else if chip.href && isAllowedHref(chip.href)}
-              <a class="chip" href={chip.href} rel="noopener noreferrer" target="_blank">{chip.label}</a>
-            {:else}
-              <span class="chip chip-static">{chip.label}</span>
-            {/if}
+      {#if facts.length}
+        <dl class="edition-facts">
+          {#each facts as fact}
+            <div class="edition-fact">
+              <dt>{fact.label}</dt>
+              <dd>
+                {#if fact.href}
+                  <a class="edition-inline-link" href={fact.href} use:link>{fact.value}</a>
+                {:else}
+                  {fact.value}
+                {/if}
+              </dd>
+            </div>
           {/each}
-        </div>
+        </dl>
       {/if}
 
       {#if meta.subjects.length}
-        <div class="chip-row">
-          {#each meta.subjects.slice(0, 12) as subject}
-            <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link>#{subject}</a>
-          {/each}
+        <div class="edition-block">
+          <p class="edition-block-label">Topics</p>
+          <ul class="edition-topic-list">
+            {#each meta.subjects.slice(0, 12) as subject}
+              <li>
+                <a
+                  class="edition-topic"
+                  href={`#/search?subject=${encodeURIComponent(subject)}`}
+                  use:link
+                >#{subject}</a>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
+      {#if meta.provenance.length}
+        <div class="edition-block">
+          <p class="edition-block-label">Sources</p>
+          <ul class="edition-source-list">
+            {#each meta.provenance as chip}
+              <li>
+                {#if chip.search}
+                  <a
+                    class="edition-source-link"
+                    href={`#/search?${chip.searchKey ?? 'identifier'}=${encodeURIComponent(chip.search)}`}
+                    use:link
+                    title={chip.copyText ? `Search · also copies ${chip.copyText}` : 'Search this identifier'}
+                    onclick={() => void onProvenanceClick(chip)}
+                  >{chip.label}</a>
+                {:else if chip.href && isAllowedHref(chip.href)}
+                  <a
+                    class="edition-source-link"
+                    href={chip.href}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >{chip.label}</a>
+                {:else}
+                  <span class="edition-source-label">{chip.label}</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
         </div>
       {/if}
     </div>

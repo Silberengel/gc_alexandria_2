@@ -94,4 +94,9 @@ describe('publication metadata', () => {
     expect(chips[0]?.search).toBe('isbn:0879801220');
     expect(chips[0]?.href).toBeUndefined();
   });
+
+  it('treats non-URL source labels as plain provenance text', () => {
+    const chips = buildProvenanceChips('Bible', []);
+    expect(chips).toEqual([{ label: 'Bible' }]);
+  });
 });

@@ -2,6 +2,7 @@
   interface Props {
     /** Filled amount on a 1–5 scale (fractional supported for averages). */
     value: number;
+    /** Design pixels at the default 16px rem root (scales with text size). */
     size?: number;
     label?: string;
   }
@@ -20,14 +21,14 @@
 
 <span
   class="stars"
-  style={`--star-size:${size}px`}
+  style={`--star-size:${size / 16}rem`}
   role="img"
   aria-label={label ?? `${clamped.toFixed(1)} out of 5 stars`}
 >
   {#each [0, 1, 2, 3, 4] as i}
     {@const fill = fillFor(i)}
     <span class="star" aria-hidden="true">
-      <svg class="star-outline" viewBox="0 0 24 24" width={size} height={size}>
+      <svg class="star-outline" viewBox="0 0 24 24">
         <path
           d="M12 2.5l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.77l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.5z"
           fill="none"
@@ -38,7 +39,7 @@
       </svg>
       {#if fill > 0}
         <span class="star-fill" style={`width:${fill * 100}%`}>
-          <svg viewBox="0 0 24 24" width={size} height={size}>
+          <svg viewBox="0 0 24 24">
             <path
               d="M12 2.5l2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.77l-5.8 3.05 1.11-6.47-4.7-4.58 6.49-.94L12 2.5z"
               fill="currentColor"
@@ -66,8 +67,12 @@
     height: var(--star-size);
     flex-shrink: 0;
   }
-  .star-outline {
+  .star svg {
     display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .star-outline {
     color: color-mix(in srgb, var(--ink) 32%, transparent);
   }
   .star-fill {
@@ -75,8 +80,5 @@
     inset: 0 auto 0 0;
     overflow: hidden;
     color: var(--accent);
-  }
-  .star-fill svg {
-    display: block;
   }
 </style>
