@@ -5,6 +5,7 @@ const memoryFindByAddress = vi.fn();
 const memoryGetEvent = vi.fn();
 const cacheFindByAddress = vi.fn();
 const cacheGetEvent = vi.fn();
+const cacheDeleteEvent = vi.fn();
 const mercuryFilter = vi.fn();
 const query = vi.fn();
 
@@ -15,11 +16,18 @@ vi.mock('./event-memory', () => ({
 
 vi.mock('./cache', () => ({
   cacheFindByAddress: (...args: unknown[]) => cacheFindByAddress(...args),
-  cacheGetEvent: (...args: unknown[]) => cacheGetEvent(...args)
+  cacheGetEvent: (...args: unknown[]) => cacheGetEvent(...args),
+  cacheDeleteEvent: (...args: unknown[]) => cacheDeleteEvent(...args)
 }));
 
 vi.mock('./mercury', () => ({
   mercuryFilter: (...args: unknown[]) => mercuryFilter(...args)
+}));
+
+vi.mock('../deletions', () => ({
+  isEventDeleted: () => false,
+  refreshDeletionsFor: async () => {},
+  filterDeletedEvents: (events: Event[]) => events
 }));
 
 vi.mock('./pool', () => ({
@@ -48,6 +56,7 @@ describe('fetch cache fallback', () => {
     memoryGetEvent.mockReset().mockReturnValue(null);
     cacheFindByAddress.mockReset().mockResolvedValue(null);
     cacheGetEvent.mockReset().mockResolvedValue(null);
+    cacheDeleteEvent.mockReset().mockResolvedValue(undefined);
     mercuryFilter.mockReset().mockResolvedValue([]);
     query.mockReset().mockResolvedValue([]);
   });
@@ -67,6 +76,14 @@ describe('fetch cache fallback', () => {
     const { fetchById } = await import('./fetch');
     await expect(fetchById(cached.id)).resolves.toBe(cached);
     expect(mercuryFilter).not.toHaveBeenCalled();
+  });
+
+  it('falls back to relays when Mercury misses', async () => {
+    const live = ev({ id: 'f'.repeat(64), kind: 30040, pubkey: 'b'.repeat(64) });
+    query.mockResolvedValue([live]);
+    const { fetchByAddress } = await import('./fetch');
+    await expect(fetchByAddress(`30040:${'b'.repeat(64)}:jane`)).resolves.toBe(live);
+    expect(query).toHaveBeenCalled();
   });
 
   it('returns null only when neither cache nor live has the event', async () => {

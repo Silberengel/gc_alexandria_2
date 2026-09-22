@@ -5,6 +5,7 @@ import {
   fetchBrainstormNip50Events
 } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
+import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
@@ -106,7 +107,13 @@ async function finishWithGrapevine(
   onUpdate: (r: SearchResult) => void
 ): Promise<Event[]> {
   const merged = preferLive(live, cached);
-  const authors = [...new Set(merged.map((e) => e.pubkey))];
+  try {
+    await refreshDeletionsFor(merged);
+  } catch {
+    /* deletions optional */
+  }
+  const visible = filterDeletedEvents(merged);
+  const authors = [...new Set(visible.map((e) => e.pubkey))];
   try {
     await trustedAssertions.resolveProvider(session.getPubkey());
     await trustedAssertions.requestScoresAndWait(authors);
@@ -120,7 +127,7 @@ async function finishWithGrapevine(
     /* FoF optional */
   }
   const ctx = grapevineContext();
-  let events = rankEvents(merged, ctx);
+  let events = rankEvents(visible, ctx);
   // Deny-by-default only when at least one author score hydrated — otherwise a
   // dead scores relay would wipe Mercury / cache hits for anonymous visitors.
   const anyKnown = authors.some((pk) => hasKnownRank(trustedAssertions.getScore(pk)));
@@ -144,7 +151,7 @@ export function isNsec(input: string): boolean {
 }
 
 async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Promise<Event[]> {
-  const cached = await cacheGetSearchSnapshot(key);
+  const cached = filterDeletedEvents(await cacheGetSearchSnapshot(key));
   rememberEvents(cached);
   onUpdate({ events: cached, loading: true, done: false });
   return cached;
@@ -275,7 +282,7 @@ async function fanOutSearch(
     for (const e of batch) {
       if (!byId.has(e.id)) byId.set(e.id, e);
     }
-    const events = rankEvents([...byId.values()], grapevineContext());
+    const events = rankEvents(filterDeletedEvents([...byId.values()]), grapevineContext());
     onUpdate({ events: events.slice(0, 100), loading: true, done: false });
   };
 

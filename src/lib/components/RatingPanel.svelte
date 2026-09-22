@@ -88,7 +88,7 @@
       if (existing) {
         const signed = await signAndPublish(deletionDraft(existing));
         if (!signed) return;
-        list = list.filter((r) => r.id !== existing.id && r.pubkey !== existing.pubkey);
+        list = list.filter((r) => r.pubkey !== existing.pubkey);
       }
       mineStars = 0;
       review = '';

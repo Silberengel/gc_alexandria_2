@@ -55,8 +55,10 @@ Feature: Client event cache
   Scenario: Kind 5 deletions are swept after first paint
     When the app first loads
     Then first paint is not blocked
-    And one batched kind 5 fetch then evicts deleted ids for the kinds this app uses
+    And one batched kind 5 fetch then remembers deleted ids and a-tag addresses for the kinds this app uses
     And those kinds include 0, 3, 11, 20, 21, 1985, 9802, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1111, 30000, 30023, 30040, 30041, 30315, 30817, 30818, and 34259
+    And matching events are evicted from the client cache and hidden from search and edition pages
+    And when search or an edition page loads events, kind 5s targeting those ids and addresses are fetched and applied
     And the sweep does not flood the relay pool
 
   Scenario: Sign-in metadata is one batch

@@ -15,7 +15,7 @@ Feature: Profile page
     And each NIP-05 is verified against that domain's /.well-known/nostr.json
     And a green checkmark is shown when the address maps to this profile's pubkey
     And remaining non-standard tags and extra JSON keys still appear
-    And NIP-38 status is kind 30315 with d-tag general or music
+    And NIP-38 user status is kind 30315 with d-tag general or music (as in jumble)
     And payment targets merge kind 0 lud16, lud06, payto (type+authority), wallet-shaped w tags, and kind 10133, as in jumble and Imwald
     And payment rows are deduped by canonical type plus authority
     And empty produced and interacted-with lists are omitted
@@ -37,7 +37,8 @@ Feature: Profile page
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
     And a field in both tags and JSON is shown once, with the tag winning
     And extra JSON keys still appear (not displayName aliases)
-    And an unexpired kind 30315 general or music status is shown with its r-tag link
+    And unexpired kind 30315 general and music statuses are shown under the display name with icons and an r-tag https link when present
+    And those statuses are loaded from profile mirrors and the social stack
     And payment targets from kind 0 then kind 10133 are shown once per type plus authority
     When that pubkey has no kind 0
     Then I still see the pubkey and omit missing fields

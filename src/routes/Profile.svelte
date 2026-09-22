@@ -10,7 +10,8 @@
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { hexPubkey } from '$lib/search';
-  import { parseKind0, paymentRows, activeStatus, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
+  import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
+  import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
@@ -28,6 +29,7 @@
   import { nip19, type Event } from 'nostr-tools';
   import { isAllowedHref } from '$lib/markup';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
+  import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
   import { session } from '$lib/stores/session';
   import { trustedAssertions } from '$lib/trusted-assertions';
   import { hasKnownRank } from '$lib/nip85-trusted-assertions';
@@ -45,7 +47,8 @@
   let produced = $state<Event[]>([]);
   let interacted = $state<Event[]>([]);
   let marksByWork = $state<Map<string, InteractionMark[]>>(new Map());
-  let status = $state<Event | null>(null);
+  let statusGeneral = $state<UserStatus | null>(null);
+  let statusMusic = $state<UserStatus | null>(null);
   let payments = $state<ReturnType<typeof paymentRows>>([]);
   let pageFilter = $state('');
   let producedPage = $state(1);
@@ -186,14 +189,21 @@
       limit: 40
     };
     const paymentFilter = { kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 };
-    const [p, authored, credited, statusEv, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates] =
+    const statusFilter = {
+      kinds: [KIND.STATUS],
+      authors: [pubkey],
+      '#d': ['general', 'music'],
+      limit: 10
+    };
+    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates] =
       await Promise.all([
         relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
         relayPool.query(documentStack(), [authoredFilter]),
         mercuryFilter(creditedFilter).then(async (m) =>
           m.length ? m : relayPool.query(documentStack(), [creditedFilter])
         ),
-        relayPool.query(socialStack(), [{ kinds: [KIND.STATUS], authors: [pubkey], limit: 10 }]),
+        relayPool.query(socialStack(), [statusFilter]),
+        relayPool.query(profileStack(), [statusFilter]),
         relayPool.query(socialStack(), [paymentFilter]),
         relayPool.query(profileStack(), [paymentFilter]),
         relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [pubkey], limit: 50 }]),
@@ -208,7 +218,11 @@
     const payById = new Map<string, Event>();
     for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
     payments = paymentRows(parsed, [...payById.values()], profile);
-    status = activeStatus(statusEv);
+    const statusById = new Map<string, Event>();
+    for (const e of [...statusSocial, ...statusProfile]) statusById.set(e.id, e);
+    const statuses = selectUserStatuses([...statusById.values()]);
+    statusGeneral = statuses.general;
+    statusMusic = statuses.music;
     const byId = new Map<string, Event>();
     for (const e of [...authored, ...credited]) byId.set(e.id, e);
     produced = omitNested([...byId.values()]);
@@ -268,6 +282,7 @@
               </div>
             {/if}
           </div>
+          <UserStatusBadge general={statusGeneral} music={statusMusic} />
           {#if fields.displayName && fields.name && fields.name !== fields.displayName}
             <p class="muted">{fields.name}</p>
           {/if}
@@ -301,14 +316,6 @@
       {#each fields.extraTags as tag}
         <p class="muted">{tag.name}: {tag.value}</p>
       {/each}
-      {#if status}
-        <p>
-          Status: {status.content}
-          {#if firstTag(status, 'r') && isAllowedHref(firstTag(status, 'r')!)}
-            <a href={firstTag(status, 'r')} rel="noopener noreferrer">link</a>
-          {/if}
-        </p>
-      {/if}
       {#if payments.length}
         <h3>Payment targets</h3>
         <table class="profile-payments">

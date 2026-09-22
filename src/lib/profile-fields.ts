@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { selectUserStatuses } from './nip38-user-status';
 import { firstTag } from './nostr/verify';
 
 export type ProfileFields = {
@@ -339,17 +340,9 @@ export function paymentRows(kind0: ProfileFields, paymentEvents: Event[], profil
 }
 
 export function activeStatus(events: Event[]): Event | null {
-  const now = Math.floor(Date.now() / 1000);
-  const hits = events.filter((e) => {
-    if (e.kind !== 30315) return false;
-    const d = firstTag(e, 'd') ?? '';
-    if (d !== 'general' && d !== 'music') return false;
-    const exp = firstTag(e, 'expiration');
-    if (exp && Number(exp) > 0 && Number(exp) < now) return false;
-    return true;
-  });
-  hits.sort((a, b) => b.created_at - a.created_at);
-  return hits[0] ?? null;
+  const { general, music } = selectUserStatuses(events);
+  const hit = general ?? music;
+  return hit?.event ?? null;
 }
 
 /** Display label for payment type column. */

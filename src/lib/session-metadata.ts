@@ -25,7 +25,7 @@ export function publicationLabelDedupeKey(event: Pick<Event, 'tags'>): string | 
  * Merge a newly authored metadata event into the session cache.
  * - DIRECTORY / BOOKMARK: keep newest per kind+d (addressable / replaceable).
  * - LABEL (1985): keep newest per slug+publication target (regular events; not kind+d).
- * - DELETION (5): drop referenced e-tagged events from the cache.
+ * - DELETION (5): drop referenced e-tagged and a-tagged events from the cache.
  */
 export function mergeRememberedMetadata(existing: Event[], event: Event): Event[] {
   const byId = new Map(existing.map((e) => [e.id.toLowerCase(), e]));
@@ -34,6 +34,15 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
   if (event.kind === KIND.DELETION) {
     for (const tag of event.tags) {
       if (tag[0] === 'e' && tag[1]) byId.delete(tag[1].toLowerCase());
+      if (tag[0] === 'a' && tag[1]) {
+        const addr = tag[1];
+        for (const [id, e] of [...byId]) {
+          if (e.pubkey.toLowerCase() !== event.pubkey.toLowerCase()) continue;
+          const d = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+          const coord = `${e.kind}:${e.pubkey.toLowerCase()}:${d}`;
+          if (coord === addr && e.created_at <= event.created_at) byId.delete(id);
+        }
+      }
     }
     // Do not keep kind-5 stubs in login metadata.
     return [...byId.values()];

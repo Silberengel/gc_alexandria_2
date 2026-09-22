@@ -1,8 +1,9 @@
 import type { Event, Filter } from 'nostr-tools';
 import { KIND } from '../constants';
+import { isEventDeleted, refreshDeletionsFor } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { parseAddress } from '../library-scope';
-import { cacheFindByAddress, cacheGetEvent } from './cache';
+import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent } from './event-memory';
 import { mercuryFilter } from './mercury';
 import { relayPool } from './pool';
@@ -38,6 +39,14 @@ function stackForKind(kind: number): string[] {
   return documentStack();
 }
 
+async function hideIfDeleted(event: Event | null): Promise<Event | null> {
+  if (!event) return null;
+  await refreshDeletionsFor([event]).catch(() => {});
+  if (!isEventDeleted(event)) return event;
+  void cacheDeleteEvent(event.id);
+  return null;
+}
+
 export async function fetchByAddress(coord: string): Promise<Event | null> {
   let cached: Event | null = null;
   try {
@@ -52,7 +61,7 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       }
     }
     // Shelf resolution and navigation already have the event — do not REQ every address again.
-    if (cached) return cached;
+    if (cached) return hideIfDeleted(cached);
 
     const dValues = dTagVariants(parsed.d);
     const slug = normalizeDTag(parsed.d);
@@ -64,11 +73,11 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       limit: 1
     };
     const mercury = await mercuryFilter(filter);
-    if (mercury[0]) return mercury[0];
+    if (mercury[0]) return hideIfDeleted(mercury[0]);
     const ws = await relayPool.query(stackForKind(parsed.kind), [filter]);
-    return ws[0] ?? cached;
+    return hideIfDeleted(ws[0] ?? cached);
   } catch {
-    return cached;
+    return cached ? hideIfDeleted(cached) : null;
   }
 }
 
@@ -84,15 +93,15 @@ export async function fetchById(id: string): Promise<Event | null> {
         cached = null;
       }
     }
-    if (cached) return cached;
+    if (cached) return hideIfDeleted(cached);
 
     const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
     const mercury = await mercuryFilter(filter);
-    if (mercury[0]) return mercury[0];
+    if (mercury[0]) return hideIfDeleted(mercury[0]);
     const ws = await relayPool.query(documentStack(), [filter]);
-    return ws[0] ?? cached;
+    return hideIfDeleted(ws[0] ?? cached);
   } catch {
-    return cached;
+    return cached ? hideIfDeleted(cached) : null;
   }
 }
 
