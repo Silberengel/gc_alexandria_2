@@ -13,12 +13,15 @@ Feature: Search
     And Mercury POST /api/suggest is typeahead on T N d i title author
     And relay NIP-01 tag filters for search are only #d #T #N
     And #title and #author are never sent as NIP-01 tags
-    And searches run in parallel against cache, Mercury HTTP, and the matching relay stacks on the shared pool
+    And searches run in parallel against cache, Mercury HTTP, the matching relay stacks on the shared pool, and Brainstorm NIP-50 full-text
+    And Brainstorm search uses wss://search-staging.brainstorm.world only, with observer, sort:rank, and trust-filter extensions that are never sent to other relays
     And a repeat of the same query paints the last snapshot immediately, then refreshes from API and relays
     And cards render as each source returns; the page does not wait for every EOSE or for full-text
     And a top-level 30040 is one not referenced by another 30040's a-tag
     And a subindex is a 30040 that is referenced by another 30040's a-tag
     And kind 30040 results prefer top-level hits and show subindexes only when no top-level 30040 matched
+    And when GrapeRank scores are available, search ranks by section boost, then author GrapeRank, then newest created_at
+    And when the Trust filter is on and scores hydrated, authors below the GrapeRank minimum are hidden (self and follows never)
 
   Scenario: Landing search goes to /search
     When I submit a query from the landing global search bar
@@ -115,8 +118,18 @@ Feature: Search
   Scenario: Search results are ordered
     When a search has more matching cards than one page
     Then later-arriving cards fill remaining slots up to the paging caps
-    And publication cards with at least two sections are ordered above publications with fewer
+    And publication cards are ordered above wiki and spec cards
+    And within that, publication cards with at least two sections are ordered above publications with fewer
+    And within that, higher GrapeRank authors are ordered above lower or unknown when scores are available
     And within that, newest created_at first
+
+  Scenario: Fan-out includes Brainstorm full-text
+    When a fan-out search runs
+    Then NIP-50 full-text is queried on wss://search-staging.brainstorm.world for publication and wiki kinds
+    And that REQ includes observer and sort:rank
+    And when Trust filter is on, it includes filter:rank:gte with the configured minimum
+    And when Trust filter is off, it includes include:spam
+    And those Brainstorm extensions are not sent to Mercury or the document/search stack
 
   Scenario: Searching an npub or nprofile opens their profile
     When I search with an npub or nprofile

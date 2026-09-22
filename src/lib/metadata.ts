@@ -1,6 +1,9 @@
 import { nip19, type Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { blurbMarkupForKind, cardBlurb } from './card-blurb';
+import { compareAuthorsByGrapevine, type GrapevineTrustContext } from './grapevine-rank';
 import { parseAddress } from './library-scope';
+import { looksLikeNativeAsciidoc } from './markup';
 import { firstTag, tagValue } from './nostr/verify';
 import { indexSlug } from './dtag';
 import { coverImageUrl } from './cover';
@@ -34,6 +37,11 @@ export function cardMeta(event: Event): CardMeta {
   const nTags = tagValue(event, 'N');
   const titles = tagValue(event, 'title');
   const tTags = tagValue(event, 'T');
+  const summaryTag = firstTag(event, 'summary');
+  const rawSummary = summaryTag?.trim() || event.content.trim().slice(0, 800) || '';
+  const markup =
+    looksLikeNativeAsciidoc(rawSummary) ? 'asciidoc' : blurbMarkupForKind(event.kind);
+  const summary = cardBlurb(rawSummary, { markup, max: 280 }) || undefined;
   return {
     publishedBy: event.pubkey,
     authors: authors.length ? authors : nTags,
@@ -43,7 +51,7 @@ export function cardMeta(event: Event): CardMeta {
     identifier: firstTag(event, 'i'),
     language: firstTag(event, 'l'),
     image: coverImageUrl(event),
-    summary: firstTag(event, 'summary') ?? event.content.slice(0, 280),
+    summary,
     dTag: firstTag(event, 'd') ?? '',
     kind: event.kind
   };
@@ -113,13 +121,30 @@ export function hasPublicationSection(event: Event): boolean {
   return false;
 }
 
-export function sortSearchResults(events: Event[], sectionCounts: Map<string, number>): Event[] {
+/** Search kind tier: publications first, then wiki/spec, then everything else. */
+export function searchKindTier(kind: number): number {
+  if (kind === KIND.PUBLICATION) return 0;
+  if (kind === KIND.WIKI || kind === KIND.SPEC) return 1;
+  return 2;
+}
+
+export function sortSearchResults(
+  events: Event[],
+  sectionCounts: Map<string, number>,
+  grapevine?: GrapevineTrustContext | null
+): Event[] {
   return [...events].sort((a, b) => {
+    const kindDiff = searchKindTier(a.kind) - searchKindTier(b.kind);
+    if (kindDiff !== 0) return kindDiff;
     const aSections = sectionCounts.get(a.id) ?? 0;
     const bSections = sectionCounts.get(b.id) ?? 0;
     const aBoost = aSections >= 2 ? 1 : 0;
     const bBoost = bSections >= 2 ? 1 : 0;
     if (aBoost !== bBoost) return bBoost - aBoost;
+    if (grapevine) {
+      const byRank = compareAuthorsByGrapevine(a.pubkey, b.pubkey, grapevine);
+      if (byRank !== 0) return byRank;
+    }
     return b.created_at - a.created_at;
   });
 }

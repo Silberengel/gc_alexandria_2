@@ -1,8 +1,10 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { blurbMarkupForKind, cardBlurb } from './card-blurb';
 import { coverImageUrl } from './cover';
 import { humanizeTag } from './cover-fallback';
 import { indexSlug } from './dtag';
+import { looksLikeNativeAsciidoc } from './markup';
 import { firstTag, tagValue } from './nostr/verify';
 
 export type PublicationAuthor = {
@@ -304,12 +306,18 @@ export function editionMetadata(event: Event): EditionMetadata {
 
   const summaryTag = firstTag(event, 'summary')?.trim();
   // Wiki/spec pages render the full body below the header — never dump raw markup as "summary".
-  const summary =
+  const rawExcerpt =
     summaryTag ||
     (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC && event.content.trim()
-      ? event.content.trim().slice(0, 480)
-      : undefined) ||
-    undefined;
+      ? event.content.trim().slice(0, 800)
+      : undefined);
+  const markup =
+    rawExcerpt && looksLikeNativeAsciidoc(rawExcerpt)
+      ? 'asciidoc'
+      : blurbMarkupForKind(event.kind);
+  const summary = rawExcerpt
+    ? cardBlurb(rawExcerpt, { markup, max: 480 }) || undefined
+    : undefined;
 
   const source = sourceS || sourceLegacy;
   const sectionCount = event.tags.filter((t) => {

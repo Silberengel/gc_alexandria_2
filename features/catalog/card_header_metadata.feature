@@ -15,8 +15,11 @@ Feature: Publication and wiki card metadata
     And title is every title-tag, else every T-tag, omitted if neither; each opens /search as an explicit title lookup (Mercury title and T; relays #T)
     And subject is every t-tag, omitted if none; each opens /search as an explicit #t lookup
     And summary is the summary-tag, else a short content excerpt, omitted if neither
+    And card and header summaries are plain text with AsciiDoc and Markdown markup stripped
     And source is the first s-tag, else the first source-tag, omitted if neither; it opens that URL and not /search
     And clicking the card or cover outside those field links opens that edition or wiki page
+    And publication cards are labeled Publication with book-style covers
+    And wiki and spec cards are labeled Wiki or Spec with parchment-style covers so they are easy to tell apart
 
   Scenario: Identifier and language stay on the full page
     Given an event has i or l tags

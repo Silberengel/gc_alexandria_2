@@ -306,6 +306,21 @@ input[type='search'], input[type='text'], textarea, select {
   overflow-wrap: anywhere;
 }
 
+.pub-card-kind {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pub-card-wiki {
+  border-left: 3px solid var(--accent, #6a8fa8);
+}
+
+.pub-card-wiki .pub-card-cover {
+  border-color: color-mix(in srgb, var(--accent, #6a8fa8) 45%, var(--border));
+}
+
 .pub-card-line {
   margin: 0 0 0.3rem;
   font-size: 0.9rem;

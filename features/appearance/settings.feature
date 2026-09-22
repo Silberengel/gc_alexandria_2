@@ -29,3 +29,6 @@ Feature: Appearance
   Scenario: Settings is the appearance page
     When I open /settings
     Then I see scheme, colors, UI font, reading font, and size
+    And I see Trust filter controls for GrapeRank minimum and on/off
+    And Trust filter defaults to on with minimum 10
+    And those Trust choices persist in this browser across Clear Cache

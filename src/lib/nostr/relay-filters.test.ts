@@ -20,3 +20,19 @@ describe('Tor and I2P relays', () => {
     ).toEqual(['wss://pipe.imwald.eu']);
   });
 });
+
+describe('normalizeRelayFilters NIP-50 search', () => {
+  it('preserves search on Brainstorm-style filters', async () => {
+    const { normalizeRelayFilters } = await import('./relay-filters');
+    const out = normalizeRelayFilters([
+      {
+        kinds: [30040],
+        search: 'pride observer:aa sort:rank include:spam',
+        limit: 80
+      }
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.search).toContain('observer:aa');
+    expect(out[0]?.kinds).toEqual([30040]);
+  });
+});

@@ -92,6 +92,9 @@ export function normalizeRelayFilters(filters: Filter[]): Filter[] {
     }
     if (raw.since != null) f.since = raw.since;
     if (raw.until != null) f.until = raw.until;
+    if (typeof raw.search === 'string' && raw.search.trim()) {
+      f.search = raw.search.trim();
+    }
     for (const key of Object.keys(raw)) {
       if (key.length === 2 && key.startsWith('#')) {
         const vals = cleanTagValues((raw as Record<string, string[]>)[key]);
@@ -100,7 +103,13 @@ export function normalizeRelayFilters(filters: Filter[]): Filter[] {
     }
     const lim = raw.limit == null ? MAX_RELAY_LIMIT : Number(raw.limit);
     f.limit = Math.min(MAX_RELAY_LIMIT, Math.max(1, lim || MAX_RELAY_LIMIT));
-    if (!f.ids && !f.authors && !f.kinds && !Object.keys(f).some((k) => k.startsWith('#'))) {
+    if (
+      !f.ids &&
+      !f.authors &&
+      !f.kinds &&
+      !f.search &&
+      !Object.keys(f).some((k) => k.startsWith('#'))
+    ) {
       continue;
     }
     out.push(f);

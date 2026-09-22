@@ -6,11 +6,12 @@ Acceptance tests in [`features/`](features/) are the product contract. `@mvp` sh
 
 ## Features
 
-- **Catalog** — Cover shelves, nested bookshelves, subjects, labels, and search over Mercury + relays
+- **Catalog** — Cover shelves, nested bookshelves, subjects, labels, and search over Mercury + relays + Brainstorm
 - **Reader** — Edition pages with ToC; AsciiDoc, Djot, and Markdown (sanitized); in-reader highlights (kind 9802)
 - **Wiki** — Article versions, wikilinks, NIP-54 deference
 - **Discussion** — Comments (kind 1111) and ratings on publications
 - **Identity** — Anonymous browse; NIP-07 / NIP-46 sign-in; profiles and mute lists (kind 10000)
+- **Trust** — Brainstorm NIP-50 search and NIP-85 GrapeRank scores; Trust filter in Settings
 - **Relays** — Central selector (document / wiki / social stacks), shared pool with AUTH, Mercury HTTPS for catalog
 - **Client cache** — Events and covers in HTTP cache / Cache Storage; themes in `localStorage`
 - **Appearance** — Antique, Ocean, and Forrest themes; mobile-first layout

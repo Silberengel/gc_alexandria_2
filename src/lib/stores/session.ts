@@ -149,6 +149,10 @@ function createSessionStore() {
         local: webSocketRelays(local.flatMap((e) => readList(e, 'relay'))),
         blocked: webSocketRelays(blocked.flatMap((e) => readList(e, 'relay')))
       });
+      void import('../trusted-assertions').then(({ trustedAssertions }) => {
+        trustedAssertions.resetForViewer(pubkey);
+        void trustedAssertions.resolveProvider(pubkey);
+      });
     } catch {
       // Signed-in UI must still work offline / when every relay is down.
       metadataEvents = [];
@@ -255,6 +259,10 @@ function createSessionStore() {
     clearMute();
     setSelectorContext({ signedIn: false, inbox: [], outbox: [], favorites: [], local: [], blocked: [] });
     relayPool.setSignedIn(false);
+    void import('../trusted-assertions').then(({ trustedAssertions }) => {
+      trustedAssertions.resetForViewer(null);
+      void trustedAssertions.resolveProvider(null);
+    });
   }
 
   async function publish(event: Event): Promise<void> {

@@ -30,6 +30,32 @@ export const PROFILE_RELAYS = [
 
 export const AGGR_RELAY = 'wss://aggr.nostr.land';
 
+/** Brainstorm NIP-50 search (vespa) — extensions only on this host. */
+export const BRAINSTORM_SEARCH_RELAY_URL = 'wss://search-staging.brainstorm.world';
+
+/** Community observer when the viewer has no kind 10040. */
+export const GRAPEVINE_FALLBACK_OBSERVER_PUBKEY =
+  'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+
+/** Builtin Brainstorm scores service (signs kind 30382). */
+export const GRAPEVINE_FALLBACK_SERVICE_PUBKEY =
+  '0e5c4a064fc6cdbbddaa8b7c452e806d2f8e57a1dc5bc678cfe8cb258ca85546';
+
+/** Production NIP-85 scores relay (often TLS-dead — prefer staging when pointed here). */
+export const GRAPEVINE_SCORES_RELAY_URL = 'wss://straycat.brainstorm.social/relay';
+
+export const GRAPEVINE_SCORES_STAGING_RELAY_URL = 'wss://nip85-staging.nosfabrica.com';
+
+/** Protocol / Brainstorm floor (omit-value cases). App Trust-filter default is higher. */
+export const GRAPEVINE_RANK_CUTOFF = 2;
+
+/** Default GrapeRank minimum for Trust filter and Brainstorm `filter:rank:gte:`. */
+export const GRAPEVINE_RANK_MIN_DEFAULT = 10;
+
+/** GC Publishing — fallback preference tier when grapevine rank is unknown. */
+export const LIBRARY_GC_PUBLISHING_PUBKEY =
+  '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690';
+
 export const GITCITADEL_NPUB =
   'npub1s3ht77dq4zqnya8vjun5jp3p44pr794ru36d0ltxu65chljw8xjqd975wz';
 
@@ -76,7 +102,11 @@ export const KIND = {
   RATING: 34259,
   WIKI: 30818,
   SPEC: 30817,
-  DJOT: 11
+  DJOT: 11,
+  /** NIP-85 Trusted Assertions prefs (provider pointer). */
+  NIP85_PREFS: 10040,
+  /** NIP-85 Trusted Assertion score for a subject pubkey (`d` tag). */
+  NIP85_SCORE: 30382
 } as const;
 
 export const LOGIN_METADATA_KINDS = [

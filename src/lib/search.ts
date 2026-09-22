@@ -1,4 +1,9 @@
 import { KIND } from './constants';
+import {
+  BRAINSTORM_PUBLICATION_SEARCH_KINDS,
+  BRAINSTORM_WIKI_SEARCH_KINDS,
+  fetchBrainstormNip50Events
+} from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
@@ -6,11 +11,19 @@ import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryW
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack, socialStack } from './nostr/selector';
+import {
+  shouldHideEventByGrapevine,
+  type GrapevineTrustContext
+} from './grapevine-rank';
+import { hasKnownRank } from './nip85-trusted-assertions';
 import { hexPubkey, npubFromInput, sortSearchResults } from './metadata';
+import { followPubkeysFromMetadata } from './mute';
 import { isTopLevel30040 } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { fetchByAddresses, fetchByIds } from './nostr/fetch';
 import { session } from './stores/session';
+import { trust } from './stores/trust';
+import { trustedAssertions } from './trusted-assertions';
 import { nip19, type Event, type Filter } from 'nostr-tools';
 
 export type SearchResult = {
@@ -62,13 +75,54 @@ export function preferTopLevelPublications(events: Event[]): Event[] {
   return events.filter((e) => e.kind !== KIND.PUBLICATION || isTopLevel30040(e, pubs));
 }
 
-function rankEvents(events: Event[]): Event[] {
+function grapevineContext(): GrapevineTrustContext {
+  const snap = trust.snapshot();
+  return {
+    trustFilterEnabled: snap.enabled,
+    rankCutoff: snap.rankMin,
+    viewerPubkey: session.getPubkey(),
+    followPubkeySet: followPubkeysFromMetadata(session.getMetadata()),
+    getScore: (pk) => trustedAssertions.getScore(pk)
+  };
+}
+
+function rankEvents(events: Event[], grapevine?: GrapevineTrustContext | null): Event[] {
   const counts = new Map(events.map((e) => [e.id, sectionCount(e)]));
-  return sortSearchResults(preferTopLevelPublications(events), counts);
+  return sortSearchResults(preferTopLevelPublications(events), counts, grapevine);
 }
 
 function preferLive(live: Event[], cached: Event[]): Event[] {
   return live.length ? live : cached;
+}
+
+async function finishWithGrapevine(
+  key: string,
+  live: Event[],
+  cached: Event[],
+  onUpdate: (r: SearchResult) => void
+): Promise<Event[]> {
+  const merged = preferLive(live, cached);
+  const ctx = grapevineContext();
+  const authors = [...new Set(merged.map((e) => e.pubkey))];
+  try {
+    await trustedAssertions.resolveProvider(session.getPubkey());
+    await trustedAssertions.requestScoresAndWait(authors);
+  } catch {
+    /* scores optional */
+  }
+  let events = rankEvents(merged, ctx);
+  // Deny-by-default only when at least one author score hydrated — otherwise a
+  // dead scores relay would wipe Mercury / cache hits for anonymous visitors.
+  const anyKnown = authors.some((pk) => hasKnownRank(trustedAssertions.getScore(pk)));
+  if (ctx.trustFilterEnabled && anyKnown) {
+    events = events.filter((e) => !shouldHideEventByGrapevine(e, ctx));
+  }
+  events = events.slice(0, 100);
+  rememberEvents(events);
+  void cachePutSearchSnapshot(key, events);
+  void cachePutMany(events);
+  onUpdate({ events, loading: false, done: true });
+  return events;
 }
 
 export function isNsec(input: string): boolean {
@@ -84,15 +138,6 @@ async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Pr
   rememberEvents(cached);
   onUpdate({ events: cached, loading: true, done: false });
   return cached;
-}
-
-function finish(key: string, live: Event[], cached: Event[], onUpdate: (r: SearchResult) => void): Event[] {
-  const events = rankEvents(preferLive(live, cached)).slice(0, 100);
-  rememberEvents(events);
-  void cachePutSearchSnapshot(key, events);
-  void cachePutMany(events);
-  onUpdate({ events, loading: false, done: true });
-  return events;
 }
 
 export async function runSearch(query: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -113,14 +158,14 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
   }
 
   if (HEX64.test(q)) {
-    finish(key, await fetchByIdOrAuthor(q), cached, onUpdate);
+    await finishWithGrapevine(key, await fetchByIdOrAuthor(q), cached, onUpdate);
     return;
   }
 
   try {
     const decoded = nip19.decode(q);
     if (decoded.type === 'naddr' || decoded.type === 'nevent' || decoded.type === 'note') {
-      finish(key, await fetchBech32(decoded), cached, onUpdate);
+      await finishWithGrapevine(key, await fetchBech32(decoded), cached, onUpdate);
       return;
     }
   } catch {
@@ -191,7 +236,11 @@ async function fanOutSearch(
     ? { kinds: [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC], '#d': dTags.slice(0, 12), limit: 100 }
     : null;
 
+  // Ensure community / viewer provider is ready so Brainstorm gets the right observer.
+  void trustedAssertions.resolveProvider(session.getPubkey());
+
   const hints = identifierHints(q);
+  const brainstormKinds = [...BRAINSTORM_PUBLICATION_SEARCH_KINDS, ...BRAINSTORM_WIKI_SEARCH_KINDS];
   const tasks = [
     mercuryPublicationSearch({ q, limit: 100 }),
     mercuryPublicationSearch({ d: dTags[0], limit: 100 }),
@@ -206,6 +255,7 @@ async function fanOutSearch(
     mercurySectionSearch({ q, limit: 100 }),
     mercuryWikiSearch({ q, limit: 100 }),
     cacheScanText(q),
+    fetchBrainstormNip50Events({ query: q, kinds: brainstormKinds, limit: 80 }),
     ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
     relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [tagSlug], limit: 100 }]),
     relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [tagSlug], limit: 100 }])
@@ -215,7 +265,7 @@ async function fanOutSearch(
     for (const e of batch) {
       if (!byId.has(e.id)) byId.set(e.id, e);
     }
-    const events = rankEvents([...byId.values()]);
+    const events = rankEvents([...byId.values()], grapevineContext());
     onUpdate({ events: events.slice(0, 100), loading: true, done: false });
   };
 
@@ -228,7 +278,7 @@ async function fanOutSearch(
     )
   );
 
-  finish(key, rankEvents([...byId.values()]), cached, onUpdate);
+  await finishWithGrapevine(key, [...byId.values()], cached, onUpdate);
 }
 
 export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -240,7 +290,7 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
     mercuryWikiSearch({ author, limit: 100 }),
     relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }])
   ]);
-  finish(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
+  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
 }
 
 export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -252,7 +302,7 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
     mercuryWikiSearch({ title, limit: 100 }),
     relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }])
   ]);
-  finish(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
+  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
 }
 
 export async function runIdentifierSearch(identifier: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -268,25 +318,25 @@ export async function runIdentifierSearch(identifier: string, onUpdate: (r: Sear
       mercuryWikiSearch({ s: id, limit: 100 })
     ])
   );
-  finish(key, mergeById(batches.flat()), cached, onUpdate);
+  await finishWithGrapevine(key, mergeById(batches.flat()), cached, onUpdate);
 }
 
 export async function runLanguageSearch(language: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `language:${normalizeSearchKey(language)}`;
   const cached = await paintCached(key, onUpdate);
-  finish(key, await mercuryPublicationSearch({ language, limit: 100 }), cached, onUpdate);
+  await finishWithGrapevine(key, await mercuryPublicationSearch({ language, limit: 100 }), cached, onUpdate);
 }
 
 export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `subject:${normalizeSearchKey(subject)}`;
   const cached = await paintCached(key, onUpdate);
-  finish(key, await searchBySubject(subject), cached, onUpdate);
+  await finishWithGrapevine(key, await searchBySubject(subject), cached, onUpdate);
 }
 
 export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `label:${normalizeSearchKey(label)}`;
   const cached = await paintCached(key, onUpdate);
-  finish(key, await searchByLabel(label), cached, onUpdate);
+  await finishWithGrapevine(key, await searchByLabel(label), cached, onUpdate);
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {
@@ -299,7 +349,7 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
   const key = `d:${normalizeSearchKey(slug || d)}`;
   const cached = await paintCached(key, onUpdate);
   if (!slug) {
-    finish(key, [], cached, onUpdate);
+    await finishWithGrapevine(key, [], cached, onUpdate);
     return;
   }
   const variants = dTagVariants(d);
@@ -311,7 +361,12 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
     relayPool.query(documentStack(), [filter]),
     mercuryFilter(filter)
   ]);
-  finish(key, mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered]), cached, onUpdate);
+  await finishWithGrapevine(
+    key,
+    mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered]),
+    cached,
+    onUpdate
+  );
 }
 
 export async function searchByDTag(d: string): Promise<Event[]> {
@@ -417,7 +472,7 @@ export async function runBookshelfSearch(
 ): Promise<void> {
   const key = `bookshelf:${normalizeSearchKey(d)}:${npubOrHex ?? ''}`;
   const cached = await paintCached(key, onUpdate);
-  finish(key, await searchByBookshelf(d, npubOrHex), cached, onUpdate);
+  await finishWithGrapevine(key, await searchByBookshelf(d, npubOrHex), cached, onUpdate);
 }
 
 export { hexPubkey, npubFromInput };

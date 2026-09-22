@@ -66,6 +66,14 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).toContain('Jane Austen');
     expect(svg.startsWith('<svg ')).toBe(true);
   });
+
+  it('uses a parchment-style wiki placeholder with a Wiki label', () => {
+    const wiki = { ...ev([['title', 'Aristotle'], ['d', 'aristotle']]), kind: 30818 };
+    const svg = coverPlaceholderSvg(wiki);
+    expect(svg).toContain('Wiki');
+    expect(svg).toContain('Aristotle');
+    expect(svg).not.toContain('fill-opacity="0.28"'); // book spine shadow
+  });
 });
 
 describe('wrapWords', () => {

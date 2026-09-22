@@ -1,6 +1,7 @@
 <script lang="ts">
   import TopBar from '$lib/components/TopBar.svelte';
   import { appearance } from '$lib/stores/appearance';
+  import { trust } from '$lib/stores/trust';
   import { cacheSizeHuman, clearEventCache } from '$lib/nostr/cache';
 
   let size = $state('0 B');
@@ -41,10 +42,33 @@
     <button class="btn" type="button" onclick={() => appearance.resetColors()}>Reset colors</button>
   </section>
 
+  <section class="card" style="margin-bottom:1rem">
+    <h2>Trust filter</h2>
+    <p class="muted">GrapeRank from Brainstorm (NIP-85). Applied to fan-out search ranking and spam filtering.</p>
+    <label style="display:block;margin:1rem 0">
+      <input
+        type="checkbox"
+        checked={$trust.enabled}
+        onchange={(e) => trust.setEnabled((e.target as HTMLInputElement).checked)}
+      />
+      Prefer trusted authors (hide low GrapeRank)
+    </label>
+    <label>
+      Minimum rank
+      <input
+        type="number"
+        min="1"
+        max="100"
+        value={$trust.rankMin}
+        onchange={(e) => trust.setRankMin(Number((e.target as HTMLInputElement).value))}
+      />
+    </label>
+  </section>
+
   <section class="card">
     <h2>Cache</h2>
     <p>Cache size: {size}</p>
     <button class="btn" type="button" onclick={clearCache}>Clear Cache</button>
-    <p class="muted">Appearance settings are kept.</p>
+    <p class="muted">Appearance and trust settings are kept.</p>
   </section>
 </main>
