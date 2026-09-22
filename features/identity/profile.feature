@@ -14,7 +14,7 @@ Feature: Profile page
     And website and nip05 tags are listed (all values), not only the first
     And each NIP-05 is verified against that domain's /.well-known/nostr.json
     And a green checkmark is shown when the address maps to this profile's pubkey
-    And remaining non-standard tags and extra JSON keys still appear
+    And remaining non-standard tags and extra JSON keys still appear (not published_at)
     And NIP-38 user status is kind 30315 with d-tag general or music (as in jumble)
     And payment targets merge kind 0 lud16, lud06, payto (type+authority), wallet-shaped w tags, and kind 10133, as in jumble and Imwald
     And payment rows are deduped by canonical type plus authority
@@ -33,6 +33,7 @@ Feature: Profile page
     Then I see a 16:5 banner when present (or a theme-tinted pubkey fallback when missing), an unskewed circular picture, and the title once
     And the title is display_name when set, otherwise name
     And I see about, websites, NIP-05 values, and other tags when present
+    And #hashtags in about link to subject search (#/search?subject=)
     And a GrapeRank badge shows their trusted-assertion score when known
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
     And a field in both tags and JSON is shown once, with the tag winning

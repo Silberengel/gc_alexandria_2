@@ -39,7 +39,8 @@ const KNOWN_JSON = new Set([
   'payto',
   'w',
   'bot',
-  'client'
+  'client',
+  'published_at'
 ]);
 
 const KNOWN_TAG_NAMES = new Set([
@@ -56,7 +57,8 @@ const KNOWN_TAG_NAMES = new Set([
   'w',
   'bot',
   'imeta',
-  'client'
+  'client',
+  'published_at'
 ]);
 
 function jsonObject(content: string): Record<string, unknown> {
@@ -363,6 +365,8 @@ export function cropPaymentAddress(value: string, max = 50): string {
 }
 
 const ABOUT_URL = /https?:\/\/[^\s<>"')\]]+/gi;
+/** Hashtag after start/non-word; tag body is letters, numbers, underscore. */
+const ABOUT_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
 
 function escapeHtml(text: string): string {
   return text
@@ -372,7 +376,16 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Escape about text and turn http(s) URLs into safe links. */
+/** Escape plain text and turn #hashtags into subject-search links. */
+function linkifyPlain(text: string): string {
+  const escaped = escapeHtml(text);
+  return escaped.replace(ABOUT_HASHTAG, (_full, prefix: string, tag: string) => {
+    const href = `#/search?subject=${encodeURIComponent(tag)}`;
+    return `${prefix}<a href="${escapeHtml(href)}">#${escapeHtml(tag)}</a>`;
+  });
+}
+
+/** Escape about text and turn http(s) URLs and #hashtags into safe links. */
 export function aboutHtml(about: string): string {
   const raw = about.trim();
   if (!raw) return '';
@@ -381,7 +394,7 @@ export function aboutHtml(about: string): string {
   for (const match of raw.matchAll(ABOUT_URL)) {
     const url = match[0] ?? '';
     const start = match.index ?? 0;
-    if (start > last) parts.push(escapeHtml(raw.slice(last, start)));
+    if (start > last) parts.push(linkifyPlain(raw.slice(last, start)));
     const href = url.replace(/[.,;:!?)]+$/, '');
     const trailing = url.slice(href.length);
     try {
@@ -399,6 +412,6 @@ export function aboutHtml(about: string): string {
     }
     last = start + url.length;
   }
-  if (last < raw.length) parts.push(escapeHtml(raw.slice(last)));
+  if (last < raw.length) parts.push(linkifyPlain(raw.slice(last)));
   return parts.join('').replace(/\n/g, '<br>');
 }

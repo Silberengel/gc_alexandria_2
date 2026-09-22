@@ -1922,7 +1922,7 @@ a.user-status-line:hover {
   white-space: pre-wrap;
 }
 .profile-about a {
-  color: inherit;
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   word-break: break-word;

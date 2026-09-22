@@ -429,18 +429,29 @@ describe('kind 0 fields', () => {
     expect(rows.some((r) => r.type === 'lud16' && r.label === 'zap@example.com')).toBe(true);
   });
 
-  it('hides client tags and linkifies about URLs', async () => {
+  it('hides client tags and published_at and linkifies about URLs and hashtags', async () => {
     const { aboutHtml, cropPaymentAddress } = await import('./profile-fields');
     const fields = parseKind0(
       ev({
         kind: 0,
-        tags: [['client', 'jumble'], ['name', 'Ada']],
-        content: '{"about":"See https://example.com/docs for more."}'
+        tags: [
+          ['client', 'jumble'],
+          ['name', 'Ada'],
+          ['published_at', '1706421930']
+        ],
+        content:
+          '{"about":"building #Alexandria, #MedSchlr\\nhttps://example.com/docs for more.","published_at":"1706421930"}'
       })
     );
     expect(fields.extraTags.some((t) => t.name === 'client')).toBe(false);
-    expect(aboutHtml(fields.about)).toContain('href="https://example.com/docs"');
-    expect(aboutHtml(fields.about)).toContain('</a>');
+    expect(fields.extraTags.some((t) => t.name === 'published_at')).toBe(false);
+    expect(fields.extra.published_at).toBeUndefined();
+    const html = aboutHtml(fields.about);
+    expect(html).toContain('href="https://example.com/docs"');
+    expect(html).toContain('href="#/search?subject=Alexandria"');
+    expect(html).toContain('>#Alexandria</a>');
+    expect(html).toContain('href="#/search?subject=MedSchlr"');
+    expect(html).not.toMatch(/https:\/\/example\.com\/docs[^"]*#Alexandria/);
     expect(cropPaymentAddress('a'.repeat(60)).length).toBe(50);
   });
 });
