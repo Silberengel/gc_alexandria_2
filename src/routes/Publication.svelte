@@ -12,6 +12,7 @@
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
+  import EditionReaderMeta from '$lib/components/EditionReaderMeta.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
   import { publicationPath, hasPublicationSection } from '$lib/metadata';
@@ -742,14 +743,27 @@
   }
 
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
+    const article =
+      (sectionId
+        ? document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)
+        : null) ??
+      (address
+        ? document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)
+        : null) ??
+      document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"]`);
+
+    // Prefer the hero (or article top) so ToC jumps keep the image above the heading.
     const el =
+      article?.querySelector<HTMLElement>('.section-hero') ??
+      article ??
       (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
       (address
-        ? document.querySelector(`[data-section-addr="${CSS.escape(address)}"] .section-heading`) ??
-          document.querySelector(`[data-section-addr="${CSS.escape(address)}"]`)
+        ? document.querySelector<HTMLElement>(
+            `[data-section-addr="${CSS.escape(address)}"] .section-heading`
+          )
         : null) ??
-      document.querySelector(`[data-read-pos="${pos}"] .section-heading`) ??
-      document.querySelector(`[data-read-pos="${pos}"]`);
+      document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"] .section-heading`);
+
     if (!el) return;
     const topBar = document.querySelector('.top-bar');
     const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
@@ -1153,7 +1167,9 @@
               {/if}
               <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
               {#if isIndex}
-                <!-- Nested 30040: title heading only (no catalog card body). -->
+                {#if event && section.id === event.id}
+                  <EditionReaderMeta event={section} />
+                {/if}
               {:else if isMarkupKind(section.kind)}
                 <div
                   role="presentation"

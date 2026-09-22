@@ -2402,6 +2402,7 @@ mark.text-highlight.highlight-flash,
   overflow: hidden;
   border-radius: 0.35rem;
   background: var(--surface-2);
+  scroll-margin-top: 6.5rem;
 }
 .section-hero img {
   display: block;
@@ -2439,6 +2440,43 @@ mark.text-highlight.highlight-flash,
   letter-spacing: 0.015em;
   margin-bottom: 0.15rem;
   color: var(--text);
+}
+.edition-reader-meta {
+  margin: 0.35rem 0 0.85rem;
+  max-width: 40rem;
+}
+.edition-reader-authors {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+.edition-reader-publisher {
+  margin: 0 0 0.65rem;
+  font-size: 0.92rem;
+}
+.edition-reader-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.45rem 1rem;
+  margin: 0 0 0.75rem;
+}
+.edition-reader-fact dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.edition-reader-fact dd {
+  margin: 0.1rem 0 0;
+  font-size: 0.92rem;
+}
+.edition-reader-summary {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--text) 88%, var(--text-muted));
 }
 .section-heading {
   font-size: 1.35rem;
