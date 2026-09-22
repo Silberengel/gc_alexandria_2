@@ -196,12 +196,3 @@ export async function mercuryPublicationStream(
     return [];
   }
 }
-
-export async function mercuryPublish(event: Event): Promise<boolean> {
-  const res = await mercuryRequest('/api/events', {
-    method: 'POST',
-    headers: JSON_HEADERS,
-    body: JSON.stringify(event)
-  });
-  return !!res?.ok;
-}

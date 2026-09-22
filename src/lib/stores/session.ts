@@ -1,11 +1,11 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND, LOGIN_METADATA_KINDS } from '../constants';
-import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList } from '../mute';
+import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
-import { webSocketRelays } from '../nostr/relay-filters';
 import { documentStack, profileStack, setSelectorContext, socialStack, writeStack } from '../nostr/selector';
+import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mercuryFilter } from '../nostr/mercury';
 import { mergeRememberedMetadata } from '../session-metadata';
 
@@ -133,21 +133,19 @@ function createSessionStore() {
       }
       void applyMuteFromMetadata(metadataEvents).catch(() => {});
 
-      const relays = metadataEvents.filter((e) => e.kind === 10002);
-      const favorites = metadataEvents.filter((e) => e.kind === 10012);
-      const blocked = metadataEvents.filter((e) => e.kind === 10006);
-      const local = metadataEvents.filter((e) => e.kind === 10432);
-
-      const readList = (ev: Event | undefined, tag: string) =>
-        webSocketRelays(ev?.tags.filter((t) => t[0] === tag && t[1]).map((t) => t[1]!) ?? []);
+      const relayList = latestReplaceable(metadataEvents, KIND.RELAY_LIST);
+      const favoriteList = latestReplaceable(metadataEvents, KIND.FAVORITE);
+      const blockedList = latestReplaceable(metadataEvents, KIND.BLOCKED);
+      const localList = latestReplaceable(metadataEvents, KIND.LOCAL);
+      const { inbox, outbox } = nip65InboxOutbox(relayList);
 
       setSelectorContext({
         signedIn: true,
-        inbox: readList(relays[0], 'r'),
-        outbox: readList(relays[0], 'w'),
-        favorites: webSocketRelays(favorites.flatMap((e) => readList(e, 'relay'))),
-        local: webSocketRelays(local.flatMap((e) => readList(e, 'relay'))),
-        blocked: webSocketRelays(blocked.flatMap((e) => readList(e, 'relay')))
+        inbox,
+        outbox,
+        favorites: relayTagUrls(favoriteList),
+        local: relayTagUrls(localList),
+        blocked: relayTagUrls(blockedList)
       });
       void import('../trusted-assertions').then(({ trustedAssertions }) => {
         trustedAssertions.resetForViewer(pubkey);

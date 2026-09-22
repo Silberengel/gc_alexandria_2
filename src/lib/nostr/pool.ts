@@ -151,7 +151,11 @@ class RelayPool {
     try {
       const wssRelays = writeWebSocketRelays(relays);
       if (!wssRelays.length) return;
-      await Promise.allSettled(wssRelays.map((r) => this.pool.publish([r], event)));
+      // SimplePool.publish returns Promise[] — settle each so rejects stay quiet.
+      const pubs = this.pool.publish(wssRelays, event);
+      await Promise.allSettled(
+        pubs.map((p) => Promise.resolve(p).then(() => undefined, () => undefined))
+      );
     } catch {
       /* ignore */
     }

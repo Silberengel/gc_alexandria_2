@@ -1,15 +1,30 @@
 import type { Filter } from 'nostr-tools';
+import {
+  AGGR_RELAY,
+  BRAINSTORM_SEARCH_RELAY_URL,
+  GRAPEVINE_SCORES_RELAY_URL,
+  GRAPEVINE_SCORES_STAGING_RELAY_URL,
+  MERCURY_WSS
+} from '../constants';
 import { indexSlug } from '../dtag';
 
 const MAX_RELAY_LIMIT = 100;
 const MERCURY_HOST = 'mercury-relay.imwald.eu';
 
-/** Read-only WebSocket relays — never used for publish. */
-export const READ_ONLY_WSS = new Set([
-  'wss://mercury-relay.imwald.eu',
-  'wss://aggr.nostr.land'
-]);
+function readOnlyKey(url: string): string {
+  return url.replace(/\/+$/, '').toLowerCase();
+}
 
+/** Read-only WebSocket relays — never used for publish (index/search/aggregate only). */
+export const READ_ONLY_WSS = new Set(
+  [
+    MERCURY_WSS,
+    AGGR_RELAY,
+    BRAINSTORM_SEARCH_RELAY_URL,
+    GRAPEVINE_SCORES_RELAY_URL,
+    GRAPEVINE_SCORES_STAGING_RELAY_URL
+  ].map(readOnlyKey)
+);
 /** Normalize a WebSocket relay URL (Mercury `/relay` → origin). */
 export function normalizeWebSocketRelay(url: string): string | null {
   const trimmed = url.trim();
@@ -64,7 +79,7 @@ export function webSocketRelays(urls: string[]): string[] {
 }
 
 export function writeWebSocketRelays(urls: string[]): string[] {
-  return webSocketRelays(urls).filter((u) => !READ_ONLY_WSS.has(u.toLowerCase()));
+  return webSocketRelays(urls).filter((u) => !READ_ONLY_WSS.has(readOnlyKey(u)));
 }
 
 function cleanTagValues(values: string[] | undefined): string[] | undefined {

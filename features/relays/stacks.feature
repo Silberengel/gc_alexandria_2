@@ -47,8 +47,10 @@ Feature: Centralized relay selection
     Then inbox, my own 10002 outboxes, favorite, and local relays are added to the matching stack
     And kind 10006 blocked relays are omitted
     When I publish a comment, rating, highlight, booklist or other list label, bookshelf directory, bookmark, or bug report
-    Then writes go to my 10002 outboxes, 10012 favorites, and reachable 10432
-    And writes are not sent to wss://aggr.nostr.land or wss://mercury-relay.imwald.eu
+    Then writes go to my 10002 outboxes (NIP-65 r tags with write or both), 10012 favorites, and reachable 10432
+    And writes do not go to NIP-65 read-only inbox relays
+    And writes are not sent to read-only index relays: wss://mercury-relay.imwald.eu, wss://aggr.nostr.land, or Brainstorm search/scores relays
+    And events are never POSTed to Mercury HTTP
 
   Scenario: Local relays and nostr.land aggregator
     Given I am signed in

@@ -1,6 +1,5 @@
 import type { Event } from 'nostr-tools';
 import { ingestEvent } from './nostr/verify';
-import { mercuryPublish } from './nostr/mercury';
 import { session } from './stores/session';
 
 export async function signUnsigned(partial: {
@@ -29,7 +28,6 @@ export async function signUnsigned(partial: {
 export async function publishSigned(event: Event): Promise<boolean> {
   try {
     await session.publish(event);
-    void mercuryPublish(event);
     return true;
   } catch {
     return false;

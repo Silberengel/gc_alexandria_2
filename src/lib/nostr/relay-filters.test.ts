@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { isTorOrI2pRelay, normalizeWebSocketRelay, webSocketRelays } from './relay-filters';
+import {
+  AGGR_RELAY,
+  BRAINSTORM_SEARCH_RELAY_URL,
+  MERCURY_WSS
+} from '../constants';
+import {
+  isTorOrI2pRelay,
+  normalizeWebSocketRelay,
+  webSocketRelays,
+  writeWebSocketRelays
+} from './relay-filters';
 
 describe('Tor and I2P relays', () => {
   it('detects onion and i2p hosts', () => {
@@ -18,6 +28,21 @@ describe('Tor and I2P relays', () => {
         'wss://secret.i2p/'
       ])
     ).toEqual(['wss://pipe.imwald.eu']);
+  });
+});
+
+describe('writeWebSocketRelays', () => {
+  it('drops Mercury, aggregator, and Brainstorm search relays', () => {
+    expect(
+      writeWebSocketRelays([
+        'wss://pipe.imwald.eu/',
+        MERCURY_WSS,
+        `${MERCURY_WSS}/`,
+        AGGR_RELAY,
+        BRAINSTORM_SEARCH_RELAY_URL,
+        'wss://thecitadel.nostr1.com'
+      ])
+    ).toEqual(['wss://pipe.imwald.eu', 'wss://thecitadel.nostr1.com']);
   });
 });
 
