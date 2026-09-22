@@ -46,6 +46,7 @@ Feature: Comments, threads, and ratings
     And my previous rating of the same d-tag is replaced
     And a rating of another edition of the same i-tag is a different rating
     And kind 1111 remains the comment thread, separate from the rating form
-    When I clear my rating
-    Then a kind 5 deletion targets that 34259
-    And my stars and review are cleared on the page
+    When I clear the rating form
+    Then my stars and review text in the form are cleared
+    And no kind 5 deletion is published
+    And any preexisting rating of mine stays listed

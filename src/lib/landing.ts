@@ -78,6 +78,38 @@ function mergeEvents(...lists: Event[][]): Event[] {
   return [...byId.values()];
 }
 
+/**
+ * Progressive landing paints often replace a full shelf set with a thinner intermediate
+ * (e.g. My shelf only). Union shelves/events so the UI does not flicker fewer→more→fewer.
+ * Callers should still replace wholesale on identity change or final snapshot.
+ */
+export function mergeLandingShelves(
+  prev: LandingShelfSnap[],
+  next: LandingShelfSnap[]
+): LandingShelfSnap[] {
+  if (!prev.length) return next;
+  if (!next.length) return prev;
+  const prevById = new Map(prev.map((s) => [s.id, s]));
+  const seen = new Set<string>();
+  const out: LandingShelfSnap[] = [];
+  for (const shelf of next) {
+    seen.add(shelf.id);
+    const older = prevById.get(shelf.id);
+    out.push(
+      older
+        ? {
+            ...shelf,
+            events: mergeEvents(older.events, shelf.events)
+          }
+        : shelf
+    );
+  }
+  for (const shelf of prev) {
+    if (!seen.has(shelf.id)) out.push(shelf);
+  }
+  return out;
+}
+
 function settled<T>(result: PromiseSettledResult<T>, fallback: T): T {
   return result.status === 'fulfilled' ? result.value : fallback;
 }

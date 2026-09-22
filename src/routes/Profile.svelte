@@ -4,6 +4,10 @@
   import EventCard from '$lib/components/EventCard.svelte';
   import Pager from '$lib/components/Pager.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
+  import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
+  import EventsTable from '$lib/components/EventsTable.svelte';
+  import { listingDensity } from '$lib/stores/listing-density';
+  import { listingPageSize } from '$lib/listing-table';
   import { KIND } from '$lib/constants';
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
@@ -55,18 +59,30 @@
   let interactedPage = $state(1);
   let grapevineRank = $state<number | null>(null);
   let viewerFollows = $state(false);
-  const pageSize = 25;
 
   const fields = $derived(parseKind0(profile));
+  const pageSize = $derived(listingPageSize($listingDensity));
   const visibleProduced = $derived(filterPageEvents(filterMuted(produced, $muteState), pageFilter));
   const visibleInteracted = $derived(filterPageEvents(filterMuted(interacted, $muteState), pageFilter));
   const pagedProduced = $derived(visibleProduced.slice((producedPage - 1) * pageSize, producedPage * pageSize));
   const pagedInteracted = $derived(
     visibleInteracted.slice((interactedPage - 1) * pageSize, interactedPage * pageSize)
   );
+  /** Produced then interacted, deduped — single table in table view. */
+  const allProfileListings = $derived.by(() => {
+    const seen = new Set<string>();
+    const out: Event[] = [];
+    for (const event of [...visibleProduced, ...visibleInteracted]) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+      out.push(event);
+    }
+    return out;
+  });
 
   $effect(() => {
     pageFilter;
+    $listingDensity;
     producedPage = 1;
     interactedPage = 1;
   });
@@ -341,32 +357,51 @@
       {/if}
     </div>
   {/if}
-  {#if visibleProduced.length}
-    <h2 class="section-title">Produced</h2>
-    <div class="card-grid card-grid-results">
-      {#each pagedProduced as event (event.id)}
-        <EventCard {event} />
-      {/each}
+  {#if visibleProduced.length || visibleInteracted.length}
+    <div class="listing-toolbar listing-toolbar-section">
+      <ListingViewToggle label="Profile listings" />
     </div>
-    <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
   {/if}
-  {#if visibleInteracted.length}
-    <h2 class="section-title">Interacted with</h2>
-    <div class="card-grid card-grid-results">
-      {#each pagedInteracted as event (event.id)}
-        <div class="interacted-card">
-          <EventCard {event} />
-          {#if marksByWork.get(event.id)?.length}
-            <p class="interaction-marks muted">
-              {#each marksByWork.get(event.id) ?? [] as mark, i}
-                {#if i > 0}<span>·</span>{/if}
-                <span>{INTERACTION_MARK_LABELS[mark]}</span>
-              {/each}
-            </p>
-          {/if}
-        </div>
-      {/each}
-    </div>
-    <Pager page={interactedPage} total={visibleInteracted.length} {pageSize} onPage={(p) => (interactedPage = p)} />
+  {#if $listingDensity === 'table'}
+    {#if allProfileListings.length}
+      <EventsTable events={allProfileListings} />
+    {/if}
+  {:else}
+    {#if visibleProduced.length}
+      <h2 class="section-title">Produced</h2>
+      <div
+        class:card-grid={$listingDensity === 'full'}
+        class:card-grid-results={$listingDensity === 'full'}
+        class:listing-list={$listingDensity === 'list'}
+      >
+        {#each pagedProduced as event (event.id)}
+          <EventCard {event} density={$listingDensity} />
+        {/each}
+      </div>
+      <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
+    {/if}
+    {#if visibleInteracted.length}
+      <h2 class="section-title">Interacted with</h2>
+      <div
+        class:card-grid={$listingDensity === 'full'}
+        class:card-grid-results={$listingDensity === 'full'}
+        class:listing-list={$listingDensity === 'list'}
+      >
+        {#each pagedInteracted as event (event.id)}
+          <div class="interacted-card">
+            <EventCard {event} density={$listingDensity} />
+            {#if marksByWork.get(event.id)?.length}
+              <p class="interaction-marks muted">
+                {#each marksByWork.get(event.id) ?? [] as mark, i}
+                  {#if i > 0}<span>·</span>{/if}
+                  <span>{INTERACTION_MARK_LABELS[mark]}</span>
+                {/each}
+              </p>
+            {/if}
+          </div>
+        {/each}
+      </div>
+      <Pager page={interactedPage} total={visibleInteracted.length} {pageSize} onPage={(p) => (interactedPage = p)} />
+    {/if}
   {/if}
 </main>

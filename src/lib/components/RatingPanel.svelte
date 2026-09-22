@@ -4,7 +4,7 @@
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { signAndPublish } from '$lib/sign';
-  import { ratingDraft, deletionDraft } from '$lib/drafts';
+  import { ratingDraft } from '$lib/drafts';
   import {
     aggregateRating,
     ratingHasScore,
@@ -32,8 +32,7 @@
   let mineStars = $state(0);
   let review = $state('');
 
-  const myRating = $derived(list.find((r) => r.pubkey === $session.pubkey) ?? null);
-  const canClear = $derived(mineStars > 0 || !!myRating);
+  const canClear = $derived(mineStars > 0 || review.trim().length > 0);
 
   $effect(() => {
     const pk = $session.pubkey;
@@ -76,25 +75,10 @@
     }
   }
 
-  async function clearRating(): Promise<void> {
-    if (!$session.pubkey) {
-      await session.signIn();
-      return;
-    }
-    if (!canClear || busy) return;
-    busy = true;
-    try {
-      const existing = myRating;
-      if (existing) {
-        const signed = await signAndPublish(deletionDraft(existing));
-        if (!signed) return;
-        list = list.filter((r) => r.pubkey !== existing.pubkey);
-      }
-      mineStars = 0;
-      review = '';
-    } finally {
-      busy = false;
-    }
+  /** Reset the picker and review box only — never delete a published rating. */
+  function clearForm(): void {
+    mineStars = 0;
+    review = '';
   }
 </script>
 
@@ -175,9 +159,9 @@
         class="btn"
         type="button"
         disabled={!canClear || busy}
-        onclick={() => void clearRating()}
+        onclick={clearForm}
       >
-        {busy ? 'Clearing…' : 'Clear rating'}
+        Clear
       </button>
     </div>
   {:else}

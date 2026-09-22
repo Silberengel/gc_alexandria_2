@@ -2,8 +2,12 @@
   import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
+  import EventsTable from '$lib/components/EventsTable.svelte';
   import Pager from '$lib/components/Pager.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
+  import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
+  import { listingDensity } from '$lib/stores/listing-density';
+  import { listingPageSize } from '$lib/listing-table';
   import {
     runLabelSearch,
     runSearch,
@@ -24,7 +28,6 @@
   let loading = $state(false);
   let pageFilter = $state('');
   let page = $state(1);
-  const pageSize = 25;
   let lastKey = '';
 
   function hashParams(): URLSearchParams {
@@ -89,9 +92,11 @@
 
   $effect(() => {
     pageFilter;
+    $listingDensity;
     page = 1;
   });
 
+  const pageSize = $derived(listingPageSize($listingDensity));
   const visible = $derived(filterPageEvents(filterMuted(events, $muteState), pageFilter));
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
 </script>
@@ -99,15 +104,26 @@
 <TopBar />
 <main class="shell">
   <h1>Search</h1>
-  <PageFilter bind:value={pageFilter} />
+  <div class="listing-toolbar">
+    <PageFilter bind:value={pageFilter} />
+    <ListingViewToggle label="Search results" />
+  </div>
   {#if loading}<p class="muted">{events.length ? 'Updating…' : 'Searching…'}</p>{/if}
   {#if !loading && visible.length === 0}
     <p class="muted">Nothing matched.</p>
   {/if}
-  <div class="card-grid card-grid-results">
-    {#each paged as event (event.id)}
-      <EventCard {event} />
-    {/each}
-  </div>
-  <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+  {#if $listingDensity === 'table'}
+    <EventsTable events={visible} />
+  {:else}
+    <div
+      class:card-grid={$listingDensity === 'full'}
+      class:card-grid-results={$listingDensity === 'full'}
+      class:listing-list={$listingDensity === 'list'}
+    >
+      {#each paged as event (event.id)}
+        <EventCard {event} density={$listingDensity} />
+      {/each}
+    </div>
+    <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+  {/if}
 </main>

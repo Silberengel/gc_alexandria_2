@@ -10,9 +10,11 @@
   interface Props {
     event: Event;
     showMeta?: boolean;
+    /** `card` = detailed result card; `row` = compact list line. */
+    variant?: 'card' | 'row';
   }
 
-  let { event, showMeta = true }: Props = $props();
+  let { event, showMeta = true, variant = 'card' }: Props = $props();
 
   $effect(() => {
     rememberEvents([event]);
@@ -27,50 +29,83 @@
   const kindLabel = $derived(
     event.kind === KIND.SPEC ? 'Spec' : event.kind === KIND.WIKI ? 'Wiki' : 'Publication'
   );
+  const authorByline = $derived(
+    meta.authors.length
+      ? meta.authors
+          .map((author) => author.trim())
+          .filter(Boolean)
+          .join(' · ')
+      : ''
+  );
+  const isRow = $derived(variant === 'row');
 </script>
 
-<div class="card pub-card" class:pub-card-wiki={isWiki}>
-  <div class="pub-card-top">
-    <a class="pub-card-cover" href={`#${href}`} use:link>
+{#if isRow}
+  <a class="listing-row" href={`#${href}`} use:link>
+    <span class="listing-row-cover">
       <Cover {event} />
-    </a>
-    <div class="pub-card-body">
-      <p class="pub-card-kind muted">{kindLabel}</p>
-      <h3>
+    </span>
+    <span class="listing-row-body">
+      <span class="listing-row-title">
         {#if meta.titles.length}
-          <a href={`#${href}`} use:link>
-            {#each meta.titles as name, i}
-              {#if i > 0}<span> · </span>{/if}{name}
-            {/each}
-          </a>
+          {#each meta.titles as name, i}
+            {#if i > 0}<span> · </span>{/if}{name}
+          {/each}
         {:else}
-          <a href={`#${href}`} use:link>{title}</a>
+          {title}
         {/if}
-      </h3>
-      {#if showMeta}
-        <CardMeta {event} showTitles={false} showSubjects={false} />
-      {/if}
-    </div>
-  </div>
-  {#if showMeta && meta.defers}
-    <div class="pub-card-defer">
-      <p class="pub-card-defer-label">The author defers to another version</p>
-      {#if meta.deferHref}
-        <a class="pub-card-defer-link" href={`#${meta.deferHref}`} use:link>Open preferred version</a>
+      </span>
+      {#if authorByline}
+        <span class="listing-row-meta muted">{authorByline}</span>
       {:else}
-        <a class="pub-card-defer-link" href={`#${href}`} use:link>Open this version</a>
+        <span class="listing-row-meta muted">{kindLabel}</span>
       {/if}
+    </span>
+  </a>
+{:else}
+  <div class="card pub-card" class:pub-card-wiki={isWiki}>
+    <div class="pub-card-top">
+      <a class="pub-card-cover" href={`#${href}`} use:link>
+        <Cover {event} />
+      </a>
+      <div class="pub-card-body">
+        <p class="pub-card-kind muted">{kindLabel}</p>
+        <h3>
+          {#if meta.titles.length}
+            <a href={`#${href}`} use:link>
+              {#each meta.titles as name, i}
+                {#if i > 0}<span> · </span>{/if}{name}
+              {/each}
+            </a>
+          {:else}
+            <a href={`#${href}`} use:link>{title}</a>
+          {/if}
+        </h3>
+        {#if showMeta}
+          <CardMeta {event} showTitles={false} showSubjects={false} />
+        {/if}
+      </div>
     </div>
-  {:else if showMeta && summary}
-    <p class="muted pub-card-summary">{summary}</p>
-  {/if}
-  {#if showMeta && subjects.length}
-    <div class="pub-card-tags chip-row">
-      {#each subjects as subject}
-        <a class="chip chip-quiet" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link
-          >{subject}</a
-        >
-      {/each}
-    </div>
-  {/if}
-</div>
+    {#if showMeta && meta.defers}
+      <div class="pub-card-defer">
+        <p class="pub-card-defer-label">The author defers to another version</p>
+        {#if meta.deferHref}
+          <a class="pub-card-defer-link" href={`#${meta.deferHref}`} use:link>Open preferred version</a>
+        {:else}
+          <a class="pub-card-defer-link" href={`#${href}`} use:link>Open this version</a>
+        {/if}
+      </div>
+    {:else if showMeta && summary}
+      <p class="muted pub-card-summary">{summary}</p>
+    {/if}
+    {#if showMeta && subjects.length}
+      <div class="pub-card-tags chip-row">
+        {#each subjects as subject}
+          <a class="chip chip-quiet" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link
+            >{subject}</a
+          >
+        {/each}
+      </div>
+    {/if}
+  </div>
+{/if}

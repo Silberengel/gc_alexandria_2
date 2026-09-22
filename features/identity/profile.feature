@@ -36,6 +36,7 @@ Feature: Profile page
     And #hashtags in about link to subject search (#/search?subject=)
     And a GrapeRank badge shows their trusted-assertion score when known
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
+    And produced and interacted listings share the full/compact/table layout toggle with home and search
     And a field in both tags and JSON is shown once, with the tag winning
     And extra JSON keys still appear (not displayName aliases)
     And unexpired kind 30315 general and music statuses are shown under the display name with icons and an r-tag https link when present

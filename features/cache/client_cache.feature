@@ -49,6 +49,7 @@ Feature: Client event cache
     Then I see a human-readable cache size and a Clear Cache button
     When I press Clear Cache
     Then events and covers are emptied and appearance settings are not
+    And listing full/compact/table density preference is also kept
     When the cache grows large
     Then older unused items may be evicted
 

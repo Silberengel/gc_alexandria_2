@@ -3,9 +3,13 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import Cover from '$lib/components/Cover.svelte';
   import LandingRefRow from '$lib/components/LandingRefRow.svelte';
-  import { LANDING_FEED_LIMIT, loadCachedLanding, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
+  import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
+  import PublicationCard from '$lib/components/PublicationCard.svelte';
+  import EventsTable from '$lib/components/EventsTable.svelte';
+  import { LANDING_FEED_LIMIT, loadCachedLanding, mergeLandingShelves, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
+  import { listingDensity } from '$lib/stores/listing-density';
   import { get } from 'svelte/store';
   import { muteState, filterMuted } from '$lib/mute';
   import { rememberEvents } from '$lib/nostr/event-memory';
@@ -33,12 +37,27 @@
   const visibleSubjects = $derived(subjects);
   const visibleLabels = $derived(labels);
 
-  function apply(view: LandingView): void {
+  /** All shelf publications in priority order, deduped — used by table view. */
+  const allShelfEvents = $derived.by(() => {
+    const seen = new Set<string>();
+    const out: Event[] = [];
+    for (const shelf of visibleShelves) {
+      for (const event of shelf.events) {
+        if (seen.has(event.id)) continue;
+        seen.add(event.id);
+        out.push(event);
+      }
+    }
+    return out;
+  });
+
+  function apply(view: LandingView, replaceShelves = false): void {
     comments = view.comments;
     highlights = view.highlights;
     referenced = view.referenced ?? [];
     subjects = view.subjects;
-    shelves = view.shelves ?? [];
+    const nextShelves = view.shelves ?? [];
+    shelves = replaceShelves ? nextShelves : mergeLandingShelves(shelves, nextShelves);
     labels = view.labels ?? [];
     rememberEvents([
       ...view.publications,
@@ -56,15 +75,16 @@
 
   async function loadLanding(): Promise<void> {
     const gen = ++loadGen;
+    const replaceFromCache = shelves.length === 0;
     try {
       const cached = await loadCachedLanding();
       if (gen !== loadGen) return;
-      if (cached) apply(cached);
+      if (cached) apply(cached, replaceFromCache);
       const live = await refreshLanding(cached, (view) => {
-        if (gen === loadGen) apply(view);
+        if (gen === loadGen) apply(view, false);
       });
       if (gen !== loadGen) return;
-      apply(live);
+      apply(live, true);
     } catch {
       /* network/cache failures must not leave home stuck blank forever */
     }
@@ -133,24 +153,44 @@
     <h1>Library of Alexandria</h1>
   </header>
 
-  {#each visibleShelves as shelf (shelf.id)}
-    <section>
-      <h2 class="section-title">
-        {#if shelf.href}
-          <a href={`#${shelf.href}`} use:link>{shelf.title}</a>
+  {#if visibleShelves.length}
+    <div class="listing-toolbar">
+      <ListingViewToggle label="Shelves" />
+    </div>
+  {/if}
+
+  {#if $listingDensity === 'table'}
+    {#if allShelfEvents.length}
+      <EventsTable events={allShelfEvents} />
+    {/if}
+  {:else}
+    {#each visibleShelves as shelf (shelf.id)}
+      <section>
+        <h2 class="section-title">
+          {#if shelf.href}
+            <a href={`#${shelf.href}`} use:link>{shelf.title}</a>
+          {:else}
+            {shelf.title}
+          {/if}
+        </h2>
+        {#if $listingDensity === 'list'}
+          <div class="listing-list">
+            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
+              <PublicationCard event={pub} variant="row" />
+            {/each}
+          </div>
         {:else}
-          {shelf.title}
+          <div class="shelf-bar">
+            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
+              <a class="cover" href={`#${publicationPath(pub)}`} use:link>
+                <Cover event={pub} />
+              </a>
+            {/each}
+          </div>
         {/if}
-      </h2>
-      <div class="shelf-bar">
-        {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
-          <a class="cover" href={`#${publicationPath(pub)}`} use:link>
-            <Cover event={pub} />
-          </a>
-        {/each}
-      </div>
-    </section>
-  {/each}
+      </section>
+    {/each}
+  {/if}
 
   {#if visibleHighlights.length || visibleComments.length}
     <div class="landing-feeds">

@@ -15,8 +15,11 @@ Feature: Landing bookshelves
     And signed-in nested 30045 folders (not my-book-collection) appear as extra horizontal rows after those
     And 1985 and 10003 membership uses the social/interaction stack
     And 30045 membership uses the document/search stack
-    And each shelf is a horizontal row of covers or cover placeholders, not metadata cards
-    And each shelf has its own horizontal shelf-bar and scrolls by itself
+    And each shelf is a horizontal row of covers or cover placeholders in full view, or a compact publication grid in compact view
+    And each shelf has its own horizontal shelf-bar and scrolls by itself in full view
+    And full, compact-grid, and table layout icon buttons switch density (persisted), as on search and profile listings
+    And the compact grid is one column on a phone, two from tablet width, and up to three on a wide screen
+    And table view shows one sortable Title/Author table for all shelf entries (no per-shelf split), paging at 250
     And covers use the publication's image tag when present, else a cover placeholder
     And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
     And a cover shows a book-icon badge at the bottom-right when that publication's index has at least one e-tag or a non-30040 a-tag (nested 30040s alone do not count)

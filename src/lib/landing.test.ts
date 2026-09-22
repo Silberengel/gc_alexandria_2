@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { preferLive, subjectsFromPublications, orderShelfCovers, titleForAddress, publisherForAddress, displayRefTitle, hrefForRef, topLevelPublicationAddress } from './landing';
+import { preferLive, subjectsFromPublications, orderShelfCovers, titleForAddress, publisherForAddress, displayRefTitle, hrefForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
 import type { Event } from 'nostr-tools';
+import type { LandingShelfSnap } from './nostr/cache';
 
-function ev(tags: string[][]): Event {
+function ev(tags: string[][], idNibble = 'a'): Event {
   return {
-    id: 'a'.repeat(64),
+    id: idNibble.repeat(64).slice(0, 64),
     pubkey: 'b'.repeat(64),
     created_at: 1,
     kind: 30040,
@@ -28,6 +29,24 @@ describe('landing cache fallback', () => {
         ev([['t', 'fiction']])
       ])
     ).toEqual(['fiction', 'romance']);
+  });
+});
+
+describe('mergeLandingShelves', () => {
+  it('keeps prior shelves and unions events during progressive paints', () => {
+    const a = ev([['title', 'A']], '1');
+    const b = ev([['title', 'B']], '2');
+    const c = ev([['title', 'C']], '3');
+    const prev: LandingShelfSnap[] = [
+      { id: 'network', title: 'Network', events: [a, b] },
+      { id: 'mine', title: 'My shelf', events: [a] }
+    ];
+    const next: LandingShelfSnap[] = [{ id: 'mine', title: 'My shelf', events: [c] }];
+    const merged = mergeLandingShelves(prev, next);
+    expect(merged.map((s) => s.id).sort()).toEqual(['mine', 'network']);
+    const mine = merged.find((s) => s.id === 'mine')!;
+    expect(mine.events.map((e) => e.id).sort()).toEqual([a.id, c.id].sort());
+    expect(merged.find((s) => s.id === 'network')?.events).toHaveLength(2);
   });
 });
 

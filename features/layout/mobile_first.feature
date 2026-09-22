@@ -10,7 +10,7 @@ Feature: Mobile-first layout
     And the top bar stacks cleanly: brand and session on the first row, nav links on the next, search full-width when shown
     And primary actions and comment threads do not require the page itself to scroll horizontally
     And edition headers and the Details accordion wrap without forcing page-wide horizontal scroll
-    And each shelf may scroll horizontally inside its own shelf-bar
+    And each shelf may scroll horizontally inside its own shelf-bar in full view
     When I widen to a tablet, then a laptop or desktop
     Then the catalog gains columns and the top bar fills the width
     And I do not switch information architecture
@@ -18,4 +18,6 @@ Feature: Mobile-first layout
     And on a phone the table of contents becomes a transparent icon at the bottom-right over the text
     And that icon opens the ToC in place and closes it again without covering the top bar
     And Highlights and What we are discussing sit in two columns
-    And search result cards are two per row, horizontal, with the cover on the left
+    And in full view search result cards grow to two, then up to three columns on a wide screen
+    And compact grid listings use that same one / two / three column rhythm
+    And full/compact/table layout icon buttons are available on home, search, and profile listings
