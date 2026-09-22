@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { replace } from 'svelte-spa-router';
+  import { replace, querystring } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import TopBar from '$lib/components/TopBar.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
@@ -21,14 +21,15 @@
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
-  import { fetchById, fetchPublication } from '$lib/nostr/fetch';
+  import { fetchById, fetchPublication, fetchByAddress } from '$lib/nostr/fetch';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { nestComments } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
-  import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
+  import { ingestLocalLandingHighlight } from '$lib/landing';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { loadResume, saveResume } from '$lib/resume';
@@ -45,6 +46,7 @@
   } from '$lib/publication-load';
   import { searchByDTag } from '$lib/search';
   import { normalizeDTag } from '$lib/dtag';
+  import { parseAddress } from '$lib/library-scope';
 
   interface Props {
     params?: { d?: string; npub?: string; naddr?: string };
@@ -182,6 +184,122 @@
     return out;
   }
 
+  function focusFromUrl(): { section: string; quote: string } {
+    const q = new URLSearchParams($querystring ?? '');
+    return {
+      section: (q.get('section') ?? '').trim(),
+      quote: (q.get('quote') ?? '').trim()
+    };
+  }
+
+  function scrollToHighlightQuote(quote: string, attempts = 12): void {
+    const needle = quote.replace(/\s+/g, ' ').trim().slice(0, 80).toLowerCase();
+    if (!needle) return;
+    const marks = [...document.querySelectorAll<HTMLElement>('mark.text-highlight')];
+    const hit =
+      marks.find((m) => (m.textContent ?? '').replace(/\s+/g, ' ').toLowerCase().includes(needle)) ??
+      marks[0];
+    if (hit) {
+      hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    if (attempts <= 0) return;
+    setTimeout(() => scrollToHighlightQuote(quote, attempts - 1), 100);
+  }
+
+  function mergeSections(primary: Event[], rest: Event[]): Event[] {
+    const byId = new Map<string, Event>();
+    for (const e of [...primary, ...rest]) byId.set(e.id, e);
+    return [...byId.values()];
+  }
+
+  let focusKey = '';
+
+  async function openFocusedReading(sectionAddr: string, quote: string): Promise<void> {
+    if (!event || unreadable || !canRead) return;
+    const key = `${sectionAddr}\0${quote}`;
+    focusKey = key;
+    reading = true;
+    readingBusy = true;
+    const focusAddr = sectionAddr;
+    const focusQuote = quote;
+    const edition = event;
+    try {
+      const parsed = parseAddress(focusAddr);
+      let focused: Event | null = null;
+      if (parsed) {
+        focused =
+          memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
+          (await fetchByAddress(focusAddr));
+      }
+      if (focusKey !== key || event !== edition) return;
+      if (focused) {
+        rememberEvents([focused]);
+        sections = [focused];
+        void enrichHighlightsFromSections([focused]);
+        readingBusy = false;
+        queueMicrotask(() => {
+          scrollToSection(0, focused!.id, eventAddress(focused!));
+          if (focusQuote) scrollToHighlightQuote(focusQuote);
+        });
+      }
+
+      if (!toc.length) {
+        try {
+          const rawToc = await mercuryPublicationToc(naddrFor(edition));
+          if (focusKey !== key || event !== edition) return;
+          toc = parseToc(rawToc, edition);
+        } catch {
+          if (focusKey !== key || event !== edition) return;
+          toc = parseToc(null, edition);
+        }
+      }
+
+      const entry = toc.find((t) => t.address === focusAddr);
+      let streamed: Event[] = [];
+      try {
+        if (entry && Number.isFinite(entry.pos)) {
+          streamed = await mercuryPublicationStream(naddrFor(edition), entry.pos);
+        }
+        if (!streamed.length) {
+          streamed = await mercuryPublicationStream(naddrFor(edition));
+        }
+      } catch {
+        streamed = [];
+      }
+      if (focusKey !== key || event !== edition) return;
+      if (!streamed.length) streamed = await fallbackSections(edition);
+      if (focusKey !== key || event !== edition) return;
+      if (streamed.length) {
+        sections = mergeSections(focused ? [focused] : [], streamed);
+        void enrichHighlightsFromSections(sections);
+      }
+      if (!toc.length) toc = parseToc(null, edition);
+
+      if (focused || sections.length) {
+        queueMicrotask(() => {
+          const scrollId = focused?.id ?? sections.find((s) => eventAddress(s) === focusAddr)?.id;
+          scrollToSection(entry?.pos ?? 0, scrollId, focusAddr);
+          if (focusQuote) scrollToHighlightQuote(focusQuote);
+        });
+      } else {
+        unreadable = true;
+        reading = false;
+      }
+    } finally {
+      if (focusKey === key) readingBusy = false;
+    }
+  }
+
+  function applyUrlFocus(): void {
+    if (!event || textUnavailable || unreadable || !canRead) return;
+    const focus = focusFromUrl();
+    if (!focus.section) return;
+    const key = `${focus.section}\0${focus.quote}`;
+    if (key === focusKey && reading) return;
+    void openFocusedReading(focus.section, focus.quote);
+  }
+
   function paintEdition(target: Event): void {
     rememberEvents([target]);
     event = target;
@@ -208,6 +326,7 @@
     tocOpen = false;
     sections = [];
     toc = [];
+    focusKey = '';
     cancelTree();
     error = false;
     unreadable = false;
@@ -312,6 +431,13 @@
   });
 
   onDestroy(() => cancelTree());
+
+  $effect(() => {
+    // Re-apply ?section=&quote= when the hash query changes on the same edition route.
+    if (!event || loading || textUnavailable) return;
+    void $querystring;
+    applyUrlFocus();
+  });
 
   async function startReading(): Promise<void> {
     if (!event || unreadable || !canRead) return;
@@ -445,19 +571,25 @@
       /* ignore */
     }
     const signed = await signAndPublish(highlightDraft(section, quote, context));
-    if (signed) highlights = [...highlights, signed];
+    if (signed) {
+      const mine = session
+        .getMetadata()
+        .find((e) => e.kind === KIND.METADATA && e.pubkey.toLowerCase() === signed.pubkey.toLowerCase());
+      seedHighlightProfile(signed.pubkey, mine ?? null);
+      highlights = [signed, ...highlights.filter((h) => h.id !== signed.id)];
+      void ingestLocalLandingHighlight(signed, event);
+    }
   }
 
-  function quotesFor(section: Event): string[] {
+  function quotesFor(section: Event): TextHighlight[] {
     const a = eventAddress(section);
     const keys = new Set(publicationCoordinateLookupKeys(a));
-    return mutedHighlights
-      .filter(
-        (h) =>
-          h.tags.some((t) => t[0] === 'a' && t[1] && keys.has(t[1])) ||
-          h.tags.some((t) => t[0] === 'e' && t[1]?.toLowerCase() === section.id.toLowerCase())
-      )
-      .map((h) => h.content);
+    const forSection = mutedHighlights.filter(
+      (h) =>
+        h.tags.some((t) => t[0] === 'a' && t[1] && keys.has(t[1])) ||
+        h.tags.some((t) => t[0] === 'e' && t[1]?.toLowerCase() === section.id.toLowerCase())
+    );
+    return textHighlightsFromEvents(forSection);
   }
 
   async function enrichHighlightsFromSections(secs: Event[]): Promise<void> {

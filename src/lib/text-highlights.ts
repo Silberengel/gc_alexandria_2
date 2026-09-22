@@ -4,6 +4,7 @@ import { relayPool } from './nostr/pool';
 import { profileStack } from './nostr/selector';
 import { firstTag } from './nostr/verify';
 import { toNostrBuildThumbUrl } from './nostr-build';
+import { session } from './stores/session';
 
 export type TextHighlight = {
   quote: string;
@@ -28,6 +29,33 @@ function kind0Value(event: Event, tagName: string, jsonKeys: string[]): string {
   return '';
 }
 
+function profileFromKind0(meta: Event): { name: string; picture: string } {
+  let name = '';
+  try {
+    name = nip19.npubEncode(meta.pubkey).slice(0, 12) + '…';
+  } catch {
+    name = meta.pubkey.slice(0, 12) + '…';
+  }
+  name =
+    kind0Value(meta, 'display_name', ['display_name']) ||
+    kind0Value(meta, 'name', ['name', 'display_name']) ||
+    name;
+  const picture = toNostrBuildThumbUrl(kind0Value(meta, 'picture', ['picture']));
+  return { name, picture };
+}
+
+/** Warm the avatar cache (e.g. right after the viewer creates a highlight). */
+export function seedHighlightProfile(pubkey: string, meta?: Event | null): void {
+  const pk = pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return;
+  if (meta?.kind === 0 && meta.pubkey.toLowerCase() === pk) {
+    profileCache.set(pk, profileFromKind0(meta));
+    return;
+  }
+  const mine = session.getMetadata().find((e) => e.kind === 0 && e.pubkey.toLowerCase() === pk);
+  if (mine) profileCache.set(pk, profileFromKind0(mine));
+}
+
 async function loadProfile(pubkey: string): Promise<{ name: string; picture: string }> {
   const pk = pubkey.trim().toLowerCase();
   const cached = profileCache.get(pk);
@@ -36,13 +64,21 @@ async function loadProfile(pubkey: string): Promise<{ name: string; picture: str
   if (pending) return pending;
 
   const job = (async () => {
-    let name = '';
-    let picture = '';
-    try {
-      const npub = nip19.npubEncode(pk);
-      name = npub.slice(0, 12) + '…';
-    } catch {
-      name = pk.slice(0, 12) + '…';
+    seedHighlightProfile(pk);
+    const warmed = profileCache.get(pk);
+    if (warmed?.picture) {
+      profileInflight.delete(pk);
+      return warmed;
+    }
+
+    let name = warmed?.name ?? '';
+    let picture = warmed?.picture ?? '';
+    if (!name) {
+      try {
+        name = nip19.npubEncode(pk).slice(0, 12) + '…';
+      } catch {
+        name = pk.slice(0, 12) + '…';
+      }
     }
     try {
       const fetched = await relayPool.query(
@@ -52,11 +88,9 @@ async function loadProfile(pubkey: string): Promise<{ name: string; picture: str
       );
       const meta = fetched[0];
       if (meta) {
-        name =
-          kind0Value(meta, 'display_name', ['display_name']) ||
-          kind0Value(meta, 'name', ['name', 'display_name']) ||
-          name;
-        picture = toNostrBuildThumbUrl(kind0Value(meta, 'picture', ['picture']));
+        const parsed = profileFromKind0(meta);
+        name = parsed.name || name;
+        picture = parsed.picture || picture;
       }
     } catch {
       /* ignore */

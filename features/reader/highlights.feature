@@ -23,4 +23,6 @@ Feature: Highlights
     And it also carries e, p, and k tags for that section
     And it may carry a context tag with surrounding text
     And it is not stored with an i-tag as the publication source
-    And the quote is marked in the section body after save
+    And the quote is marked in the section body immediately after save, with the highlighter avatar
+    And I do not need to refresh the page to see that mark
+    And the landing Highlights list includes that quote when I return home (merged from cache/outbox, not only Mercury)

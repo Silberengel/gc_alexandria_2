@@ -6,6 +6,7 @@ import { landingLabels } from './labels';
 import {
   LIBRARY_KIND_TAGS,
   addressPath,
+  isLibraryHighlight,
   libraryAddresses,
   newestCommentPerWork,
   newestHighlightPerAddress,
@@ -197,7 +198,16 @@ export function hrefForRef(event: Event, referenced: Event[]): string | null {
   const work = referencedLibraryAddress(event);
   const section = referencedSectionAddress(event);
   const top = topLevelPublicationAddress(section ?? work, referenced);
-  return addressPath(top ?? work ?? '');
+  const path = addressPath(top ?? work ?? '');
+  if (!path) return null;
+  const params = new URLSearchParams();
+  if (section) params.set('section', section);
+  if (event.kind === KIND.HIGHLIGHT) {
+    const q = event.content.replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (q) params.set('quote', q);
+  }
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
 }
 
 async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {
@@ -522,12 +532,13 @@ export async function refreshLanding(
     cacheOk ? cached?.publications : undefined
   );
 
-  // Paint Mercury (and cache) immediately — subjects/chips appear even while shelves load.
+  // Paint Mercury + local cache immediately — subjects/chips appear even while shelves load.
+  // Merge cache so a just-published highlight (in the client cache) is not dropped when Mercury has older hits.
   let comments = newestCommentPerWork(
-    preferLive(mercComments, cacheOk ? cached?.comments : undefined)
+    mergeEvents(mercComments, cacheOk ? (cached?.comments ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
   let highlights = newestHighlightPerAddress(
-    preferLive(mercHighlights, cacheOk ? cached?.highlights : undefined)
+    mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
 
   onUpdate?.(
@@ -548,14 +559,11 @@ export async function refreshLanding(
       ? loadShelvesAndLabels(publications, cacheOk ? cached : null, EMPTY_MEMBERSHIP)
       : Promise.resolve(null);
 
-  // Relay social feeds only when Mercury returned nothing — run beside membership finish.
+  // Social feeds: always merge Mercury + relays + cache. Mercury may lag or omit
+  // fresh outbox publishes (highlights/comments are not POSTed to Mercury).
   const [commWs, highWs, membership, minePack] = await Promise.all([
-    mercComments.length
-      ? Promise.resolve([] as Event[])
-      : relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
-    mercHighlights.length
-      ? Promise.resolve([] as Event[])
-      : relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
+    relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
+    relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
     membershipPromise,
     minePackPromise
   ]);
@@ -566,10 +574,10 @@ export async function refreshLanding(
         viewerPubkey: viewer,
         publications,
         comments: newestCommentPerWork(
-          preferLive(mercComments, cacheOk ? cached?.comments : undefined)
+          mergeEvents(mercComments, cacheOk ? (cached?.comments ?? []) : [])
         ).slice(0, LANDING_FEED_LIMIT),
         highlights: newestHighlightPerAddress(
-          preferLive(mercHighlights, cacheOk ? cached?.highlights : undefined)
+          mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
         ).slice(0, LANDING_FEED_LIMIT),
         referenced: cacheOk ? (cached?.referenced ?? []) : [],
         shelves: minePack.shelves,
@@ -579,16 +587,10 @@ export async function refreshLanding(
   }
 
   comments = newestCommentPerWork(
-    preferLive(
-      mergeEvents(mercComments, commWs),
-      cacheOk ? cached?.comments : undefined
-    )
+    mergeEvents(mercComments, commWs, cacheOk ? (cached?.comments ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
   highlights = newestHighlightPerAddress(
-    preferLive(
-      mergeEvents(mercHighlights, highWs),
-      cacheOk ? cached?.highlights : undefined
-    )
+    mergeEvents(mercHighlights, highWs, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
 
   // Keep My shelf visible while follows/GitCitadel/network membership finishes resolving.
@@ -638,4 +640,60 @@ export async function refreshLanding(
   onUpdate?.(view);
   void cachePutLandingSnapshot(view);
   return view;
+}
+
+/**
+ * After the viewer publishes a highlight, fold it into the landing snapshot so Home
+ * shows it without waiting on Mercury/relay refresh.
+ */
+export async function ingestLocalLandingHighlight(
+  highlight: Event,
+  work?: Event | null
+): Promise<void> {
+  if (!isLibraryHighlight(highlight)) return;
+  const viewer = currentViewerPubkey();
+  let snap: LandingSnapshot | null = null;
+  try {
+    snap = await cacheGetLandingSnapshot();
+  } catch {
+    snap = null;
+  }
+  if (snap && !sameViewer(snap, viewer)) {
+    snap = {
+      viewerPubkey: viewer,
+      publications: snap.publications ?? [],
+      highlights: [],
+      comments: snap.comments ?? [],
+      referenced: snap.referenced ?? [],
+      shelves: (snap.shelves ?? []).filter((s) => !isViewerBoundShelfId(s.id)),
+      labels: []
+    };
+  }
+  const base: LandingSnapshot = snap ?? {
+    viewerPubkey: viewer,
+    publications: [],
+    highlights: [],
+    comments: [],
+    referenced: [],
+    shelves: [],
+    labels: []
+  };
+  const highlights = newestHighlightPerAddress(
+    mergeEvents([highlight], base.highlights ?? [])
+  ).slice(0, LANDING_FEED_LIMIT);
+  const referenced = [...(base.referenced ?? [])];
+  if (work?.id) {
+    const byId = new Map(referenced.map((e) => [e.id, e]));
+    byId.set(work.id, work);
+    // Section highlight titles need the parent edition in `referenced`.
+    referenced.length = 0;
+    referenced.push(...byId.values());
+  }
+  const view = withSubjects({
+    ...base,
+    viewerPubkey: viewer,
+    highlights,
+    referenced
+  });
+  await cachePutLandingSnapshot(view);
 }

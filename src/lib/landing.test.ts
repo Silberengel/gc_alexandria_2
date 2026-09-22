@@ -97,9 +97,26 @@ describe('referenced work titles', () => {
         ['a', secAddr]
       ]
     };
+    const highlight = {
+      ...ev([]),
+      id: 'd'.repeat(64),
+      kind: 9802,
+      content: '  It was a cold winter morning on the moor.  ',
+      tags: [
+        ['A', pubAddr],
+        ['a', secAddr]
+      ]
+    };
     const referenced = [publication, section];
     expect(displayRefTitle(comment, referenced)).toBe('Jane Eyre: Chapter 1');
     expect(topLevelPublicationAddress(secAddr, referenced)).toBe(pubAddr);
     expect(hrefForRef(comment, referenced)).toContain('/publication/d/jane-eyre/');
+    const href = hrefForRef(highlight, referenced)!;
+    const q = href.indexOf('?');
+    expect(q).toBeGreaterThan(0);
+    expect(href.slice(0, q)).toContain('/publication/d/jane-eyre/');
+    const params = new URLSearchParams(href.slice(q + 1));
+    expect(params.get('section')).toBe(secAddr);
+    expect(params.get('quote')).toBe('It was a cold winter morning on the moor.');
   });
 });

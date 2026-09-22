@@ -62,6 +62,12 @@ Feature: In-browser reader
     When I leave and reopen the same edition on this device and press "Read the publication"
     Then I return near the last position
 
+  Scenario: Landing highlight deep-link opens the section first
+    When I open /publication/d/{d}/p/{npub}?section={30041 address}&quote={excerpt}
+    Then reading starts without pressing the button
+    And that section is fetched and shown before the rest of /stream
+    And the matching quote mark is scrolled into view
+
   Scenario: Markup is per section kind
     Given I am reading a 30040 whose children include several kinds
     Then 30041 is AsciiDoc
