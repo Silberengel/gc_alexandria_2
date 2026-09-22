@@ -9,9 +9,10 @@
     event: Event;
     showIdentifier?: boolean;
     showTitles?: boolean;
+    showSubjects?: boolean;
   }
 
-  let { event, showIdentifier = false, showTitles = true }: Props = $props();
+  let { event, showIdentifier = false, showTitles = true, showSubjects = true }: Props = $props();
   const meta = $derived(cardMeta(event));
 </script>
 
@@ -36,21 +37,21 @@
     {/each}
   </p>
 {/if}
-{#if meta.subjects.length}
-  <div class="chip-row">
-    {#each meta.subjects.slice(0, showIdentifier ? 12 : 5) as subject}
-      <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link>{subject}</a>
-    {/each}
-  </div>
-{/if}
 {#if meta.source}
-  <p class="muted pub-card-line">
+  <p class="muted pub-card-line pub-card-source">
     {#if isAllowedHref(meta.source)}
       Source: <a href={meta.source} rel="noopener noreferrer">{meta.source}</a>
     {:else}
       Source: {meta.source}
     {/if}
   </p>
+{/if}
+{#if showSubjects && meta.subjects.length}
+  <div class="chip-row">
+    {#each meta.subjects.slice(0, showIdentifier ? 12 : 5) as subject}
+      <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link>{subject}</a>
+    {/each}
+  </div>
 {/if}
 {#if showIdentifier && meta.identifier}
   <p class="muted pub-card-line">

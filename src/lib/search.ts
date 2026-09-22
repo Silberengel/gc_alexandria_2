@@ -18,6 +18,7 @@ import {
 import { hasKnownRank } from './nip85-trusted-assertions';
 import { hexPubkey, npubFromInput, sortSearchResults } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
+import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
 import { isTopLevel30040 } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { fetchByAddresses, fetchByIds } from './nostr/fetch';
@@ -77,11 +78,14 @@ export function preferTopLevelPublications(events: Event[]): Event[] {
 
 function grapevineContext(): GrapevineTrustContext {
   const snap = trust.snapshot();
+  const viewerPubkey = session.getPubkey();
+  const followPubkeySet = followPubkeysFromMetadata(session.getMetadata());
   return {
     trustFilterEnabled: snap.enabled,
     rankCutoff: snap.rankMin,
-    viewerPubkey: session.getPubkey(),
-    followPubkeySet: followPubkeysFromMetadata(session.getMetadata()),
+    viewerPubkey,
+    followPubkeySet,
+    followsOfFollowsSet: getFollowsOfFollowsSet(viewerPubkey),
     getScore: (pk) => trustedAssertions.getScore(pk)
   };
 }
@@ -102,7 +106,6 @@ async function finishWithGrapevine(
   onUpdate: (r: SearchResult) => void
 ): Promise<Event[]> {
   const merged = preferLive(live, cached);
-  const ctx = grapevineContext();
   const authors = [...new Set(merged.map((e) => e.pubkey))];
   try {
     await trustedAssertions.resolveProvider(session.getPubkey());
@@ -110,6 +113,13 @@ async function finishWithGrapevine(
   } catch {
     /* scores optional */
   }
+  try {
+    const follows = followPubkeysFromMetadata(session.getMetadata());
+    await ensureFollowsOfFollows(session.getPubkey(), follows);
+  } catch {
+    /* FoF optional */
+  }
+  const ctx = grapevineContext();
   let events = rankEvents(merged, ctx);
   // Deny-by-default only when at least one author score hydrated — otherwise a
   // dead scores relay would wipe Mercury / cache hits for anonymous visitors.

@@ -1,7 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND, LOGIN_METADATA_KINDS } from '../constants';
-import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable } from '../mute';
+import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
 import { documentStack, profileStack, setSelectorContext, socialStack, writeStack } from '../nostr/selector';
@@ -151,6 +151,11 @@ function createSessionStore() {
         trustedAssertions.resetForViewer(pubkey);
         void trustedAssertions.resolveProvider(pubkey);
       });
+      void import('../follows-of-follows').then(({ resetFollowsOfFollows, ensureFollowsOfFollows }) => {
+        resetFollowsOfFollows(pubkey);
+        const follows = followPubkeysFromMetadata(metadataEvents);
+        void ensureFollowsOfFollows(pubkey, follows);
+      });
     } catch {
       // Signed-in UI must still work offline / when every relay is down.
       metadataEvents = [];
@@ -260,6 +265,9 @@ function createSessionStore() {
     void import('../trusted-assertions').then(({ trustedAssertions }) => {
       trustedAssertions.resetForViewer(null);
       void trustedAssertions.resolveProvider(null);
+    });
+    void import('../follows-of-follows').then(({ resetFollowsOfFollows }) => {
+      resetFollowsOfFollows();
     });
   }
 

@@ -63,7 +63,6 @@
     </p>
     <p><UserBadge pubkey={GITCITADEL_HEX} /></p>
     <p class="contact-actions">
-      <a class="btn" href={PROJECT_URL} target="_blank" rel="noopener">View project activity</a>
       <a class="btn" href={ISSUES_BASE} target="_blank" rel="noopener">Alexandria issues</a>
     </p>
 

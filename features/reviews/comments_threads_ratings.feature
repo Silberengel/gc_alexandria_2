@@ -10,11 +10,12 @@ Feature: Comments, threads, and ratings
     Then I see the root and its reply nested on the edition page before Read
     And I see each commenter's userbadge
 
-  Scenario: Section comments sit in a folded accordion
+  Scenario: Section comments sit behind a more menu
     When I am reading a section
-    Then the bottom of that section has a folded accordion for kind 1111 comments targeted at that section
-    When I fold it out
-    Then I see those comments nested under that section
+    Then the bottom of that section has a more menu with highlight and comment actions
+    And there is no horizontal rule above those controls
+    When I open Comments from that menu
+    Then I see kind 1111 comments targeted at that section
     And when I am signed in I can compose a new root comment on that section
 
   Scenario: Comments stay scoped

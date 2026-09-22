@@ -9,9 +9,13 @@ Feature: Profile page
     And kind 0 is fetched from profile relays (profiles.nostr1.com, indexer.coracle.social, thecitadel.nostr1.com), never from Mercury
     And when signed in those queries also include my inbox, outbox, favorites, and local relays
     And kind 0 fields come from tags first, then JSON content, then are deduped
+    And display_name is the heading when present; otherwise name
+    And picture and display name render once (no duplicate userbadge under the header)
+    And website and nip05 tags are listed (all values), not only the first
+    And remaining non-standard tags and extra JSON keys still appear
     And NIP-38 status is kind 30315 with d-tag general or music
-    And payment targets merge kind 10133 payto tags with kind 0 lud16, lud06, w, and payto
-    And payment rows are deduped by canonical type plus authority as in jumble and Imwald
+    And payment targets merge kind 0 lud16, lud06, payto (type+authority), wallet-shaped w tags, and kind 10133, as in jumble and Imwald
+    And payment rows are deduped by canonical type plus authority
     And empty produced and interacted-with lists are omitted
 
   Scenario: Userbadges open /p/
@@ -24,11 +28,13 @@ Feature: Profile page
 
   Scenario: /p/ lists profile, status, and payments
     When I open /p/ for a pubkey that has a kind 0
-    Then I see picture, display name, name, about, website, NIP-05, and banner when present
+    Then I see a 16:9 banner when present, an unskewed circular picture, and the title once
+    And the title is display_name when set, otherwise name
+    And I see about, websites, NIP-05 values, and other tags when present
     And a field in both tags and JSON is shown once, with the tag winning
-    And extra JSON keys still appear
+    And extra JSON keys still appear (not displayName aliases)
     And an unexpired kind 30315 general or music status is shown with its r-tag link
-    And payment rows from kind 0 then kind 10133 are shown once per type plus authority
+    And payment targets from kind 0 then kind 10133 are shown once per type plus authority
     When that pubkey has no kind 0
     Then I still see the pubkey and omit missing fields
 

@@ -21,7 +21,7 @@ Feature: Search
     And a subindex is a 30040 that is referenced by another 30040's a-tag
     And kind 30040 results prefer top-level hits and show subindexes only when no top-level 30040 matched
     And when GrapeRank scores are available, search ranks by section boost, then author GrapeRank, then newest created_at
-    And when the Trust filter is on and scores hydrated, authors below the GrapeRank minimum are hidden (self and follows never)
+    And when the Trust filter is on and scores hydrated, authors below the GrapeRank minimum are hidden (self and follows never; unknown-rank follows-of-follows soft-pass)
 
   Scenario: Landing search goes to /search
     When I submit a query from the landing global search bar
@@ -78,10 +78,10 @@ Feature: Search
     And relays are not sent #i or #s for it
 
   Scenario: Explicit tag searches do not fan out
-    When I open /search from a subject button or by clicking an author, title, subject, identifier, or language on a card or header
+    When I open /search from a subject button or by clicking an author, subject, identifier, or language on a card or header, or a title on a full-page header
     Then the lookup is that field only
     And an author click queries Mercury author and N, and relays only #N
-    And a title click queries Mercury title and T, and relays only #T
+    And a title click from a header queries Mercury title and T, and relays only #T
     And I do not also run full-text or the other tag fans
 
   Scenario: A wikilink d-tag search is explicit

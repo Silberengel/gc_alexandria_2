@@ -290,15 +290,82 @@ describe('kind 0 fields', () => {
     expect(parseKind0(ev({ kind: 0, content: 'not-json' })).name).toBe('');
   });
 
-  it('dedupes payment rows by type and authority', () => {
+  it('uses name as title when display_name is missing', () => {
+    const fields = parseKind0(ev({ kind: 0, tags: [['name', 'Ada']], content: '{}' }));
+    expect(fields.title).toBe('Ada');
+    expect(fields.displayName).toBe('');
+  });
+
+  it('does not leak displayName aliases into extra JSON', () => {
     const fields = parseKind0(
-      ev({ kind: 0, content: '{"lud16":"a@b.com"}', tags: [['lud16', 'a@b.com']] })
+      ev({
+        kind: 0,
+        content: '{"displayName":"Ada","display_name":"Ada","name":"ada","custom":"x"}'
+      })
     );
-    const rows = paymentRows(fields, [
-      ev({ kind: KIND.PAYMENT, tags: [['lud16', 'a@b.com'], ['payto', 'payto://iban/DE00']] })
-    ]);
+    expect(fields.title).toBe('Ada');
+    expect(fields.extra).toEqual({ custom: 'x' });
+  });
+
+  it('lists all website and nip05 tags', () => {
+    const fields = parseKind0(
+      ev({
+        kind: 0,
+        tags: [
+          ['website', 'https://a.example'],
+          ['website', 'https://b.example'],
+          ['nip05', 'a@x.com'],
+          ['nip05', 'b@y.com']
+        ],
+        content: '{}'
+      })
+    );
+    expect(fields.websites).toEqual(['https://a.example', 'https://b.example']);
+    expect(fields.nip05List).toEqual(['a@x.com', 'b@y.com']);
+  });
+
+  it('dedupes payment rows by type and authority', () => {
+    const profile = ev({ kind: 0, content: '{"lud16":"a@b.com"}', tags: [['lud16', 'a@b.com']] });
+    const fields = parseKind0(profile);
+    const rows = paymentRows(
+      fields,
+      [ev({ kind: KIND.PAYMENT, tags: [['lud16', 'a@b.com'], ['payto', 'iban', 'DE00']] })],
+      profile
+    );
     expect(rows.filter((r) => r.type === 'lud16')).toHaveLength(1);
-    expect(rows.some((r) => r.type === 'payto')).toBe(true);
+    expect(rows.some((r) => r.type === 'iban')).toBe(true);
+  });
+
+  it('reads jumble-style payto and wallet w tags from kind 0', () => {
+    const profile = ev({
+      kind: 0,
+      tags: [
+        ['payto', 'monero', '4abc'],
+        ['w', 'XMR', '4wallet', 'monero'],
+        ['lud16', 'zap@example.com']
+      ],
+      content: '{}'
+    });
+    const rows = paymentRows(parseKind0(profile), [], profile);
+    const monero = rows.find((r) => r.type === 'monero');
+    expect(monero?.label).toBe('4abc');
+    expect(monero?.label).not.toMatch(/^monero:/i);
+    expect(rows.some((r) => r.type === 'lud16' && r.label === 'zap@example.com')).toBe(true);
+  });
+
+  it('hides client tags and linkifies about URLs', async () => {
+    const { aboutHtml, cropPaymentAddress } = await import('./profile-fields');
+    const fields = parseKind0(
+      ev({
+        kind: 0,
+        tags: [['client', 'jumble'], ['name', 'Ada']],
+        content: '{"about":"See https://example.com/docs for more."}'
+      })
+    );
+    expect(fields.extraTags.some((t) => t.name === 'client')).toBe(false);
+    expect(aboutHtml(fields.about)).toContain('href="https://example.com/docs"');
+    expect(aboutHtml(fields.about)).toContain('</a>');
+    expect(cropPaymentAddress('a'.repeat(60)).length).toBe(50);
   });
 });
 

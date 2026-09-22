@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
-  import UserBadge from '$lib/components/UserBadge.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import Pager from '$lib/components/Pager.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
@@ -11,7 +10,7 @@
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { hexPubkey } from '$lib/search';
-  import { parseKind0, paymentRows, activeStatus } from '$lib/profile-fields';
+  import { parseKind0, paymentRows, activeStatus, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { muteState, filterMuted } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
@@ -36,6 +35,7 @@
   let { params = {} }: Props = $props();
 
   let pubkey = $state('');
+  let npub = $state('');
   let profile = $state<Event | null>(null);
   let produced = $state<Event[]>([]);
   let interacted = $state<Event[]>([]);
@@ -43,7 +43,6 @@
   let status = $state<Event | null>(null);
   let payments = $state<ReturnType<typeof paymentRows>>([]);
   let pageFilter = $state('');
-  let extraJson = $state<Record<string, string>>({});
   let producedPage = $state(1);
   let interactedPage = $state(1);
   const pageSize = 25;
@@ -125,6 +124,11 @@
       pubkey = hexPubkey(raw) ?? raw;
     }
     if (!pubkey) return;
+    try {
+      npub = nip19.npubEncode(pubkey);
+    } catch {
+      npub = pubkey;
+    }
 
     const authoredFilter = {
       kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
@@ -136,7 +140,8 @@
       '#p': [pubkey],
       limit: 40
     };
-    const [p, authored, credited, statusEv, payEv, labels, bookmarks, dirs, highs, comms, rates] =
+    const paymentFilter = { kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 };
+    const [p, authored, credited, statusEv, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates] =
       await Promise.all([
         relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
         relayPool.query(documentStack(), [authoredFilter]),
@@ -144,7 +149,8 @@
           m.length ? m : relayPool.query(documentStack(), [creditedFilter])
         ),
         relayPool.query(socialStack(), [{ kinds: [KIND.STATUS], authors: [pubkey], limit: 10 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 }]),
+        relayPool.query(socialStack(), [paymentFilter]),
+        relayPool.query(profileStack(), [paymentFilter]),
         relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [pubkey], limit: 50 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [pubkey], limit: 5 }]),
         relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [pubkey], limit: 40 }]),
@@ -154,8 +160,9 @@
       ]);
     profile = p[0] ?? null;
     const parsed = parseKind0(profile);
-    extraJson = parsed.extra;
-    payments = paymentRows(parsed, payEv);
+    const payById = new Map<string, Event>();
+    for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
+    payments = paymentRows(parsed, [...payById.values()], profile);
     status = activeStatus(statusEv);
     const byId = new Map<string, Event>();
     for (const e of [...authored, ...credited]) byId.set(e.id, e);
@@ -184,25 +191,52 @@
   <h1>Profile</h1>
   <PageFilter bind:value={pageFilter} />
   {#if pubkey}
-    <div class="card" style="margin-bottom:1rem">
-      {#if fields.banner && isAllowedHref(fields.banner)}
-        <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
+    <div class="card profile-card" style="margin-bottom:1rem">
+      <div class="profile-hero">
+        {#if fields.banner && isAllowedHref(fields.banner)}
+          <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
+        {:else}
+          <div class="profile-banner profile-banner-empty" aria-hidden="true"></div>
+        {/if}
+        {#if fields.picture && isAllowedHref(fields.picture)}
+          <img class="profile-avatar" src={toNostrBuildThumbUrl(fields.picture)} alt="" />
+        {/if}
+      </div>
+      <div class="profile-header">
+        <div class="profile-header-text">
+          <h2>{fields.title || 'Unknown'}</h2>
+          {#if fields.displayName && fields.name && fields.name !== fields.displayName}
+            <p class="muted">{fields.name}</p>
+          {/if}
+          <p class="profile-npub muted">{npub || pubkey}</p>
+        </div>
+      </div>
+      {#if fields.about}
+        <div class="profile-about">
+          {@html aboutHtml(fields.about)}
+        </div>
       {/if}
-      {#if fields.picture}
-        <img src={toNostrBuildThumbUrl(fields.picture)} alt="" style="width:4rem;height:4rem;border-radius:999px" />
+      {#if fields.websites.length}
+        <ul class="profile-tag-list">
+          {#each fields.websites as url}
+            {#if isAllowedHref(url)}
+              <li><a href={url} rel="noopener noreferrer">{url}</a></li>
+            {/if}
+          {/each}
+        </ul>
       {/if}
-      <h2>{fields.displayName || fields.name || 'Unknown'}</h2>
-      {#if fields.displayName && fields.name && fields.name !== fields.displayName}
-        <p class="muted">{fields.name}</p>
+      {#if fields.nip05List.length}
+        <ul class="profile-tag-list">
+          {#each fields.nip05List as n}
+            <li class="muted">{n}</li>
+          {/each}
+        </ul>
       {/if}
-      {#if fields.about}<p class="muted">{fields.about}</p>{/if}
-      {#if fields.website && isAllowedHref(fields.website)}
-        <p><a href={fields.website} rel="noopener noreferrer">{fields.website}</a></p>
-      {/if}
-      {#if fields.nip05}<p class="muted">{fields.nip05}</p>{/if}
-      <p><UserBadge {pubkey} /></p>
-      {#each Object.entries(extraJson) as [key, value]}
+      {#each Object.entries(fields.extra) as [key, value]}
         <p class="muted">{key}: {value}</p>
+      {/each}
+      {#each fields.extraTags as tag}
+        <p class="muted">{tag.name}: {tag.value}</p>
       {/each}
       {#if status}
         <p>
@@ -213,12 +247,27 @@
         </p>
       {/if}
       {#if payments.length}
-        <h3>Payments</h3>
-        <ul>
-          {#each payments as row}
-            <li><a href={row.href} rel="noopener noreferrer">{row.label}</a></li>
-          {/each}
-        </ul>
+        <h3>Payment targets</h3>
+        <table class="profile-payments">
+          <thead>
+            <tr>
+              <th scope="col">Type</th>
+              <th scope="col">Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each payments as row}
+              <tr>
+                <td>{paymentTypeLabel(row.type)}</td>
+                <td>
+                  <a href={row.href} rel="noopener noreferrer" title={row.label}>
+                    {cropPaymentAddress(row.label)}
+                  </a>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       {/if}
     </div>
   {/if}

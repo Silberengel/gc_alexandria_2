@@ -12,12 +12,14 @@ Feature: Publication and wiki card metadata
     When I see a publication or wiki card or header
     Then published by is a userbadge for the signing pubkey
     And author is every author-tag, else every N-tag, omitted if neither; each opens /search as an explicit author lookup (Mercury author and N; relays #N)
-    And title is every title-tag, else every T-tag, omitted if neither; each opens /search as an explicit title lookup (Mercury title and T; relays #T)
+    And title is every title-tag, else every T-tag, omitted if neither
+    And on a card the title, cover, and summary open that edition or wiki page
+    And on a full-page header each title opens /search as an explicit title lookup (Mercury title and T; relays #T)
     And subject is every t-tag, omitted if none; each opens /search as an explicit #t lookup
     And summary is the summary-tag, else a short content excerpt, omitted if neither
     And card and header summaries are plain text with AsciiDoc and Markdown markup stripped
     And source is the first s-tag, else the first source-tag, omitted if neither; it opens that URL and not /search
-    And clicking the card or cover outside those field links opens that edition or wiki page
+    And clicking author or subject field links still opens /search; other card chrome opens the edition or wiki page
     And publication cards are labeled Publication with book-style covers
     And wiki and spec cards are labeled Wiki or Spec with parchment-style covers so they are easy to tell apart
 

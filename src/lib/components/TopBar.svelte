@@ -79,10 +79,32 @@
       {/if}
     </form>
   {/if}
-  <div style="margin-left:auto">
+  <div class="top-bar-session">
     {#if $session.pubkey}
       <UserBadge pubkey={$session.pubkey} />
-      <button class="btn" type="button" onclick={() => session.signOut()}>Sign out</button>
+      <button
+        class="btn btn-icon"
+        type="button"
+        aria-label="Sign out"
+        title="Sign out"
+        onclick={() => session.signOut()}
+      >
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+          <path
+            d="M15 8l4 4-4 4M10 12h9"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     {:else}
       <button class="btn btn-primary" type="button" disabled={$session.loading} onclick={() => session.signIn()}>
         {$session.loading ? 'Signing in…' : 'Sign in'}

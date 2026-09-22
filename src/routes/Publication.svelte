@@ -69,6 +69,8 @@
   let commentText = $state('');
   let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
+  let sectionMenuOpen = $state<string | null>(null);
+  let sectionCommentsOpen = $state<Record<string, boolean>>({});
   let treeAbort: AbortController | null = null;
   let pageFilter = $state('');
   let readingBusy = $state(false);
@@ -584,10 +586,11 @@
           {/if}
           {#each sections as section, i (section.id)}
             {@const pos = readerToc.find((e) => e.id === section.id)?.pos ?? readerToc[i]?.pos ?? i}
+            {@const sectionKey = eventAddress(section)}
             <article
               class="reader-section"
               data-read-pos={pos}
-              data-section-addr={eventAddress(section)}
+              data-section-addr={sectionKey}
               data-section-id={section.id}
             >
               <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
@@ -601,59 +604,113 @@
               {:else}
                 <EventCard event={section} />
               {/if}
-              {#if $session.pubkey}
-                <button class="btn" type="button" onclick={() => void saveHighlight(section)}>Save highlight</button>
-              {:else}
-                <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to highlight</button>
-              {/if}
-              <details
-                class="accordion"
-                ontoggle={(e) => {
-                  if ((e.currentTarget as HTMLDetailsElement).open) void loadSectionComments(section);
-                }}
-              >
-                <summary>Comments for this section</summary>
-                {#if sectionComments[eventAddress(section)]?.length}
-                  <ul class="thread-list">
-                    {#each nestComments(filterMuted(sectionComments[eventAddress(section)] ?? [], $muteState), $muteState) as node}
-                      <CommentThread {node} target={section} />
-                    {/each}
-                  </ul>
-                {:else}
-                  <p class="muted">No comments yet.</p>
-                {/if}
-                {#if $session.pubkey}
-                  <form
-                    class="compose"
-                    onsubmit={(e) => {
-                      e.preventDefault();
-                      void postSectionComment(section);
+              <div class="section-toolbar">
+                <div class="menu-wrap">
+                  <button
+                    class="btn btn-icon"
+                    type="button"
+                    aria-label="Section actions"
+                    aria-expanded={sectionMenuOpen === sectionKey}
+                    title="More"
+                    onclick={() => {
+                      sectionMenuOpen = sectionMenuOpen === sectionKey ? null : sectionKey;
                     }}
                   >
-                    <textarea
-                      value={sectionCommentText[eventAddress(section)] ?? ''}
-                      oninput={(e) => {
-                        sectionCommentText = {
-                          ...sectionCommentText,
-                          [eventAddress(section)]: (e.currentTarget as HTMLTextAreaElement).value
-                        };
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="5" cy="12" r="1.75" />
+                      <circle cx="12" cy="12" r="1.75" />
+                      <circle cx="19" cy="12" r="1.75" />
+                    </svg>
+                  </button>
+                  {#if sectionMenuOpen === sectionKey}
+                    <ul class="menu-panel menu-panel-end" role="menu">
+                      <li>
+                        {#if $session.pubkey}
+                          <button
+                            class="menu-item"
+                            type="button"
+                            onclick={() => {
+                              sectionMenuOpen = null;
+                              void saveHighlight(section);
+                            }}
+                          >
+                            Save highlight
+                          </button>
+                        {:else}
+                          <button
+                            class="menu-item"
+                            type="button"
+                            onclick={() => {
+                              sectionMenuOpen = null;
+                              void session.signIn();
+                            }}
+                          >
+                            Sign in to highlight
+                          </button>
+                        {/if}
+                      </li>
+                      <li>
+                        <button
+                          class="menu-item"
+                          type="button"
+                          onclick={() => {
+                            sectionMenuOpen = null;
+                            const open = !sectionCommentsOpen[sectionKey];
+                            sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                            if (open) void loadSectionComments(section);
+                          }}
+                        >
+                          {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                        </button>
+                      </li>
+                    </ul>
+                  {/if}
+                </div>
+              </div>
+              {#if sectionCommentsOpen[sectionKey]}
+                <div class="section-comments">
+                  {#if sectionComments[sectionKey]?.length}
+                    <ul class="thread-list">
+                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState) as node}
+                        <CommentThread {node} target={section} />
+                      {/each}
+                    </ul>
+                  {:else}
+                    <p class="muted">No comments yet.</p>
+                  {/if}
+                  {#if $session.pubkey}
+                    <form
+                      class="compose"
+                      onsubmit={(e) => {
+                        e.preventDefault();
+                        void postSectionComment(section);
                       }}
-                      rows="3"
-                      placeholder="Write a comment on this section"
-                    ></textarea>
-                    <button
-                      class="btn btn-primary"
-                      type="submit"
-                      disabled={!(sectionCommentText[eventAddress(section)] ?? '').trim()}
-                      >Post</button
                     >
-                  </form>
-                {:else}
-                  <button class="btn" type="button" onclick={() => session.signIn()}
-                    >Sign in to comment</button
-                  >
-                {/if}
-              </details>
+                      <textarea
+                        value={sectionCommentText[sectionKey] ?? ''}
+                        oninput={(e) => {
+                          sectionCommentText = {
+                            ...sectionCommentText,
+                            [sectionKey]: (e.currentTarget as HTMLTextAreaElement).value
+                          };
+                        }}
+                        rows="3"
+                        placeholder="Write a comment on this section"
+                      ></textarea>
+                      <button
+                        class="btn btn-primary"
+                        type="submit"
+                        disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
+                        >Post</button
+                      >
+                    </form>
+                  {:else}
+                    <button class="btn" type="button" onclick={() => session.signIn()}
+                      >Sign in to comment</button
+                    >
+                  {/if}
+                </div>
+              {/if}
             </article>
           {/each}
         </div>
