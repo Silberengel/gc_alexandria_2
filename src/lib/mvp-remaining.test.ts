@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { nestComments, threadNodeKey } from './comments';
 import { commentDraft } from './drafts';
@@ -11,7 +11,14 @@ import {
   reactionDraft
 } from './reactions';
 import { rewriteWikilinks, isAllowedHref, sanitizeHtml } from './markup';
-import { parseMuteList, filterMuted, isMutedEvent } from './mute';
+import {
+  parseMuteList,
+  filterMuted,
+  isMutedEvent,
+  decryptPrivateMuteTags,
+  looksLikeNip04Ciphertext,
+  looksLikeNip44Ciphertext
+} from './mute';
 import { extractNip32LabelValues, isBooklistEvent, publicationTargets } from './nip32';
 import { splitNostrRefs, decodeNostrBech32 } from './nostr-refs';
 import { landingLabels } from './labels';
@@ -92,6 +99,47 @@ describe('mute', () => {
     const state = parseMuteList(ev({ kind: KIND.MUTE, tags: [['p', '1'.repeat(64)]] }));
     expect(isMutedEvent(muted, state)).toBe(true);
     expect(filterMuted([muted, ok], state)).toEqual([ok]);
+  });
+
+  it('does not call the signer for non-ciphertext mute content', async () => {
+    const nip44 = vi.fn();
+    const nip04 = vi.fn();
+    const prev = (globalThis as { window?: Window }).window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { nostr: { nip44: { decrypt: nip44 }, nip04: { decrypt: nip04 } } }
+    });
+    try {
+      const rows = await decryptPrivateMuteTags(
+        ev({ kind: KIND.MUTE, content: 'Could not decrypt the message', pubkey: 'a'.repeat(64) })
+      );
+      expect(rows).toEqual([]);
+      expect(nip44).not.toHaveBeenCalled();
+      expect(nip04).not.toHaveBeenCalled();
+      expect(looksLikeNip44Ciphertext('Could not decrypt the message')).toBe(false);
+      expect(looksLikeNip04Ciphertext('Could not decrypt the message')).toBe(false);
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: prev });
+    }
+  });
+
+  it('parses plaintext JSON private mute tags without decrypt', async () => {
+    const nip44 = vi.fn();
+    const prev = (globalThis as { window?: Window }).window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { nostr: { nip44: { decrypt: nip44 } } }
+    });
+    try {
+      const pk = 'b'.repeat(64);
+      const rows = await decryptPrivateMuteTags(
+        ev({ kind: KIND.MUTE, content: JSON.stringify([['p', pk]]), pubkey: 'a'.repeat(64) })
+      );
+      expect(rows).toEqual([['p', pk]]);
+      expect(nip44).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: prev });
+    }
   });
 });
 

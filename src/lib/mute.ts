@@ -65,22 +65,52 @@ export function newestMuteList(events: Event[]): Event | null {
   return lists[0] ?? null;
 }
 
+function parseMuteTagRows(plain: string): string[][] | null {
+  try {
+    const parsed = JSON.parse(plain) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((row): row is string[] => Array.isArray(row) && typeof row[0] === 'string');
+  } catch {
+    return null;
+  }
+}
+
+/** NIP-04: base64?iv=base64. Rejects plaintext error strings that nos2x would log on. */
+export function looksLikeNip04Ciphertext(content: string): boolean {
+  const i = content.indexOf('?iv=');
+  if (i <= 0) return false;
+  const body = content.slice(0, i);
+  const iv = content.slice(i + 4);
+  return body.length > 0 && iv.length > 0 && !/\s/.test(content);
+}
+
+/**
+ * NIP-44 payloads are base64(url) without whitespace. Short English error strings
+ * (e.g. "Could not decrypt the message") must not be sent to the signer.
+ */
+export function looksLikeNip44Ciphertext(content: string): boolean {
+  if (content.length < 48 || /\s/.test(content) || content.includes('?iv=')) return false;
+  return /^[A-Za-z0-9+/_=-]+$/.test(content);
+}
+
 export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> {
   const content = event.content?.trim();
   if (!content) return [];
+  // Some mute lists store private tags as plaintext JSON; never treat that as ciphertext.
+  if (content.startsWith('[')) return parseMuteTagRows(content) ?? [];
+
   const ext = window.nostr;
-  // Prefer nip44; many mute lists are not nip04, and nos2x logs loudly on bad nip04 input.
-  const decryptors = [ext?.nip44?.decrypt, ext?.nip04?.decrypt].filter(
-    (fn): fn is (pubkey: string, ciphertext: string) => Promise<string> => typeof fn === 'function'
-  );
-  for (const decrypt of decryptors) {
+  const attempts: Array<(pubkey: string, ciphertext: string) => Promise<string>> = [];
+  if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
+    attempts.push(ext.nip44.decrypt.bind(ext.nip44));
+  }
+  if (looksLikeNip04Ciphertext(content) && typeof ext?.nip04?.decrypt === 'function') {
+    attempts.push(ext.nip04.decrypt.bind(ext.nip04));
+  }
+  for (const decrypt of attempts) {
     try {
-      const plain = await decrypt(event.pubkey, content);
-      const parsed = JSON.parse(plain) as unknown;
-      if (!Array.isArray(parsed)) continue;
-      return parsed.filter(
-        (row): row is string[] => Array.isArray(row) && typeof row[0] === 'string'
-      );
+      const rows = parseMuteTagRows(await decrypt(event.pubkey, content));
+      if (rows) return rows;
     } catch {
       /* try next decryptor */
     }
