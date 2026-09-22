@@ -64,19 +64,26 @@
   }
 
   async function submit(): Promise<void> {
+    if (busy) return;
     if (!$session.pubkey) {
       await session.signIn();
       return;
     }
     if (mineStars < 1) return;
-    const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
-    if (signed) {
-      list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
+    busy = true;
+    try {
+      const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
+      if (signed) {
+        list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
+      }
+    } finally {
+      busy = false;
     }
   }
 
   /** Reset the picker and review box only — never delete a published rating. */
   function clearForm(): void {
+    if (busy) return;
     mineStars = 0;
     review = '';
   }
@@ -153,7 +160,7 @@
     </label>
     <div class="rating-actions">
       <button class="btn btn-primary" type="button" disabled={mineStars < 1 || busy} onclick={() => void submit()}
-        >Save rating</button
+        >{busy ? 'Saving…' : 'Save rating'}</button
       >
       <button
         class="btn"

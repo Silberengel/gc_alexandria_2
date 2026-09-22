@@ -144,6 +144,26 @@ export function newestRatingPerAuthor(
   return [...byAuthor.values()].sort((a, b) => b.created_at - a.created_at);
 }
 
+/** Newest scored publication rating per edition (landing feed). */
+export function newestRatingPerPublication(events: Event[]): Event[] {
+  const byAddr = new Map<string, Event>();
+  for (const event of events) {
+    if (!isPublicationRatingEvent(event) || !ratingHasScore(event)) continue;
+    const addr = publicationCoordinateFromRatingEvent(event);
+    if (!addr) continue;
+    let key = addr;
+    for (const existing of byAddr.keys()) {
+      if (coordinatesOverlap(existing, addr)) {
+        key = existing;
+        break;
+      }
+    }
+    const prev = byAddr.get(key);
+    if (!prev || event.created_at > prev.created_at) byAddr.set(key, event);
+  }
+  return [...byAddr.values()].sort((a, b) => b.created_at - a.created_at);
+}
+
 /** Average only scored ratings (fraction in (0, 1]); unscored 34259s are excluded. */
 export function aggregateRating(ratings: Event[]): { average: number; count: number } {
   const scored = ratings.filter(ratingHasScore);

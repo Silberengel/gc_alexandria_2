@@ -3,6 +3,7 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import Cover from '$lib/components/Cover.svelte';
   import LandingRefRow from '$lib/components/LandingRefRow.svelte';
+  import LandingRatingRow from '$lib/components/LandingRatingRow.svelte';
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
@@ -20,6 +21,7 @@
 
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
+  let ratings = $state<Event[]>([]);
   let referenced = $state<Event[]>([]);
   let subjects = $state<string[]>([]);
   let shelves = $state<LandingShelfSnap[]>([]);
@@ -34,6 +36,7 @@
   );
   const visibleHighlights = $derived(filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT));
   const visibleComments = $derived(filterMuted(comments, $muteState).slice(0, LANDING_FEED_LIMIT));
+  const visibleRatings = $derived(filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT));
   const visibleSubjects = $derived(subjects);
   const visibleLabels = $derived(labels);
 
@@ -54,6 +57,7 @@
   function apply(view: LandingView, replaceShelves = false): void {
     comments = view.comments;
     highlights = view.highlights;
+    ratings = view.ratings ?? [];
     referenced = view.referenced ?? [];
     subjects = view.subjects;
     const nextShelves = view.shelves ?? [];
@@ -62,7 +66,8 @@
     rememberEvents([
       ...view.publications,
       ...(view.referenced ?? []),
-      ...(view.shelves ?? []).flatMap((s) => s.events)
+      ...(view.shelves ?? []).flatMap((s) => s.events),
+      ...(view.ratings ?? [])
     ]);
   }
 
@@ -190,6 +195,17 @@
         {/if}
       </section>
     {/each}
+  {/if}
+
+  {#if visibleRatings.length}
+    <section>
+      <h2 class="section-title">Ratings</h2>
+      <ul class="landing-ref-list">
+        {#each visibleRatings as r (r.id)}
+          <LandingRatingRow event={r} {referenced} />
+        {/each}
+      </ul>
+    </section>
   {/if}
 
   {#if visibleHighlights.length || visibleComments.length}

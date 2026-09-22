@@ -25,7 +25,7 @@ Feature: Client event cache
   Scenario: Landing paints from a snapshot
     Given I have opened the home page before in this browser
     When I open it again
-    Then shelves, highlights, and What we are discussing appear from the landing snapshot before live relays answer
+    Then shelves, highlights, ratings, and What we are discussing appear from the landing snapshot before live relays answer
     And live results replace that snapshot when they arrive
     And if live relays or Mercury return nothing the snapshot stays on screen
     And the snapshot is tagged with the viewer pubkey or null when anonymous

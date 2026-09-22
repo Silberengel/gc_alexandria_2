@@ -42,6 +42,8 @@ export type LandingSnapshot = {
   publications: Event[];
   highlights: Event[];
   comments: Event[];
+  /** Kind 34259 publication ratings shown on the landing page. */
+  ratings?: Event[];
   referenced: Event[];
   shelves?: LandingShelfSnap[];
   labels?: string[];
@@ -73,6 +75,7 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
       publications: ingestList(raw.publications),
       highlights: ingestList(raw.highlights),
       comments: ingestList(raw.comments),
+      ratings: ingestList(raw.ratings),
       referenced: ingestList(raw.referenced),
       shelves: Array.isArray(raw.shelves)
         ? raw.shelves.map((s) => ({
@@ -96,6 +99,7 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
     publications: snap.publications.slice(0, 50),
     highlights: snap.highlights.slice(0, 10),
     comments: snap.comments.slice(0, 10),
+    ratings: (snap.ratings ?? []).slice(0, 10),
     referenced: (snap.referenced ?? []).slice(0, 80),
     shelves: (snap.shelves ?? []).map((s) => ({
       id: s.id,

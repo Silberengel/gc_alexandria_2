@@ -1460,6 +1460,9 @@ a.listing-row:hover {
   margin: 0.3rem 0 0 1.35rem;
   min-width: 0;
 }
+.landing-ref-note .stars {
+  margin-top: 0.05rem;
+}
 .landing-ref-title {
   font-weight: 650;
 }

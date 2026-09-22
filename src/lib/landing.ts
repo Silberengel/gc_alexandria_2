@@ -16,6 +16,7 @@ import {
 } from './library-scope';
 import { displayTitle } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
+import { newestRatingPerPublication } from './ratings';
 import {
   cacheGetLandingSnapshot,
   cachePutLandingSnapshot,
@@ -157,6 +158,7 @@ export function withSubjects(snap: LandingSnapshot): LandingView {
     referenced: snap.referenced ?? [],
     shelves: snap.shelves ?? [],
     labels: snap.labels ?? [],
+    ratings: snap.ratings ?? [],
     subjects: subjectsFromPublications(snap.publications)
   };
 }
@@ -304,9 +306,19 @@ const HIGHLIGHT_FILTERS: Filter[] = [
   { kinds: [KIND.HIGHLIGHT], '#K': LIBRARY_KIND_TAGS, limit: 100 }
 ];
 
+const RATING_FILTERS: Filter[] = [
+  { kinds: [KIND.RATING], '#k': [String(KIND.PUBLICATION)], limit: 100 },
+  { kinds: [KIND.RATING], '#K': [String(KIND.PUBLICATION)], limit: 100 },
+  { kinds: [KIND.RATING], '#m': ['book'], limit: 100 }
+];
+
 async function mercuryFilters(filters: Filter[]): Promise<Event[]> {
   const batches = await Promise.all(filters.map((filter) => mercuryFilter(filter)));
   return mergeEvents(...batches);
+}
+
+function landingRatings(...lists: Event[][]): Event[] {
+  return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
 }
 
 async function resolveShelfPublications(memberships: Membership[], known: Event[]): Promise<Map<string, Event>> {
@@ -504,6 +516,7 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
     (snapForViewer.publications.length ||
       snapForViewer.highlights.length ||
       snapForViewer.comments.length ||
+      (snapForViewer.ratings?.length ?? 0) ||
       (snapForViewer.shelves?.length ?? 0) ||
       (snapForViewer.labels?.length ?? 0))
   ) {
@@ -512,28 +525,34 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
       viewerPubkey: viewer,
       highlights: newestHighlightPerAddress(snapForViewer.highlights).slice(0, LANDING_FEED_LIMIT),
       comments: newestCommentPerWork(snapForViewer.comments).slice(0, LANDING_FEED_LIMIT),
+      ratings: landingRatings(snapForViewer.ratings ?? []),
       shelves: snapForViewer.shelves ?? [],
       labels: snapForViewer.labels ?? []
     });
   }
 
-  const [publications, rawHighlights, rawComments] = await Promise.all([
+  const [publications, rawHighlights, rawComments, rawRatings] = await Promise.all([
     cacheScanByKind(KIND.PUBLICATION, 50),
     cacheScanByKind(KIND.HIGHLIGHT, 100),
-    cacheScanByKind(KIND.COMMENT, 100)
+    cacheScanByKind(KIND.COMMENT, 100),
+    cacheScanByKind(KIND.RATING, 100)
   ]);
-  if (!publications.length && !rawHighlights.length && !rawComments.length) return null;
+  if (!publications.length && !rawHighlights.length && !rawComments.length && !rawRatings.length) {
+    return null;
+  }
 
   const highlights = newestHighlightPerAddress(rawHighlights).slice(0, LANDING_FEED_LIMIT);
   const comments = newestCommentPerWork(rawComments).slice(0, LANDING_FEED_LIMIT);
+  const ratings = landingRatings(rawRatings);
   return withSubjects({
     viewerPubkey: viewer,
     publications,
     highlights,
     comments,
+    ratings,
     referenced: snapForViewer?.referenced?.length
       ? snapForViewer.referenced
-      : await resolveReferenced([...highlights, ...comments], publications),
+      : await resolveReferenced([...highlights, ...comments, ...ratings], publications),
     shelves: [],
     labels: snapForViewer?.labels ?? []
   });
@@ -550,15 +569,17 @@ export async function refreshLanding(
   // Start it early, but never block the first paint on it (prod looked blank for 30s+).
   const membershipPromise = fetchShelfMembershipEvents();
 
-  const [pubsResult, wikiResult, commHttp, highHttp] = await Promise.allSettled([
+  const [pubsResult, wikiResult, commHttp, highHttp, rateHttp] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
     mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
     mercuryFilters(COMMENT_FILTERS),
-    mercuryFilters(HIGHLIGHT_FILTERS)
+    mercuryFilters(HIGHLIGHT_FILTERS),
+    mercuryFilters(RATING_FILTERS)
   ]);
 
   const mercComments = settled(commHttp, []);
   const mercHighlights = settled(highHttp, []);
+  const mercRatings = settled(rateHttp, []);
   const publications = preferLive(
     mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
     cacheOk ? cached?.publications : undefined
@@ -572,6 +593,7 @@ export async function refreshLanding(
   let highlights = newestHighlightPerAddress(
     mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
+  let ratings = landingRatings(mercRatings, cacheOk ? (cached?.ratings ?? []) : []);
 
   onUpdate?.(
     withSubjects({
@@ -579,6 +601,7 @@ export async function refreshLanding(
       publications,
       comments,
       highlights,
+      ratings,
       referenced: cacheOk ? (cached?.referenced ?? []) : [],
       shelves: cacheOk ? (cached?.shelves ?? []) : [],
       labels: cacheOk ? (cached?.labels ?? []) : []
@@ -593,9 +616,10 @@ export async function refreshLanding(
 
   // Social feeds: always merge Mercury + relays + cache. Mercury may lag or omit
   // fresh outbox publishes (highlights/comments are not POSTed to Mercury).
-  const [commWs, highWs, membership, minePack] = await Promise.all([
+  const [commWs, highWs, rateWs, membership, minePack] = await Promise.all([
     relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
     relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
+    relayPool.query(socialStack(), RATING_FILTERS, 4000),
     membershipPromise,
     minePackPromise
   ]);
@@ -611,6 +635,7 @@ export async function refreshLanding(
         highlights: newestHighlightPerAddress(
           mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
         ).slice(0, LANDING_FEED_LIMIT),
+        ratings: landingRatings(mercRatings, cacheOk ? (cached?.ratings ?? []) : []),
         referenced: cacheOk ? (cached?.referenced ?? []) : [],
         shelves: minePack.shelves,
         labels: minePack.labels.length ? minePack.labels : cacheOk ? (cached?.labels ?? []) : []
@@ -624,6 +649,7 @@ export async function refreshLanding(
   highlights = newestHighlightPerAddress(
     mergeEvents(mercHighlights, highWs, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
+  ratings = landingRatings(mercRatings, rateWs, cacheOk ? (cached?.ratings ?? []) : []);
 
   // Keep My shelf visible while follows/GitCitadel/network membership finishes resolving.
   const shelvesWhileWaiting =
@@ -645,6 +671,7 @@ export async function refreshLanding(
       publications,
       comments,
       highlights,
+      ratings,
       referenced: cacheOk ? (cached?.referenced ?? []) : [],
       shelves: shelvesWhileWaiting,
       labels: labelsWhileWaiting
@@ -653,7 +680,7 @@ export async function refreshLanding(
 
   const [referenced, shelfPack] = await Promise.all([
     resolveReferenced(
-      [...highlights, ...comments],
+      [...highlights, ...comments, ...ratings],
       [...publications, ...(cacheOk ? (cached?.referenced ?? []) : [])]
     ),
     loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
@@ -665,6 +692,7 @@ export async function refreshLanding(
     publications,
     comments,
     highlights,
+    ratings,
     referenced,
     shelves: shelfPack.shelves,
     labels: shelfPack.labels.length ? shelfPack.labels : cacheOk ? (cached?.labels ?? []) : []
@@ -696,6 +724,7 @@ export async function ingestLocalLandingHighlight(
       publications: snap.publications ?? [],
       highlights: [],
       comments: snap.comments ?? [],
+      ratings: snap.ratings ?? [],
       referenced: snap.referenced ?? [],
       shelves: (snap.shelves ?? []).filter((s) => !isViewerBoundShelfId(s.id)),
       labels: []
@@ -706,6 +735,7 @@ export async function ingestLocalLandingHighlight(
     publications: [],
     highlights: [],
     comments: [],
+    ratings: [],
     referenced: [],
     shelves: [],
     labels: []

@@ -8,7 +8,7 @@ import { extractNip32LabelValues, isBooklistEvent, publicationTargets } from './
 import { splitNostrRefs, decodeNostrBech32 } from './nostr-refs';
 import { landingLabels } from './labels';
 import { assignShelves, membershipsFromEvents, withBookmarkTag } from './shelves';
-import { aggregateRating, ratingValue, newestRatingPerAuthor } from './ratings';
+import { aggregateRating, ratingValue, newestRatingPerAuthor, newestRatingPerPublication } from './ratings';
 import { parseKind0, paymentRows } from './profile-fields';
 import { uniqueMedia, contentWithoutMediaUrls } from './media';
 import { nip19, type Event } from 'nostr-tools';
@@ -351,6 +351,34 @@ describe('ratings', () => {
     expect(newest).toHaveLength(1);
     expect(ratingValue(newest[0]!)).toBe(1);
     expect(aggregateRating(newest).average).toBe(1);
+  });
+
+  it('keeps the newest scored rating per publication for landing', () => {
+    const addr = `30040:${'aa'.repeat(32)}:republic`;
+    const older = ev({
+      id: '11'.repeat(32),
+      kind: KIND.RATING,
+      pubkey: 'bb'.repeat(32),
+      created_at: 100,
+      tags: [['a', addr], ['m', 'book'], ['rating', '0.200']]
+    });
+    const newer = ev({
+      id: '22'.repeat(32),
+      kind: KIND.RATING,
+      pubkey: 'cc'.repeat(32),
+      created_at: 200,
+      tags: [['a', addr], ['m', 'book'], ['rating', '1.000']]
+    });
+    const other = ev({
+      id: '33'.repeat(32),
+      kind: KIND.RATING,
+      pubkey: 'ee'.repeat(32),
+      created_at: 150,
+      tags: [['a', `30040:${'ff'.repeat(32)}:iliad`], ['m', 'book'], ['rating', '0.800']]
+    });
+    const rows = newestRatingPerPublication([older, newer, other]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.id).toBe(newer.id);
   });
 });
 
