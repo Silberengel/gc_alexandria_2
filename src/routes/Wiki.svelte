@@ -358,7 +358,7 @@
       {/if}
       <DetailsPanel {event} />
     </article>
-    <section class="card" style="margin-top:1rem">
+    <section class="card reading-width" style="margin-top:1rem">
       <h2>Comments</h2>
       {#if thread.length}
         <ul class="thread-list">

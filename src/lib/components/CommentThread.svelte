@@ -24,7 +24,9 @@
   let reply = $state('');
   let posting = $state(false);
 
-  const open = $derived(!!node.event && replyOpenId === node.event.id);
+  const open = $derived(
+    !!node.event && !!replyOpenId && replyOpenId.toLowerCase() === node.event.id.toLowerCase()
+  );
   const relative = $derived(node.event ? formatRelativeTime(node.event.created_at) : '');
   const absolute = $derived(node.event ? formatAbsoluteTime(node.event.created_at) : '');
   const signedIn = $derived(!!$session.pubkey);
@@ -48,7 +50,8 @@
 
   function onReplyClick(): void {
     if (!canReply || !node.event) return;
-    replyOpenId = replyOpenId === node.event.id ? null : node.event.id;
+    const id = node.event.id.toLowerCase();
+    replyOpenId = replyOpenId?.toLowerCase() === id ? null : id;
   }
 </script>
 
@@ -76,7 +79,7 @@
     <div class="thread-actions">
       <HeartButton event={node.event} />
       <button
-        class="btn btn-icon thread-reply"
+        class="btn thread-reply"
         type="button"
         disabled={!canReply}
         aria-label={canReply ? (open ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
@@ -84,12 +87,7 @@
         aria-expanded={open}
         onclick={onReplyClick}
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
-          />
-        </svg>
+        Reply
       </button>
     </div>
     {#if open && canReply}

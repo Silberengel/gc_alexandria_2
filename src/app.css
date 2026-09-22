@@ -13,7 +13,8 @@
   --text-muted: var(--brand-primary-700);
   --accent: var(--brand-primary-600);
   --border: var(--brand-primary-200);
-  --max-read: 42rem;
+  /* Match .shell so the reading pane fills available width and shrinks with the viewport. */
+  --max-read: 72rem;
   --radius: 0.65rem;
   --shadow-soft: 0 0.05rem 0.15rem color-mix(in srgb, var(--text) 6%, transparent),
     0 0.45rem 1.25rem color-mix(in srgb, var(--text) 5%, transparent);
@@ -118,11 +119,10 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   position: sticky;
   top: 0;
   z-index: 50;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  column-gap: 0.65rem;
-  row-gap: 0.45rem;
+  gap: 0.45rem 0.75rem;
   padding: 0.65rem 0.85rem;
   background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
@@ -132,20 +132,17 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 }
 
 .top-bar .brand {
-  grid-column: 1;
-  grid-row: 1;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .top-bar-session {
-  grid-column: 2;
-  grid-row: 1;
-  margin-left: 0;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   flex-wrap: nowrap;
+  flex: 0 0 auto;
   min-width: 0;
-  justify-self: end;
 }
 /* Narrow: avatar only — the name competes with the brand. */
 .top-bar-session .userbadge span {
@@ -155,17 +152,17 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   gap: 0;
 }
 .top-bar nav {
-  grid-column: 1 / -1;
-  grid-row: 2;
   display: flex;
   gap: 0.1rem 0.15rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  flex: 0 1 auto;
   min-width: 0;
 }
 .top-bar .search-form {
-  grid-column: 1 / -1;
-  grid-row: 3;
+  flex: 1 1 10rem;
+  min-width: 0;
+  max-width: 20rem;
 }
 
 .top-bar nav a {
@@ -176,6 +173,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   text-decoration: none;
   transition: color 0.15s ease, background 0.15s ease;
   font-size: 0.92rem;
+  white-space: nowrap;
 }
 .top-bar nav a:hover {
   color: var(--text);
@@ -185,18 +183,8 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 
 @media (min-width: 720px) {
   .top-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
     gap: 0.75rem 1.1rem;
     padding: 0.7rem 1.1rem;
-  }
-  .top-bar .brand,
-  .top-bar nav,
-  .top-bar .search-form,
-  .top-bar-session {
-    grid-column: auto;
-    grid-row: auto;
   }
   .top-bar nav {
     gap: 0.15rem 0.35rem;
@@ -206,7 +194,6 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
     font-size: inherit;
   }
   .top-bar-session {
-    margin-left: auto;
     gap: 0.45rem;
   }
   .top-bar-session .userbadge span {
@@ -1331,6 +1318,7 @@ a.listing-row:hover {
   width: 100%;
   max-width: min(var(--max-read), 100%);
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .event-body,
@@ -1683,6 +1671,12 @@ a.listing-row:hover {
   line-clamp: 5;
   overflow: hidden;
 }
+.wiki-defer-banner,
+.reading-width {
+  width: 100%;
+  max-width: min(var(--max-read), 100%);
+  box-sizing: border-box;
+}
 .wiki-defer-banner {
   margin: 0 0 1rem;
   padding: 0.85rem 1rem;
@@ -1865,14 +1859,21 @@ a.listing-row:hover {
 }
 .thread-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.65rem;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.35rem;
+  min-width: 0;
+}
+.thread-head .userbadge {
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .thread-time {
   font-size: 0.85rem;
   white-space: nowrap;
+  flex: 0 0 auto;
+  line-height: 1.2;
 }
 .thread-body {
   min-width: 0;
@@ -1881,15 +1882,19 @@ a.listing-row:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.25rem;
   margin-top: 0.35rem;
 }
 .thread-reply {
-  width: 2.4rem;
-  height: 2.4rem;
+  width: auto;
+  min-height: 2.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.5rem;
   border-color: color-mix(in srgb, var(--border) 85%, var(--text-muted));
   background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   color: var(--text);
+  font-size: 0.9rem;
   opacity: 1;
 }
 .thread-reply:hover:not(:disabled),
@@ -1898,12 +1903,6 @@ a.listing-row:hover {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-}
-.thread-reply svg {
-  display: block;
-  width: 1.15rem;
-  height: 1.15rem;
-  flex: 0 0 auto;
 }
 .heart-btn {
   display: inline-flex;
@@ -2025,7 +2024,7 @@ a.listing-row:hover {
 .compose {
   display: grid;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+  margin-top: 1.5rem;
 }
 .shelf-actions {
   display: flex;

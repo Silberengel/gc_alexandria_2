@@ -1077,7 +1077,7 @@
         focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
       />
 
-      <section class="card" style="margin-bottom:1rem">
+      <section class="card reading-width" style="margin-bottom:1rem">
         <h2>Comments</h2>
         {#if thread.length}
           <ul class="thread-list">
