@@ -74,8 +74,8 @@ const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'iden
 
 /** Hard cap so a hung Mercury TCP never blocks landing paint for minutes. */
 const MERCURY_FETCH_TIMEOUT_MS = 4_000;
-/** Stream pages can be large NDJSON; allow longer than meta/toc. */
-const MERCURY_STREAM_BODY_TIMEOUT_MS = 30_000;
+/** Stream page body — keep short so a dead proxy fails over to a-tag walk quickly. */
+const MERCURY_STREAM_BODY_TIMEOUT_MS = 8_000;
 
 function searchHasQuery(query: Record<string, unknown>): boolean {
   return SEARCH_FIELDS.some((key) => typeof query[key] === 'string' && String(query[key]).trim().length > 0);
@@ -293,8 +293,9 @@ export async function mercuryPublicationStream(
     }
     if (!res?.ok) {
       pageFailures += 1;
-      if (pageFailures >= 3) break;
-      await new Promise<void>((resolve) => setTimeout(resolve, 400 * pageFailures));
+      // Dead Mercury: fail over fast (was 3 × 30s = 90s of blank reader).
+      if (pageFailures >= 2) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 200 * pageFailures));
       continue;
     }
     let page: Event[] = [];
@@ -341,8 +342,8 @@ export async function mercuryPublicationStream(
       }
     } catch {
       pageFailures += 1;
-      if (pageFailures >= 3) break;
-      await new Promise<void>((resolve) => setTimeout(resolve, 400 * pageFailures));
+      if (pageFailures >= 2) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 200 * pageFailures));
       continue;
     }
     if (!page.length) break;
