@@ -79,7 +79,7 @@ export function publicationKeysForQuery(publication: Event): string[] {
 }
 
 export type EditionPeopleRow = {
-  key: 'labeled' | 'bookmarked' | 'highlighted' | 'shelved';
+  key: 'labeled' | 'bookmarked' | 'highlighted' | 'shelved' | 'reading';
   title: string;
   pubkeys: string[];
 };
@@ -116,6 +116,7 @@ export function editionPeopleRows(opts: {
   bookmarks?: Event[];
   highlights?: Event[];
   directories?: Event[];
+  readingQueues?: Event[];
   mute?: MuteState;
 }): EditionPeopleRow[] {
   const { publication, mute } = opts;
@@ -141,8 +142,12 @@ export function editionPeopleRows(opts: {
         coordinatesOverlap(t[1], eventAddress(publication))
     );
   });
+  const reading = (opts.readingQueues ?? []).filter(
+    (e) => e.kind === KIND.READING_QUEUE && targetsEdition(e, publication)
+  );
 
   const rows: EditionPeopleRow[] = [
+    { key: 'reading', title: 'Reading', pubkeys: newestPubkey(reading, mute) },
     { key: 'labeled', title: 'Labeled', pubkeys: newestPubkey(labeled, mute) },
     { key: 'bookmarked', title: 'Bookmarked', pubkeys: newestPubkey(bookmarked, mute) },
     { key: 'highlighted', title: 'Highlighted', pubkeys: newestPubkey(highlighted, mute) },

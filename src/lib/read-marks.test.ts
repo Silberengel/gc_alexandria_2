@@ -128,6 +128,29 @@ describe('read marks', () => {
     expect(rows.find((r) => r.key === 'bookmarked')?.pubkeys).toEqual(['5'.repeat(64)]);
   });
 
+  it('lists Reading people from kind 16374 #a', () => {
+    const reader = 'a'.repeat(64);
+    const queue = ev({
+      id: 'c'.repeat(64),
+      pubkey: reader,
+      kind: KIND.READING_QUEUE,
+      tags: [
+        ['book', addr, '1', '10', '', '100'],
+        ['a', addr]
+      ]
+    });
+    const rows = editionPeopleRows({
+      publication: pub,
+      labels: [],
+      bookmarks: [],
+      highlights: [],
+      directories: [],
+      readingQueues: [queue]
+    });
+    expect(rows.map((r) => r.key)).toEqual(['reading']);
+    expect(rows[0]?.pubkeys).toEqual([reader]);
+  });
+
   it('dedupes people by pubkey and skips muted authors', () => {
     const mutedPk = '6'.repeat(64);
     const highlightA = ev({

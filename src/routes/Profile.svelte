@@ -8,7 +8,7 @@
   import EventsTable from '$lib/components/EventsTable.svelte';
   import { listingDensity } from '$lib/stores/listing-density';
   import { listingPageSize } from '$lib/listing-table';
-  import { KIND } from '$lib/constants';
+  import { KIND, READING_CONCURRENT_DEFAULT } from '$lib/constants';
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
@@ -16,7 +16,7 @@
   import { countReadsByAuthor, hexPubkey } from '$lib/search';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
-  import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
+  import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent } from '$lib/nostr/cache';
@@ -34,6 +34,7 @@
     type InteractionMark
   } from '$lib/interaction-marks';
   import { nip19, type Event } from 'nostr-tools';
+  import { get } from 'svelte/store';
   import { isAllowedHref } from '$lib/markup';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
   import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
@@ -41,6 +42,16 @@
   import { trustedAssertions } from '$lib/trusted-assertions';
   import { hasKnownRank } from '$lib/nip85-trusted-assertions';
   import { profileBannerFallbackStyle } from '$lib/profile-banner';
+  import {
+    activeReadingEntries,
+    parseReadingQueue,
+    readingProgressPercent,
+    type ReadingQueueEntry
+  } from '$lib/reading-queue';
+  import { readingPrefs } from '$lib/stores/reading-prefs';
+  import { editionMetadata } from '$lib/publication-metadata';
+  import { publicationPath } from '$lib/metadata';
+  import { link } from 'svelte-spa-router';
 
   interface Props {
     params?: { id?: string };
@@ -63,9 +74,20 @@
   let grapevineRank = $state<number | null>(null);
   let viewerFollows = $state(false);
   let readCount = $state(0);
+  let readingEntries = $state<ReadingQueueEntry[]>([]);
+  let readingTitles = $state<Map<string, string>>(new Map());
+  let readingEditions = $state<Map<string, Event>>(new Map());
 
   const fields = $derived(parseKind0(profile));
   const pageSize = $derived(listingPageSize($listingDensity));
+  /** Own profile uses Settings N; others use the client default (their N is not on relays). */
+  const isOwnProfile = $derived(
+    !!$session.pubkey && !!pubkey && $session.pubkey.toLowerCase() === pubkey.toLowerCase()
+  );
+  const concurrentLimit = $derived(
+    isOwnProfile ? $readingPrefs.concurrent : READING_CONCURRENT_DEFAULT
+  );
+  const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
   const visibleProduced = $derived(filterPageEvents(filterMuted(produced, $muteState), pageFilter));
   const visibleInteracted = $derived(filterPageEvents(filterMuted(interacted, $muteState), pageFilter));
   const pagedProduced = $derived(visibleProduced.slice((producedPage - 1) * pageSize, producedPage * pageSize));
@@ -223,7 +245,7 @@
       '#d': ['general', 'music'],
       limit: 10
     };
-    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates, reads] =
+    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates, reads, queueHits] =
       await Promise.all([
         relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
         relayPool.query(documentStack(), [authoredFilter]),
@@ -240,7 +262,13 @@
         relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [pubkey], limit: 40 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }]),
-        countReadsByAuthor(pubkey)
+        countReadsByAuthor(pubkey),
+        relayPool.query(
+          socialStack(),
+          [{ kinds: [KIND.READING_QUEUE], authors: [pubkey], limit: 5 }],
+          4000,
+          2
+        )
       ]);
     profile = p[0] ?? profile;
     if (profile) {
@@ -262,6 +290,24 @@
     produced = omitNested([...byId.values()]);
     rememberEvents(produced);
     readCount = reads;
+    const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
+    readingEntries = parseReadingQueue(queueEv);
+    const titleMap = new Map<string, string>();
+    const editionMap = new Map<string, Event>();
+    const own = !!get(session).pubkey && get(session).pubkey!.toLowerCase() === pubkey.toLowerCase();
+    const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
+    await Promise.all(
+      activeReadingEntries(readingEntries, n).map(async (entry) => {
+        const pub = await fetchByAddress(entry.a);
+        if (pub) {
+          rememberEvents([pub]);
+          editionMap.set(entry.a, pub);
+          titleMap.set(entry.a, editionMetadata(pub).titles[0] || 'Untitled');
+        }
+      })
+    );
+    readingTitles = titleMap;
+    readingEditions = editionMap;
     const interactionEvents = [
       ...labels.filter(isListPublicationLabelEvent),
       ...bookmarks,
@@ -387,6 +433,48 @@
         </table>
       {/if}
     </div>
+    {#if profileActiveReading.length || readingEntries.length}
+      <section class="profile-reading" aria-label="Reading now">
+        <h3 class="profile-reading-heading">
+          Reading now
+          <span class="muted profile-reading-counts">
+            {profileActiveReading.length}
+            {#if readingEntries.length > profileActiveReading.length}
+              of {readingEntries.length} queued
+            {/if}
+          </span>
+        </h3>
+        {#if profileActiveReading.length}
+          <ul class="profile-reading-list">
+            {#each profileActiveReading as entry (entry.a)}
+              {@const pct = readingProgressPercent(entry)}
+              {@const edition = readingEditions.get(entry.a)}
+              <li class="profile-reading-row">
+                {#if edition}
+                  <a class="profile-reading-title" href={`#${publicationPath(edition)}`} use:link>
+                    {readingTitles.get(entry.a) || 'Untitled'}
+                  </a>
+                {:else}
+                  <span class="profile-reading-title">{readingTitles.get(entry.a) || 'Loading…'}</span>
+                {/if}
+                <div
+                  class="reading-progress"
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                >
+                  <span class="reading-progress-fill" style={`width:${pct}%`}></span>
+                </div>
+                <span class="muted profile-reading-pct">{pct}%</span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="muted">Queue has {readingEntries.length} waiting — none in the active set yet.</p>
+        {/if}
+      </section>
+    {/if}
   {/if}
   {#if visibleProduced.length || visibleInteracted.length}
     <div class="listing-toolbar listing-toolbar-section">

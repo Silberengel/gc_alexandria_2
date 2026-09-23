@@ -21,6 +21,7 @@ Feature: In-browser reader
     And I see a book-and-check control to mark the edition as read (kind 1985 l=read), with a count of distinct readers
     And that read mark is never shown as a list label chip or landing label
     And under the metadata I see People rows for who labeled, bookmarked, highlighted, or shelved it when any exist
+    And a People row Reading lists pubkeys whose kind 16374 queue includes this edition
     And the Labeled People row ignores l=read
     And when I am signed in I can add or remove list labels, bookshelf membership, and a bookmark for this edition
     When the header and social lists have fetched
@@ -97,6 +98,21 @@ Feature: In-browser reader
     Then I return near the last position
     When I refresh while reading
     Then I stay in the reader (via read=1) near that position
+
+  Scenario: Track reading once the stream length is known
+    Given I am signed in and reading a publication whose flattened section stream length is known
+    When I press Track reading under the reader metadata
+    Then a kind 16374 replaceable is published with this edition a-tag, pos, total, and optional section id
+    And a progress bar shows pos over total while tracked
+    And scrolling into a new section advances pos on 16374 (not only clicks)
+    And Stop tracking removes the edition from 16374 without changing l=read
+    When stream length is not yet known
+    Then Track reading stays quiet with a loading hint
+    When I mark a tracked edition as read (kind 1985 l=read)
+    Then l=read is published first, then 16374 is republished without that book
+    And a finish celebration asks whether to leave a rating
+    And if a waiting book shifted into the active set its title is named
+    And reaching the last section alone does not remove the book from 16374
 
   Scenario: Landing highlight deep-link opens the section first
     When I open /publication/d/{d}/p/{npub}?section={30041 address}&quote={excerpt}

@@ -29,6 +29,8 @@
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import type { LandingShelfSnap } from '$lib/nostr/cache';
+  import ReadingNowPanel from '$lib/components/ReadingNowPanel.svelte';
+  import { KIND } from '$lib/constants';
 
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
@@ -202,7 +204,14 @@
         return;
       }
       const key = events
-        .filter((e) => e.kind === 3 || e.kind === 10003 || e.kind === 1985 || e.kind === 30045)
+        .filter(
+          (e) =>
+            e.kind === KIND.CONTACT_LIST ||
+            e.kind === KIND.BOOKMARK ||
+            e.kind === KIND.LABEL ||
+            e.kind === KIND.DIRECTORY ||
+            e.kind === KIND.READING_QUEUE
+        )
         .map((e) => e.id)
         .sort()
         .join(',');
@@ -246,6 +255,8 @@
       </p>
     </div>
   </header>
+
+  <ReadingNowPanel />
 
   {#if visibleShelves.length}
     <div class="listing-toolbar">

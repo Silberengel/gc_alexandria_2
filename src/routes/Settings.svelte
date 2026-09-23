@@ -2,6 +2,11 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import { appearance, type Scheme } from '$lib/stores/appearance';
   import { trust } from '$lib/stores/trust';
+  import { readingPrefs } from '$lib/stores/reading-prefs';
+  import {
+    READING_CONCURRENT_MAX,
+    READING_CONCURRENT_MIN
+  } from '$lib/constants';
   import { cacheSizeHuman, clearEventCache } from '$lib/nostr/cache';
   import {
     UI_FONT_CHOICES,
@@ -177,6 +182,26 @@
     {#if $appearance.customPrimary}
       <button class="btn" type="button" onclick={() => appearance.resetColors()}>Reset custom color</button>
     {/if}
+  </section>
+
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Reading</h2>
+      <p class="muted">How many tracked books stay in daily rotation at once.</p>
+    </header>
+    <label class="settings-field">
+      <span>Books to read at once</span>
+      <input
+        type="number"
+        min={READING_CONCURRENT_MIN}
+        max={READING_CONCURRENT_MAX}
+        value={$readingPrefs.concurrent}
+        onchange={(e) => readingPrefs.setConcurrent(Number((e.target as HTMLInputElement).value))}
+      />
+    </label>
+    <p class="muted settings-hint">
+      Extra tracked books wait in Up next and shift into rotation when you finish one.
+    </p>
   </section>
 
   <section class="settings-panel">

@@ -11,6 +11,12 @@
     myReadLabel,
     readLabelsForPublication
   } from '$lib/read-marks';
+  import { findQueueEntry, readingQueueFromMetadata } from '$lib/reading-queue';
+  import { finishTrackedPublication } from '$lib/reading-queue-actions';
+  import { openReadingFinish } from '$lib/stores/reading-finish-ui';
+  import { editionMetadata } from '$lib/publication-metadata';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { fetchByAddress } from '$lib/nostr/fetch';
 
   interface Props {
     publication: Event;
@@ -22,9 +28,17 @@
 
   let local = $state<Event[]>([]);
   let busy = $state(false);
+  let metaEvents = $state<Event[]>([]);
 
   $effect(() => {
     local = readProp;
+  });
+
+  $effect(() => {
+    const unsub = session.metadata.subscribe((events) => {
+      metaEvents = events;
+    });
+    return unsub;
   });
 
   const forEdition = $derived(readLabelsForPublication(local, publication));
@@ -32,6 +46,22 @@
   const mine = $derived(myReadLabel(forEdition, publication, $session.pubkey));
   const marked = $derived(!!mine);
   const signedIn = $derived(!!$session.pubkey);
+  const onQueue = $derived(
+    !!findQueueEntry(readingQueueFromMetadata(metaEvents), eventAddress(publication))
+  );
+
+  function absorbRead(signed: Event): void {
+    local = [
+      signed,
+      ...local.filter(
+        (e) =>
+          !(
+            e.pubkey.toLowerCase() === signed.pubkey.toLowerCase() &&
+            e.tags.some((t) => t[0] === 'l' && t[1]?.toLowerCase() === NIP32_READ_LABEL)
+          )
+      )
+    ];
+  }
 
   async function toggle(): Promise<void> {
     if (busy) return;
@@ -44,23 +74,27 @@
       if (mine) {
         const signed = await signAndPublish(deletionDraft(mine));
         if (signed) local = local.filter((e) => e.id !== mine.id);
-      } else {
-        const signed = await signAndPublish(
-          publicationLabelDraft(publication, NIP32_READ_LABEL)
-        );
-        if (signed) {
-          local = [
-            signed,
-            ...local.filter(
-              (e) =>
-                !(
-                  e.pubkey.toLowerCase() === signed.pubkey.toLowerCase() &&
-                  e.tags.some((t) => t[0] === 'l' && t[1]?.toLowerCase() === NIP32_READ_LABEL)
-                )
-            )
-          ];
-        }
+        return;
       }
+      if (onQueue) {
+        const finish = await finishTrackedPublication(publication, { readLabels: local });
+        if (!finish.ok) return;
+        if (finish.readEvent) absorbRead(finish.readEvent);
+        const meta = editionMetadata(publication);
+        let shiftedTitle: string | undefined;
+        if (finish.shiftedAddress) {
+          const next = await fetchByAddress(finish.shiftedAddress);
+          if (next) shiftedTitle = editionMetadata(next).titles[0] || undefined;
+        }
+        openReadingFinish({
+          publicationId: publication.id,
+          title: meta.titles[0] || 'This book',
+          shiftedTitle
+        });
+        return;
+      }
+      const signed = await signAndPublish(publicationLabelDraft(publication, NIP32_READ_LABEL));
+      if (signed) absorbRead(signed);
     } finally {
       busy = false;
     }

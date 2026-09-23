@@ -15,6 +15,8 @@
   import EditionPeople from '$lib/components/EditionPeople.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import EditionReaderMeta from '$lib/components/EditionReaderMeta.svelte';
+  import TrackReadingButton from '$lib/components/TrackReadingButton.svelte';
+  import ReadingFinishModal from '$lib/components/ReadingFinishModal.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { KIND, NIP32_READ_LABEL } from '$lib/constants';
@@ -45,6 +47,8 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
+  import { syncReadingProgress } from '$lib/reading-queue-actions';
+  import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { readerSectionHeroUrl } from '$lib/cover';
   import { bibleDisplay, groupReaderSections } from '$lib/bible-verse';
@@ -92,6 +96,10 @@
   let editionBookmarks = $state<Event[]>([]);
   let editionDirectories = $state<Event[]>([]);
   let editionReads = $state<Event[]>([]);
+  let editionReadingQueues = $state<Event[]>([]);
+  let readerPos = $state(0);
+  let readerSectionId = $state<string | undefined>(undefined);
+  let sectionTick = $state(false);
   let reading = $state(false);
   let sections = $state<Event[]>([]);
   /** Full loaded corpus — not reactive, so ingesting stream pages does not remount the pane. */
@@ -305,6 +313,7 @@
       bookmarkHits,
       directoryHits,
       readHits,
+      readingQueueHits,
       ...highlightBatches
     ] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
@@ -317,6 +326,12 @@
       relayPool.query(
         socialStack(),
         [{ kinds: [KIND.LABEL], '#a': bookKeys, '#l': [NIP32_READ_LABEL], limit: 80 }],
+        5000,
+        4
+      ),
+      relayPool.query(
+        socialStack(),
+        [{ kinds: [KIND.READING_QUEUE], '#a': bookKeys, limit: 40 }],
         5000,
         4
       ),
@@ -337,6 +352,7 @@
     editionLabels = labelHits;
     editionBookmarks = bookmarkHits;
     editionDirectories = directoryHits;
+    editionReadingQueues = readingQueueHits;
     const readById = new Map<string, Event>();
     for (const e of [...readHits, ...labelHits]) {
       if (e.tags.some((t) => t[0] === 'l' && t[1]?.toLowerCase() === NIP32_READ_LABEL)) {
@@ -1248,12 +1264,27 @@
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
     saveResume(eventAddress(event), { pos, sectionId: section.id });
+    const prev = readerPos;
+    readerPos = pos;
+    readerSectionId = section.id;
+    if (pos !== prev) {
+      sectionTick = true;
+      window.setTimeout(() => {
+        sectionTick = false;
+      }, 600);
+      void syncReadingProgress({
+        publication: event,
+        pos,
+        total: Math.max(corpusCount, sectionCorpus.length, 1),
+        sectionId: section.id
+      });
+    }
   }
 
   /** Resume tracking without a11y listeners on non-interactive verse/section markup. */
   $effect(() => {
     const root = readingPane;
-    if (!reading || !root || !moreToPaint) return;
+    if (!reading || !root) return;
     const onScroll = () => {
       const room = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
       if (room < 1200) extendPaint();
@@ -1261,6 +1292,51 @@
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
+  });
+
+  /** Advance tracked pos when a section crosses the reading line (not only on click). */
+  $effect(() => {
+    const root = readingPane;
+    if (!reading || !root) return;
+    // Rebind when more sections paint.
+    void paintedSections.length;
+    let raf = 0;
+    const pickVisible = () => {
+      raf = 0;
+      const nodes = root.querySelectorAll<HTMLElement>('[data-read-pos][data-section-id]');
+      if (!nodes.length) return;
+      const line = window.innerHeight * 0.35;
+      let chosen: HTMLElement | null = null;
+      for (const node of nodes) {
+        const rect = node.getBoundingClientRect();
+        if (rect.top <= line && rect.bottom > 64) chosen = node;
+      }
+      if (!chosen) {
+        for (const node of nodes) {
+          const rect = node.getBoundingClientRect();
+          if (rect.bottom > 64) {
+            chosen = node;
+            break;
+          }
+        }
+      }
+      if (!chosen) return;
+      const pos = Number(chosen.dataset.readPos);
+      const id = chosen.dataset.sectionId;
+      if (!Number.isFinite(pos) || !id) return;
+      const section = sections.find((s) => s.id === id) ?? sectionCorpus.find((s) => s.id === id);
+      if (section) rememberPos(pos, section);
+    };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(pickVisible);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    queueMicrotask(pickVisible);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   });
 
   $effect(() => {
@@ -1432,6 +1508,7 @@
         bookmarks={editionBookmarks}
         highlights={mutedHighlights}
         directories={editionDirectories}
+        readingQueues={editionReadingQueues}
       />
 
       <RatingPanel
@@ -1625,6 +1702,15 @@
                 {#if isIndex}
                   {#if event && section.id === event.id}
                     <EditionReaderMeta event={section} {sections} />
+                    <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
+                      <TrackReadingButton
+                        publication={event}
+                        total={Math.max(corpusCount, sectionCorpus.length)}
+                        pos={readerPos}
+                        sectionId={readerSectionId}
+                        readLabels={editionReads}
+                      />
+                    </div>
                     <div class="edition-actions reader-info-actions">
                       <button class="btn btn-primary" type="button" onclick={stopReading}
                         >Publication info</button
@@ -1749,3 +1835,14 @@
     <p class="loading-hint">Publication is loading...</p>
   {/if}
 </main>
+<ReadingFinishModal
+  onRate={() => {
+    if (reading) stopReading();
+    queueMicrotask(() => {
+      document.querySelector('.rating-panel')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    });
+  }}
+/>

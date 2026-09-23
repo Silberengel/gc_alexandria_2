@@ -10,6 +10,7 @@
     bookmarks?: Event[];
     highlights?: Event[];
     directories?: Event[];
+    readingQueues?: Event[];
   }
 
   let {
@@ -17,7 +18,8 @@
     labels = [],
     bookmarks = [],
     highlights = [],
-    directories = []
+    directories = [],
+    readingQueues = []
   }: Props = $props();
 
   const rows = $derived(
@@ -27,6 +29,7 @@
       bookmarks,
       highlights,
       directories,
+      readingQueues,
       mute: $muteState
     })
   );

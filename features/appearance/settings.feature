@@ -35,3 +35,5 @@ Feature: Appearance
     And I see Trust filter controls for GrapeRank minimum and on/off
     And Trust filter defaults to on with minimum 10
     And those Trust choices persist in this browser across Clear Cache
+    And I see Books to read at once (default 3, range 1–10) under Reading
+    And that concurrent limit persists in this browser and does not change kind 16374

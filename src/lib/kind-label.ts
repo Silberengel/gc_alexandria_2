@@ -34,6 +34,8 @@ export function kindDescription(kind: number): string {
       return 'Label';
     case KIND.BOOKMARK:
       return 'Bookmarks';
+    case KIND.READING_QUEUE:
+      return 'Reading queue';
     case KIND.DIRECTORY:
       return 'Directory';
     case 6:

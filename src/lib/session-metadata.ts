@@ -58,6 +58,14 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
       const ed = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
       if (ed === d && e.created_at <= event.created_at) byId.delete(id);
     }
+  } else if (event.kind === KIND.READING_QUEUE) {
+    for (const [id, e] of [...byId]) {
+      if (id === eventId) continue;
+      if (e.kind !== KIND.READING_QUEUE) continue;
+      if (e.pubkey.toLowerCase() === event.pubkey.toLowerCase() && e.created_at <= event.created_at) {
+        byId.delete(id);
+      }
+    }
   } else if (event.kind === KIND.LABEL) {
     const key = publicationLabelDedupeKey(event);
     if (key) {

@@ -83,6 +83,11 @@ export const NIP32_BOOKLIST_LABEL = 'booklist';
 export const NIP32_READ_LABEL = 'read';
 export const NIP32_UGC_NAMESPACE = 'ugc';
 
+/** Default concurrent active books from the reading queue (Settings). */
+export const READING_CONCURRENT_DEFAULT = 3;
+export const READING_CONCURRENT_MIN = 1;
+export const READING_CONCURRENT_MAX = 10;
+
 export const MUTED_PARENT_PLACEHOLDER = 'This author is muted.';
 /** Shown while/after a parent id was requested but not returned from relays. */
 export const MISSING_PARENT_PLACEHOLDER = 'Parent comment could not be found.';
@@ -109,6 +114,8 @@ export const KIND = {
   LABEL: 1985,
   ISSUE: 1621,
   PAYMENT: 10133,
+  /** Reading queue + Bookshelf-style progress (one replaceable per pubkey). */
+  READING_QUEUE: 16374,
   PICTURE: 20,
   VIDEO: 21,
   LONG_FORM: 30023,
@@ -141,7 +148,8 @@ export const LOGIN_METADATA_KINDS = [
   KIND.LABEL,
   KIND.DIRECTORY,
   KIND.FOLLOW_SET,
-  KIND.STATUS
+  KIND.STATUS,
+  KIND.READING_QUEUE
 ];
 
 export const CACHE_KINDS = [
@@ -168,7 +176,8 @@ export const CACHE_KINDS = [
   KIND.STATUS,
   KIND.SPEC,
   KIND.WIKI,
-  KIND.RATING
+  KIND.RATING,
+  KIND.READING_QUEUE
 ];
 
 export type StackKind = 'document' | 'wiki' | 'social' | 'highlight' | 'profile';

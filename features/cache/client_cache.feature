@@ -57,14 +57,14 @@ Feature: Client event cache
     When the app first loads
     Then first paint is not blocked
     And one batched kind 5 fetch then remembers deleted ids and a-tag addresses for the kinds this app uses
-    And those kinds include 0, 3, 11, 20, 21, 1985, 9802, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1111, 30000, 30023, 30040, 30041, 30315, 30817, 30818, and 34259
+    And those kinds include 0, 3, 11, 20, 21, 1985, 9802, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1111, 16374, 30000, 30023, 30040, 30041, 30315, 30817, 30818, and 34259
     And matching events are evicted from the client cache and hidden from search and edition pages
     And when search or an edition page loads events, kind 5s targeting those ids and addresses are fetched and applied
     And the sweep does not flood the relay pool
 
   Scenario: Sign-in metadata is one batch
     When I complete sign-in
-    Then one authors=me filter loads kinds 3, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1985, 30000, and 30315 from Mercury and the document stack
+    Then one authors=me filter loads kinds 3, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 16374, 1985, 30000, and 30315 from Mercury and the document stack
     And kind 0 is loaded separately from the profile relay stack, not Mercury
     And every valid event from that batch is written to the client cache
     And mute, relay lists, bookmarks, labels, payments, follow lists, and follow sets are not fetched one list at a time

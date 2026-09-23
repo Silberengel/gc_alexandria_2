@@ -152,7 +152,7 @@
   }
 </script>
 
-<section class="card" style="margin-bottom:1rem">
+<section class="card rating-panel" style="margin-bottom:1rem">
   <h2>Ratings</h2>
   {#if agg.count}
     <p class="rating-summary">

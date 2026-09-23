@@ -13,3 +13,10 @@ Feature: Library home
     And then subject buttons
     And then publication-label buttons
     And I do not see a kind-1 timeline
+
+  Scenario: Signed-in reading now
+    Given I am signed in with a kind 16374 queue
+    When I open the home page
+    Then I see Reading now excerpt cards for the active concurrent subset (first N from Settings)
+    And each card has cover, title, progress, excerpt at pos, and Continue into the reader
+    And Up next lists waiting books with Read now to move one to the front of the queue
