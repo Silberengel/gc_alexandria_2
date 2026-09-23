@@ -3,6 +3,7 @@
   import UserBadge from './UserBadge.svelte';
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish } from '$lib/sign';
   import { ratingDraft } from '$lib/drafts';
   import {
@@ -127,7 +128,7 @@
   async function submit(): Promise<void> {
     if (busy) return;
     if (!$session.pubkey) {
-      await session.signIn();
+      openLoginDialog();
       return;
     }
     if (mineStars < 1) return;
@@ -265,6 +266,6 @@
       </div>
     </div>
   {:else if !$session.pubkey}
-    <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to rate</button>
+    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to rate</button>
   {/if}
 </section>

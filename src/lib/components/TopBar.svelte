@@ -1,7 +1,9 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
   import { session } from '$lib/stores/session';
+  import { loginDialogOpen, openLoginDialog, closeLoginDialog } from '$lib/stores/login-ui';
   import UserBadge from './UserBadge.svelte';
+  import LoginDialog from './LoginDialog.svelte';
   import { suggestTitles, npubFromInput, isNsec } from '$lib/search';
 
   interface Props {
@@ -84,9 +86,16 @@
       <UserBadge pubkey={$session.pubkey} />
       <button class="btn" type="button" onclick={() => session.signOut()}>Sign out</button>
     {:else}
-      <button class="btn btn-primary" type="button" disabled={$session.loading} onclick={() => session.signIn()}>
+      <button
+        class="btn btn-primary"
+        type="button"
+        disabled={$session.loading}
+        onclick={() => openLoginDialog()}
+      >
         {$session.loading ? 'Signing in…' : 'Sign in'}
       </button>
     {/if}
   </div>
 </header>
+
+<LoginDialog open={$loginDialogOpen} onClose={closeLoginDialog} />

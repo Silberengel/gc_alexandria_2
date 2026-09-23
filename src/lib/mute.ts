@@ -99,8 +99,23 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   // Some mute lists store private tags as plaintext JSON; never treat that as ciphertext.
   if (content.startsWith('[')) return parseMuteTagRows(content) ?? [];
 
-  const ext = typeof window !== 'undefined' ? window.nostr : undefined;
   const attempts: Array<(pubkey: string, ciphertext: string) => Promise<string>> = [];
+
+  // Prefer the active session signer (bunker / extension) when available.
+  try {
+    const { session } = await import('./stores/session');
+    const signer = session.getSigner();
+    if (looksLikeNip44Ciphertext(content) && signer?.nip44Decrypt) {
+      attempts.push((pk, ct) => signer.nip44Decrypt!(pk, ct));
+    }
+    if (looksLikeNip04Ciphertext(content) && signer?.nip04Decrypt) {
+      attempts.push((pk, ct) => signer.nip04Decrypt!(pk, ct));
+    }
+  } catch {
+    /* session unavailable */
+  }
+
+  const ext = typeof window !== 'undefined' ? window.nostr : undefined;
   if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
     attempts.push(ext.nip44.decrypt.bind(ext.nip44));
   }

@@ -51,7 +51,10 @@ describe('session sign-out persistence', () => {
 
     const { session } = await import('./session');
     session.signOut();
-    mem.set('alexandria-session', JSON.stringify({ pubkey: PK, npub }));
+    mem.set(
+      'alexandria-session',
+      JSON.stringify({ pubkey: PK, npub, signerType: 'nip07' })
+    );
 
     expect(await session.restore()).toBe(true);
     expect(get(session).pubkey).toBe(PK);

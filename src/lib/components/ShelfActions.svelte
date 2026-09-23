@@ -2,6 +2,7 @@
   import type { Event } from 'nostr-tools';
   import { KIND, NIP32_BOOKLIST_LABEL } from '$lib/constants';
   import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish } from '$lib/sign';
   import { publicationLabelDraft, bookmarkDraft, deletionDraft } from '$lib/drafts';
   import {
@@ -89,7 +90,8 @@
 
   async function needSignIn(): Promise<boolean> {
     if ($session.pubkey) return true;
-    return session.signIn();
+    openLoginDialog();
+    return false;
   }
 
   async function toggleLabel(slug: string): Promise<void> {
@@ -274,6 +276,6 @@
   </div>
 {:else}
   <div class="shelf-actions">
-    <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to list, shelf, or bookmark</button>
+    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to list, shelf, or bookmark</button>
   </div>
 {/if}

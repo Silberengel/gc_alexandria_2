@@ -19,6 +19,14 @@ export const DOCUMENT_SEARCH_RELAYS = [
   ...THIRD_PARTY_RELAYS
 ] as const;
 
+/** Relays for Amber / NostrConnect (`nostrconnect://`) login URIs. */
+export const DEFAULT_NOSTRCONNECT_RELAY = [
+  'wss://relay.nsec.app/',
+  'wss://bucket.coracle.social/',
+  'wss://thecitadel.nostr1.com/',
+  'wss://pipe.imwald.eu'
+] as const;
+
 export const WIKI_RELAYS = ['wss://relay.wikifreedia.xyz'] as const;
 
 export const SOCIAL_RELAYS = ['wss://theforest.nostr1.com', ...THIRD_PARTY_RELAYS] as const;

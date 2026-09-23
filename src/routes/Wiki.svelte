@@ -24,6 +24,7 @@
   import { commentDraft } from '$lib/drafts';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
@@ -304,7 +305,7 @@
   async function postComment(): Promise<void> {
     if (!event) return;
     if (!$session.pubkey) {
-      await session.signIn();
+      openLoginDialog();
       return;
     }
     if (!commentText.trim()) return;
@@ -375,7 +376,7 @@
           <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
         </form>
       {:else if !$session.pubkey}
-        <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to comment</button>
+        <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
       {/if}
     </section>
   {:else}

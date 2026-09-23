@@ -33,6 +33,7 @@
   import { ingestLocalLandingHighlight } from '$lib/landing';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { sectionHeroImageUrl } from '$lib/cover';
@@ -933,7 +934,7 @@
   async function postComment(): Promise<void> {
     if (!event) return;
     if (!$session.pubkey) {
-      await session.signIn();
+      openLoginDialog();
       return;
     }
     if (!commentText.trim()) return;
@@ -946,7 +947,7 @@
 
   async function postSectionComment(section: Event): Promise<void> {
     if (!$session.pubkey) {
-      await session.signIn();
+      openLoginDialog();
       return;
     }
     const a = eventAddress(section);
@@ -964,7 +965,7 @@
 
   async function saveHighlight(section: Event): Promise<void> {
     if (!$session.pubkey) {
-      await session.signIn();
+      openLoginDialog();
       return;
     }
     const sel = window.getSelection();
@@ -1094,7 +1095,7 @@
             <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
           </form>
         {:else if !$session.pubkey}
-          <button class="btn" type="button" onclick={() => session.signIn()}>Sign in to comment</button>
+          <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
         {/if}
       </section>
     {:else}
@@ -1220,7 +1221,7 @@
                             type="button"
                             onclick={() => {
                               sectionMenuOpen = null;
-                              void session.signIn();
+                              openLoginDialog();
                             }}
                           >
                             Sign in to highlight
@@ -1295,7 +1296,7 @@
                       >
                     </form>
                   {:else if !$session.pubkey}
-                    <button class="btn" type="button" onclick={() => session.signIn()}
+                    <button class="btn" type="button" onclick={() => openLoginDialog()}
                       >Sign in to comment</button
                     >
                   {/if}

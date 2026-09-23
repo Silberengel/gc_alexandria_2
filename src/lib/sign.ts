@@ -1,24 +1,30 @@
 import type { Event } from 'nostr-tools';
 import { ingestEvent } from './nostr/verify';
 import { session } from './stores/session';
+import { Nip07Signer } from './signers/nip07';
 
 export async function signUnsigned(partial: {
   kind: number;
   content: string;
   tags: string[][];
 }): Promise<Event | null> {
-  const ext = window.nostr;
-  if (!ext?.signEvent || !ext.getPublicKey) return null;
-  const pubkey = (await ext.getPublicKey()).toLowerCase();
-  const unsigned = {
-    kind: partial.kind,
-    content: partial.content,
-    tags: partial.tags,
-    created_at: Math.floor(Date.now() / 1000),
-    pubkey
-  };
+  let signer = session.getSigner();
+  if (!signer) {
+    // Lazy attach NIP-07 when the session painted from storage but the signer is not ready yet.
+    if (!session.getPubkey() || !window.nostr?.signEvent) return null;
+    try {
+      signer = new Nip07Signer();
+      await signer.getPublicKey();
+    } catch {
+      return null;
+    }
+  }
   try {
-    const signed = await ext.signEvent(unsigned);
+    const signed = await signer.signEvent({
+      kind: partial.kind,
+      content: partial.content,
+      tags: partial.tags
+    });
     return ingestEvent(signed);
   } catch {
     return null;

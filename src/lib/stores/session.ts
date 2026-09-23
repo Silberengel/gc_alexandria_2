@@ -8,6 +8,11 @@ import { documentStack, profileStack, setSelectorContext, socialStack, writeStac
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mercuryFilter } from '../nostr/mercury';
 import { mergeRememberedMetadata } from '../session-metadata';
+import { sanitizeStoredBunkerUrl } from '../bunker-auth-url';
+import type { BunkerLoginOptions, Signer, SignerType } from '../signer';
+import { BunkerSigner } from '../signers/bunker';
+import { Nip07Signer, clearNip07PagePubkeyCache } from '../signers/nip07';
+import { NostrConnectionSigner } from '../signers/nostr-connection';
 
 /** Kinds that live on social/interaction relays (not Mercury's document index). */
 const SOCIAL_LOGIN_KINDS = [
@@ -24,7 +29,13 @@ const SOCIAL_LOGIN_KINDS = [
 
 const SESSION_STORAGE_KEY = 'alexandria-session';
 
-type PersistedSession = { pubkey: string; npub: string };
+type PersistedSession = {
+  pubkey: string;
+  npub: string;
+  signerType: SignerType;
+  bunker?: string;
+  bunkerClientSecretKey?: string;
+};
 
 function readPersistedSession(): PersistedSession | null {
   try {
@@ -34,15 +45,20 @@ function readPersistedSession(): PersistedSession | null {
     const pubkey = typeof data.pubkey === 'string' ? data.pubkey.toLowerCase() : '';
     const npub = typeof data.npub === 'string' ? data.npub : '';
     if (!/^[0-9a-f]{64}$/.test(pubkey) || !npub.startsWith('npub1')) return null;
-    return { pubkey, npub };
+    const signerType: SignerType = data.signerType === 'bunker' ? 'bunker' : 'nip07';
+    const bunker = typeof data.bunker === 'string' ? data.bunker : undefined;
+    const bunkerClientSecretKey =
+      typeof data.bunkerClientSecretKey === 'string' ? data.bunkerClientSecretKey : undefined;
+    if (signerType === 'bunker' && (!bunker || !bunkerClientSecretKey)) return null;
+    return { pubkey, npub, signerType, bunker, bunkerClientSecretKey };
   } catch {
     return null;
   }
 }
 
-function writePersistedSession(pubkey: string, npub: string): void {
+function writePersistedSession(session: PersistedSession): void {
   try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ pubkey, npub }));
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
   } catch {
     /* private mode / quota */
   }
@@ -51,20 +67,6 @@ function writePersistedSession(pubkey: string, npub: string): void {
 function clearPersistedSession(): void {
   try {
     localStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Clear page-level NIP-07 pubkey caches (notably nos2x-fox `window.nostr._pubkey`).
- * Without this, getPublicKey() keeps returning the first authorized key after sign-out.
- */
-function clearNip07PagePubkeyCache(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const n = window.nostr as { _pubkey?: string | null } | undefined;
-    if (n && '_pubkey' in n) n._pubkey = null;
   } catch {
     /* ignore */
   }
@@ -97,17 +99,23 @@ export type SessionState = {
   pubkey: string | null;
   npub: string | null;
   loading: boolean;
+  signerType: SignerType | null;
 };
 
 function createSessionStore() {
   const { subscribe, set, update } = writable<SessionState>({
     pubkey: null,
     npub: null,
-    loading: false
+    loading: false,
+    signerType: null
   });
 
   let metadataEvents: Event[] = [];
   const metadata = writable<Event[]>([]);
+  let activeSigner: Signer | null = null;
+  let activeSignerType: SignerType | null = null;
+  let bunkerUrl: string | undefined;
+  let bunkerClientSecretKey: string | undefined;
 
   async function applyMuteFromMetadata(events: Event[]): Promise<void> {
     const muteEvent = newestMuteList(events);
@@ -201,19 +209,39 @@ function createSessionStore() {
     }
   }
 
-  async function applyPubkey(pubkey: string, waitMetadata = true): Promise<void> {
+  async function adoptSigner(
+    signer: Signer,
+    pubkeyRaw: string,
+    opts: {
+      signerType: SignerType;
+      bunker?: string;
+      bunkerClientSecretKey?: string;
+      waitMetadata?: boolean;
+    }
+  ): Promise<void> {
+    const pubkey = pubkeyRaw.toLowerCase();
     const { nip19 } = await import('nostr-tools');
     const npub = nip19.npubEncode(pubkey);
-    // loading=true before metadata clear so Home skips the empty-list notify.
-    set({ pubkey, npub, loading: true });
-    writePersistedSession(pubkey, npub);
+    activeSigner = signer;
+    activeSignerType = opts.signerType;
+    bunkerUrl = opts.bunker;
+    bunkerClientSecretKey = opts.bunkerClientSecretKey;
+    set({ pubkey, npub, loading: true, signerType: opts.signerType });
+    writePersistedSession({
+      pubkey,
+      npub,
+      signerType: opts.signerType,
+      bunker: opts.bunker,
+      bunkerClientSecretKey: opts.bunkerClientSecretKey
+    });
     relayPool.setSignedIn(true);
     metadataEvents = [];
     metadata.set([]);
     const meta = loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
-    if (waitMetadata) await meta;
+    if (opts.waitMetadata !== false) await meta;
   }
 
+  /** NIP-07 browser extension sign-in. */
   async function signIn(): Promise<boolean> {
     update((s) => ({ ...s, loading: true }));
     try {
@@ -222,9 +250,9 @@ function createSessionStore() {
         update((s) => ({ ...s, loading: false }));
         return false;
       }
-      clearNip07PagePubkeyCache();
-      const pubkey = (await ext.getPublicKey()).toLowerCase();
-      await applyPubkey(pubkey, true);
+      const signer = new Nip07Signer();
+      const pubkey = await signer.getPublicKey();
+      await adoptSigner(signer, pubkey, { signerType: 'nip07' });
       return true;
     } catch {
       update((s) => ({ ...s, loading: false }));
@@ -232,41 +260,113 @@ function createSessionStore() {
     }
   }
 
+  /** Paste or scan a `bunker://` URI (Amber / nsec.app / Pomegranate). */
+  async function bunkerLogin(bunker: string, options?: BunkerLoginOptions): Promise<boolean> {
+    update((s) => ({ ...s, loading: true }));
+    try {
+      const signer = new BunkerSigner();
+      const pubkey = await signer.login(bunker, true, options);
+      await adoptSigner(signer, pubkey, {
+        signerType: 'bunker',
+        bunker: sanitizeStoredBunkerUrl(bunker),
+        bunkerClientSecretKey: signer.getClientSecretKey()
+      });
+      return true;
+    } catch (err) {
+      update((s) => ({ ...s, loading: false }));
+      throw err;
+    }
+  }
+
+  /** Amber / NostrConnect — wait for remote ack on `nostrconnect://`. */
+  async function nostrConnectionLogin(
+    clientSecretKey: Uint8Array,
+    connectionString: string,
+    abortSignal?: AbortSignal
+  ): Promise<boolean> {
+    update((s) => ({ ...s, loading: true }));
+    try {
+      const signer = new NostrConnectionSigner(clientSecretKey, connectionString);
+      const result = await signer.login(abortSignal);
+      await adoptSigner(signer, result.pubkey, {
+        signerType: 'bunker',
+        bunker: result.bunkerString ? sanitizeStoredBunkerUrl(result.bunkerString) : undefined,
+        bunkerClientSecretKey: signer.getClientSecretKey()
+      });
+      return true;
+    } catch (err) {
+      update((s) => ({ ...s, loading: false }));
+      throw err;
+    }
+  }
+
   /**
    * Re-attach identity after reload only when a session was persisted (explicit sign-in).
    * Paint immediately from localStorage — window.nostr is often injected late.
-   * Confirm against NIP-07 in the background when the extension appears.
    * Never call getPublicKey() when localStorage is empty — that would re-login after sign-out.
    */
   async function restore(): Promise<boolean> {
     if (get({ subscribe }).pubkey) return true;
 
     const persisted = readPersistedSession();
-    if (persisted) {
-      set({ pubkey: persisted.pubkey, npub: persisted.npub, loading: true });
-      relayPool.setSignedIn(true);
-      metadataEvents = [];
-      metadata.set([]);
-      void confirmRestoredSession(persisted);
-      return true;
+    if (!persisted) {
+      update((s) => ({ ...s, loading: false }));
+      return false;
     }
 
-    update((s) => ({ ...s, loading: false }));
-    return false;
+    set({
+      pubkey: persisted.pubkey,
+      npub: persisted.npub,
+      loading: true,
+      signerType: persisted.signerType
+    });
+    relayPool.setSignedIn(true);
+    metadataEvents = [];
+    metadata.set([]);
+    void confirmRestoredSession(persisted);
+    return true;
   }
 
   async function confirmRestoredSession(persisted: PersistedSession): Promise<void> {
+    if (persisted.signerType === 'bunker' && persisted.bunker && persisted.bunkerClientSecretKey) {
+      try {
+        const signer = new BunkerSigner(persisted.bunkerClientSecretKey);
+        const pubkey = await signer.login(persisted.bunker, false);
+        activeSigner = signer;
+        activeSignerType = 'bunker';
+        bunkerUrl = persisted.bunker;
+        bunkerClientSecretKey = persisted.bunkerClientSecretKey;
+        if (pubkey.toLowerCase() !== persisted.pubkey) {
+          await adoptSigner(signer, pubkey, {
+            signerType: 'bunker',
+            bunker: persisted.bunker,
+            bunkerClientSecretKey: persisted.bunkerClientSecretKey,
+            waitMetadata: false
+          });
+          return;
+        }
+        void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
+      } catch {
+        // Keep painted identity; signing may fail until the user signs in again.
+        void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
+      }
+      return;
+    }
+
     const ext = await waitForNostr(4000);
     if (!ext?.getPublicKey) {
       void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
       return;
     }
     try {
-      const pubkey = (await ext.getPublicKey()).toLowerCase();
+      const signer = new Nip07Signer();
+      const pubkey = await signer.getPublicKey();
       if (pubkey !== persisted.pubkey) {
-        await applyPubkey(pubkey, false);
+        await adoptSigner(signer, pubkey, { signerType: 'nip07', waitMetadata: false });
         return;
       }
+      activeSigner = signer;
+      activeSignerType = 'nip07';
       void loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     } catch {
       // Some extensions need a user gesture for getPublicKey — keep persisted identity.
@@ -276,14 +376,22 @@ function createSessionStore() {
 
   function signOut(): void {
     const previousPubkey = get({ subscribe }).pubkey;
+    const previousSigner = activeSigner;
     clearPersistedSession();
     clearNip07PagePubkeyCache();
-    set({ pubkey: null, npub: null, loading: false });
+    activeSigner = null;
+    activeSignerType = null;
+    bunkerUrl = undefined;
+    bunkerClientSecretKey = undefined;
+    set({ pubkey: null, npub: null, loading: false, signerType: null });
     metadataEvents = [];
     metadata.set([]);
     clearMute();
     setSelectorContext({ signedIn: false, inbox: [], outbox: [], favorites: [], local: [], blocked: [] });
     relayPool.setSignedIn(false);
+    if (previousSigner && 'close' in previousSigner && typeof previousSigner.close === 'function') {
+      void (previousSigner as { close: () => Promise<void> }).close();
+    }
     void import('../trusted-assertions').then(({ trustedAssertions }) => {
       trustedAssertions.resetForViewer(null);
       void trustedAssertions.resolveProvider(null);
@@ -320,13 +428,17 @@ function createSessionStore() {
   return {
     subscribe,
     signIn,
+    bunkerLogin,
+    nostrConnectionLogin,
     restore,
     signOut,
     publish,
     rememberEvent,
     metadata,
     getPubkey: () => get({ subscribe }).pubkey,
-    getMetadata: () => metadataEvents
+    getMetadata: () => metadataEvents,
+    getSigner: () => activeSigner,
+    getSignerType: () => activeSignerType
   };
 }
 
@@ -339,12 +451,16 @@ declare global {
     nostr?: {
       getPublicKey(): Promise<string>;
       signEvent?(event: unknown): Promise<unknown>;
+      enable?(): Promise<void>;
       nip04?: {
+        encrypt?(pubkey: string, plaintext: string): Promise<string>;
         decrypt(pubkey: string, ciphertext: string): Promise<string>;
       };
       nip44?: {
+        encrypt?(pubkey: string, plaintext: string): Promise<string>;
         decrypt(pubkey: string, ciphertext: string): Promise<string>;
       };
+      _pubkey?: string | null;
     };
   }
 }
