@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { isPublicationLabelEvent, publicationTargets } from './nip32';
+import { isListPublicationLabelEvent, publicationTargets } from './nip32';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { publicationCoordinateFromRatingEvent } from './ratings';
 import { referencedLibraryAddress } from './library-scope';
@@ -40,7 +40,7 @@ function addMark(
 export function interactionMarksFromEvents(events: Event[]): Map<string, Set<InteractionMark>> {
   const map = new Map<string, Set<InteractionMark>>();
   for (const event of events) {
-    if (event.kind === KIND.LABEL && isPublicationLabelEvent(event)) {
+    if (event.kind === KIND.LABEL && isListPublicationLabelEvent(event)) {
       const t = publicationTargets(event);
       for (const a of t.addresses) addMark(map, a, 'labeled');
       for (const id of t.eventIds) addMark(map, id, 'labeled');

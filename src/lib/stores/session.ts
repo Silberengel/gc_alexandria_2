@@ -7,6 +7,7 @@ import { relayPool } from '../nostr/pool';
 import { documentStack, profileStack, setSelectorContext, socialStack, writeStack } from '../nostr/selector';
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mergeRememberedMetadata } from '../session-metadata';
+import { rememberDeletion } from '../deletions';
 import { sanitizeStoredBunkerUrl } from '../bunker-auth-url';
 import type { BunkerLoginOptions, Signer, SignerType } from '../signer';
 import { BunkerSigner } from '../signers/bunker';
@@ -417,6 +418,7 @@ function createSessionStore() {
   }
 
   function rememberEvent(event: Event): void {
+    if (event.kind === KIND.DELETION) rememberDeletion(event);
     const pk = get({ subscribe }).pubkey;
     if (!pk || event.pubkey.toLowerCase() !== pk) return;
     metadataEvents = mergeRememberedMetadata(metadataEvents, event);

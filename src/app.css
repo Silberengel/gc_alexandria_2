@@ -947,6 +947,7 @@ a.listing-row:hover {
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1269,6 +1270,7 @@ a.listing-row:hover {
 .edition-actions .shelf-actions {
   margin: 0;
   gap: 0.5rem;
+  flex: 1 1 100%;
 }
 .edition-actions .btn:not(.btn-primary) {
   min-height: 2.4rem;
@@ -1285,6 +1287,7 @@ a.listing-row:hover {
   min-height: 2.5rem;
   padding-inline: 1.15rem;
   font-weight: 650;
+  flex: 1 1 100%;
 }
 
 .reader-info-actions {
@@ -2090,6 +2093,7 @@ a.listing-row:hover {
 .generic-card-list .generic-card-body {
   display: -webkit-box;
   -webkit-line-clamp: 3;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -2235,7 +2239,9 @@ a.listing-row:hover {
   gap: 0.25rem;
   margin-top: 0.35rem;
 }
-.heart-btn {
+/* Icon+count controls: grow as a pill so 1–4 digit counts stay inside the border. */
+.btn.btn-icon.heart-btn,
+.btn.btn-icon.read-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2244,12 +2250,17 @@ a.listing-row:hover {
   min-width: 2.4rem;
   height: 2.4rem;
   padding: 0 0.55rem;
+  border-radius: 999px;
+  overflow: visible;
+  flex: 0 0 auto;
   border-color: transparent;
   background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   color: var(--text-muted);
 }
 .heart-btn:hover:not(:disabled),
-.heart-btn:focus-visible {
+.heart-btn:focus-visible,
+.read-btn:hover:not(:disabled),
+.read-btn:focus-visible {
   color: var(--text);
   border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
   background: color-mix(in srgb, var(--surface-2) 40%, var(--surface));
@@ -2284,12 +2295,87 @@ a.listing-row:hover {
   display: block;
   flex: 0 0 auto;
 }
-.heart-count {
+.heart-count,
+.read-count {
+  flex: 0 0 auto;
   font-size: 0.85rem;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  min-width: 0.75rem;
+  line-height: 1;
+  white-space: nowrap;
   color: inherit;
+}
+.read-btn.read-on,
+.read-btn[aria-pressed='true'] {
+  color: #4a8648;
+  border-color: color-mix(in srgb, #4a8648 35%, var(--border));
+  background: color-mix(in srgb, #4a8648 10%, var(--surface));
+  font-weight: inherit;
+  box-shadow: none;
+}
+.read-btn.read-on:hover:not(:disabled),
+.read-btn[aria-pressed='true']:hover:not(:disabled),
+.read-btn.read-on:focus-visible,
+.read-btn[aria-pressed='true']:focus-visible {
+  color: #3d713c;
+}
+:root.dark .read-btn.read-on,
+:root.dark .read-btn[aria-pressed='true'] {
+  color: #81c784;
+  border-color: color-mix(in srgb, #81c784 40%, var(--border));
+  background: color-mix(in srgb, #81c784 12%, var(--surface));
+}
+.read-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  object-fit: contain;
+}
+.profile-read-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  text-decoration: none;
+  color: inherit;
+  max-width: 100%;
+}
+.profile-read-link:hover,
+.profile-read-link:focus-visible {
+  color: var(--accent);
+}
+.profile-read-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  object-fit: contain;
+  display: block;
+  flex: 0 0 auto;
+}
+.profile-read-count {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+.edition-people-row {
+  margin-top: 0.75rem;
+}
+.edition-people-row:first-of-type {
+  margin-top: 0.35rem;
+}
+.edition-people-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+.edition-people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
 }
 .rating-edit {
   width: 2.4rem;
@@ -2367,7 +2453,28 @@ a.listing-row:hover {
   margin: 0.65rem 0 0;
 }
 .edition-page-card {
+  position: relative;
   padding: 1.15rem 1.2rem 1.25rem;
+}
+.edition-page-read {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+}
+.edition-page-read .read-btn {
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--text) 10%, transparent),
+    0 0.35rem 0.85rem color-mix(in srgb, var(--text) 12%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--surface-2));
+}
+.edition-page-card .edition-meta h1 {
+  padding-right: 3.75rem;
+}
+@media (min-width: 560px) {
+  .edition-page-card .edition-meta h1 {
+    padding-right: 4rem;
+  }
 }
 .contact-actions {
   display: flex;

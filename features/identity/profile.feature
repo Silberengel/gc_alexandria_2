@@ -36,6 +36,7 @@ Feature: Profile page
     And #hashtags in about link to subject search (#/search?subject=)
     And a GrapeRank badge shows their trusted-assertion score when known
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
+    And when they have marked editions as read (kind 1985 l=read), a book-and-check icon with that count links to /search?read={npub}
     And produced and interacted listings share the full/compact/table layout toggle with home and search
     And a field in both tags and JSON is shown once, with the tag winning
     And extra JSON keys still appear (not displayName aliases)

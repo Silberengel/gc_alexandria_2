@@ -103,6 +103,13 @@ Feature: Search
     And I do not query Mercury language or publication #l as if it were an ISO language
     And I do not also run full-text or the other tag fans
 
+  Scenario: A profile read count opens an author-scoped read list
+    When I open /search?read={npub}
+    Then the lookup is kind 1985 by that author with #l equal to read
+    And targeted publications appear as result cards
+    And I do not treat read as a public landing or label search
+    And I do not also run full-text or the other tag fans
+
   Scenario: A nested bookshelf search is explicit
     When I open /search?bookshelf={d}
     Then the lookup is kind 30045 with that d-tag on the document stack

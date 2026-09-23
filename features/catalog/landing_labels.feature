@@ -19,6 +19,7 @@ Feature: Landing publication labels
     Then I see label buttons
     And booklist appears when it ranks in those 25
     And a custom label that targets enough publications appears by its l value
+    And l=read never appears as a landing label button
     And I do not see empty placeholder buttons
     And if no publication labels exist the row is omitted
 

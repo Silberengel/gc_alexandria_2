@@ -79,6 +79,8 @@ export const GITCITADEL_CURATOR_NPUB =
 export const ALEXANDRIA_CLIENT = 'Alexandria';
 
 export const NIP32_BOOKLIST_LABEL = 'booklist';
+/** Personal “I have read this” mark — never shown as a list label. */
+export const NIP32_READ_LABEL = 'read';
 export const NIP32_UGC_NAMESPACE = 'ugc';
 
 export const MUTED_PARENT_PLACEHOLDER = 'This author is muted.';

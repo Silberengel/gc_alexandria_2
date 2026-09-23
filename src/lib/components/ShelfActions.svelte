@@ -7,10 +7,11 @@
   import { publicationLabelDraft, bookmarkDraft, deletionDraft } from '$lib/drafts';
   import {
     extractNip32LabelValues,
-    isPublicationLabelEvent,
+    isListPublicationLabelEvent,
     labelEventHasSlug,
     eventTargetsPublication
   } from '$lib/nip32';
+  import { isReadLabelSlug } from '$lib/nip32';
   import { bookmarkHasPublication } from '$lib/shelves';
   import { latestReplaceable } from '$lib/mute';
   import {
@@ -71,14 +72,21 @@
   });
 
   const myLabels = $derived(
-    mine.filter((e) => isPublicationLabelEvent(e) && eventTargetsPublication(e, publication))
+    mine.filter((e) => isListPublicationLabelEvent(e) && eventTargetsPublication(e, publication))
   );
   const appliedSlugs = $derived(
-    new Set(myLabels.flatMap((e) => extractNip32LabelValues(e.tags).map((s) => s.toLowerCase())))
+    new Set(
+      myLabels
+        .flatMap((e) => extractNip32LabelValues(e.tags).map((s) => s.toLowerCase()))
+        .filter((s) => !isReadLabelSlug(s))
+    )
   );
   const extraSlugs = $derived(
     [...appliedSlugs].filter(
-      (s) => s !== NIP32_BOOKLIST_LABEL && !(HOME_SHELF_SLUGS as readonly string[]).includes(s)
+      (s) =>
+        s !== NIP32_BOOKLIST_LABEL &&
+        !(HOME_SHELF_SLUGS as readonly string[]).includes(s) &&
+        !isReadLabelSlug(s)
     )
   );
   const listOptions = $derived([
@@ -100,6 +108,7 @@
   }
 
   async function toggleLabel(slug: string): Promise<void> {
+    if (isReadLabelSlug(slug)) return;
     if (!(await needSignIn()) || busySlug) return;
     busySlug = slug;
     try {
@@ -123,6 +132,10 @@
     const name = window.prompt('New list name');
     if (!name?.trim()) return;
     const slug = slugifyPublicationLabel(name);
+    if (isReadLabelSlug(slug)) {
+      window.alert('Use the read button to mark a book as read.');
+      return;
+    }
     await toggleLabel(slug);
   }
 

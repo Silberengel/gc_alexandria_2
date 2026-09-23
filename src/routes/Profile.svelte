@@ -13,7 +13,7 @@
   import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
-  import { hexPubkey } from '$lib/search';
+  import { countReadsByAuthor, hexPubkey } from '$lib/search';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
@@ -23,7 +23,7 @@
   import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
   import { rememberProfileFromKind0 } from '$lib/profile-cache';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
-  import { publicationTargets, isPublicationLabelEvent } from '$lib/nip32';
+  import { publicationTargets, isListPublicationLabelEvent } from '$lib/nip32';
   import { publicationTargetsFromDirectory } from '$lib/bookshelf';
   import { referencedLibraryAddress, parseAddress } from '$lib/library-scope';
   import { topLevelPublicationAddress } from '$lib/landing';
@@ -62,6 +62,7 @@
   let interactedPage = $state(1);
   let grapevineRank = $state<number | null>(null);
   let viewerFollows = $state(false);
+  let readCount = $state(0);
 
   const fields = $derived(parseKind0(profile));
   const pageSize = $derived(listingPageSize($listingDensity));
@@ -196,6 +197,7 @@
     } catch {
       npub = pubkey;
     }
+    readCount = 0;
 
     // Badge / prior page already had kind-0 — paint header before relay round-trips.
     const warmMeta = memoryFindMetadata(pubkey);
@@ -221,7 +223,7 @@
       '#d': ['general', 'music'],
       limit: 10
     };
-    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates] =
+    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates, reads] =
       await Promise.all([
         relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
         relayPool.query(documentStack(), [authoredFilter]),
@@ -237,7 +239,8 @@
         relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [pubkey], limit: 40 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [pubkey], limit: 40 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }])
+        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }]),
+        countReadsByAuthor(pubkey)
       ]);
     profile = p[0] ?? profile;
     if (profile) {
@@ -258,8 +261,9 @@
     for (const e of [...authored, ...credited]) byId.set(e.id, e);
     produced = omitNested([...byId.values()]);
     rememberEvents(produced);
+    readCount = reads;
     const interactionEvents = [
-      ...labels.filter(isPublicationLabelEvent),
+      ...labels.filter(isListPublicationLabelEvent),
       ...bookmarks,
       ...dirs,
       ...highs,
@@ -302,7 +306,7 @@
         <div class="profile-header-text">
           <div class="profile-title-row">
             <h2>{fields.title || 'Unknown'}</h2>
-            {#if grapevineRank != null || viewerFollows}
+            {#if grapevineRank != null || viewerFollows || readCount > 0}
               <div class="profile-badges">
                 {#if grapevineRank != null}
                   <span class="profile-badge profile-badge-rank" title="GrapeRank score">
@@ -311,6 +315,16 @@
                 {/if}
                 {#if viewerFollows}
                   <span class="profile-badge profile-badge-following">Following</span>
+                {/if}
+                {#if readCount > 0 && npub}
+                  <a
+                    class="profile-badge profile-read-link"
+                    href={`#/search?read=${encodeURIComponent(npub)}`}
+                    title={`${readCount} marked as read`}
+                  >
+                    <img class="profile-read-icon" src="/read-mark.png" alt="" aria-hidden="true" />
+                    <span class="profile-read-count">{readCount}</span>
+                  </a>
                 {/if}
               </div>
             {/if}

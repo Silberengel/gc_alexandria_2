@@ -18,6 +18,10 @@ Feature: In-browser reader
     And kind 9802 highlights are applied inline in section bodies once I read
     And I do not see section bodies
     And I see a "Read the publication" button
+    And I see a book-and-check control to mark the edition as read (kind 1985 l=read), with a count of distinct readers
+    And that read mark is never shown as a list label chip or landing label
+    And under the metadata I see People rows for who labeled, bookmarked, highlighted, or shelved it when any exist
+    And the Labeled People row ignores l=read
     And when I am signed in I can add or remove list labels, bookshelf membership, and a bookmark for this edition
     When the header and social lists have fetched
     Then the site starts /meta, /toc, then /stream in the background

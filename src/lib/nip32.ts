@@ -1,6 +1,10 @@
 import type { Event } from 'nostr-tools';
-import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
+import { KIND, NIP32_BOOKLIST_LABEL, NIP32_READ_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { parseAddress } from './library-scope';
+
+export function isReadLabelSlug(slug: string | null | undefined): boolean {
+  return (slug?.trim().toLowerCase() ?? '') === NIP32_READ_LABEL;
+}
 
 export function extractNip32LabelValues(tags: string[][]): string[] {
   const out: string[] = [];
@@ -33,6 +37,15 @@ export function isBooklistEvent(event: Event): boolean {
 export function isPublicationLabelEvent(event: Event): boolean {
   if (event.kind !== KIND.LABEL) return false;
   if (!extractNip32LabelValues(event.tags).length) return false;
+  const { addresses, eventIds } = publicationTargets(event);
+  return addresses.length > 0 || eventIds.length > 0;
+}
+
+/** List labels only — excludes the reserved `read` mark. */
+export function isListPublicationLabelEvent(event: Event): boolean {
+  if (event.kind !== KIND.LABEL) return false;
+  const listSlugs = extractNip32LabelValues(event.tags).filter((v) => !isReadLabelSlug(v));
+  if (!listSlugs.length) return false;
   const { addresses, eventIds } = publicationTargets(event);
   return addresses.length > 0 || eventIds.length > 0;
 }

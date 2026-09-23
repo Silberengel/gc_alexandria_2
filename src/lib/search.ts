@@ -1,4 +1,6 @@
-import { KIND } from './constants';
+import { KIND, NIP32_READ_LABEL } from './constants';
+import { isReadLabelSlug } from './nip32';
+import { countReadPublications } from './read-marks';
 import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
@@ -367,6 +369,10 @@ export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResu
 }
 
 export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+  if (isReadLabelSlug(label)) {
+    onUpdate({ events: [], loading: false, done: true });
+    return;
+  }
   const key = `label:${normalizeSearchKey(label)}`;
   const cached = await paintCached(key, onUpdate);
   void trustedAssertions.resolveProvider(session.getPubkey());
@@ -375,6 +381,23 @@ export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) 
     brainstormSearch(`label:${label}`)
   ]);
   await finishWithGrapevine(key, mergeById([...labels, ...brainstorm]), cached, onUpdate);
+}
+
+/** Author-scoped books marked read — not a public label search. */
+export async function runReadSearch(
+  npubOrHex: string,
+  onUpdate: (r: SearchResult) => void
+): Promise<void> {
+  const hex = hexPubkey(npubOrHex) ?? (HEX64.test(npubOrHex.trim()) ? npubOrHex.trim().toLowerCase() : '');
+  const key = `read:${hex || normalizeSearchKey(npubOrHex)}`;
+  const cached = await paintCached(key, onUpdate);
+  if (!hex) {
+    await finishWithGrapevine(key, [], cached, onUpdate);
+    return;
+  }
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const pubs = await searchByReadAuthor(hex);
+  await finishWithGrapevine(key, pubs, cached, onUpdate);
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {
@@ -430,8 +453,53 @@ export async function searchBySubject(t: string): Promise<Event[]> {
 }
 
 export async function searchByLabel(l: string): Promise<Event[]> {
+  if (isReadLabelSlug(l)) return [];
   const filter: Filter = { kinds: [KIND.LABEL], '#l': [l], limit: 100 };
   const events = await relayPool.query(socialStack(), [filter]);
+  try {
+    await refreshDeletionsFor(events);
+  } catch {
+    /* deletions optional */
+  }
+  return resolvePublicationsFromLabelEvents(filterDeletedEvents(events));
+}
+
+/** Publications one author marked with `l=read`. */
+export async function searchByReadAuthor(pubkeyHex: string): Promise<Event[]> {
+  const hex = pubkeyHex.toLowerCase();
+  if (!HEX64.test(hex)) return [];
+  const events = await relayPool.query(
+    socialStack(),
+    [{ kinds: [KIND.LABEL], authors: [hex], '#l': [NIP32_READ_LABEL], limit: 100 }],
+    5000,
+    4
+  );
+  try {
+    await refreshDeletionsFor(events);
+  } catch {
+    /* deletions optional */
+  }
+  return resolvePublicationsFromLabelEvents(filterDeletedEvents(events));
+}
+
+export async function countReadsByAuthor(pubkeyHex: string): Promise<number> {
+  const hex = pubkeyHex.toLowerCase();
+  if (!HEX64.test(hex)) return 0;
+  const events = await relayPool.query(
+    socialStack(),
+    [{ kinds: [KIND.LABEL], authors: [hex], '#l': [NIP32_READ_LABEL], limit: 100 }],
+    4000,
+    2
+  );
+  try {
+    await refreshDeletionsFor(events);
+  } catch {
+    /* deletions optional */
+  }
+  return countReadPublications(filterDeletedEvents(events));
+}
+
+async function resolvePublicationsFromLabelEvents(events: Event[]): Promise<Event[]> {
   const addresses = new Set<string>();
   const eventIds = new Set<string>();
   for (const label of events) {

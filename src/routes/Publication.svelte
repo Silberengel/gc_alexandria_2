@@ -11,13 +11,16 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
+  import ReadButton from '$lib/components/ReadButton.svelte';
+  import EditionPeople from '$lib/components/EditionPeople.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import EditionReaderMeta from '$lib/components/EditionReaderMeta.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
-  import { KIND } from '$lib/constants';
+  import { KIND, NIP32_READ_LABEL } from '$lib/constants';
   import { publicationPath, hasPublicationSection } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
+  import { filterDeletedEvents, refreshDeletionsFor } from '$lib/deletions';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import {
     isMercuryUnavailable,
@@ -85,6 +88,10 @@
   let ratings = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
+  let editionLabels = $state<Event[]>([]);
+  let editionBookmarks = $state<Event[]>([]);
+  let editionDirectories = $state<Event[]>([]);
+  let editionReads = $state<Event[]>([]);
   let reading = $state(false);
   let sections = $state<Event[]>([]);
   /** Full loaded corpus — not reactive, so ingesting stream pages does not remount the pane. */
@@ -289,11 +296,30 @@
       .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
     const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
     const bookKeys = [...new Set(publicationCoordinateLookupKeys(a))];
-    const [rA, rA2, threadEvents, highlightByBook, ...highlightBatches] = await Promise.all([
+    const [
+      rA,
+      rA2,
+      threadEvents,
+      highlightByBook,
+      labelHits,
+      bookmarkHits,
+      directoryHits,
+      readHits,
+      ...highlightBatches
+    ] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
       fetchThreadEvents(target, 80),
       relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#A': bookKeys, limit: 80 }], 5000, 4),
+      relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], '#a': bookKeys, limit: 80 }], 5000, 4),
+      relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], '#a': bookKeys, limit: 40 }], 5000, 4),
+      relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], '#a': bookKeys, limit: 40 }], 5000, 4),
+      relayPool.query(
+        socialStack(),
+        [{ kinds: [KIND.LABEL], '#a': bookKeys, '#l': [NIP32_READ_LABEL], limit: 80 }],
+        5000,
+        4
+      ),
       ...chunk(highlightAddrs, 20).map((batch) =>
         relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }], 5000, 4)
       )
@@ -308,6 +334,22 @@
       for (const e of batch) hById.set(e.id, e);
     }
     highlights = [...hById.values()];
+    editionLabels = labelHits;
+    editionBookmarks = bookmarkHits;
+    editionDirectories = directoryHits;
+    const readById = new Map<string, Event>();
+    for (const e of [...readHits, ...labelHits]) {
+      if (e.tags.some((t) => t[0] === 'l' && t[1]?.toLowerCase() === NIP32_READ_LABEL)) {
+        readById.set(e.id, e);
+      }
+    }
+    const readCandidates = [...readById.values()];
+    try {
+      await refreshDeletionsFor(readCandidates);
+    } catch {
+      /* deletions optional */
+    }
+    editionReads = filterDeletedEvents(readCandidates);
   }
 
   function chunk<T>(items: T[], size: number): T[][] {
@@ -1364,6 +1406,9 @@
     {#if !reading}
       <PageFilter bind:value={pageFilter} />
       <header class="card edition-page-card" style="margin-bottom:1.5rem">
+        <div class="edition-page-read">
+          <ReadButton publication={event} readEvents={editionReads} />
+        </div>
         <EditionHeader {event} {sections} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
@@ -1380,6 +1425,14 @@
         {/if}
         <DetailsPanel {event} />
       </header>
+
+      <EditionPeople
+        publication={event}
+        labels={editionLabels}
+        bookmarks={editionBookmarks}
+        highlights={mutedHighlights}
+        directories={editionDirectories}
+      />
 
       <RatingPanel
         ratings={visibleRatings}

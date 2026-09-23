@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { parseAddress } from './library-scope';
-import { extractNip32LabelValues } from './nip32';
+import { extractNip32LabelValues, isReadLabelSlug } from './nip32';
 import { type MuteState, notMuted } from './mute';
 
 export function landingLabels(events: Event[], mute?: MuteState): string[] {
@@ -19,6 +19,7 @@ export function landingLabels(events: Event[], mute?: MuteState): string[] {
     if (!pubs.size) continue;
     for (const label of extractNip32LabelValues(event.tags)) {
       const key = label.toLowerCase();
+      if (isReadLabelSlug(key)) continue;
       let set = counts.get(key);
       if (!set) {
         set = new Set();
