@@ -75,6 +75,9 @@ export const GITCITADEL_NPUB =
 export const GITCITADEL_CURATOR_NPUB =
   'npub18cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqeyaztw';
 
+/** NIP-89 client tag value on events this app signs. */
+export const ALEXANDRIA_CLIENT = 'Alexandria';
+
 export const NIP32_BOOKLIST_LABEL = 'booklist';
 export const NIP32_UGC_NAMESPACE = 'ugc';
 

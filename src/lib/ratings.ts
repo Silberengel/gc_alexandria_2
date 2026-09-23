@@ -15,6 +15,7 @@ export const PUBLICATION_RATING_MARK = 'book';
 export const PUBLICATION_RATING_MARKS = new Set([
   'book',
   'books',
+  'novel',
   'publication',
   'publications'
 ]);
@@ -88,7 +89,7 @@ function hasPublicationKindTag(event: Event): boolean {
 }
 
 /**
- * Kind 34259 aimed at a publication: `m` is book/books/publication/publications,
+ * Kind 34259 aimed at a publication: `m` is book/books/novel/publication/publications,
  * `k`/`K` is 30040, or an `a`/`A` 30040 coordinate.
  */
 export function isPublicationRatingEvent(event: Event): boolean {

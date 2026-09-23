@@ -1,7 +1,16 @@
 import type { Event } from 'nostr-tools';
+import { ALEXANDRIA_CLIENT } from './constants';
 import { ingestEvent } from './nostr/verify';
 import { session } from './stores/session';
 import { Nip07Signer } from './signers/nip07';
+
+/** One `client` tag naming this app. Replaces any other client tag on the draft. */
+export function withClientTag(tags: string[][]): string[][] {
+  if (tags.some((t) => t[0] === 'client' && t[1] === ALEXANDRIA_CLIENT && t.length === 2)) {
+    return tags;
+  }
+  return [...tags.filter((t) => t[0] !== 'client'), ['client', ALEXANDRIA_CLIENT]];
+}
 
 export async function signUnsigned(partial: {
   kind: number;
@@ -23,7 +32,7 @@ export async function signUnsigned(partial: {
     const signed = await signer.signEvent({
       kind: partial.kind,
       content: partial.content,
-      tags: partial.tags
+      tags: withClientTag(partial.tags)
     });
     return ingestEvent(signed);
   } catch {

@@ -5,7 +5,7 @@ Feature: Landing publication ratings
   So that I can see what people are reviewing before highlights and comments
 
   Background:
-    Given ratings are kind 34259 events with m=book (or books/publication) targeting a 30040 a-tag
+    Given ratings are kind 34259 events with m=book (or books/novel/publication) targeting a 30040 a-tag
     And only scored ratings (valid rating tag) appear
     And this list reads the social/interaction stack and Mercury when available
     And live hits merge Mercury, relay, and client-cache ratings

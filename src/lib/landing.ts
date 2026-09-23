@@ -16,7 +16,7 @@ import {
 } from './library-scope';
 import { displayTitle } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
-import { newestRatingPerPublication } from './ratings';
+import { newestRatingPerPublication, PUBLICATION_RATING_MARKS } from './ratings';
 import {
   cacheGetLandingSnapshot,
   cachePutLandingSnapshot,
@@ -397,7 +397,7 @@ const HIGHLIGHT_FILTERS: Filter[] = [
 const RATING_FILTERS: Filter[] = [
   { kinds: [KIND.RATING], '#k': [String(KIND.PUBLICATION)], limit: 100 },
   { kinds: [KIND.RATING], '#K': [String(KIND.PUBLICATION)], limit: 100 },
-  { kinds: [KIND.RATING], '#m': ['book'], limit: 100 }
+  { kinds: [KIND.RATING], '#m': [...PUBLICATION_RATING_MARKS], limit: 100 }
 ];
 
 function landingRatings(...lists: Event[][]): Event[] {

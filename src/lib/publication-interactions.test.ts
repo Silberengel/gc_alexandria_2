@@ -19,6 +19,7 @@ import {
   aggregateRating,
   isPublicationRatingEvent,
   newestRatingPerAuthor,
+  publicationCoordinateFromRatingEvent,
   publicationRatingATagsForQuery,
   ratingHasScore,
   ratingStarsFromEvent,
@@ -102,6 +103,19 @@ describe('ratings jumble shape', () => {
       content: 'no stars'
     });
     expect(isPublicationRatingEvent(scored)).toBe(true);
+    const novel = ev({
+      id: '6'.repeat(64),
+      pubkey: '7'.repeat(64),
+      kind: KIND.RATING,
+      tags: [
+        ['d', `novel:${addr}`],
+        ['m', 'novel'],
+        ['rating', '0.600'],
+        ['a', addr]
+      ]
+    });
+    expect(isPublicationRatingEvent(novel)).toBe(true);
+    expect(publicationCoordinateFromRatingEvent(novel)).toBe(addr);
     expect(ratingHasScore(scored)).toBe(true);
     expect(ratingStarsFromEvent(scored)).toBe(4);
     expect(ratingHasScore(unscored)).toBe(false);

@@ -41,7 +41,7 @@ Feature: Comments, threads, and ratings
     And when I am signed out the heart and reply buttons are disabled
 
   Scenario: Ratings use kind 34259 on an edition
-    Given ratings are kind 34259 events with m=book whose d and a/A tags are 30040:<pubkey>:<d-tag>
+    Given ratings are kind 34259 events with m=book, books, novel, or publication whose d and a/A tags are 30040:<pubkey>:<d-tag>
     And the rating tag is stars/5 in (0, 1] with an s tag for whole stars 1–5
     And optional review text lives in the rating content with c=true
     And wikis are not rated
