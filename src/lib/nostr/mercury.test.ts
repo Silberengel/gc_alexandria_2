@@ -68,6 +68,42 @@ describe('mercury publication 404 cache', () => {
   });
 });
 
+describe('mercuryPublicationStream paging', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('invokes onPage as soon as the first page arrives', async () => {
+    const { finalizeEvent, generateSecretKey } = await import('nostr-tools');
+    const { mercuryPublicationStream, resetMercuryClientState } = await import('./mercury');
+    resetMercuryClientState();
+    const sk = generateSecretKey();
+    const a = finalizeEvent(
+      { kind: 30041, created_at: 1, tags: [['d', 'ch1']], content: 'one' },
+      sk
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response(
+          JSON.stringify({ pos: 0, kind: 30041, d: 'ch1', id: a.id, event: a }) + '\n',
+          { status: 200 }
+        );
+      })
+    );
+    const pages: string[][] = [];
+    const all = await mercuryPublicationStream('naddr1qq', undefined, undefined, (page) => {
+      pages.push(page.map((e) => e.id));
+    });
+    expect(pages).toEqual([[a.id]]);
+    expect(all.map((e) => e.id)).toEqual([a.id]);
+  });
+});
+
 describe('parsePublicationStreamNdjson', () => {
   it('unwraps NDJSON publication stream rows in pos order', async () => {
     const { finalizeEvent, generateSecretKey, getPublicKey } = await import('nostr-tools');

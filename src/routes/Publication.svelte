@@ -19,11 +19,17 @@
   import { publicationPath, hasPublicationSection } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { mercuryFilter, mercuryPublicationMeta, mercuryPublicationStream, mercuryPublicationToc } from '$lib/nostr/mercury';
+  import {
+    isMercuryUnavailable,
+    mercuryFilter,
+    mercuryPublicationMeta,
+    mercuryPublicationStream,
+    mercuryPublicationToc
+  } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
-  import { fetchById, fetchPublication, fetchByAddress } from '$lib/nostr/fetch';
+  import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
@@ -37,7 +43,9 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
   import { isLibraryCopyPubkey } from '$lib/hex';
-  import { sectionHeroImageUrl } from '$lib/cover';
+  import { readerSectionHeroUrl } from '$lib/cover';
+  import { bibleDisplay, groupReaderSections } from '$lib/bible-verse';
+  import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
   import {
     decodePublicationPointer,
@@ -122,6 +130,9 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
+  const readerGroups = $derived(
+    $verseStyling ? groupReaderSections(sections) : sections.map((ev) => ({ kind: 'block' as const, event: ev }))
+  );
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
   const urlFocusComment = $derived(
@@ -207,85 +218,105 @@
     void prefetchTree(target, signal);
   }
 
-  /** Mercury /stream often omits leaves or whole indexes; always merge the a-tag walk. */
-  async function loadSectionEvents(edition: Event, signal?: AbortSignal): Promise<Event[]> {
+  /** Mercury /stream often omits leaves; fall back to a document-stack a-tag walk when the
+   * stream is empty or indexes-only. Never POST Mercury /events/filter per coordinate —
+   * that stampedes the proxy when Mercury is 502 and is not how trees are meant to load. */
+  async function loadSectionEvents(
+    edition: Event,
+    signal?: AbortSignal,
+    onBatch?: (batch: Event[]) => void
+  ): Promise<Event[]> {
     let streamed: Event[] = [];
-    try {
-      streamed = await mercuryPublicationStream(naddrFor(edition), undefined, signal);
-    } catch {
-      streamed = [];
+    if (!isMercuryUnavailable()) {
+      try {
+        streamed = await mercuryPublicationStream(naddrFor(edition), undefined, signal, (page) => {
+          onBatch?.(page);
+        });
+      } catch {
+        streamed = [];
+      }
     }
     if (signal?.aborted) return streamed;
-    const walked = await fallbackSections(edition);
+    // Full Mercury tree with leaf bodies — do not also walk every a-tag (Bible-sized pubs).
+    if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) return streamed;
+    const walked = await fallbackSections(edition, {
+      signal,
+      onHit: (hit) => onBatch?.([hit])
+    });
     if (signal?.aborted) return streamed;
     return mergePublicationSections(streamed, walked);
   }
 
-  async function fallbackSections(target: Event): Promise<Event[]> {
+  /** Document-stack / memory walk only (features/reader/read.feature fallback). */
+  async function fallbackSections(
+    target: Event,
+    opts?: { onHit?: (event: Event) => void; signal?: AbortSignal }
+  ): Promise<Event[]> {
+    const onHit = opts?.onHit;
+    const signal = opts?.signal;
     const out: Event[] = [];
     const seen = new Set<string>();
+    const WALK_CONCURRENCY = 4;
+    const MAX_EVENTS = 2_500;
+
+    function claim(hit: Event): boolean {
+      if (seen.has(hit.id)) return false;
+      seen.add(hit.id);
+      if (hit.id === target.id) return true;
+      out.push(hit);
+      onHit?.(hit);
+      return true;
+    }
 
     async function pushCoord(coord: string): Promise<void> {
+      if (signal?.aborted || out.length >= MAX_EVENTS) return;
       const parts = coord.split(':');
       const kind = Number(parts[0]);
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
       if (!kind || !pubkey || !d) return;
-      // Nested 30040 indexes appear as reading-pane headings, then their children.
-      if (kind === KIND.PUBLICATION) {
-        const [m, w] = await Promise.all([
-          mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
-          relayPool.query(documentStack(), [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }])
-        ]);
-        const nested = m[0] ?? w[0];
-        if (!nested || seen.has(nested.id)) return;
-        seen.add(nested.id);
-        // Keep the root edition out of the pane; nested indexes are titled headings.
-        if (nested.id !== target.id) out.push(nested);
-        for (const tag of nested.tags) {
-          if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
-          else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
-        }
-        return;
+      let hit = memoryFindByAddress(kind, pubkey, d);
+      if (!hit) {
+        const w = await relayPool.query(
+          documentStack(),
+          [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }],
+          8_000,
+          3
+        );
+        hit = w[0] ?? null;
       }
-      const [m, w] = await Promise.all([
-        mercuryFilter({ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }),
-        relayPool.query(documentStack(), [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }])
-      ]);
-      const hit = m[0] ?? w[0];
-      if (!hit || seen.has(hit.id)) return;
-      seen.add(hit.id);
-      out.push(hit);
+      if (!hit || !claim(hit)) return;
+      if (hit.kind === KIND.PUBLICATION) await expandChildren(hit);
     }
 
     async function pushId(id: string): Promise<void> {
+      if (signal?.aborted || out.length >= MAX_EVENTS) return;
       const key = id.toLowerCase();
       if (seen.has(key)) return;
-      const hit = memoryGetEvent(key) ?? (await fetchById(key));
-      if (!hit || seen.has(hit.id)) return;
-      seen.add(hit.id);
-      if (hit.kind === KIND.PUBLICATION) {
-        if (hit.id !== target.id) out.push(hit);
-        for (const tag of hit.tags) {
-          if (tag[0] === 'a' && tag[1]) await pushCoord(tag[1]);
-          else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) await pushId(tag[1]);
-        }
-        return;
+      let hit = memoryGetEvent(key);
+      if (!hit) {
+        const w = await relayPool.query(documentStack(), [{ ids: [key], limit: 1 }], 8_000, 3);
+        hit = w[0] ?? null;
       }
-      out.push(hit);
+      if (!hit || !claim(hit)) return;
+      if (hit.kind === KIND.PUBLICATION) await expandChildren(hit);
     }
 
-    let n = 0;
-    for (const tag of target.tags) {
-      if (n >= 80) break;
-      if (tag[0] === 'a' && tag[1]) {
-        await pushCoord(tag[1]);
-        n += 1;
-      } else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
-        await pushId(tag[1]);
-        n += 1;
+    async function expandChildren(ev: Event): Promise<void> {
+      if (signal?.aborted || out.length >= MAX_EVENTS) return;
+      const coords: string[] = [];
+      const ids: string[] = [];
+      for (const tag of ev.tags) {
+        if (tag[0] === 'a' && tag[1]) coords.push(tag[1]);
+        else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) ids.push(tag[1]);
       }
+      if (coords.length) await poolMap(coords.slice(0, 400), WALK_CONCURRENCY, pushCoord);
+      if (ids.length) await poolMap(ids.slice(0, 400), WALK_CONCURRENCY, pushId);
     }
+
+    // Root edition is the reading-pane top heading; walk its children (not the root itself).
+    seen.add(target.id);
+    await expandChildren(target);
     return out;
   }
 
@@ -398,30 +429,50 @@
     freezeTocFromSections(sections);
   }
 
-  let focusKey = '';
-
   async function ensureReadingSections(): Promise<boolean> {
     if (!event || unreadable || !canRead) return false;
     reading = true;
     if (sections.length) return true;
+    return fillReadingSections(event);
+  }
+
+  /** Load ToC + first heading immediately, then stream/walk sections into the pane. */
+  async function fillReadingSections(edition: Event): Promise<boolean> {
     readingBusy = true;
+    cancelTree();
+    treeAbort = new AbortController();
+    const signal = treeAbort.signal;
     try {
-      const loaded = await loadSectionEvents(event);
+      await ensureToc(edition);
+      if (signal.aborted || event?.id !== edition.id) return false;
+      // First viewport: edition heading + ToC shell (feature: readable without the entire book).
+      adoptSections([edition], edition);
+      readingBusy = false;
+
+      const loaded = await loadSectionEvents(edition, signal, (batch) => {
+        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        adoptSections(mergeSections(sections, batch), edition);
+        void enrichHighlightsFromSections(batch);
+      });
+      if (signal.aborted || event?.id !== edition.id) return sections.length > 0;
       if (loaded.length) {
-        await ensureToc(event);
-        adoptSections(loaded, event);
-        void enrichHighlightsFromSections(sections);
+        adoptSections(mergeSections(sections, loaded), edition);
+        void enrichHighlightsFromSections(loaded);
       }
       if (!sections.length) {
         unreadable = true;
         reading = false;
+        setReadQuery(false);
         return false;
       }
       return true;
     } finally {
-      readingBusy = false;
+      if (event?.id === edition.id) readingBusy = false;
     }
   }
+
+  let focusKey = '';
+
 
   /** Open reader for a quote with no section (edition-level highlight). */
   async function openQuoteReading(quote: string): Promise<void> {
@@ -488,7 +539,17 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      streamed = mergeSections(streamed, await fallbackSections(edition));
+      if (!streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
+        streamed = mergeSections(
+          streamed,
+          await fallbackSections(edition, {
+            onHit: (hit) => {
+              if (focusKey !== key || event !== edition) return;
+              adoptSections(mergeSections(sections, [hit]), edition);
+            }
+          })
+        );
+      }
       if (focusKey !== key || event !== edition) return;
       if (streamed.length) {
         adoptSections(mergeSections(focused ? [focused] : [], streamed), edition);
@@ -775,33 +836,19 @@
     reading = true;
     if (!opts?.fromUrl) setReadQuery(true);
     if (!sections.length) {
-      readingBusy = true;
-      try {
-        const loaded = await loadSectionEvents(event);
-        if (loaded.length) {
-          await ensureToc(event);
-          adoptSections(loaded, event);
-          void enrichHighlightsFromSections(sections);
-        }
-        if (!sections.length) {
-          unreadable = true;
-          reading = false;
-          setReadQuery(false);
-          return;
-        }
-      } finally {
-        readingBusy = false;
-      }
+      await fillReadingSections(event);
     } else if (!sections.some((e) => e.kind !== KIND.PUBLICATION)) {
-      // Prefetch may have left indexes-only; fill leaf bodies before reading.
-      readingBusy = true;
-      try {
-        const loaded = await loadSectionEvents(event);
-        if (loaded.length) adoptSections(loaded, event);
-        void enrichHighlightsFromSections(sections);
-      } finally {
-        readingBusy = false;
-      }
+      // Prefetch / first paint may have left indexes-only; fill leaf bodies progressively.
+      const edition = event;
+      cancelTree();
+      treeAbort = new AbortController();
+      const signal = treeAbort.signal;
+      readingBusy = false;
+      await loadSectionEvents(edition, signal, (batch) => {
+        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        adoptSections(mergeSections(sections, batch), edition);
+        void enrichHighlightsFromSections(batch);
+      });
     }
     const resume = loadResume(eventAddress(event));
     if (resume) {
@@ -815,6 +862,7 @@
     reading = false;
     tocOpen = false;
     jumpBusy = false;
+    cancelTree();
     setReadQuery(false);
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
@@ -964,7 +1012,17 @@
         streamed = [];
       }
       if (focusKey !== key || event !== edition) return;
-      streamed = mergeSections(streamed, await fallbackSections(edition));
+      if (!streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
+        streamed = mergeSections(
+          streamed,
+          await fallbackSections(edition, {
+            onHit: (hit) => {
+              if (focusKey !== key || event !== edition) return;
+              adoptSections(mergeSections(sections, [hit]), edition);
+            }
+          })
+        );
+      }
       if (focusKey !== key || event !== edition) return;
 
       if (streamed.length || focused) {
@@ -997,6 +1055,25 @@
     if (!event) return;
     saveResume(eventAddress(event), { pos, sectionId: section.id });
   }
+
+  /** Resume tracking without a11y listeners on non-interactive verse/section markup. */
+  $effect(() => {
+    const root = readingPane;
+    if (!root) return;
+    const onUp = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.(
+        '[data-read-pos][data-section-id]'
+      ) as HTMLElement | null;
+      if (!el || !root.contains(el)) return;
+      const pos = Number(el.dataset.readPos);
+      const id = el.dataset.sectionId;
+      if (!Number.isFinite(pos) || !id) return;
+      const section = sections.find((s) => s.id === id);
+      if (section) rememberPos(pos, section);
+    };
+    root.addEventListener('mouseup', onUp);
+    return () => root.removeEventListener('mouseup', onUp);
+  });
 
   async function postComment(): Promise<void> {
     if (!event) return;
@@ -1122,7 +1199,7 @@
     {#if !reading}
       <PageFilter bind:value={pageFilter} />
       <header class="card edition-page-card" style="margin-bottom:1.5rem">
-        <EditionHeader {event} />
+        <EditionHeader {event} {sections} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
           {#if canRead}
@@ -1214,139 +1291,243 @@
           {:else if readingBusy || !sections.length}
             <p class="loading-hint">Publication is loading...</p>
           {/if}
-          {#each sections as section, i (section.id)}
-            {@const sectionKey = eventAddress(section)}
-            {@const isIndex = section.kind === KIND.PUBLICATION}
-            {@const heroUrl = sectionHeroImageUrl(section)}
-            {@const pos =
-              readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? i}
-            <article
-              class="reader-section"
-              class:reader-index={isIndex}
-              class:reader-edition={!!event && section.id === event.id}
-              data-read-pos={pos}
-              data-section-addr={sectionKey}
-              data-section-id={section.id}
-            >
-              {#if heroUrl && isAllowedMediaUrl(heroUrl)}
-                <figure class="section-hero">
-                  <img src={heroUrl} alt="" loading="lazy" />
-                </figure>
-              {/if}
-              <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
-              {#if isIndex}
-                {#if event && section.id === event.id}
-                  <EditionReaderMeta event={section} />
-                  <div class="edition-actions reader-info-actions">
-                    <button class="btn btn-primary" type="button" onclick={stopReading}
-                      >Publication info</button
+          {#each readerGroups as group, gi (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
+            {#if group.kind === 'bible'}
+              {@const verses = group.verses}
+              <div class="bible-flow">
+                {#each verses as verse, vi (verse.id)}
+                  {@const sectionKey = eventAddress(verse)}
+                  {@const disp = bibleDisplay(verse)}
+                  {@const prev = vi > 0 ? bibleDisplay(verses[vi - 1]!) : null}
+                  {@const pos =
+                    readerToc.find((e) => e.id === verse.id || e.address === sectionKey)?.pos ?? vi}
+                  {@const chapterBreak =
+                    disp.kind === 'verse' &&
+                    (prev == null ||
+                      prev.kind !== 'verse' ||
+                      prev.chapter !== disp.chapter)}
+                  {#if disp.kind === 'heading'}
+                    <h3
+                      class="bible-run-heading"
+                      id={`section-${verse.id}`}
+                      data-section-id={verse.id}
+                      data-section-addr={sectionKey}
+                      data-read-pos={pos}
                     >
+                      {disp.title}
+                    </h3>
+                    <p class="bible-run-text">{verse.content}</p>
+                  {:else}
+                    {#if chapterBreak}
+                      <h3 class="bible-chapter-num" aria-label={`Chapter ${disp.chapter}`}>
+                        Chapter {disp.chapter}
+                      </h3>
+                    {/if}
+                    <span
+                      class="bible-verse"
+                      id={`section-${verse.id}`}
+                      data-section-id={verse.id}
+                      data-section-addr={sectionKey}
+                      data-read-pos={pos}
+                    >
+                      <CopyPointerButton event={verse} class="bible-verse-menu" preferStart={false}>
+                        {#snippet trigger()}
+                          <span class="bible-verse-num" title={disp.label}>{disp.verse}</span>
+                        {/snippet}
+                        {#snippet before()}
+                          <li role="none">
+                            {#if $session.pubkey}
+                              <button
+                                class="menu-item"
+                                type="button"
+                                role="menuitem"
+                                onclick={() => {
+                                  void saveHighlight(verse);
+                                }}
+                              >
+                                Save highlight
+                              </button>
+                            {:else}
+                              <button
+                                class="menu-item"
+                                type="button"
+                                role="menuitem"
+                                onclick={() => {
+                                  openLoginDialog();
+                                }}
+                              >
+                                Sign in to highlight
+                              </button>
+                            {/if}
+                          </li>
+                        {/snippet}
+                        {#snippet after()}
+                          <li role="none">
+                            <button
+                              class="menu-item"
+                              type="button"
+                              role="menuitem"
+                              onclick={() => {
+                                const open = !sectionCommentsOpen[sectionKey];
+                                sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                                if (open) void loadSectionComments(verse);
+                              }}
+                            >
+                              {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                            </button>
+                          </li>
+                        {/snippet}
+                      </CopyPointerButton>
+                      <span class="bible-verse-text">{verse.content}</span>
+                    </span>
+                    {#if sectionCommentsOpen[sectionKey]}
+                      <div class="section-comments bible-verse-comments">
+                        {#if sectionComments[sectionKey]?.length}
+                          <ul class="thread-list">
+                            {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [verse.id]) as node (threadNodeKey(node))}
+                              <CommentThread {node} target={verse} bind:replyOpenId />
+                            {/each}
+                          </ul>
+                        {:else}
+                          <p class="muted">No comments yet.</p>
+                        {/if}
+                      </div>
+                    {/if}
+                  {/if}
+                {/each}
+              </div>
+            {:else}
+              {@const section = group.event}
+              {@const sectionKey = eventAddress(section)}
+              {@const isIndex = section.kind === KIND.PUBLICATION}
+              {@const heroUrl = readerSectionHeroUrl(section, event)}
+              {@const pos =
+                readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? gi}
+              <article
+                class="reader-section"
+                class:reader-index={isIndex}
+                class:reader-edition={!!event && section.id === event.id}
+                data-read-pos={pos}
+                data-section-addr={sectionKey}
+                data-section-id={section.id}
+              >
+                {#if heroUrl && isAllowedMediaUrl(heroUrl)}
+                  <figure class="section-hero">
+                    <img src={heroUrl} alt="" loading="lazy" />
+                  </figure>
+                {/if}
+                <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
+                {#if isIndex}
+                  {#if event && section.id === event.id}
+                    <EditionReaderMeta event={section} {sections} />
+                    <div class="edition-actions reader-info-actions">
+                      <button class="btn btn-primary" type="button" onclick={stopReading}
+                        >Publication info</button
+                      >
+                    </div>
+                  {/if}
+                {:else if isMarkupKind(section.kind)}
+                  <div>
+                    <EventBody event={section} quotes={quotesFor(section)} />
+                  </div>
+                {:else}
+                  <EventCard event={section} />
+                {/if}
+                {#if !isIndex}
+                <div class="section-toolbar">
+                  <CopyPointerButton event={section}>
+                    {#snippet before()}
+                      <li role="none">
+                        {#if $session.pubkey}
+                          <button
+                            class="menu-item"
+                            type="button"
+                            role="menuitem"
+                            onclick={() => {
+                              void saveHighlight(section);
+                            }}
+                          >
+                            Save highlight
+                          </button>
+                        {:else}
+                          <button
+                            class="menu-item"
+                            type="button"
+                            role="menuitem"
+                            onclick={() => {
+                              openLoginDialog();
+                            }}
+                          >
+                            Sign in to highlight
+                          </button>
+                        {/if}
+                      </li>
+                    {/snippet}
+                    {#snippet after()}
+                      <li role="none">
+                        <button
+                          class="menu-item"
+                          type="button"
+                          role="menuitem"
+                          onclick={() => {
+                            const open = !sectionCommentsOpen[sectionKey];
+                            sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                            if (open) void loadSectionComments(section);
+                          }}
+                        >
+                          {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                        </button>
+                      </li>
+                    {/snippet}
+                  </CopyPointerButton>
+                </div>
+                {#if sectionCommentsOpen[sectionKey]}
+                  <div class="section-comments">
+                    {#if sectionComments[sectionKey]?.length}
+                      <ul class="thread-list">
+                        {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node (threadNodeKey(node))}
+                          <CommentThread {node} target={section} bind:replyOpenId />
+                        {/each}
+                      </ul>
+                    {:else}
+                      <p class="muted">No comments yet.</p>
+                    {/if}
+                    {#if $session.pubkey && !replyOpenId}
+                      <form
+                        class="compose"
+                        onsubmit={(e) => {
+                          e.preventDefault();
+                          void postSectionComment(section);
+                        }}
+                      >
+                        <textarea
+                          value={sectionCommentText[sectionKey] ?? ''}
+                          oninput={(e) => {
+                            sectionCommentText = {
+                              ...sectionCommentText,
+                              [sectionKey]: (e.currentTarget as HTMLTextAreaElement).value
+                            };
+                          }}
+                          rows="3"
+                          placeholder="Write a comment on this section"
+                        ></textarea>
+                        <button
+                          class="btn btn-primary"
+                          type="submit"
+                          disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
+                          >Post</button
+                        >
+                      </form>
+                    {:else if !$session.pubkey}
+                      <button class="btn" type="button" onclick={() => openLoginDialog()}
+                        >Sign in to comment</button
+                      >
+                    {/if}
                   </div>
                 {/if}
-              {:else if isMarkupKind(section.kind)}
-                <div
-                  role="presentation"
-                  onmouseup={() => rememberPos(pos, section)}
-                >
-                  <EventBody event={section} quotes={quotesFor(section)} />
-                </div>
-              {:else}
-                <EventCard event={section} />
-              {/if}
-              {#if !isIndex}
-              <div class="section-toolbar">
-                <CopyPointerButton event={section}>
-                  {#snippet before()}
-                    <li role="none">
-                      {#if $session.pubkey}
-                        <button
-                          class="menu-item"
-                          type="button"
-                          role="menuitem"
-                          onclick={() => {
-                            void saveHighlight(section);
-                          }}
-                        >
-                          Save highlight
-                        </button>
-                      {:else}
-                        <button
-                          class="menu-item"
-                          type="button"
-                          role="menuitem"
-                          onclick={() => {
-                            openLoginDialog();
-                          }}
-                        >
-                          Sign in to highlight
-                        </button>
-                      {/if}
-                    </li>
-                  {/snippet}
-                  {#snippet after()}
-                    <li role="none">
-                      <button
-                        class="menu-item"
-                        type="button"
-                        role="menuitem"
-                        onclick={() => {
-                          const open = !sectionCommentsOpen[sectionKey];
-                          sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
-                          if (open) void loadSectionComments(section);
-                        }}
-                      >
-                        {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
-                      </button>
-                    </li>
-                  {/snippet}
-                </CopyPointerButton>
-              </div>
-              {#if sectionCommentsOpen[sectionKey]}
-                <div class="section-comments">
-                  {#if sectionComments[sectionKey]?.length}
-                    <ul class="thread-list">
-                      {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node (threadNodeKey(node))}
-                        <CommentThread {node} target={section} bind:replyOpenId />
-                      {/each}
-                    </ul>
-                  {:else}
-                    <p class="muted">No comments yet.</p>
-                  {/if}
-                  {#if $session.pubkey && !replyOpenId}
-                    <form
-                      class="compose"
-                      onsubmit={(e) => {
-                        e.preventDefault();
-                        void postSectionComment(section);
-                      }}
-                    >
-                      <textarea
-                        value={sectionCommentText[sectionKey] ?? ''}
-                        oninput={(e) => {
-                          sectionCommentText = {
-                            ...sectionCommentText,
-                            [sectionKey]: (e.currentTarget as HTMLTextAreaElement).value
-                          };
-                        }}
-                        rows="3"
-                        placeholder="Write a comment on this section"
-                      ></textarea>
-                      <button
-                        class="btn btn-primary"
-                        type="submit"
-                        disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
-                        >Post</button
-                      >
-                    </form>
-                  {:else if !$session.pubkey}
-                    <button class="btn" type="button" onclick={() => openLoginDialog()}
-                      >Sign in to comment</button
-                    >
-                  {/if}
-                </div>
-              {/if}
-              {/if}
-            </article>
+                {/if}
+              </article>
+            {/if}
           {/each}
         </div>
       </div>

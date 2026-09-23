@@ -262,7 +262,8 @@ export async function mercuryPublicationToc(naddr: string, signal?: AbortSignal)
 export async function mercuryPublicationStream(
   naddr: string,
   pos?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onPage?: (page: Event[]) => void
 ): Promise<Event[]> {
   if (publicationTreeMissing(naddr)) return [];
   const encoded = encodeURIComponent(naddr);
@@ -308,11 +309,14 @@ export async function mercuryPublicationStream(
       break;
     }
     if (!page.length) break;
+    const fresh: Event[] = [];
     for (const e of page) {
       if (seen.has(e.id)) continue;
       seen.add(e.id);
       out.push(e);
+      fresh.push(e);
     }
+    if (fresh.length) onPage?.(fresh);
     if (page.length < pageSize) break;
     from += page.length;
   }

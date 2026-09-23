@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { isBibleSection } from './bible-verse';
 import { firstTag } from './nostr/verify';
 import { toNostrBuildThumbUrl } from './nostr-build';
 
@@ -69,4 +70,29 @@ export function sectionHeroImageUrl(event: Event): string | undefined {
   const image = firstTag(event, 'image')?.trim();
   if (image && DIRECT_IMAGE.test(image)) return toNostrBuildThumbUrl(image);
   return undefined;
+}
+
+function heroUrlKey(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = '';
+    return u.href.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
+/**
+ * Hero for a reading-pane section. Nested indexes/sections that repeat the
+ * top-level edition image are omitted — that double-hero is redundant.
+ */
+export function readerSectionHeroUrl(section: Event, edition: Event | null | undefined): string | undefined {
+  // Bible verse sections inherit the edition plate — never repeat it per verse.
+  if (isBibleSection(section)) return undefined;
+  const hero = sectionHeroImageUrl(section);
+  if (!hero) return undefined;
+  if (!edition || section.id === edition.id) return hero;
+  const top = sectionHeroImageUrl(edition);
+  if (top && heroUrlKey(top) === heroUrlKey(hero)) return undefined;
+  return hero;
 }

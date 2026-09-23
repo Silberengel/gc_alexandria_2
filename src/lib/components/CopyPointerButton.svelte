@@ -10,11 +10,20 @@
     class?: string;
     /** Prefer opening toward the start (left) — e.g. left-side toolbars. */
     preferStart?: boolean;
+    /** Replace the default ⋯ control (e.g. a bible verse number). */
+    trigger?: Snippet;
     before?: Snippet;
     after?: Snippet;
   }
 
-  let { event, class: className = '', preferStart = false, before, after }: Props = $props();
+  let {
+    event,
+    class: className = '',
+    preferStart = false,
+    trigger,
+    before,
+    after
+  }: Props = $props();
 
   let open = $state(false);
   let copied = $state(false);
@@ -98,6 +107,7 @@
 >
   <button
     class="btn btn-icon copy-pointer-btn"
+    class:copy-pointer-btn-custom={!!trigger}
     type="button"
     title="More"
     aria-label="More actions"
@@ -105,7 +115,11 @@
     aria-haspopup="menu"
     onclick={toggle}
   >
-    <span class="more-ellipsis" aria-hidden="true">⋯</span>
+    {#if trigger}
+      {@render trigger()}
+    {:else}
+      <span class="more-ellipsis" aria-hidden="true">⋯</span>
+    {/if}
   </button>
   {#if open}
     <ul

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { coverImageUrl, gutenbergCoverUrl, sectionHeroImageUrl } from './cover';
+import { coverImageUrl, gutenbergCoverUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
 
-function ev(tags: string[][]): Event {
+function ev(tags: string[][], id = 'a'.repeat(64)): Event {
   return {
-    id: 'a'.repeat(64),
+    id,
     pubkey: 'b'.repeat(64),
     created_at: 1,
     kind: 30040,
@@ -43,5 +43,42 @@ describe('sectionHeroImageUrl', () => {
     );
     expect(sectionHeroImageUrl(ev([['d', 'pg141-mansfield-park']]))).toBeUndefined();
     expect(sectionHeroImageUrl(ev([['s', 'https://www.gutenberg.org/ebooks/141']]))).toBeUndefined();
+  });
+});
+
+describe('readerSectionHeroUrl', () => {
+  const hero = 'https://example.com/title-page.jpg';
+  const edition = ev(
+    [
+      ['image', hero],
+      ['title', 'Bible']
+    ],
+    '1'.repeat(64)
+  );
+
+  it('keeps the top-level edition hero', () => {
+    expect(readerSectionHeroUrl(edition, edition)).toBe(hero);
+  });
+
+  it('hides a nested index that repeats the edition hero', () => {
+    const nested = ev(
+      [
+        ['image', hero],
+        ['title', 'Introduction']
+      ],
+      '2'.repeat(64)
+    );
+    expect(readerSectionHeroUrl(nested, edition)).toBeUndefined();
+  });
+
+  it('keeps a nested hero that differs from the edition', () => {
+    const nested = ev(
+      [
+        ['image', 'https://example.com/old-testament.jpg'],
+        ['title', 'OT']
+      ],
+      '3'.repeat(64)
+    );
+    expect(readerSectionHeroUrl(nested, edition)).toBe('https://example.com/old-testament.jpg');
   });
 });

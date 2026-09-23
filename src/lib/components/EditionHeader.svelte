@@ -11,13 +11,18 @@
   } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { isAllowedHref } from '$lib/markup';
+  import { offersVerseStyling } from '$lib/bible-verse';
+  import VerseStylingToggle from './VerseStylingToggle.svelte';
 
   interface Props {
     event: Event;
+    /** Loaded sections — helps detect bible verse styling when the index lacks type tags. */
+    sections?: Event[];
   }
 
-  let { event }: Props = $props();
+  let { event, sections = [] }: Props = $props();
   const meta = $derived(editionMetadata(event));
+  const showVerseStyling = $derived(offersVerseStyling(event, sections));
 
   const facts = $derived.by(() => {
     const rows: { label: string; value: string; href?: string }[] = [];
@@ -102,7 +107,17 @@
               </dd>
             </div>
           {/each}
+          {#if showVerseStyling}
+            <div class="edition-fact edition-fact-control">
+              <dt>Display</dt>
+              <dd><VerseStylingToggle /></dd>
+            </div>
+          {/if}
         </dl>
+      {:else if showVerseStyling}
+        <div class="edition-verse-styling-row">
+          <VerseStylingToggle />
+        </div>
       {/if}
 
       {#if meta.subjects.length}
