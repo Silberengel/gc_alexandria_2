@@ -35,7 +35,7 @@
 
   onMount(() => {
     scheduleDeletionSweep();
-    // Hydrate from localStorage immediately, then wait briefly for window.nostr.
+    // Hydrate from persisted session only (sign-out clears localStorage — stay anonymous).
     void session.restore().finally(() => {
       ready = true;
     });

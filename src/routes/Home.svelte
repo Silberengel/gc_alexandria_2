@@ -114,9 +114,9 @@
       lastPk = $s.pubkey;
       lastMetaKey = undefined;
       clearIdentityShelves();
-      // Signed-in: wait for metadata (loading flips false) so we do not run an empty-mine refresh
-      // that fights the real one for relay slots for minutes.
-      if (!$s.pubkey) scheduleLoad();
+      // Always refresh public feeds/shelves — do not wait on mute decrypt / login metadata.
+      // My shelf still fills in when metadata arrives (see unsubMeta / unsubLoading).
+      scheduleLoad();
     });
     const unsubMeta = session.metadata.subscribe((events) => {
       const pk = session.getPubkey();

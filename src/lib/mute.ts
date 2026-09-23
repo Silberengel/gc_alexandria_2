@@ -99,7 +99,7 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   // Some mute lists store private tags as plaintext JSON; never treat that as ciphertext.
   if (content.startsWith('[')) return parseMuteTagRows(content) ?? [];
 
-  const ext = window.nostr;
+  const ext = typeof window !== 'undefined' ? window.nostr : undefined;
   const attempts: Array<(pubkey: string, ciphertext: string) => Promise<string>> = [];
   if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
     attempts.push(ext.nip44.decrypt.bind(ext.nip44));
@@ -109,7 +109,13 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   }
   for (const decrypt of attempts) {
     try {
-      const rows = parseMuteTagRows(await decrypt(event.pubkey, content));
+      // Huge private mute lists can freeze the UI for minutes in nos2x-fox — bail out.
+      const plain = await Promise.race([
+        decrypt(event.pubkey, content),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500))
+      ]);
+      if (plain == null) continue;
+      const rows = parseMuteTagRows(plain);
       if (rows) return rows;
     } catch {
       /* try next decryptor */

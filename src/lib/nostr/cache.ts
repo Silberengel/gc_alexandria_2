@@ -122,6 +122,16 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
   void cachePutMany(indexed);
 }
 
+/** Drop the landing snapshot (viewer-bound shelves/feeds) without wiping the rest of the event cache. */
+export async function cacheClearLandingSnapshot(): Promise<void> {
+  try {
+    const cache = await openCache();
+    await cache.delete(LANDING_SNAPSHOT_KEY);
+  } catch {
+    /* private mode / unsupported */
+  }
+}
+
 function searchSnapshotUrl(key: string): string {
   return `/snapshot/search/${encodeURIComponent(key)}`;
 }

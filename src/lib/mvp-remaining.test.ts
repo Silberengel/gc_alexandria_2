@@ -141,6 +141,31 @@ describe('mute', () => {
       Object.defineProperty(globalThis, 'window', { configurable: true, value: prev });
     }
   });
+
+  it('times out a hung NIP-44 mute decrypt', async () => {
+    const nip44 = vi.fn(
+      () => new Promise<string>(() => {
+        /* never resolves */
+      })
+    );
+    const prev = (globalThis as { window?: Window }).window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { nostr: { nip44: { decrypt: nip44 } } }
+    });
+    try {
+      const cipher = 'A'.repeat(64);
+      const started = Date.now();
+      const rows = await decryptPrivateMuteTags(
+        ev({ kind: KIND.MUTE, content: cipher, pubkey: 'a'.repeat(64) })
+      );
+      expect(rows).toEqual([]);
+      expect(nip44).toHaveBeenCalled();
+      expect(Date.now() - started).toBeLessThan(5000);
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: prev });
+    }
+  });
 });
 
 describe('comments nest', () => {

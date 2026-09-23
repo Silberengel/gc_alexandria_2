@@ -119,10 +119,11 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   position: sticky;
   top: 0;
   z-index: 50;
-  display: flex;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.45rem 0.75rem;
+  column-gap: 0.65rem;
+  row-gap: 0.45rem;
   padding: 0.65rem 0.85rem;
   background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
@@ -132,17 +133,20 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 }
 
 .top-bar .brand {
-  flex: 0 1 auto;
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
 }
 .top-bar-session {
-  margin-left: auto;
+  grid-column: 2;
+  grid-row: 1;
+  margin-left: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   flex-wrap: nowrap;
-  flex: 0 0 auto;
   min-width: 0;
+  justify-self: end;
 }
 /* Narrow: avatar only — the name competes with the brand. */
 .top-bar-session .userbadge span {
@@ -152,17 +156,19 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   gap: 0;
 }
 .top-bar nav {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
   gap: 0.1rem 0.15rem;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  flex: 0 1 auto;
   min-width: 0;
 }
 .top-bar .search-form {
-  flex: 1 1 10rem;
+  grid-column: 1 / -1;
+  grid-row: 3;
   min-width: 0;
-  max-width: 20rem;
+  max-width: none;
 }
 
 .top-bar nav a {
@@ -183,17 +189,38 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 
 @media (min-width: 720px) {
   .top-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
     gap: 0.75rem 1.1rem;
     padding: 0.7rem 1.1rem;
   }
+  .top-bar .brand,
+  .top-bar nav,
+  .top-bar .search-form,
+  .top-bar-session {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .top-bar .brand {
+    flex: 0 1 auto;
+  }
   .top-bar nav {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
     gap: 0.15rem 0.35rem;
+  }
+  .top-bar .search-form {
+    flex: 1 1 10rem;
+    max-width: 20rem;
   }
   .top-bar nav a {
     padding: 0.35rem 0.55rem;
     font-size: inherit;
   }
   .top-bar-session {
+    margin-left: auto;
+    flex: 0 0 auto;
     gap: 0.45rem;
   }
   .top-bar-session .userbadge span {

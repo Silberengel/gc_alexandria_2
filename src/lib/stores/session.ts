@@ -56,8 +56,23 @@ function clearPersistedSession(): void {
   }
 }
 
+/**
+ * Clear page-level NIP-07 pubkey caches (notably nos2x-fox `window.nostr._pubkey`).
+ * Without this, getPublicKey() keeps returning the first authorized key after sign-out.
+ */
+function clearNip07PagePubkeyCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const n = window.nostr as { _pubkey?: string | null } | undefined;
+    if (n && '_pubkey' in n) n._pubkey = null;
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Extensions inject window.nostr after DOMContentLoaded — poll briefly. */
 async function waitForNostr(timeoutMs = 4000): Promise<NonNullable<Window['nostr']> | null> {
+  if (typeof window === 'undefined') return null;
   const existing = window.nostr;
   if (existing?.getPublicKey) return existing;
   return new Promise((resolve) => {
@@ -96,7 +111,11 @@ function createSessionStore() {
 
   async function applyMuteFromMetadata(events: Event[]): Promise<void> {
     const muteEvent = newestMuteList(events);
-    const extra = muteEvent ? await decryptPrivateMuteTags(muteEvent) : [];
+    if (!muteEvent) {
+      applyMuteList(parseMuteList(null, []));
+      return;
+    }
+    const extra = await decryptPrivateMuteTags(muteEvent);
     applyMuteList(parseMuteList(muteEvent, extra));
   }
 
@@ -131,7 +150,14 @@ function createSessionStore() {
       } catch {
         /* ignore */
       }
-      void applyMuteFromMetadata(metadataEvents).catch(() => {});
+      // Public mute tags now; private decrypt is deferred so huge NIP-44 lists do not
+      // starve landing relays / freeze the page on first paint.
+      const muteEvent = newestMuteList(metadataEvents);
+      applyMuteList(parseMuteList(muteEvent, []));
+      const defer = typeof window !== 'undefined' ? window.setTimeout.bind(window) : setTimeout;
+      defer(() => {
+        void applyMuteFromMetadata(metadataEvents).catch(() => {});
+      }, 3500);
 
       const relayList = latestReplaceable(metadataEvents, KIND.RELAY_LIST);
       const favoriteList = latestReplaceable(metadataEvents, KIND.FAVORITE);
@@ -151,11 +177,15 @@ function createSessionStore() {
         trustedAssertions.resetForViewer(pubkey);
         void trustedAssertions.resolveProvider(pubkey);
       });
-      void import('../follows-of-follows').then(({ resetFollowsOfFollows, ensureFollowsOfFollows }) => {
-        resetFollowsOfFollows(pubkey);
-        const follows = followPubkeysFromMetadata(metadataEvents);
-        void ensureFollowsOfFollows(pubkey, follows);
-      });
+      // FoF can be large — wait until after the first landing paint window.
+      const deferFof = typeof window !== 'undefined' ? window.setTimeout.bind(window) : setTimeout;
+      deferFof(() => {
+        void import('../follows-of-follows').then(({ resetFollowsOfFollows, ensureFollowsOfFollows }) => {
+          resetFollowsOfFollows(pubkey);
+          const follows = followPubkeysFromMetadata(metadataEvents);
+          void ensureFollowsOfFollows(pubkey, follows);
+        });
+      }, 3500);
     } catch {
       // Signed-in UI must still work offline / when every relay is down.
       metadataEvents = [];
@@ -192,6 +222,7 @@ function createSessionStore() {
         update((s) => ({ ...s, loading: false }));
         return false;
       }
+      clearNip07PagePubkeyCache();
       const pubkey = (await ext.getPublicKey()).toLowerCase();
       await applyPubkey(pubkey, true);
       return true;
@@ -202,9 +233,10 @@ function createSessionStore() {
   }
 
   /**
-   * Re-attach identity after reload.
+   * Re-attach identity after reload only when a session was persisted (explicit sign-in).
    * Paint immediately from localStorage — window.nostr is often injected late.
    * Confirm against NIP-07 in the background when the extension appears.
+   * Never call getPublicKey() when localStorage is empty — that would re-login after sign-out.
    */
   async function restore(): Promise<boolean> {
     if (get({ subscribe }).pubkey) return true;
@@ -219,20 +251,8 @@ function createSessionStore() {
       return true;
     }
 
-    // No local session — briefly wait for an already-authorized extension.
-    const ext = await waitForNostr(1500);
-    if (!ext?.getPublicKey) {
-      update((s) => ({ ...s, loading: false }));
-      return false;
-    }
-    try {
-      const pubkey = (await ext.getPublicKey()).toLowerCase();
-      await applyPubkey(pubkey, false);
-      return true;
-    } catch {
-      update((s) => ({ ...s, loading: false }));
-      return false;
-    }
+    update((s) => ({ ...s, loading: false }));
+    return false;
   }
 
   async function confirmRestoredSession(persisted: PersistedSession): Promise<void> {
@@ -255,7 +275,9 @@ function createSessionStore() {
   }
 
   function signOut(): void {
+    const previousPubkey = get({ subscribe }).pubkey;
     clearPersistedSession();
+    clearNip07PagePubkeyCache();
     set({ pubkey: null, npub: null, loading: false });
     metadataEvents = [];
     metadata.set([]);
@@ -269,6 +291,16 @@ function createSessionStore() {
     void import('../follows-of-follows').then(({ resetFollowsOfFollows }) => {
       resetFollowsOfFollows();
     });
+    void import('../nostr/cache').then(({ cacheClearLandingSnapshot }) => {
+      void cacheClearLandingSnapshot();
+    });
+    if (previousPubkey) {
+      try {
+        localStorage.removeItem(`alexandria.nip85.provider.${previousPubkey.toLowerCase()}`);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   async function publish(event: Event): Promise<void> {
