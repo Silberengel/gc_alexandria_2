@@ -31,5 +31,7 @@ Feature: Identity
     And My shelf can rebuild from login metadata without waiting minutes on per-address relay fetches
     When I signed in with Amber or bunker
     Then reload restores the sanitized bunker:// URL and client secret from local storage
+    And Track reading / progress publishes wake the bunker relays and open Amber for approval when needed
+    And a backgrounded Amber approval does not start a second overlapping sign request
     When I sign out
     Then the persisted session is cleared and reload stays anonymous

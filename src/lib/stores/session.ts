@@ -409,7 +409,7 @@ function createSessionStore() {
         }
         void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
       } catch {
-        // Keep painted identity; signing may fail until the user signs in again.
+        // Keep painted identity; signing may fail until ensureBunkerSigner / re-login.
         void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
       }
       return;
@@ -473,6 +473,54 @@ function createSessionStore() {
     }
   }
 
+  /**
+   * Rebuild the Amber/bunker signer from persisted credentials.
+   * Call before signing when restore left a painted pubkey without a live signer,
+   * or after mobile sleep killed the NIP-46 websocket.
+   */
+  async function ensureBunkerSigner(): Promise<boolean> {
+    const persisted = readPersistedSession();
+    const bunker =
+      bunkerUrl ??
+      (persisted?.signerType === 'bunker' ? persisted.bunker : undefined);
+    const secret =
+      bunkerClientSecretKey ??
+      (persisted?.signerType === 'bunker' ? persisted.bunkerClientSecretKey : undefined);
+    if (!bunker || !secret) return false;
+    if (activeSigner && activeSignerType === 'bunker' && 'ensureConnected' in activeSigner) {
+      try {
+        await (activeSigner as BunkerSigner).ensureConnected();
+        return true;
+      } catch {
+        /* fall through to full rebuild */
+      }
+    }
+    try {
+      const previous = activeSigner;
+      const signer = new BunkerSigner(secret);
+      const pubkey = await signer.login(bunker, false);
+      activeSigner = signer;
+      activeSignerType = 'bunker';
+      bunkerUrl = bunker;
+      bunkerClientSecretKey = secret;
+      if (previous && previous !== signer && 'close' in previous) {
+        void (previous as { close: () => Promise<void> }).close();
+      }
+      const current = get({ subscribe }).pubkey;
+      if (current && pubkey.toLowerCase() !== current.toLowerCase()) {
+        await adoptSigner(signer, pubkey, {
+          signerType: 'bunker',
+          bunker,
+          bunkerClientSecretKey: secret,
+          waitMetadata: false
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function publish(event: Event): Promise<void> {
     const relays = writeStack();
     await relayPool.publish(relays, event);
@@ -497,6 +545,7 @@ function createSessionStore() {
     signOut,
     publish,
     rememberEvent,
+    ensureBunkerSigner,
     metadata,
     getPubkey: () => get({ subscribe }).pubkey,
     getMetadata: () => metadataEvents,

@@ -14,7 +14,7 @@ import {
   upsertReadingEntry,
   type ReadingQueueEntry
 } from './reading-queue';
-import { signAndPublish } from './sign';
+import { signAndPublish, isSignInFlight } from './sign';
 import { session } from './stores/session';
 import { readingPrefs } from './stores/reading-prefs';
 import { localReadingQueue } from './stores/local-reading-queue';
@@ -68,9 +68,32 @@ function clearProgressTimer(): void {
 export async function flushReadingProgress(): Promise<Event | null | 'local'> {
   clearProgressTimer();
   const opts = pendingProgress;
+  // Amber: opening the signer backgrounds the tab. A nested flush would start a second
+  // sign_event while the first is waiting for approval — drop that race.
+  if (isSignInFlight()) return null;
   pendingProgress = null;
   if (!opts || !sessionOk()) return null;
   return publishProgressNow(opts);
+}
+
+/**
+ * Flush when safe for the active signer. Amber/bunker: wait until the page is visible
+ * again so we do not race the approval sheet. Extension: flush on hide as before.
+ */
+export function flushReadingProgressOnHide(): void {
+  if (isSignInFlight()) return;
+  if (session.getSignerType() === 'bunker') {
+    // Keep pendingProgress; visibility→visible handler will flush.
+    return;
+  }
+  void flushReadingProgress();
+}
+
+export function flushReadingProgressOnVisible(): void {
+  if (document.visibilityState !== 'visible') return;
+  if (isSignInFlight()) return;
+  if (!pendingProgress) return;
+  void flushReadingProgress();
 }
 
 async function publishProgressNow(opts: {

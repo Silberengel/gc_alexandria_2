@@ -33,6 +33,8 @@ export class BunkerSigner implements Signer {
   signer: NBunkerSigner | null = null;
   private clientSecretKey: Uint8Array;
   private pubkey: string | null = null;
+  private pool: SimplePool | null = null;
+  private relays: string[] = [];
 
   constructor(clientSecretKey?: string) {
     this.clientSecretKey = clientSecretKey ? hexToBytes(clientSecretKey) : generateSecretKey();
@@ -52,6 +54,8 @@ export class BunkerSigner implements Signer {
     }
 
     const pool = new SimplePool();
+    this.pool = pool;
+    this.relays = [...bunkerPointer.relays];
     this.signer = NBunkerSigner.fromBunker(this.clientSecretKey, bunkerPointer, {
       pool,
       onauth: (url) => {
@@ -59,26 +63,19 @@ export class BunkerSigner implements Signer {
       }
     });
 
+    // Always bring bunker relays up — mobile kills websockets while backgrounded.
+    await Promise.all(
+      this.relays.map(async (url) => {
+        try {
+          await pool.ensureRelay(url, { connectionTimeout: 12_000 });
+        } catch {
+          if (isInitialConnection) throw new Error(`Could not open bunker relay ${url}`);
+        }
+      })
+    );
+    this.rebindSubscription();
+
     if (isInitialConnection) {
-      // auth.njump.me only delivers NIP-46 responses on the same websocket that published
-      // the request. Wait until the pool relay is up, then re-subscribe.
-      await Promise.all(
-        bunkerPointer.relays.map(async (url) => {
-          try {
-            await pool.ensureRelay(url, { connectionTimeout: 12_000 });
-          } catch {
-            throw new Error(`Could not open bunker relay ${url}`);
-          }
-        })
-      );
-      const bind = this.signer as unknown as BunkerSignerSocketBind;
-      try {
-        bind.subCloser?.close();
-      } catch {
-        /* ignore */
-      }
-      bind.subCloser = undefined;
-      bind.setupSubscription();
       await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
 
       const timeoutMs = options?.timeoutMs ?? BUNKER_CONNECT_TIMEOUT_MS;
@@ -117,6 +114,33 @@ export class BunkerSigner implements Signer {
     return this.pubkey;
   }
 
+  /** Re-open bunker relay sockets and NIP-46 subscription (needed after mobile sleep). */
+  private rebindSubscription(): void {
+    if (!this.signer) return;
+    const bind = this.signer as unknown as BunkerSignerSocketBind;
+    try {
+      bind.subCloser?.close();
+    } catch {
+      /* ignore */
+    }
+    bind.subCloser = undefined;
+    bind.setupSubscription();
+  }
+
+  async ensureConnected(): Promise<void> {
+    if (!this.signer || !this.pool) return;
+    await Promise.all(
+      this.relays.map(async (url) => {
+        try {
+          await this.pool!.ensureRelay(url, { connectionTimeout: 8_000 });
+        } catch {
+          /* try sign anyway */
+        }
+      })
+    );
+    this.rebindSubscription();
+  }
+
   async getPublicKey(): Promise<string> {
     if (!this.signer) throw new Error('Not logged in');
     if (!this.pubkey) this.pubkey = await this.signer.getPublicKey();
@@ -125,7 +149,12 @@ export class BunkerSigner implements Signer {
 
   async signEvent(draft: DraftEvent) {
     if (!this.signer) throw new Error('Not logged in');
-    return this.signer.signEvent(draft);
+    await this.ensureConnected();
+    return withTimeout(
+      this.signer.signEvent(draft),
+      120_000,
+      'Amber did not approve the signature in time. Open Amber, approve the request, and try again.'
+    );
   }
 
   async nip04Encrypt(pubkey: string, plaintext: string) {
@@ -159,5 +188,7 @@ export class BunkerSigner implements Signer {
       /* ignore */
     }
     this.signer = null;
+    this.pool = null;
+    this.relays = [];
   }
 }

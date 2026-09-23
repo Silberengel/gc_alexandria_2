@@ -47,7 +47,7 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
-  import { flushReadingProgress, syncReadingProgress } from '$lib/reading-queue-actions';
+  import { flushReadingProgress, flushReadingProgressOnHide, flushReadingProgressOnVisible, syncReadingProgress } from '$lib/reading-queue-actions';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { readerSectionHeroUrl } from '$lib/cover';
@@ -1537,17 +1537,19 @@
       raf = requestAnimationFrame(pickVisible);
     };
     const onHide = () => {
-      if (document.visibilityState === 'hidden') void flushReadingProgress();
+      if (document.visibilityState === 'hidden') flushReadingProgressOnHide();
+      else flushReadingProgressOnVisible();
     };
+    const onPageHide = () => flushReadingProgressOnHide();
     window.addEventListener('scroll', onScroll, { passive: true });
     document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pagehide', onPageHide);
     // Delay first pick so initial layout/scroll-to-resume does not spam relay publishes.
     const boot = window.setTimeout(pickVisible, 400);
     return () => {
       window.removeEventListener('scroll', onScroll);
       document.removeEventListener('visibilitychange', onHide);
-      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pagehide', onPageHide);
       window.clearTimeout(boot);
       if (raf) cancelAnimationFrame(raf);
       // Do not flush here — this effect rebinds when more sections paint.

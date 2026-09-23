@@ -24,6 +24,7 @@
   let { publication, total, pos, sectionId, readLabels = [] }: Props = $props();
 
   let busy = $state(false);
+  let errorHint = $state('');
 
   const addr = $derived(eventAddress(publication));
   const entries = $derived($viewerReadingEntries);
@@ -40,6 +41,7 @@
     const live = readingProgressPercent({ pos, total: Math.max(total, entry.total, 1) });
     return Math.max(readingProgressPercent(entry), live);
   });
+  const bunker = $derived($session.signerType === 'bunker');
 
   async function track(): Promise<void> {
     if (busy) return;
@@ -49,8 +51,21 @@
     }
     if (!ready || alreadyRead) return;
     busy = true;
+    errorHint = '';
     try {
-      await trackReadingPublication({ publication, pos, total, sectionId });
+      if (bunker) {
+        const ok = await session.ensureBunkerSigner();
+        if (!ok && !session.getSigner()) {
+          errorHint = 'Amber is not connected. Open Sign in and reconnect Amber, then try Track again.';
+          return;
+        }
+      }
+      const published = await trackReadingPublication({ publication, pos, total, sectionId });
+      if (!published) {
+        errorHint = bunker
+          ? 'Could not publish. Approve the request in Amber (keep this tab open), then try again.'
+          : 'Could not publish reading progress. Check your signer and try again.';
+      }
     } finally {
       busy = false;
     }
@@ -59,8 +74,15 @@
   async function stop(): Promise<void> {
     if (busy) return;
     busy = true;
+    errorHint = '';
     try {
-      await stopTrackingPublication(publication);
+      if (bunker) await session.ensureBunkerSigner();
+      const published = await stopTrackingPublication(publication);
+      if (!published) {
+        errorHint = bunker
+          ? 'Could not update the queue. Approve in Amber, then try again.'
+          : 'Could not stop tracking. Try again.';
+      }
     } finally {
       busy = false;
     }
@@ -84,8 +106,21 @@
     </button>
   </div>
   <p class="muted reading-track-hint">Mark as read on the publication page to finish and leave the queue.</p>
+  {#if bunker}
+    <p class="muted reading-track-hint">Progress publishes after you approve in Amber (not on every scroll).</p>
+  {/if}
 {:else}
   <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
-    {$session.pubkey ? 'Track reading' : 'Sign in to track reading'}
+    {$session.pubkey
+      ? busy && bunker
+        ? 'Waiting for Amber…'
+        : 'Track reading'
+      : 'Sign in to track reading'}
   </button>
+  {#if bunker && !busy}
+    <p class="muted reading-track-hint">Amber will ask you to approve publishing your reading queue.</p>
+  {/if}
+{/if}
+{#if errorHint}
+  <p class="muted reading-track-hint" role="alert">{errorHint}</p>
 {/if}

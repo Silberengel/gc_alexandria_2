@@ -46,7 +46,25 @@ export class NostrConnectionSigner implements Signer {
 
   async signEvent(draft: DraftEvent) {
     if (!this.signer) throw new Error('Not logged in');
-    return this.signer.signEvent(draft);
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        reject(
+          new Error(
+            'Amber did not approve the signature in time. Open Amber, approve the request, and try again.'
+          )
+        );
+      }, 120_000);
+      this.signer!.signEvent(draft).then(
+        (value) => {
+          window.clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          window.clearTimeout(timer);
+          reject(err);
+        }
+      );
+    });
   }
 
   async nip04Encrypt(pubkey: string, plaintext: string) {

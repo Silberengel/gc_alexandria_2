@@ -73,7 +73,28 @@ export function openBunkerAuthUrl(url: string): void {
   if (!trimmed) return
   if (isBareNostrSignerWakeUrl(trimmed)) return
   if (!shouldOpenBunkerAuthUrl(trimmed)) return
-  window.open(trimmed, '_blank', 'noopener,noreferrer')
+  // Mobile browsers often block window.open outside the original gesture stack
+  // (Amber sign prompts arrive async over NIP-46). Prefer a synthetic <a> click,
+  // then same-tab navigation for custom schemes like nostrconnect://.
+  try {
+    const a = document.createElement('a')
+    a.href = trimmed
+    a.rel = 'noopener noreferrer'
+    const isCustomScheme = !/^https?:/i.test(trimmed)
+    if (!isCustomScheme) a.target = '_blank'
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    return
+  } catch {
+    /* fall through */
+  }
+  try {
+    window.open(trimmed, '_blank', 'noopener,noreferrer')
+  } catch {
+    window.location.assign(trimmed)
+  }
 }
 
 /** Map common Amber/bunker rejection strings to actionable copy. */
