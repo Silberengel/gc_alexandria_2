@@ -103,8 +103,10 @@ Feature: In-browser reader
     Given I am signed in and reading a publication whose flattened section stream length is known
     When I press Track reading under the reader metadata
     Then a kind 16374 replaceable is published with this edition a-tag, pos, total, and optional section id
+    And when Settings → Keep reading queue on this device only is on, Track writes the queue only in this browser instead
     And a progress bar shows pos over total while tracked
     And scrolling into a new section advances pos on 16374 (not only clicks)
+    And when Settings → Keep reading queue on this device only is on, those advances stay local and never publish 16374
     And Stop tracking removes the edition from 16374 without changing l=read
     When stream length is not yet known
     Then Track reading stays quiet with a loading hint

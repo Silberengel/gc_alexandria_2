@@ -37,3 +37,6 @@ Feature: Appearance
     And those Trust choices persist in this browser across Clear Cache
     And I see Books to read at once (default 3, range 1–10) under Reading
     And that concurrent limit persists in this browser and does not change kind 16374
+    And I see Keep reading queue on this device only (off by default)
+    And when that toggle is on, Track / progress / Stop write only to this browser and do not publish kind 16374
+    And that local-only choice persists in this browser

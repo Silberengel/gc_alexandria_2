@@ -49,6 +49,7 @@
     type ReadingQueueEntry
   } from '$lib/reading-queue';
   import { readingPrefs } from '$lib/stores/reading-prefs';
+  import { localReadingQueue } from '$lib/stores/local-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { publicationPath } from '$lib/metadata';
   import { link } from 'svelte-spa-router';
@@ -111,6 +112,12 @@
     $listingDensity;
     producedPage = 1;
     interactedPage = 1;
+  });
+
+  /** Own profile + local-only: show the on-device queue instead of relay 16374. */
+  $effect(() => {
+    if (!isOwnProfile || !$readingPrefs.localOnly) return;
+    readingEntries = $localReadingQueue;
   });
 
   $effect(() => {
@@ -291,10 +298,13 @@
     rememberEvents(produced);
     readCount = reads;
     const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
-    readingEntries = parseReadingQueue(queueEv);
+    const own = !!get(session).pubkey && get(session).pubkey!.toLowerCase() === pubkey.toLowerCase();
+    readingEntries =
+      own && get(readingPrefs).localOnly
+        ? get(localReadingQueue)
+        : parseReadingQueue(queueEv);
     const titleMap = new Map<string, string>();
     const editionMap = new Map<string, Event>();
-    const own = !!get(session).pubkey && get(session).pubkey!.toLowerCase() === pubkey.toLowerCase();
     const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
     await Promise.all(
       activeReadingEntries(readingEntries, n).map(async (entry) => {

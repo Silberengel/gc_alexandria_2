@@ -8,10 +8,10 @@
   import {
     activeReadingEntries,
     readingProgressPercent,
-    readingQueueFromMetadata,
     waitingReadingEntries,
     type ReadingQueueEntry
   } from '$lib/reading-queue';
+  import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { promoteReadingToFront } from '$lib/reading-queue-actions';
   import { cardBlurb, blurbMarkupForKind } from '$lib/card-blurb';
   import { editionMetadata } from '$lib/publication-metadata';
@@ -20,7 +20,6 @@
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { firstTag } from '$lib/nostr/verify';
 
-  let metaEvents = $state<Event[]>([]);
   let editions = $state<Map<string, Event>>(new Map());
   /** Keyed by `${a}\\0${pos}\\0${sectionId}` so advances refresh the card. */
   let excerpts = $state<Map<string, string>>(new Map());
@@ -28,14 +27,7 @@
   let busyAddr = $state<string | null>(null);
   let resolving = $state<Set<string>>(new Set());
 
-  $effect(() => {
-    const unsub = session.metadata.subscribe((events) => {
-      metaEvents = events;
-    });
-    return unsub;
-  });
-
-  const entries = $derived(readingQueueFromMetadata(metaEvents));
+  const entries = $derived($viewerReadingEntries);
   const concurrent = $derived($readingPrefs.concurrent);
   const active = $derived(activeReadingEntries(entries, concurrent));
   const waiting = $derived(waitingReadingEntries(entries, concurrent));

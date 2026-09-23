@@ -10,10 +10,16 @@ const STORAGE_KEY = 'alexandria-reading-prefs';
 export type ReadingPrefsState = {
   /** How many queue books are in the active concurrent subset. */
   concurrent: number;
+  /**
+   * When true, Track / progress / Stop stay in this browser only —
+   * kind 16374 is not published to relays.
+   */
+  localOnly: boolean;
 };
 
 const defaults: ReadingPrefsState = {
-  concurrent: READING_CONCURRENT_DEFAULT
+  concurrent: READING_CONCURRENT_DEFAULT,
+  localOnly: false
 };
 
 export function clampConcurrent(n: number): number {
@@ -26,7 +32,10 @@ function load(): ReadingPrefsState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...defaults };
     const parsed = JSON.parse(raw) as Partial<ReadingPrefsState>;
-    return { concurrent: clampConcurrent(Number(parsed.concurrent)) };
+    return {
+      concurrent: clampConcurrent(Number(parsed.concurrent)),
+      localOnly: parsed.localOnly === true
+    };
   } catch {
     return { ...defaults };
   }
@@ -47,6 +56,13 @@ function createReadingPrefsStore() {
     setConcurrent(n: number): void {
       update((s) => {
         const next = { ...s, concurrent: clampConcurrent(n) };
+        persist(next);
+        return next;
+      });
+    },
+    setLocalOnly(on: boolean): void {
+      update((s) => {
+        const next = { ...s, localOnly: !!on };
         persist(next);
         return next;
       });

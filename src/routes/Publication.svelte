@@ -47,7 +47,7 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
-  import { syncReadingProgress } from '$lib/reading-queue-actions';
+  import { flushReadingProgress, syncReadingProgress } from '$lib/reading-queue-actions';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { readerSectionHeroUrl } from '$lib/cover';
@@ -1015,7 +1015,10 @@
     };
   });
 
-  onDestroy(() => cancelTree());
+  onDestroy(() => {
+    cancelTree();
+    void flushReadingProgress();
+  });
 
   $effect(() => {
     // Re-apply deep links (?section=&quote=, ?comment=, ?rating=, or plain path → top).
@@ -1056,6 +1059,7 @@
   /** Leave the reader and restore the edition info page (ratings, comments, details). */
   function stopReading(): void {
     if (!reading) return;
+    void flushReadingProgress();
     reading = false;
     tocOpen = false;
     jumpBusy = false;
@@ -1337,13 +1341,21 @@
       if (raf) return;
       raf = requestAnimationFrame(pickVisible);
     };
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') void flushReadingProgress();
+    };
     window.addEventListener('scroll', onScroll, { passive: true });
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
     // Delay first pick so initial layout/scroll-to-resume does not spam relay publishes.
     const boot = window.setTimeout(pickVisible, 400);
     return () => {
       window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
       window.clearTimeout(boot);
       if (raf) cancelAnimationFrame(raf);
+      // Do not flush here — this effect rebinds when more sections paint.
     };
   });
 

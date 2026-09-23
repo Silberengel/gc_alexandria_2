@@ -6,9 +6,9 @@
   import {
     activeReadingEntries,
     findQueueEntry,
-    readingProgressPercent,
-    readingQueueFromMetadata
+    readingProgressPercent
   } from '$lib/reading-queue';
+  import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { stopTrackingPublication, trackReadingPublication } from '$lib/reading-queue-actions';
   import { eventAddress } from '$lib/nostr/verify';
   import { myReadLabel, readLabelsForPublication } from '$lib/read-marks';
@@ -24,17 +24,9 @@
   let { publication, total, pos, sectionId, readLabels = [] }: Props = $props();
 
   let busy = $state(false);
-  let metaEvents = $state<Event[]>([]);
-
-  $effect(() => {
-    const unsub = session.metadata.subscribe((events) => {
-      metaEvents = events;
-    });
-    return unsub;
-  });
 
   const addr = $derived(eventAddress(publication));
-  const entries = $derived(readingQueueFromMetadata(metaEvents));
+  const entries = $derived($viewerReadingEntries);
   const entry = $derived(findQueueEntry(entries, addr));
   const concurrent = $derived($readingPrefs.concurrent);
   const active = $derived(activeReadingEntries(entries, concurrent));

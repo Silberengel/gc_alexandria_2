@@ -38,6 +38,7 @@ Feature: Profile page
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
     And when they have marked editions as read (kind 1985 l=read), a book-and-check icon with that count links to /search?read={npub}
     And when they have a kind 16374 reading queue, Reading now shows progress bars for the active subset (own profile uses Settings N; other profiles use the default of 3) and the queue length
+    And when I view my own profile with Keep reading queue on this device only, Reading now uses that local queue instead of relay 16374
     And produced and interacted listings share the full/compact/table layout toggle with home and search
     And a field in both tags and JSON is shown once, with the tag winning
     And extra JSON keys still appear (not displayName aliases)

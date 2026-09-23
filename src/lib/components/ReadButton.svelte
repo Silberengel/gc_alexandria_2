@@ -11,7 +11,8 @@
     myReadLabel,
     readLabelsForPublication
   } from '$lib/read-marks';
-  import { findQueueEntry, readingQueueFromMetadata } from '$lib/reading-queue';
+  import { findQueueEntry } from '$lib/reading-queue';
+  import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { finishTrackedPublication } from '$lib/reading-queue-actions';
   import { openReadingFinish } from '$lib/stores/reading-finish-ui';
   import { editionMetadata } from '$lib/publication-metadata';
@@ -28,17 +29,9 @@
 
   let local = $state<Event[]>([]);
   let busy = $state(false);
-  let metaEvents = $state<Event[]>([]);
 
   $effect(() => {
     local = readProp;
-  });
-
-  $effect(() => {
-    const unsub = session.metadata.subscribe((events) => {
-      metaEvents = events;
-    });
-    return unsub;
   });
 
   const forEdition = $derived(readLabelsForPublication(local, publication));
@@ -46,9 +39,7 @@
   const mine = $derived(myReadLabel(forEdition, publication, $session.pubkey));
   const marked = $derived(!!mine);
   const signedIn = $derived(!!$session.pubkey);
-  const onQueue = $derived(
-    !!findQueueEntry(readingQueueFromMetadata(metaEvents), eventAddress(publication))
-  );
+  const onQueue = $derived(!!findQueueEntry($viewerReadingEntries, eventAddress(publication)));
 
   function absorbRead(signed: Event): void {
     local = [

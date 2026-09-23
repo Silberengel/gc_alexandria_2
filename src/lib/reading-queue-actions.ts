@@ -17,6 +17,7 @@ import {
 import { signAndPublish } from './sign';
 import { session } from './stores/session';
 import { readingPrefs } from './stores/reading-prefs';
+import { localReadingQueue } from './stores/local-reading-queue';
 
 export type FinishReadingResult = {
   ok: boolean;
@@ -28,6 +29,7 @@ export type FinishReadingResult = {
 };
 
 function currentEntries(): ReadingQueueEntry[] {
+  if (get(readingPrefs).localOnly) return get(localReadingQueue);
   return readingQueueFromMetadata(session.getMetadata());
 }
 
@@ -35,44 +37,48 @@ function sessionOk(): boolean {
   return !!get(session).pubkey;
 }
 
-async function publishEntries(entries: ReadingQueueEntry[]): Promise<Event | null> {
+/** Persist queue: local store when Settings → local-only, else kind 16374. */
+async function publishEntries(entries: ReadingQueueEntry[]): Promise<Event | null | 'local'> {
+  if (get(readingPrefs).localOnly) {
+    localReadingQueue.replace(entries);
+    return 'local';
+  }
   return signAndPublish(readingQueueDraft(entries));
 }
 
-export async function trackReadingPublication(opts: {
+/** Pending scroll progress — do not NIP-07-prompt on every verse crossing. */
+let pendingProgress: {
   publication: Event;
   pos: number;
   total: number;
   sectionId?: string;
-}): Promise<Event | null> {
-  if (!sessionOk()) return null;
-  const { publication, pos, total, sectionId } = opts;
-  if (total < 1) return null;
-  const a = eventAddress(publication);
-  const existing = findQueueEntry(currentEntries(), a);
-  const entries = upsertReadingEntry(currentEntries(), {
-    a,
-    pos: existing ? Math.max(existing.pos, pos) : pos,
-    total,
-    sectionId: sectionId ?? existing?.sectionId,
-    updated: Math.floor(Date.now() / 1000)
-  });
-  return publishEntries(entries);
+} | null = null;
+let progressTimer: ReturnType<typeof setTimeout> | 0 = 0;
+/** Quiet period after the last scroll advance before publishing kind 16374. */
+const PROGRESS_DEBOUNCE_MS = 12_000;
+
+function clearProgressTimer(): void {
+  if (progressTimer) {
+    clearTimeout(progressTimer);
+    progressTimer = 0;
+  }
 }
 
-export async function stopTrackingPublication(publication: Event): Promise<Event | null> {
-  if (!sessionOk()) return null;
-  const entries = removeReadingEntry(currentEntries(), eventAddress(publication));
-  return publishEntries(entries);
+/** Publish any debounced reading-queue progress immediately (leave reader / hide tab). */
+export async function flushReadingProgress(): Promise<Event | null | 'local'> {
+  clearProgressTimer();
+  const opts = pendingProgress;
+  pendingProgress = null;
+  if (!opts || !sessionOk()) return null;
+  return publishProgressNow(opts);
 }
 
-export async function syncReadingProgress(opts: {
+async function publishProgressNow(opts: {
   publication: Event;
   pos: number;
   total: number;
   sectionId?: string;
-}): Promise<Event | null> {
-  if (!sessionOk()) return null;
+}): Promise<Event | null | 'local'> {
   const a = eventAddress(opts.publication);
   const cur = findQueueEntry(currentEntries(), a);
   if (!cur) return null;
@@ -81,6 +87,7 @@ export async function syncReadingProgress(opts: {
     opts.total === cur.total &&
     (opts.sectionId ?? '') === (cur.sectionId ?? '')
   ) {
+    if (get(readingPrefs).localOnly) return 'local';
     return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
   }
   const next: ReadingQueueEntry = {
@@ -93,8 +100,82 @@ export async function syncReadingProgress(opts: {
   return publishEntries(upsertReadingEntry(currentEntries(), next));
 }
 
-export async function promoteReadingToFront(editionAddress: string): Promise<Event | null> {
+export async function trackReadingPublication(opts: {
+  publication: Event;
+  pos: number;
+  total: number;
+  sectionId?: string;
+}): Promise<Event | null | 'local'> {
   if (!sessionOk()) return null;
+  const { publication, pos, total, sectionId } = opts;
+  if (total < 1) return null;
+  clearProgressTimer();
+  pendingProgress = null;
+  const a = eventAddress(publication);
+  const existing = findQueueEntry(currentEntries(), a);
+  const entries = upsertReadingEntry(currentEntries(), {
+    a,
+    pos: existing ? Math.max(existing.pos, pos) : pos,
+    total,
+    sectionId: sectionId ?? existing?.sectionId,
+    updated: Math.floor(Date.now() / 1000)
+  });
+  return publishEntries(entries);
+}
+
+export async function stopTrackingPublication(publication: Event): Promise<Event | null | 'local'> {
+  if (!sessionOk()) return null;
+  clearProgressTimer();
+  pendingProgress = null;
+  const entries = removeReadingEntry(currentEntries(), eventAddress(publication));
+  return publishEntries(entries);
+}
+
+/**
+ * Update local progress intent; publish kind 16374 only after scrolling settles
+ * so extension sign prompts are not fired on every section/verse crossing.
+ * When Settings → local-only, progress never leaves this browser.
+ */
+export async function syncReadingProgress(opts: {
+  publication: Event;
+  pos: number;
+  total: number;
+  sectionId?: string;
+}): Promise<Event | null | 'local'> {
+  if (!sessionOk()) return null;
+  const a = eventAddress(opts.publication);
+  const cur = findQueueEntry(currentEntries(), a);
+  if (!cur) return null;
+  if (
+    opts.pos === cur.pos &&
+    opts.total === cur.total &&
+    (opts.sectionId ?? '') === (cur.sectionId ?? '')
+  ) {
+    if (get(readingPrefs).localOnly) return 'local';
+    return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  }
+  pendingProgress = {
+    publication: opts.publication,
+    pos: opts.pos,
+    total: opts.total,
+    sectionId: opts.sectionId
+  };
+  // Local-only: apply immediately — no sign prompt to debounce.
+  if (get(readingPrefs).localOnly) {
+    clearProgressTimer();
+    return flushReadingProgress();
+  }
+  clearProgressTimer();
+  progressTimer = setTimeout(() => {
+    progressTimer = 0;
+    void flushReadingProgress();
+  }, PROGRESS_DEBOUNCE_MS);
+  return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+}
+
+export async function promoteReadingToFront(editionAddress: string): Promise<Event | null | 'local'> {
+  if (!sessionOk()) return null;
+  await flushReadingProgress();
   const entries = moveReadingEntryToFront(currentEntries(), editionAddress);
   return publishEntries(entries);
 }
@@ -110,6 +191,10 @@ export async function finishTrackedPublication(
   if (!sessionOk()) return { ok: false };
   const a = eventAddress(publication);
   const concurrent = get(readingPrefs).concurrent;
+
+  // Drop any pending scroll publish for this (or other) book before finishing.
+  clearProgressTimer();
+  pendingProgress = null;
 
   const labels = opts?.readLabels ?? [];
   let readEvent =

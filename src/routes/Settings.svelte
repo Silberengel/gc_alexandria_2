@@ -3,6 +3,9 @@
   import { appearance, type Scheme } from '$lib/stores/appearance';
   import { trust } from '$lib/stores/trust';
   import { readingPrefs } from '$lib/stores/reading-prefs';
+  import { localReadingQueue } from '$lib/stores/local-reading-queue';
+  import { session } from '$lib/stores/session';
+  import { readingQueueFromMetadata } from '$lib/reading-queue';
   import {
     READING_CONCURRENT_MAX,
     READING_CONCURRENT_MIN
@@ -16,6 +19,13 @@
   } from '$lib/fonts';
 
   let size = $state('0 B');
+
+  function setLocalOnly(on: boolean) {
+    if (on) {
+      localReadingQueue.seedIfEmpty(readingQueueFromMetadata(session.getMetadata()));
+    }
+    readingPrefs.setLocalOnly(on);
+  }
 
   const schemes: { id: Scheme; label: string; blurb: string; swatches: string[] }[] = [
     {
@@ -187,7 +197,7 @@
   <section class="settings-panel">
     <header class="settings-panel-head">
       <h2>Reading</h2>
-      <p class="muted">How many tracked books stay in daily rotation at once.</p>
+      <p class="muted">Rotation size and whether your queue stays on this device.</p>
     </header>
     <label class="settings-field">
       <span>Books to read at once</span>
@@ -202,6 +212,19 @@
     <p class="muted settings-hint">
       Extra tracked books wait in Up next and shift into rotation when you finish one.
     </p>
+    <label class="settings-toggle" class:settings-toggle-on={$readingPrefs.localOnly}>
+      <span class="settings-toggle-text">
+        <span class="settings-toggle-title">Keep reading queue on this device only</span>
+        <span class="muted"
+          >Track, progress, and Stop stay in this browser — kind 16374 is not published to relays</span
+        >
+      </span>
+      <input
+        type="checkbox"
+        checked={$readingPrefs.localOnly}
+        onchange={(e) => setLocalOnly((e.target as HTMLInputElement).checked)}
+      />
+    </label>
   </section>
 
   <section class="settings-panel">
