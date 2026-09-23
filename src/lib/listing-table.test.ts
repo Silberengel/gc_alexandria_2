@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { cropListingCell, listingPageSize, listingTableRow, sortListingRows } from './listing-table';
+import { cropListingCell, cropText, listingPageSize, listingTableRow, sortListingRows } from './listing-table';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey'>): Event {
   return {
@@ -13,6 +13,14 @@ function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey'>): Event {
     sig: partial.sig ?? 'cd'.repeat(32)
   };
 }
+
+describe('cropText', () => {
+  it('appends an ellipsis only when cropped', () => {
+    expect(cropText('short', 20)).toBe('short');
+    expect(cropText('x'.repeat(10), 8)).toBe(`${'x'.repeat(7)}…`);
+    expect(cropText('  one   two  ', 20)).toBe('one two');
+  });
+});
 
 describe('listingPageSize', () => {
   it('uses 250 for table and 25 otherwise', () => {

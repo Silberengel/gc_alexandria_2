@@ -4,6 +4,7 @@
   import UserBadge from './UserBadge.svelte';
   import { KIND } from '$lib/constants';
   import { displayRefTitle, focusHrefForRef, pathForRef, warmLandingRef } from '$lib/landing';
+  import { cropText } from '$lib/listing-table';
 
   interface Props {
     event: Event;
@@ -15,7 +16,7 @@
   const pageHref = $derived(pathForRef(event, referenced));
   const itemHref = $derived(focusHrefForRef(event, referenced));
   const title = $derived(displayRefTitle(event, referenced));
-  const excerpt = $derived(event.content.replace(/\s+/g, ' ').trim().slice(0, 160));
+  const excerpt = $derived(cropText(event.content, 160));
   const viewLabel = $derived(
     event.kind === KIND.HIGHLIGHT
       ? 'View highlight'

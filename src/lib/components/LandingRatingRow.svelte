@@ -4,6 +4,7 @@
   import UserBadge from './UserBadge.svelte';
   import Stars from './Stars.svelte';
   import { displayRefTitle, focusHrefForRef, pathForRef, warmLandingRef } from '$lib/landing';
+  import { cropText } from '$lib/listing-table';
   import { ratingStarsFromEvent } from '$lib/ratings';
 
   interface Props {
@@ -17,7 +18,7 @@
   const itemHref = $derived(focusHrefForRef(event, referenced));
   const title = $derived(displayRefTitle(event, referenced));
   const stars = $derived(ratingStarsFromEvent(event));
-  const excerpt = $derived(event.content.replace(/\s+/g, ' ').trim().slice(0, 220));
+  const excerpt = $derived(cropText(event.content, 220));
 
   function warmWork(): void {
     warmLandingRef(event, referenced);
