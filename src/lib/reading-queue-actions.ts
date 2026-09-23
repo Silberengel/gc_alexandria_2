@@ -109,13 +109,7 @@ export async function finishTrackedPublication(
 ): Promise<FinishReadingResult> {
   if (!sessionOk()) return { ok: false };
   const a = eventAddress(publication);
-  const before = currentEntries();
   const concurrent = get(readingPrefs).concurrent;
-  const idx = before.findIndex((e) => !!findQueueEntry([e], a));
-  const shiftedAddress =
-    idx >= 0 && idx < concurrent && before.length > concurrent
-      ? before[concurrent]?.a
-      : undefined;
 
   const labels = opts?.readLabels ?? [];
   let readEvent =
@@ -130,8 +124,16 @@ export async function finishTrackedPublication(
     readEvent = signed;
   }
 
-  if (findQueueEntry(before, a)) {
-    const published = await publishEntries(removeReadingEntry(currentEntries(), a));
+  // Snapshot after awaits so shift detection and the published removal use the same list.
+  const before = currentEntries();
+  const idx = before.findIndex((e) => !!findQueueEntry([e], a));
+  const shiftedAddress =
+    idx >= 0 && idx < concurrent && before.length > concurrent
+      ? before[concurrent]?.a
+      : undefined;
+
+  if (idx >= 0) {
+    const published = await publishEntries(removeReadingEntry(before, a));
     if (!published) return { ok: false, readEvent };
   }
 

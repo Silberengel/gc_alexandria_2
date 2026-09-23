@@ -14,13 +14,22 @@
 </script>
 
 {#if $readingFinishUi.open}
-  <div class="reading-finish-backdrop" role="presentation" onclick={closeReadingFinish}>
+  <div
+    class="reading-finish-backdrop"
+    role="presentation"
+    onclick={closeReadingFinish}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') closeReadingFinish();
+    }}
+  >
     <div
       class="reading-finish-card"
       role="dialog"
+      tabindex="-1"
       aria-modal="true"
       aria-labelledby="reading-finish-title"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="reading-finish-burst" aria-hidden="true"></div>
       <h2 id="reading-finish-title">Finished</h2>

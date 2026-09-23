@@ -29,7 +29,8 @@
   let copied = $state(false);
   let timer = 0;
   let root: HTMLDivElement | undefined = $state();
-  let place: MenuPlacement = $state({ side: preferStart ? 'start' : 'end', up: false });
+  // Initial side is updated when opening; preferStart is applied in toggle().
+  let place: MenuPlacement = $state({ side: 'end', up: false });
 
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
@@ -54,7 +55,7 @@
     e.stopPropagation();
     if (!open && root) {
       place = placeMenuPanel(root);
-      if (preferStart && place.side === 'end') {
+      if (preferStart) {
         const r = root.getBoundingClientRect();
         if (window.innerWidth - r.left - 8 >= 200) place = { ...place, side: 'start' };
       }
@@ -129,6 +130,12 @@
       class:menu-panel-up={place.up}
       role="menu"
       onclick={onPanelClick}
+      onkeydown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        }
+      }}
     >
       {#if before}
         {@render before()}
