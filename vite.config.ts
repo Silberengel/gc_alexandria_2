@@ -1,9 +1,56 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [
+    svelte(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      // Manifest lives in public/ so index.html can link it without duplication.
+      manifest: false,
+      includeAssets: [
+        'favicon.png',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'pwa-maskable-192x192.png',
+        'pwa-maskable-512x512.png',
+        'screenshots/old_books.jpg'
+      ],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,png,jpg,svg,ico,webmanifest}'],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        cleanupOutdatedCaches: true,
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/],
+        runtimeCaching: [
+          {
+            // Google Fonts CSS
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'google-fonts-stylesheets',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 365 }
+            }
+          },
+          {
+            // Google Fonts files
+            urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-webfonts',
+              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          }
+        ]
+      },
+      devOptions: {
+        enabled: false
+      }
+    })
+  ],
   resolve: {
     alias: {
       $lib: fileURLToPath(new URL('./src/lib', import.meta.url))

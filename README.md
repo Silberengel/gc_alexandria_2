@@ -15,6 +15,7 @@ Acceptance tests in [`features/`](features/) are the product contract. `@mvp` sh
 - **Relays** — Central selector (document / wiki / social stacks), shared pool with AUTH, Mercury HTTPS for catalog
 - **Client cache** — Events and covers in HTTP cache / Cache Storage; themes in `localStorage`
 - **Appearance** — Antique, Ocean, Forrest, and Soft Gray themes; mobile-first layout
+- **PWA** — Installable app shell with offline-capable static assets (service worker)
 
 ## Develop
 
