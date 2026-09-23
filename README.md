@@ -14,7 +14,7 @@ Acceptance tests in [`features/`](features/) are the product contract. `@mvp` sh
 - **Trust** — Brainstorm NIP-50 search and NIP-85 GrapeRank scores; Trust filter in Settings
 - **Relays** — Central selector (document / wiki / social stacks), shared pool with AUTH, Mercury HTTPS for catalog
 - **Client cache** — Events and covers in HTTP cache / Cache Storage; themes in `localStorage`
-- **Appearance** — Antique, Ocean, and Forrest themes; mobile-first layout
+- **Appearance** — Antique, Ocean, Forrest, and Soft Gray themes; mobile-first layout
 
 ## Develop
 

@@ -5,14 +5,14 @@ Feature: Appearance
   So that the library is readable from the first visit
 
   Background:
-    Given named schemes antique, ocean, and forrest
+    Given named schemes antique, ocean, forrest, and gray
     And every surface reads colors and fonts from tokens
     And Settings is /settings
 
   Scenario: Antique is the default and schemes persist
     When I open the site with no saved appearance
     Then Antique is active
-    When I choose Ocean or Forrest in Settings
+    When I choose Ocean, Forrest, or Soft Gray in Settings
     Then those Alexandria tokens apply without a reload
     When I reopen the site
     Then the chosen scheme is still active with no flash of Antique

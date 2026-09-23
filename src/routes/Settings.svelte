@@ -30,6 +30,12 @@
       label: 'Forrest',
       blurb: 'Deep library greens',
       swatches: ['#eaf7ea', '#5fa65f', '#2e6b2e', '#0c230c']
+    },
+    {
+      id: 'gray',
+      label: 'Soft Gray',
+      blurb: 'Quiet cool neutrals',
+      swatches: ['#f4f4f5', '#c9c9cd', '#5c5c63', '#242428']
     }
   ];
 

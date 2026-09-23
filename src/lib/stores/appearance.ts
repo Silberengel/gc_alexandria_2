@@ -1,6 +1,12 @@
 import { writable } from 'svelte/store';
 
-export type Scheme = 'antique' | 'ocean' | 'forrest';
+export type Scheme = 'antique' | 'ocean' | 'forrest' | 'gray';
+
+const SCHEMES: readonly Scheme[] = ['antique', 'ocean', 'forrest', 'gray'];
+
+function isScheme(value: unknown): value is Scheme {
+  return typeof value === 'string' && (SCHEMES as readonly string[]).includes(value);
+}
 
 export type AppearanceState = {
   scheme: Scheme;
@@ -26,6 +32,7 @@ function load(): AppearanceState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = { ...defaults, ...JSON.parse(raw) } as AppearanceState;
+      if (!isScheme(parsed.scheme)) parsed.scheme = defaults.scheme;
       parsed.readingSize = clampReadingSize(parsed.readingSize);
       // Lift stock fonts from the previous defaults to the current library faces.
       if (parsed.uiFont === 'system-ui, sans-serif') parsed.uiFont = defaults.uiFont;
