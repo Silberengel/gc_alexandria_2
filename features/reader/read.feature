@@ -46,6 +46,12 @@ Feature: In-browser reader
     Then the interaction lists are replaced by the reader
     And the URL includes read=1 so a refresh stays in the reader
     And I stay on /publication/d/{d}/p/{npub}
+    And I see a "Publication info" button under the edition metadata
+    When I press "Publication info"
+    Then I see the header and interaction lists again
+    And the URL no longer includes read=1
+    When I press "Read the publication"
+    Then the interaction lists are replaced by the reader
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
     And Mercury /toc lists nested 30040 indexes as headings (not every leaf section)
     And those nested indexes keep their titles and render indented by depth under their parent index
@@ -53,7 +59,7 @@ Feature: In-browser reader
     And under any 30040, leaf sections are listed before nested 30040 indexes
     And the edition's own sections come before nested indexes in the ToC and reading pane
     And the top-level 30040 title is the first ToC link (jumps to the publication top) and the first reading-pane heading
-    And basic edition metadata (authors, publisher, facts, summary) appears under that top index heading
+    And basic edition metadata (authors, publisher, summary) appears under that top index heading
     And an index or section with an image tag shows that image as a hero above its heading
     And a Mercury index row with no event still shows as a titled heading in the ToC and reading pane
     And nested 30040 titles appear as headings in the reading pane (not only in the ToC)

@@ -744,6 +744,16 @@
     }
   }
 
+  /** Leave the reader and restore the edition info page (ratings, comments, details). */
+  function stopReading(): void {
+    if (!reading) return;
+    reading = false;
+    tocOpen = false;
+    jumpBusy = false;
+    setReadQuery(false);
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  }
+
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
     const article =
       (sectionId
@@ -1171,6 +1181,11 @@
               {#if isIndex}
                 {#if event && section.id === event.id}
                   <EditionReaderMeta event={section} />
+                  <div class="edition-actions reader-info-actions">
+                    <button class="btn btn-primary" type="button" onclick={stopReading}
+                      >Publication info</button
+                    >
+                  </div>
                 {/if}
               {:else if isMarkupKind(section.kind)}
                 <div

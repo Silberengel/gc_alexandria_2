@@ -1218,6 +1218,11 @@ a.listing-row:hover {
   font-weight: 650;
 }
 
+.reader-info-actions {
+  margin: 0.85rem 0 0;
+  padding-top: 0.85rem;
+}
+
 .pub-card {
   display: flex;
   flex-direction: column;
@@ -2561,24 +2566,6 @@ mark.text-highlight.highlight-flash,
 }
 .edition-reader-publisher {
   margin: 0 0 0.65rem;
-  font-size: 0.92rem;
-}
-.edition-reader-facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
-  gap: 0.45rem 1rem;
-  margin: 0 0 0.75rem;
-}
-.edition-reader-fact dt {
-  margin: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.edition-reader-fact dd {
-  margin: 0.1rem 0 0;
   font-size: 0.92rem;
 }
 .edition-reader-summary {

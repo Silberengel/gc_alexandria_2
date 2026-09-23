@@ -22,6 +22,7 @@
     <li>Use the search bar on the home page to find books, wiki pages, or Nostr events.</li>
     <li>Open a publication to see ratings, comments, and highlights before reading.</li>
     <li>Press <strong>Read the publication</strong> when you are ready for the text (catalog-only stubs have no readable copy).</li>
+    <li>Press <strong>Publication info</strong> in the reader to return to ratings, comments, and details.</li>
     <li>Follow wikilinks inside articles to search by that d-tag.</li>
     <li>Sign in with a Nostr extension when you want to rate, comment, highlight, add lists or bookshelf shelves, bookmark, or contact GitCitadel.</li>
   </ol>
