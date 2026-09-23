@@ -72,11 +72,12 @@
   });
 
   function apply(view: LandingView, replaceShelves = false): void {
-    comments = view.comments;
-    highlights = view.highlights;
-    ratings = view.ratings ?? [];
-    referenced = view.referenced ?? [];
-    subjects = view.subjects;
+    // Progressive onUpdate paints must not clobber warm content with empty arrays.
+    if (view.comments.length || replaceShelves) comments = view.comments;
+    if (view.highlights.length || replaceShelves) highlights = view.highlights;
+    if ((view.ratings?.length ?? 0) || replaceShelves) ratings = view.ratings ?? [];
+    if ((view.referenced?.length ?? 0) || replaceShelves) referenced = view.referenced ?? [];
+    if (view.subjects.length || replaceShelves) subjects = view.subjects;
     const nextShelves = view.shelves ?? [];
     const nextHasCovers = nextShelves.some((s) => s.events.length);
     // Never wipe painted covers with an empty final pack (relay starvation used to do that).

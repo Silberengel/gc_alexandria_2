@@ -8,6 +8,7 @@
   import { commentDraft } from '$lib/drafts';
   import { fetchThreadEvents, nestComments, threadNodeKey, type ThreadNode } from '$lib/comments';
   import { muteState } from '$lib/mute';
+  import { openLoginDialog } from '$lib/stores/login-ui';
 
   interface Props {
     event: Event;
@@ -37,7 +38,10 @@
   }
 
   function onReplyClick(): void {
-    if (!canReply) return;
+    if (!canReply) {
+      openLoginDialog();
+      return;
+    }
     replyOpen = !replyOpen;
     if (replyOpen) void ensureThread();
   }
@@ -67,15 +71,28 @@
     <HeartButton {event} />
     {#if allowReply}
       <button
-        class="btn thread-reply"
+        class="btn btn-icon icon-action-btn thread-reply"
         type="button"
-        disabled={!canReply}
         aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
         title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
         aria-expanded={replyOpen}
         onclick={onReplyClick}
       >
-        Reply
+        {#if replyOpen}
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+            />
+          </svg>
+        {:else}
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+            />
+          </svg>
+        {/if}
       </button>
     {/if}
     {@render actions?.()}

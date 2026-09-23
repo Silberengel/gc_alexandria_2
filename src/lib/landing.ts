@@ -678,20 +678,23 @@ export async function refreshLanding(
     cacheOk ? cached?.publications : undefined
   );
 
-  let comments = newestCommentPerWork(cacheOk ? (cached?.comments ?? []) : []).slice(
-    0,
-    LANDING_FEED_LIMIT
-  );
-  let highlights = newestHighlightPerAddress(cacheOk ? (cached?.highlights ?? []) : []).slice(
-    0,
-    LANDING_FEED_LIMIT
-  );
-  let ratings = landingRatings(cacheOk ? (cached?.ratings ?? []) : []);
-  let shelves = cacheOk ? (cached?.shelves ?? []) : [];
+  // When the viewer identity changed, still seed curated shelves + feeds from cache so the
+  // first paint does not blank a landing that already had covers (Home applies onUpdate live).
+  const curatedCachedShelves = (cached?.shelves ?? []).filter((s) => !isViewerBoundShelfId(s.id));
+  let comments = newestCommentPerWork(
+    cacheOk || cached ? (cached?.comments ?? []) : []
+  ).slice(0, LANDING_FEED_LIMIT);
+  let highlights = newestHighlightPerAddress(
+    cacheOk || cached ? (cached?.highlights ?? []) : []
+  ).slice(0, LANDING_FEED_LIMIT);
+  let ratings = landingRatings(cacheOk || cached ? (cached?.ratings ?? []) : []);
+  let shelves = cacheOk ? (cached?.shelves ?? []) : curatedCachedShelves;
   let labels = cacheOk ? (cached?.labels ?? []) : [];
-  let referenced = cacheOk ? (cached?.referenced ?? []) : [];
+  let referenced = cacheOk || cached ? (cached?.referenced ?? []) : [];
 
   const paint = (partial: LandingView): void => {
+    // Never push a totally empty snapshot — that wiped a warm Home paint on identity change.
+    if (!landingHasPaint(partial)) return;
     onUpdate?.(partial);
     persistLandingSoon(partial);
   };

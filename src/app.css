@@ -359,7 +359,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 .btn {
   font: inherit;
   cursor: pointer;
-  border: 1px solid color-mix(in srgb, var(--border) 90%, var(--accent));
+  border: 1px solid transparent;
   background: color-mix(in srgb, var(--surface) 70%, var(--surface-2));
   color: var(--text);
   padding: 0.48rem 0.95rem;
@@ -1210,11 +1210,12 @@ a.listing-row:hover {
   min-height: 2.4rem;
   font-weight: 500;
   background: var(--surface-2);
-  border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
+  border-color: transparent;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
 }
 .edition-actions .btn:not(.btn-primary):hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 .edition-actions .btn-primary {
   min-height: 2.5rem;
@@ -2051,7 +2052,7 @@ a.listing-row:hover {
   min-width: 1.65rem;
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
-  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  border-color: transparent;
 }
 .copy-pointer-btn .more-ellipsis {
   display: block;
@@ -2064,6 +2065,41 @@ a.listing-row:hover {
 .copy-pointer-btn:hover:not(:disabled) {
   color: var(--text);
   background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.icon-action-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+  min-width: 1.85rem;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-color: transparent;
+}
+.icon-action-btn svg {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.icon-action-btn:hover:not(:disabled),
+.icon-action-btn:focus-visible,
+.icon-action-btn[aria-expanded='true'] {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.icon-action-btn-accent {
+  color: var(--brand-primary-0);
+  background: var(--accent);
+  border-color: transparent;
+}
+.icon-action-btn-accent:hover:not(:disabled),
+.icon-action-btn-accent:focus-visible {
+  color: var(--brand-primary-0);
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+  border-color: transparent;
+}
+:root.dark .icon-action-btn-accent {
+  color: var(--brand-primary-1000);
 }
 .listing-table-copy-col {
   width: 2.5rem;
@@ -2135,24 +2171,6 @@ a.listing-row:hover {
   gap: 0.25rem;
   margin-top: 0.35rem;
 }
-.thread-reply {
-  width: auto;
-  min-height: 2.4rem;
-  padding: 0.35rem 0.75rem;
-  border-radius: 0.5rem;
-  border-color: color-mix(in srgb, var(--border) 85%, var(--text-muted));
-  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
-  color: var(--text);
-  font-size: 0.9rem;
-  opacity: 1;
-}
-.thread-reply:hover:not(:disabled),
-.thread-reply:focus-visible,
-.thread-reply[aria-expanded='true'] {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
-}
 .heart-btn {
   display: inline-flex;
   align-items: center;
@@ -2162,7 +2180,7 @@ a.listing-row:hover {
   min-width: 2.4rem;
   height: 2.4rem;
   padding: 0 0.55rem;
-  border-color: color-mix(in srgb, var(--border) 85%, var(--text-muted));
+  border-color: transparent;
   background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   color: var(--text-muted);
 }

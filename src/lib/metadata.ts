@@ -62,7 +62,11 @@ export function cardMeta(event: Event): CardMeta {
     publishedBy: event.pubkey,
     authors: authors.length ? authors : nTags,
     titles: (titles.length ? titles : tTags)
-      .map((t) => cardBlurb(t, { markup: 'markdown', max: 100 }) || t.slice(0, 100))
+      .map((t) => {
+        const plain = typeof t === 'string' ? t : String(t ?? '');
+        if (!plain.trim()) return '';
+        return cardBlurb(plain, { markup: 'markdown', max: 100 }) || plain.slice(0, 100);
+      })
       .filter(Boolean),
     subjects: tagValue(event, 't'),
     source: firstTag(event, 's') ?? firstTag(event, 'source'),
