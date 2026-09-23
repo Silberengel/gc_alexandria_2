@@ -119,17 +119,27 @@ describe('ratings jumble shape', () => {
 });
 
 describe('highlight draft', () => {
-  it('tags a, e, p, k and optional context', () => {
+  it('roots the book index and parents the chapter, like Bookshelf', () => {
     const section = ev({
       id: '9'.repeat(64),
       pubkey: pk,
       kind: KIND.SECTION,
-      tags: [['d', 'ch1']]
+      tags: [['d', 'ch1'], ['r', 'https://example.com/source?utm_source=test#frag']]
     });
-    const draft = highlightDraft(section, 'quoted', 'surrounding paragraph');
-    expect(draft.tags.find((t) => t[0] === 'a')?.[1]).toBe(`30041:${pk}:ch1`);
-    expect(draft.tags.find((t) => t[0] === 'e')?.[1]).toBe(section.id);
-    expect(draft.tags.find((t) => t[0] === 'context')?.[1]).toBe('surrounding paragraph');
+    const draft = highlightDraft(pub, section, 'quoted', 'surrounding paragraph');
+    expect(draft.kind).toBe(KIND.HIGHLIGHT);
+    expect(draft.content).toBe('quoted');
+    expect(draft.tags).toEqual([
+      ['A', `30040:${pk}:mansfield-park`],
+      ['K', '30040'],
+      ['P', pk],
+      ['a', `30041:${pk}:ch1`],
+      ['k', '30041'],
+      ['e', section.id],
+      ['p', pk, '', 'publisher'],
+      ['r', 'https://example.com/source', 'source'],
+      ['context', 'surrounding paragraph']
+    ]);
   });
 });
 

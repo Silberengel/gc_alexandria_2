@@ -14,14 +14,16 @@ Feature: Highlights
     And I do not see a separate Highlights list at the bottom
     And I do not need an account to see public highlights
     And a 9802 that only has an i-tag source is not treated as a highlight of this edition
-    And highlights are queried for the edition and its section a-tags, not only the edition address
+    And highlights are queried for the edition A-tag and its section a-tags, not only the edition address
 
   Scenario: Signed-in reader creates a highlight
     Given I am signed in
     When I select text in a section and save a highlight
     Then it is stored as a kind 9802 NIP-84 highlight whose a-tag is that section's kind:pubkey:d-tag
-    And it also carries e, p, and k tags for that section
+    And its root tags are A, K, and P for the edition index
+    And it also carries e, k, and p tags for that section, with p marked publisher
     And it may carry a context tag with surrounding text
+    And a chapter r or source URL is copied as an r tag marked source, without trackers or a fragment
     And it is not stored with an i-tag as the publication source
     And the quote is marked in the section body immediately after save, with the highlighter avatar
     And I do not need to refresh the page to see that mark

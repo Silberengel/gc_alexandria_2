@@ -6,6 +6,17 @@ import { eventAddress } from './nostr/verify';
 import { withBookmarkTag } from './shelves';
 import { slugifyPublicationLabel } from './publication-lists';
 
+const TRACKER_PARAMETERS = new Set([
+  'fbclid',
+  'gclid',
+  'dclid',
+  'mc_cid',
+  'mc_eid',
+  'ref',
+  'ref_',
+  'source'
+]);
+
 export function publicationLabelDraft(
   publication: Event,
   label: string = NIP32_BOOKLIST_LABEL
@@ -84,18 +95,33 @@ export function ratingDraft(
   };
 }
 
+/** `kind:pubkey:d` with a lowercase pubkey, matching Bookshelf highlight coordinates. */
+function highlightCoordinate(event: Event): string {
+  const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+  return `${event.kind}:${event.pubkey.toLowerCase()}:${d}`;
+}
+
+/**
+ * NIP-84 highlight using Bookshelf's NIP-22 root/parent tags.
+ * Uppercase `A`/`K`/`P` scope the book index; lowercase `a`/`k`/`e`/`p` name the chapter.
+ */
 export function highlightDraft(
+  book: Event,
   section: Event,
   quote: string,
   context?: string
 ): { kind: number; content: string; tags: string[][] } {
-  const addr = eventAddress(section);
   const tags: string[][] = [
-    ['a', addr],
+    ['A', highlightCoordinate(book)],
+    ['K', String(book.kind)],
+    ['P', book.pubkey.toLowerCase()],
+    ['a', highlightCoordinate(section)],
+    ['k', String(section.kind)],
     ['e', section.id.toLowerCase()],
-    ['p', section.pubkey.toLowerCase()],
-    ['k', String(section.kind)]
+    ['p', section.pubkey.toLowerCase(), '', 'publisher']
   ];
+  const source = chapterSourceUrl(section);
+  if (source) tags.push(['r', source, 'source']);
   const ctx = context?.trim();
   if (ctx) tags.push(['context', ctx]);
   return {
@@ -103,4 +129,35 @@ export function highlightDraft(
     content: quote,
     tags
   };
+}
+
+/** First chapter `r` or `source` URL, with fragments and tracking parameters removed. */
+function chapterSourceUrl(chapter: Event): string | null {
+  for (const tag of chapter.tags) {
+    if (tag[0] !== 'r' && tag[0] !== 'source') continue;
+    const cleaned = cleanSourceUrl(tag[1]);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function cleanSourceUrl(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.username || url.password) return null;
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  const kept = [...url.searchParams.entries()].filter(([name]) => {
+    const key = name.toLowerCase();
+    return !TRACKER_PARAMETERS.has(key) && !key.startsWith('utm_');
+  });
+  url.hash = '';
+  url.search = '';
+  for (const [name, param] of kept) url.searchParams.append(name, param);
+  return url.toString();
 }

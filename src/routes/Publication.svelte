@@ -288,10 +288,12 @@
       .filter((t) => t[0] === 'a' && t[1])
       .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
     const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
-    const [rA, rA2, threadEvents, ...highlightBatches] = await Promise.all([
+    const bookKeys = [...new Set(publicationCoordinateLookupKeys(a))];
+    const [rA, rA2, threadEvents, highlightByBook, ...highlightBatches] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
       fetchThreadEvents(target, 80),
+      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#A': bookKeys, limit: 80 }], 5000, 4),
       ...chunk(highlightAddrs, 20).map((batch) =>
         relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }], 5000, 4)
       )
@@ -301,6 +303,7 @@
     ratings = [...ratingById.values()];
     comments = threadEvents;
     const hById = new Map<string, Event>();
+    for (const e of highlightByBook) hById.set(e.id, e);
     for (const batch of highlightBatches) {
       for (const e of batch) hById.set(e.id, e);
     }
@@ -1287,7 +1290,8 @@
     } catch {
       /* ignore */
     }
-    const signed = await signAndPublish(highlightDraft(section, quote, context));
+    if (!event) return;
+    const signed = await signAndPublish(highlightDraft(event, section, quote, context));
     if (signed) {
       const mine = session
         .getMetadata()
