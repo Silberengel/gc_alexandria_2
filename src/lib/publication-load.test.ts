@@ -8,11 +8,13 @@ import {
   humanizeHeading,
   isPlaceholderIndex,
   mergePublicationSections,
+  orderPublicationSections,
   parseToc,
   placeholderIndexEvent,
   sectionHeading,
   buildTocTree
 } from './publication-load';
+import { firstTag } from './nostr/verify';
 
 function ev(over: Partial<Event> & { tags: string[][] }): Event {
   return {
@@ -349,6 +351,151 @@ describe('enrichToc', () => {
   it('builds a ToC from sections when none exists', () => {
     const section = ev({ tags: [['title', 'Chapter 1'], ['d', 'ch-1']] });
     expect(enrichToc([], [section])[0]?.title).toBe('Chapter 1');
+  });
+});
+
+describe('orderPublicationSections', () => {
+  it('does not explode the ToC with every bible verse under nested chapters', () => {
+    const pk = 'b'.repeat(64);
+    const ot = ev({
+      id: '1'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'ot'],
+        ['title', 'Old Testament'],
+        ['a', `30040:${pk}:genesis`]
+      ]
+    });
+    const genesis = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'genesis'],
+        ['title', 'Genesis'],
+        ['a', `30040:${pk}:gen-ch-1`]
+      ]
+    });
+    const ch1 = ev({
+      id: '3'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'gen-ch-1'],
+        ['title', 'Chapter 1'],
+        ...Array.from({ length: 50 }, (_, i) => [
+          'a',
+          `30041:${pk}:gen-1-${i + 1}`
+        ])
+      ]
+    });
+    const root = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'bible'],
+        ['title', 'Bible'],
+        ['a', `30040:${pk}:ot`]
+      ]
+    });
+    const toc = parseToc(
+      [{ pos: 0, kind: 30040, d: 'ot', title: 'Old Testament', pubkey: pk }],
+      root
+    );
+    const expanded = expandTocFromSections(toc, [root, ot, genesis, ch1]);
+    // Nested indexes appear; chapter verses must not flood the ToC.
+    expect(expanded.some((e) => e.address?.includes('genesis'))).toBe(true);
+    expect(expanded.some((e) => e.address?.includes('gen-ch-1'))).toBe(true);
+    expect(expanded.filter((e) => e.address?.includes('gen-1-')).length).toBe(0);
+    expect(expanded.length).toBeLessThan(20);
+  });
+
+  it('orders nested indexes and verses by a-tag walk, not stream arrival', () => {
+    const pk = 'b'.repeat(64);
+    const v2 = ev({
+      id: '2'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [
+        ['d', 'ch1-v2'],
+        ['type', 'bible'],
+        ['title', '1:2'],
+        ['c', '1'],
+        ['s', '2']
+      ],
+      content: 'two'
+    });
+    const v1 = ev({
+      id: '1'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [
+        ['d', 'ch1-v1'],
+        ['type', 'bible'],
+        ['title', '1:1'],
+        ['c', '1'],
+        ['s', '1']
+      ],
+      content: 'one'
+    });
+    const ch1 = ev({
+      id: '3'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'ch-1'],
+        ['title', 'Chapter 1'],
+        ['a', `30041:${pk}:ch1-v1`],
+        ['a', `30041:${pk}:ch1-v2`]
+      ]
+    });
+    const book = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'matthew'],
+        ['title', 'Matthew'],
+        ['a', `30040:${pk}:ch-1`]
+      ]
+    });
+    const root = ev({
+      id: '5'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'bible'],
+        ['title', 'Bible'],
+        ['a', `30040:${pk}:matthew`]
+      ]
+    });
+    // Stream arrival: verses first, jumbled, root last.
+    const streamed = [v2, v1, ch1, book, root];
+    const ordered = orderPublicationSections(streamed, { root });
+    expect(ordered.map((e) => e.id)).toEqual([root.id, book.id, ch1.id, v1.id, v2.id]);
+  });
+
+  it('sorts orphan bible verses by chapter then verse', () => {
+    const pk = 'b'.repeat(64);
+    const a = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'a'], ['type', 'bible'], ['c', '2'], ['s', '1'], ['title', '2:1']]
+    });
+    const b = ev({
+      id: 'b'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'b'], ['type', 'bible'], ['c', '1'], ['s', '2'], ['title', '1:2']]
+    });
+    const c = ev({
+      id: 'c'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'c'], ['type', 'bible'], ['c', '1'], ['s', '1'], ['title', '1:1']]
+    });
+    const ordered = orderPublicationSections([a, b, c], { root: null });
+    expect(ordered.map((e) => firstTag(e, 'title'))).toEqual(['1:1', '1:2', '2:1']);
   });
 });
 

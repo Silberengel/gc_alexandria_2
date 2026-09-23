@@ -57,6 +57,7 @@
     isPlaceholderIndex,
     isUnreadableMeta,
     mergePublicationSections,
+    orderPublicationSections,
     naddrFor,
     parseToc,
     placeholderIndexEvent,
@@ -130,6 +131,12 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
+  /** Document order index — unique `data-read-pos` even when ToC lacks the leaf. */
+  const sectionReadPos = $derived.by(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < sections.length; i++) map.set(sections[i]!.id, i);
+    return map;
+  });
   const readerGroups = $derived(
     $verseStyling ? groupReaderSections(sections) : sections.map((ev) => ({ kind: 'block' as const, event: ev }))
   );
@@ -384,25 +391,8 @@
     return mergePublicationSections(primary, rest);
   }
 
-  function orderSectionsByToc(list: Event[], entries: TocEntry[]): Event[] {
-    if (list.length < 2) return list;
-    const rank = new Map<string, number>();
-    for (const e of entries) {
-      if (e.address) rank.set(e.address.toLowerCase(), e.pos);
-      if (e.id) rank.set(e.id.toLowerCase(), e.pos);
-    }
-    // Stable: unranked leaves keep stream order (important when /toc is index-only).
-    return [...list]
-      .map((event, i) => ({
-        event,
-        i,
-        r:
-          rank.get(eventAddress(event).toLowerCase()) ??
-          rank.get(event.id.toLowerCase()) ??
-          1_000_000_000 + i
-      }))
-      .sort((a, b) => a.r - b.r || a.i - b.i)
-      .map((row) => row.event);
+  function orderSectionsByToc(list: Event[], entries: TocEntry[], root?: Event | null): Event[] {
+    return orderPublicationSections(list, { root: root ?? event, toc: entries });
   }
 
   function freezeTocFromSections(list: Event[]): void {
@@ -425,7 +415,7 @@
     if (!toc.length) toc = parseToc(null, edition);
     const merged = ensureIndexHeadings(list, toc);
     toc = expandTocFromSections(toc, merged);
-    sections = orderSectionsByToc(merged, toc);
+    sections = orderSectionsByToc(merged, toc, edition);
     freezeTocFromSections(sections);
   }
 
@@ -1295,17 +1285,13 @@
             {#if group.kind === 'bible'}
               {@const verses = group.verses}
               <div class="bible-flow">
-                {#each verses as verse, vi (verse.id)}
+                {#each verses as verse (verse.id)}
                   {@const sectionKey = eventAddress(verse)}
                   {@const disp = bibleDisplay(verse)}
-                  {@const prev = vi > 0 ? bibleDisplay(verses[vi - 1]!) : null}
                   {@const pos =
-                    readerToc.find((e) => e.id === verse.id || e.address === sectionKey)?.pos ?? vi}
-                  {@const chapterBreak =
-                    disp.kind === 'verse' &&
-                    (prev == null ||
-                      prev.kind !== 'verse' ||
-                      prev.chapter !== disp.chapter)}
+                    readerToc.find((e) => e.id === verse.id || e.address === sectionKey)?.pos ??
+                    sectionReadPos.get(verse.id) ??
+                    0}
                   {#if disp.kind === 'heading'}
                     <h3
                       class="bible-run-heading"
@@ -1318,11 +1304,6 @@
                     </h3>
                     <p class="bible-run-text">{verse.content}</p>
                   {:else}
-                    {#if chapterBreak}
-                      <h3 class="bible-chapter-num" aria-label={`Chapter ${disp.chapter}`}>
-                        Chapter {disp.chapter}
-                      </h3>
-                    {/if}
                     <span
                       class="bible-verse"
                       id={`section-${verse.id}`}
@@ -1402,7 +1383,9 @@
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
               {@const pos =
-                readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ?? gi}
+                readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ??
+                sectionReadPos.get(section.id) ??
+                gi}
               <article
                 class="reader-section"
                 class:reader-index={isIndex}

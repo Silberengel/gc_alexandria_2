@@ -2828,17 +2828,6 @@ mark.text-highlight.highlight-flash,
   line-height: 1.55;
   max-width: 100%;
 }
-.bible-chapter-num {
-  display: block;
-  margin: 1.1rem 0 0.45rem;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: color-mix(in srgb, var(--text) 92%, var(--accent));
-}
-.bible-chapter-num:first-child {
-  margin-top: 0.15rem;
-}
 .bible-run-heading {
   display: block;
   margin: 0.85rem 0 0.35rem;

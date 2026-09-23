@@ -5,6 +5,8 @@ import { parseAddress } from './library-scope';
 import { firstTag, eventAddress } from './nostr/verify';
 import { coverTitle, humanizeTag } from './cover-fallback';
 import { displayTitle } from './metadata';
+import { publicationCoordinateLookupKeys } from './publication-coordinate';
+import { bibleDisplay, isBibleSection } from './bible-verse';
 
 export type TocEntry = {
   pos: number;
@@ -199,31 +201,48 @@ function leafEntriesFromItem(
   o: Record<string, unknown>,
   parent: TocEntry
 ): TocEntry[] {
+  return childEntriesFromItem(o, parent, { indexes: false });
+}
+
+/** Children from an index event; optionally include nested 30040 indexes. */
+function childEntriesFromItem(
+  o: Record<string, unknown>,
+  parent: TocEntry,
+  opts: { indexes: boolean }
+): TocEntry[] {
   const embedded = o.event;
   if (!embedded || typeof embedded !== 'object') return [];
   const tags = (embedded as { tags?: string[][] }).tags;
   if (!Array.isArray(tags)) return [];
   const out: TocEntry[] = [];
+  const depth = (parent.depth ?? 0) + 1;
+  const step = Math.pow(10, -3 * depth);
   let n = 0;
   for (const tag of tags) {
     if (tag[0] === 'a' && tag[1]) {
       const parsed = parseAddress(tag[1]);
-      if (!parsed || parsed.kind === KIND.PUBLICATION) continue;
+      if (!parsed) continue;
+      const index = parsed.kind === KIND.PUBLICATION;
+      if (index && !opts.indexes) continue;
       out.push({
-        pos: parent.pos + (n + 1) * 0.0001,
-        title: parsed.d ? humanizeHeading(parsed.d) : `Section ${n + 1}`,
+        pos: parent.pos + (n + 1) * step,
+        title: parsed.d
+          ? index
+            ? shortIndexTitle(parsed.d)
+            : humanizeHeading(parsed.d)
+          : `Section ${n + 1}`,
         address: tag[1],
-        depth: (parent.depth ?? 0) + 1,
-        index: false,
+        depth,
+        index,
         kind: parsed.kind
       });
       n += 1;
     } else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
       out.push({
-        pos: parent.pos + (n + 1) * 0.0001,
+        pos: parent.pos + (n + 1) * step,
         title: `Section ${n + 1}`,
         id: tag[1],
-        depth: (parent.depth ?? 0) + 1,
+        depth,
         index: false
       });
       n += 1;
@@ -472,17 +491,133 @@ export function mergePublicationSections(...lists: Event[][]): Event[] {
   return dropSupersededPlaceholders([...byId.values()]);
 }
 
-/** Bind fetched index events onto ToC rows and expand their leaf children. */
+/** Stable secondary key for bible leaves missing from the a-tag walk. */
+function bibleSortKey(event: Event): [number, number, number] {
+  if (!isBibleSection(event)) return [2, 0, 0];
+  const disp = bibleDisplay(event);
+  if (disp.kind === 'heading') return [0, 0, 0];
+  return [1, Number(disp.chapter) || 0, Number(disp.verse) || 0];
+}
+
+/**
+ * Document order: depth-first walk of a/e tags from the edition root through
+ * loaded indexes. Mercury /stream pages arrive unordered; ToC is often
+ * indexes-only — tag order on each parent is the authoritative sequence.
+ */
+export function orderPublicationSections(
+  list: Event[],
+  opts?: { root?: Event | null; toc?: TocEntry[] }
+): Event[] {
+  if (list.length < 2) return list;
+
+  const byId = new Map<string, Event>();
+  const byAddr = new Map<string, Event>();
+  for (const event of list) {
+    byId.set(event.id.toLowerCase(), event);
+    for (const key of publicationCoordinateLookupKeys(eventAddress(event))) {
+      byAddr.set(key.toLowerCase(), event);
+    }
+  }
+
+  const tocRank = new Map<string, number>();
+  for (const entry of opts?.toc ?? []) {
+    if (entry.address) tocRank.set(entry.address.toLowerCase(), entry.pos);
+    if (entry.id) tocRank.set(entry.id.toLowerCase(), entry.pos);
+  }
+
+  const resolveChild = (tag: string[]): Event | undefined => {
+    if (tag[0] === 'a' && tag[1]) {
+      for (const key of publicationCoordinateLookupKeys(tag[1])) {
+        const hit = byAddr.get(key.toLowerCase());
+        if (hit) return hit;
+      }
+      return undefined;
+    }
+    if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
+      return byId.get(tag[1].toLowerCase());
+    }
+    return undefined;
+  };
+
+  const ordered: Event[] = [];
+  const seen = new Set<string>();
+  const visit = (event: Event) => {
+    if (seen.has(event.id)) return;
+    seen.add(event.id);
+    ordered.push(event);
+    for (const tag of event.tags) {
+      const child = resolveChild(tag);
+      if (child) visit(child);
+    }
+  };
+
+  const root =
+    opts?.root && byId.has(opts.root.id.toLowerCase())
+      ? byId.get(opts.root.id.toLowerCase())!
+      : null;
+  if (root) visit(root);
+
+  const leftoverIndex = new Map<string, number>();
+  const leftovers: Event[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const event = list[i]!;
+    if (seen.has(event.id)) continue;
+    leftoverIndex.set(event.id, i);
+    leftovers.push(event);
+  }
+
+  leftovers.sort((a, b) => {
+    const ra =
+      tocRank.get(eventAddress(a).toLowerCase()) ??
+      tocRank.get(a.id.toLowerCase()) ??
+      1_000_000_000;
+    const rb =
+      tocRank.get(eventAddress(b).toLowerCase()) ??
+      tocRank.get(b.id.toLowerCase()) ??
+      1_000_000_000;
+    if (ra !== rb) return ra - rb;
+    const ka = bibleSortKey(a);
+    const kb = bibleSortKey(b);
+    for (let i = 0; i < 3; i++) {
+      if (ka[i]! !== kb[i]!) return ka[i]! - kb[i]!;
+    }
+    return (leftoverIndex.get(a.id) ?? 0) - (leftoverIndex.get(b.id) ?? 0);
+  });
+
+  return [...ordered, ...leftovers];
+}
+
+/** Bind fetched index events onto ToC rows and expand nested children from a-tags. */
 export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEntry[] {
   if (!toc.length || !sections.length) return toc;
   const byAddr = new Map<string, Event>();
   for (const section of sections) {
     if (section.kind !== KIND.PUBLICATION || isPlaceholderIndex(section)) continue;
-    byAddr.set(eventAddress(section).toLowerCase(), section);
+    for (const key of publicationCoordinateLookupKeys(eventAddress(section))) {
+      byAddr.set(key.toLowerCase(), section);
+    }
   }
-  const bound = toc.map((entry) => {
+
+  const lookup = (address: string): Event | undefined => {
+    for (const key of publicationCoordinateLookupKeys(address)) {
+      const hit = byAddr.get(key.toLowerCase());
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+
+  // Only dump direct leaf sections from indexes Mercury already listed — never from
+  // nested books/chapters discovered below (a Bible would explode the ToC).
+  const originalIndexKeys = new Set(
+    toc
+      .filter((e) => e.index)
+      .map((e) => (e.address ?? e.id ?? '').toLowerCase())
+      .filter(Boolean)
+  );
+
+  let bound = toc.map((entry) => {
     if (!entry.index || !entry.address) return entry;
-    const hit = byAddr.get(entry.address.toLowerCase());
+    const hit = lookup(entry.address);
     if (!hit) return entry;
     return {
       ...entry,
@@ -491,18 +626,50 @@ export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEn
       event: hit
     };
   });
+
+  // Multi-pass: nest 30040 indexes only (OT → book → chapter). Skip verse leaves here.
+  for (let pass = 0; pass < 8; pass++) {
+    const seen = new Set(bound.map((e) => tocEntryKey(e)));
+    const extra: TocEntry[] = [];
+    for (const entry of bound) {
+      if (!entry.index || entry.root || !entry.event) continue;
+      for (const child of childEntriesFromItem({ event: entry.event }, entry, { indexes: true })) {
+        if (!child.index) continue;
+        const key = tocEntryKey(child);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const hit = child.address ? lookup(child.address) : undefined;
+        if (hit) {
+          extra.push({
+            ...child,
+            id: hit.id,
+            title: sectionHeading(hit) || child.title,
+            event: hit
+          });
+        } else {
+          extra.push(child);
+        }
+      }
+    }
+    if (!extra.length) break;
+    bound = [...bound, ...extra];
+  }
+
+  // One-level leaf sections under the original (Mercury) indexes only.
   const seen = new Set(bound.map((e) => tocEntryKey(e)));
   const leaves: TocEntry[] = [];
   for (const entry of bound) {
     if (!entry.index || entry.root || !entry.event) continue;
-    for (const leaf of leafEntriesFromItem({ event: entry.event }, entry)) {
-      const key = tocEntryKey(leaf);
-      if (seen.has(key)) continue;
-      seen.add(key);
+    const key = (entry.address ?? entry.id ?? '').toLowerCase();
+    if (!originalIndexKeys.has(key)) continue;
+    for (const leaf of childEntriesFromItem({ event: entry.event }, entry, { indexes: false })) {
+      const leafKey = tocEntryKey(leaf);
+      if (seen.has(leafKey)) continue;
+      seen.add(leafKey);
       leaves.push(leaf);
     }
   }
-  if (!leaves.length) return bound;
+
   return [...bound, ...leaves].sort(
     (a, b) => a.pos - b.pos || Number(!!a.index) - Number(!!b.index)
   );
