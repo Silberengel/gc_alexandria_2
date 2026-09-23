@@ -3,15 +3,7 @@
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import { KIND } from '$lib/constants';
-  import {
-    displayRefTitle,
-    focusHrefForRef,
-    pathForRef,
-    topLevelPublicationAddress
-  } from '$lib/landing';
-  import { referencedLibraryAddress, referencedSectionAddress } from '$lib/library-scope';
-  import { eventAddress } from '$lib/nostr/verify';
-  import { rememberEvents } from '$lib/nostr/event-memory';
+  import { displayRefTitle, focusHrefForRef, pathForRef, warmLandingRef } from '$lib/landing';
 
   interface Props {
     event: Event;
@@ -32,14 +24,8 @@
         : 'View'
   );
 
-  /** Seed event-memory before SPA nav so Wiki/Publication can paint without a relay round-trip. */
   function warmWork(): void {
-    const work = referencedLibraryAddress(event);
-    const section = referencedSectionAddress(event);
-    const top = topLevelPublicationAddress(section ?? work, referenced);
-    const coords = [top, work, section].filter((c): c is string => !!c);
-    const hits = referenced.filter((e) => coords.includes(eventAddress(e)));
-    if (hits.length) rememberEvents(hits);
+    warmLandingRef(event, referenced);
   }
 </script>
 

@@ -7,8 +7,18 @@
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
-  import { LANDING_FEED_LIMIT, loadCachedLanding, loadViewerShelves, mergeLandingShelves, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
+  import {
+    LANDING_FEED_LIMIT,
+    loadCachedLanding,
+    loadViewerShelves,
+    mergeLandingShelves,
+    orderShelfCovers,
+    refreshLanding,
+    type LandingView
+  } from '$lib/landing';
+  import { warmNavEvent } from '$lib/nav-warm';
   import { publicationPath } from '$lib/metadata';
+  import { eventHref } from '$lib/listing-table';
   import { session } from '$lib/stores/session';
   import { listingDensity } from '$lib/stores/listing-density';
   import { get } from 'svelte/store';
@@ -266,7 +276,12 @@
         {:else}
           <div class="shelf-bar">
             {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
-              <a class="cover" href={`#${publicationPath(pub)}`} use:link>
+              <a
+                class="cover"
+                href={eventHref(pub) ?? `#${publicationPath(pub)}`}
+                use:link
+                onpointerdown={() => warmNavEvent(pub)}
+              >
                 <Cover event={pub} />
               </a>
             {/each}

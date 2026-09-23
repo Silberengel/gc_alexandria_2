@@ -33,8 +33,11 @@ class RelayPool {
   private activeQueries = 0;
   private queryWaiters: Array<() => void> = [];
   private static readonly MAX_PARALLEL_QUERIES = 8;
-  /** Default fan-out per REQ — enough to include wiki/social hosts past document relays. */
-  private static readonly MAX_RELAYS_PER_QUERY = 10;
+  /**
+   * Default fan-out per REQ. Parallel across these hosts, but keep the count modest —
+   * publication social loads fire several filters at once and large fan-outs trip rate limits.
+   */
+  private static readonly MAX_RELAYS_PER_QUERY = 5;
 
   setSignedIn(signedIn: boolean): void {
     this.signedIn = signedIn;

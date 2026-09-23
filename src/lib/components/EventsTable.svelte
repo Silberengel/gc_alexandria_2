@@ -8,6 +8,7 @@
     sortListingRows,
     type ListingTableColumn
   } from '$lib/listing-table';
+  import { warmNavEvent } from '$lib/nav-warm';
 
   interface Props {
     events: Event[];
@@ -20,6 +21,7 @@
   let page = $state(1);
   const pageSize = LISTING_PAGE_SIZE_TABLE;
 
+  const byId = $derived(new Map(events.map((e) => [e.id, e])));
   const rows = $derived(events.map(listingTableRow));
   const sorted = $derived(sortListingRows(rows, sortColumn, sortDir));
   const paged = $derived(sorted.slice((page - 1) * pageSize, page * pageSize));
@@ -54,6 +56,10 @@
     if (sortColumn !== column) return 'none';
     return sortDir === 'asc' ? 'ascending' : 'descending';
   }
+
+  function warmRow(id: string): void {
+    warmNavEvent(byId.get(id));
+  }
 </script>
 
 {#if events.length === 0}
@@ -80,7 +86,7 @@
           <tr>
             <td title={row.titleFull !== row.title ? row.titleFull : undefined}>
               {#if row.href}
-                <a href={row.href} use:link>{row.title}</a>
+                <a href={row.href} use:link onpointerdown={() => warmRow(row.id)}>{row.title}</a>
               {:else}
                 {row.title}
               {/if}

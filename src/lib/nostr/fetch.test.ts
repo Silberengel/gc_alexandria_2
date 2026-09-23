@@ -11,7 +11,8 @@ const query = vi.fn();
 
 vi.mock('./event-memory', () => ({
   memoryFindByAddress: (...args: unknown[]) => memoryFindByAddress(...args),
-  memoryGetEvent: (...args: unknown[]) => memoryGetEvent(...args)
+  memoryGetEvent: (...args: unknown[]) => memoryGetEvent(...args),
+  rememberEvents: () => {}
 }));
 
 vi.mock('./cache', () => ({

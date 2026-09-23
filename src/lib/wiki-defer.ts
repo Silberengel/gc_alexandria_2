@@ -1,7 +1,9 @@
 import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
 import { KIND } from './constants';
+import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress } from './nostr/verify';
+import { memoryGetEvent } from './nostr/event-memory';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 
 export type WikiReference = {
@@ -106,5 +108,16 @@ export function wikiDeferTargetHref(event: Event): string | null {
     return `/wiki/d/${encodeURIComponent(identifier)}/p/${nip19.npubEncode(pubkey.toLowerCase())}`;
   } catch {
     return null;
+  }
+}
+
+/** Seed memory for the preferred defer target before SPA nav. */
+export function warmWikiDeferTarget(from: Event): void {
+  warmNavEvent(from);
+  const target = getWikiDeferTarget(from);
+  if (target?.coordinate) warmAddress(target.coordinate);
+  if (target?.eventId) {
+    const hit = memoryGetEvent(target.eventId);
+    if (hit) warmNavEvent(hit);
   }
 }

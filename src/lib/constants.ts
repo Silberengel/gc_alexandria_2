@@ -9,8 +9,7 @@ export const THIRD_PARTY_RELAYS = [
   'wss://nostr21.com',
   'wss://relay.sovbit.host',
   'wss://nostr.wine',
-  'wss://nostr.xmr.rocks',
-  'wss://pipe.imwald.eu'
+  'wss://nostr.xmr.rocks'
 ] as const;
 
 export const DOCUMENT_SEARCH_RELAYS = [
@@ -23,17 +22,15 @@ export const DOCUMENT_SEARCH_RELAYS = [
 export const DEFAULT_NOSTRCONNECT_RELAY = [
   'wss://relay.nsec.app/',
   'wss://bucket.coracle.social/',
-  'wss://thecitadel.nostr1.com/',
-  'wss://pipe.imwald.eu'
+  'wss://thecitadel.nostr1.com/'
 ] as const;
 
 export const WIKI_RELAYS = ['wss://relay.wikifreedia.xyz'] as const;
 
 export const SOCIAL_RELAYS = [
   'wss://theforest.nostr1.com',
-  // GitCitadel booklist labels (kind 1985) — keep early so pool's 3-relay cap still hits them.
+  // GitCitadel booklist labels (kind 1985) — keep early so a small relay cap still hits them.
   'wss://thecitadel.nostr1.com',
-  // pipe.imwald.eu is last in THIRD_PARTY — do not pin it early (rate-limits at 12/min).
   ...THIRD_PARTY_RELAYS
 ] as const;
 

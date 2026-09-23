@@ -29,7 +29,8 @@ import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { cacheFindByAddress } from './nostr/cache';
-import { memoryFindByAddress } from './nostr/event-memory';
+import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
+import { warmAddress } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
 import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
@@ -40,6 +41,8 @@ export type LandingView = LandingSnapshot & {
   labels: string[];
   viewerPubkey?: string | null;
 };
+
+export { warmAddress, warmNavEvent } from './nav-warm';
 
 function currentViewerPubkey(): string | null {
   return session.getPubkey()?.toLowerCase() ?? null;
@@ -270,6 +273,24 @@ export function publisherForAddress(coord: string, referenced: Event[]): string 
   const hit = referenced.find((e) => eventAddress(e) === coord);
   if (hit) return hit.pubkey;
   return parseAddress(coord)?.pubkey ?? '';
+}
+
+/**
+ * Seed event-memory before SPA nav so Publication/Wiki paint without a relay round-trip.
+ * Prefer resolved `referenced` hits; also re-assert any matching address already in memory (shelves).
+ */
+export function warmLandingRef(event: Event, referenced: Event[]): void {
+  const work = referencedLibraryAddress(event);
+  const section = referencedSectionAddress(event);
+  const top = topLevelPublicationAddress(section ?? work, referenced);
+  const coords = [top, work, section].filter((c): c is string => !!c);
+  const hits = referenced.filter((e) => coords.includes(eventAddress(e)));
+  const fromMem: Event[] = [];
+  for (const coord of coords) {
+    const hit = warmAddress(coord);
+    if (hit) fromMem.push(hit);
+  }
+  rememberEvents([...hits, ...fromMem, event]);
 }
 
 /** Path to the work page top (no deep-link query). */

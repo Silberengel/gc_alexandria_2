@@ -1,11 +1,10 @@
 /**
  * Persistent image cache (covers + avatars).
- * Look up Cache Storage / memory first; on miss fetch once, store, and reuse a blob: URL.
+ * Look up Cache Storage / memory first; on miss return the plain URL for `<img src>`.
+ * We do not cors-fetch remote covers — Gutenberg/Wikimedia/etc. lack ACAO and spam the console.
  */
 
 const CACHE_NAME = 'alexandria-images-v1';
-const MAX_ENTRIES = 500;
-const MAX_BYTES_PER_FILE = 2.5 * 1024 * 1024;
 
 /** url → object URL (same-session). */
 const memory = new Map<string, string>();
@@ -51,46 +50,6 @@ async function readCachedBlob(url: string): Promise<Blob | null> {
   }
 }
 
-async function storeBlob(url: string, res: Response): Promise<void> {
-  const cache = await openImageCache();
-  if (!cache) return;
-  try {
-    const clone = res.clone();
-    const buf = await clone.arrayBuffer();
-    if (buf.byteLength === 0 || buf.byteLength > MAX_BYTES_PER_FILE) return;
-    const type = res.headers.get('content-type') || 'image/jpeg';
-    if (!type.startsWith('image/') && type !== 'application/octet-stream') return;
-    await cache.put(
-      url,
-      new Response(buf, {
-        status: 200,
-        headers: {
-          'Content-Type': type,
-          'Content-Length': String(buf.byteLength),
-          'X-Alexandria-Cached': String(Date.now())
-        }
-      })
-    );
-    void trimCache(cache);
-  } catch {
-    /* quota / opaque */
-  }
-}
-
-async function trimCache(cache: Cache): Promise<void> {
-  try {
-    const keys = await cache.keys();
-    if (keys.length <= MAX_ENTRIES) return;
-    const drop = keys.length - MAX_ENTRIES;
-    for (let i = 0; i < drop; i++) {
-      const req = keys[i];
-      if (req) await cache.delete(req);
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 function blobToObjectUrl(blob: Blob): string {
   return URL.createObjectURL(blob);
 }
@@ -104,8 +63,8 @@ export function peekCachedImageSrc(url: string): string | null {
 }
 
 /**
- * Prefer Cache Storage / memory; otherwise return the network URL and fill the cache
- * in the background so the next refresh is instant.
+ * Prefer Cache Storage / memory; otherwise return the network URL.
+ * Plain `<img src>` uses the browser HTTP cache without CORS.
  */
 export async function cachedImageSrc(url: string): Promise<string> {
   const key = normalizeUrl(url);
@@ -128,7 +87,7 @@ export async function cachedImageSrc(url: string): Promise<string> {
         return obj;
       }
 
-      // Miss: paint from network now; populate disk cache for the next visit.
+      // Miss: paint from network via <img>; hydrate memory if Cache Storage already has it.
       void populateImageCache(key);
       return key;
     } finally {
@@ -140,7 +99,9 @@ export async function cachedImageSrc(url: string): Promise<string> {
   return job;
 }
 
-/** Fetch and store without blocking the first paint. */
+/**
+ * Warm memory from Cache Storage only (no network cors fetch).
+ */
 export async function populateImageCache(url: string): Promise<void> {
   const key = normalizeUrl(url);
   if (!key || !isHttpUrl(key) || isInlineUrl(key)) return;
@@ -150,20 +111,9 @@ export async function populateImageCache(url: string): Promise<void> {
     const existing = await readCachedBlob(key);
     if (existing && existing.size > 0) {
       memory.set(key, blobToObjectUrl(existing));
-      return;
     }
-
-    const res = await fetch(key, {
-      mode: 'cors',
-      credentials: 'omit',
-      signal: AbortSignal.timeout(12_000)
-    });
-    if (!res.ok) return;
-    await storeBlob(key, res);
-    const blob = await readCachedBlob(key);
-    if (blob && blob.size > 0) memory.set(key, blobToObjectUrl(blob));
   } catch {
-    // CORS/CDN failures — browser HTTP cache may still help a plain <img src>.
+    /* ignore */
   }
 }
 

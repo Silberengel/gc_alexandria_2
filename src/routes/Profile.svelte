@@ -20,7 +20,7 @@
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent } from '$lib/nostr/cache';
-  import { rememberEvents } from '$lib/nostr/event-memory';
+  import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
   import { rememberProfileFromKind0 } from '$lib/profile-cache';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
   import { publicationTargets, isPublicationLabelEvent } from '$lib/nip32';
@@ -197,6 +197,13 @@
       npub = pubkey;
     }
 
+    // Badge / prior page already had kind-0 — paint header before relay round-trips.
+    const warmMeta = memoryFindMetadata(pubkey);
+    if (warmMeta) {
+      profile = warmMeta;
+      rememberProfileFromKind0(warmMeta);
+    }
+
     const authoredFilter = {
       kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
       authors: [pubkey],
@@ -232,7 +239,7 @@
         relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
         relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }])
       ]);
-    profile = p[0] ?? null;
+    profile = p[0] ?? profile;
     if (profile) {
       rememberEvents([profile]);
       rememberProfileFromKind0(profile);
@@ -250,6 +257,7 @@
     const byId = new Map<string, Event>();
     for (const e of [...authored, ...credited]) byId.set(e.id, e);
     produced = omitNested([...byId.values()]);
+    rememberEvents(produced);
     const interactionEvents = [
       ...labels.filter(isPublicationLabelEvent),
       ...bookmarks,
@@ -260,6 +268,7 @@
     ];
     const works = await resolveInteracted(interactionEvents);
     interacted = works;
+    rememberEvents(works);
     const markMap = interactionMarksFromEvents(interactionEvents);
     const byWork = new Map<string, InteractionMark[]>();
     for (const work of works) {

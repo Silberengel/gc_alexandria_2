@@ -19,7 +19,9 @@
   import { wikiStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
-  import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
+  import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
+  import { cacheFindByAddress } from '$lib/nostr/cache';
+  import { warmAddress, warmNavEvent } from '$lib/nav-warm';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
@@ -208,6 +210,7 @@
 
   async function paintWiki(fetched: Event): Promise<void> {
     // Paint immediately — never leave "Page is loading…" waiting on deference I/O.
+    rememberEvents([fetched]);
     event = fetched;
     loading = false;
     if (await forwardDeference(fetched)) return;
@@ -219,9 +222,16 @@
   }
 
   async function eventFromId(id: string): Promise<Event | null> {
+    const fromMem = memoryGetEvent(id);
+    if (fromMem) return fromMem;
     const mercury = await mercuryFilter({ ids: [id], limit: 1 });
-    if (mercury[0]) return mercury[0];
-    return (await relayPool.query(wikiStack(), [{ ids: [id], limit: 1 }]))[0] ?? null;
+    if (mercury[0]) {
+      rememberEvents([mercury[0]]);
+      return mercury[0];
+    }
+    const hit = (await relayPool.query(wikiStack(), [{ ids: [id], limit: 1 }]))[0] ?? null;
+    if (hit) rememberEvents([hit]);
+    return hit;
   }
 
   async function forwardDeference(from: Event): Promise<boolean> {
@@ -235,11 +245,15 @@
         const d = from.tags.find((t) => t[0] === 'd')?.[1] ?? '';
         if (parsed.d === d) return false;
       }
+      warmAddress(target.coordinate);
       path = addressPath(target.coordinate);
     }
     if (!path && target.eventId) {
       const dest = await eventFromId(target.eventId);
-      if (dest) path = wikiPath(dest);
+      if (dest) {
+        warmNavEvent(dest);
+        path = wikiPath(dest);
+      }
     }
     if (!path) return false;
     forwarding = true;
@@ -308,6 +322,15 @@
             return;
           }
           if (warm) return;
+          const slug = normalizeDTag(dTag) || dTag;
+          const cached =
+            (await cacheFindByAddress(KIND.WIKI, pubkey, slug)) ??
+            (await cacheFindByAddress(KIND.SPEC, pubkey, slug));
+          if (cancelled) return;
+          if (cached) {
+            await paintWiki(cached);
+            return;
+          }
           const fetched = await loadWikiByAuthorD(pubkey, dTag, (early) => {
             if (!cancelled) void paintWiki(early);
           });
@@ -363,6 +386,7 @@
             error = true;
             return;
           }
+          rememberEvents(found);
           versions = found;
           return;
         }

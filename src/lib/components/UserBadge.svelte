@@ -148,7 +148,15 @@
 </script>
 
 {#if pubkey && !muted}
-  <a class="userbadge" href={`#/p/${npub || pubkey}`} use:link>
+  <a
+    class="userbadge"
+    href={`#/p/${npub || pubkey}`}
+    use:link
+    onpointerdown={() => {
+      const meta = memoryFindMetadata(pubkey);
+      if (meta) rememberEvents([meta]);
+    }}
+  >
     {#if !compact}
       {#if displayPicture && !pictureFailed}
         <img

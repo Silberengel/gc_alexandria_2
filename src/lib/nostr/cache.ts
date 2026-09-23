@@ -294,19 +294,21 @@ export async function cacheFindByAddress(
   // Memory already has shelf/search hits — skip the slow Cache Storage scan when present.
   if (best) return best;
 
+  // Landing snapshot is small and already hydrated for the home feed — check before O(n) id scan.
+  const landing = await cacheGetLandingSnapshot();
+  if (landing) {
+    for (const e of landing.publications) consider(e);
+    for (const e of landing.referenced ?? []) consider(e);
+    for (const shelf of landing.shelves ?? []) for (const e of shelf.events) consider(e);
+  }
+  if (best) return best;
+
   const cache = await openCache();
   const m = meta();
   for (const id of [...m.ids].reverse()) {
     const res = await cache.match(`/event/${id}`);
     if (!res) continue;
     consider(ingestEvent(await res.json()));
-  }
-
-  const landing = await cacheGetLandingSnapshot();
-  if (landing) {
-    for (const e of landing.publications) consider(e);
-    for (const e of landing.referenced ?? []) consider(e);
-    for (const shelf of landing.shelves ?? []) for (const e of shelf.events) consider(e);
   }
 
   return best;

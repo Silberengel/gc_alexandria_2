@@ -2,8 +2,10 @@
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
   import { KIND } from '$lib/constants';
+  import { warmNavEvent } from '$lib/nav-warm';
   import { cardMeta, displayTitle, publicationPath, wikiPath } from '$lib/metadata';
   import { rememberEvents } from '$lib/nostr/event-memory';
+  import { warmWikiDeferTarget } from '$lib/wiki-defer';
   import Cover from './Cover.svelte';
   import CardMeta from './CardMeta.svelte';
 
@@ -38,10 +40,18 @@
       : ''
   );
   const isRow = $derived(variant === 'row');
+
+  function warmSelf(): void {
+    warmNavEvent(event);
+  }
+
+  function warmDefer(): void {
+    warmWikiDeferTarget(event);
+  }
 </script>
 
 {#if isRow}
-  <a class="listing-row" href={`#${href}`} use:link>
+  <a class="listing-row" href={`#${href}`} use:link onpointerdown={warmSelf}>
     <span class="listing-row-cover">
       <Cover {event} />
     </span>
@@ -65,20 +75,20 @@
 {:else}
   <div class="card pub-card" class:pub-card-wiki={isWiki}>
     <div class="pub-card-top">
-      <a class="pub-card-cover" href={`#${href}`} use:link>
+      <a class="pub-card-cover" href={`#${href}`} use:link onpointerdown={warmSelf}>
         <Cover {event} />
       </a>
       <div class="pub-card-body">
         <p class="pub-card-kind muted">{kindLabel}</p>
         <h3>
           {#if meta.titles.length}
-            <a href={`#${href}`} use:link>
+            <a href={`#${href}`} use:link onpointerdown={warmSelf}>
               {#each meta.titles as name, i}
                 {#if i > 0}<span> · </span>{/if}{name}
               {/each}
             </a>
           {:else}
-            <a href={`#${href}`} use:link>{title}</a>
+            <a href={`#${href}`} use:link onpointerdown={warmSelf}>{title}</a>
           {/if}
         </h3>
         {#if showMeta}
@@ -90,9 +100,16 @@
       <div class="pub-card-defer">
         <p class="pub-card-defer-label">The author defers to another version</p>
         {#if meta.deferHref}
-          <a class="pub-card-defer-link" href={`#${meta.deferHref}`} use:link>Open preferred version</a>
+          <a
+            class="pub-card-defer-link"
+            href={`#${meta.deferHref}`}
+            use:link
+            onpointerdown={warmDefer}>Open preferred version</a
+          >
         {:else}
-          <a class="pub-card-defer-link" href={`#${href}`} use:link>Open this version</a>
+          <a class="pub-card-defer-link" href={`#${href}`} use:link onpointerdown={warmSelf}
+            >Open this version</a
+          >
         {/if}
       </div>
     {:else if showMeta && summary}

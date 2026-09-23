@@ -41,8 +41,7 @@ describe('image-cache', () => {
     expect(peekCachedImageSrc('https://cdn.example/cover.jpg')).toBe(src);
   });
 
-  it('on miss returns the network url and populates cache in background', async () => {
-    const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  it('on miss returns the network url without a cors fetch', async () => {
     const store = new Map<string, Response>();
     vi.stubGlobal('caches', {
       open: async () => ({
@@ -54,14 +53,13 @@ describe('image-cache', () => {
         delete: async (req: Request) => store.delete(req.url)
       })
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(png, { status: 200, headers: { 'Content-Type': 'image/png' } }))
-    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
 
     const first = await cachedImageSrc('https://cdn.example/miss.jpg');
     expect(first).toBe('https://cdn.example/miss.jpg');
     await populateImageCache('https://cdn.example/miss.jpg');
-    expect(store.has('https://cdn.example/miss.jpg')).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.has('https://cdn.example/miss.jpg')).toBe(false);
   });
 });

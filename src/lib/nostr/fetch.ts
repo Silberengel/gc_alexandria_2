@@ -4,7 +4,7 @@ import { isEventDeleted, refreshDeletionsFor } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
-import { memoryFindByAddress, memoryGetEvent } from './event-memory';
+import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { mercuryFilter } from './mercury';
 import { relayPool } from './pool';
 import { documentStack, wikiStack } from './selector';
@@ -42,7 +42,10 @@ function stackForKind(kind: number): string[] {
 async function hideIfDeleted(event: Event | null): Promise<Event | null> {
   if (!event) return null;
   await refreshDeletionsFor([event]).catch(() => {});
-  if (!isEventDeleted(event)) return event;
+  if (!isEventDeleted(event)) {
+    rememberEvents([event]);
+    return event;
+  }
   void cacheDeleteEvent(event.id);
   return null;
 }

@@ -3,7 +3,7 @@
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import Stars from './Stars.svelte';
-  import { displayRefTitle, focusHrefForRef, pathForRef } from '$lib/landing';
+  import { displayRefTitle, focusHrefForRef, pathForRef, warmLandingRef } from '$lib/landing';
   import { ratingStarsFromEvent } from '$lib/ratings';
 
   interface Props {
@@ -18,12 +18,22 @@
   const title = $derived(displayRefTitle(event, referenced));
   const stars = $derived(ratingStarsFromEvent(event));
   const excerpt = $derived(event.content.replace(/\s+/g, ' ').trim().slice(0, 220));
+
+  function warmWork(): void {
+    warmLandingRef(event, referenced);
+  }
 </script>
 
 <li class="landing-review-card">
   <div class="landing-review-card-inner">
     {#if pageHref}
-      <a class="landing-review-title" href={`#${pageHref}`} use:link title="Open publication">{title}</a>
+      <a
+        class="landing-review-title"
+        href={`#${pageHref}`}
+        use:link
+        title="Open publication"
+        onpointerdown={warmWork}
+      >{title}</a>
     {:else}
       <span class="landing-review-title">{title}</span>
     {/if}
@@ -42,6 +52,7 @@
         href={`#${itemHref}`}
         use:link
         title="Jump to this review on the edition page"
+        onpointerdown={warmWork}
       >
         View review
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">

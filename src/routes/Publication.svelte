@@ -136,11 +136,11 @@
       .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
     const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
     const [rA, rA2, threadEvents, ...highlightBatches] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }]),
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }]),
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
       fetchThreadEvents(target, 80),
       ...chunk(highlightAddrs, 20).map((batch) =>
-        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }])
+        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }], 5000, 4)
       )
     ]);
     const ratingById = new Map<string, Event>();
@@ -667,12 +667,13 @@
         }
 
         if (dTag && npubParam) {
-          // Cover/search already showed this event — paint from memory/cache only.
+          // Cover/search/landing already showed this event — paint from memory/cache only.
           // Do not REQ the same 30040 from relays just to render the header.
-          const cached = warm ?? (await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug));
+          if (warm) return;
+          const cached = await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug);
           if (cancelled) return;
           if (cached) {
-            if (!warm || cached.created_at > warm.created_at) paintEdition(cached);
+            paintEdition(cached);
             return;
           }
           const fetched = await fetchPublication(slug, pubkey);
