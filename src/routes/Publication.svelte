@@ -60,6 +60,10 @@
   import { searchByDTag } from '$lib/search';
   import { normalizeDTag } from '$lib/dtag';
   import { parseAddress } from '$lib/library-scope';
+  import {
+    eventMatchesPublicationRoute,
+    takePendingNavEvent
+  } from '$lib/nav-warm';
 
   interface Props {
     params?: { d?: string; npub?: string; naddr?: string };
@@ -87,6 +91,8 @@
   let sectionComments = $state<Record<string, Event[]>>({});
   let sectionCommentsOpen = $state<Record<string, boolean>>({});
   let treeAbort: AbortController | null = null;
+  /** Avoid tearing down a warm paint when the route effect re-fires for the same edition. */
+  let paintedRouteKey = '';
   let pageFilter = $state('');
   let readingBusy = $state(false);
   /** ToC jump to a section that is not in the pane yet. */
@@ -168,10 +174,13 @@
         textUnavailable = true;
         return;
       }
+      // Info-page prefetch: Mercury tree only. Never walk a-tags here — that is for Read
+      // (features/reader/read.feature: walk nested indexes when the button is pressed).
       const rawToc = await mercuryPublicationToc(naddr, signal);
       if (signal.aborted) return;
+      if (!rawToc) return;
       toc = parseToc(rawToc, target);
-      const streamed = await loadSectionEvents(target, signal);
+      const streamed = await mercuryPublicationStream(naddr, undefined, signal);
       if (signal.aborted) return;
       if (streamed.length) {
         adoptSections(streamed, target);
@@ -180,6 +189,22 @@
     } catch {
       if (signal.aborted) return;
     }
+  }
+
+  /** After header + social are on screen, warm Mercury /meta → /toc → /stream (cancellable). */
+  async function afterSocialPrefetchTree(target: Event): Promise<void> {
+    cancelTree();
+    treeAbort = new AbortController();
+    const signal = treeAbort.signal;
+    try {
+      await fetchSocial(target);
+    } catch {
+      /* social is best-effort */
+    }
+    if (signal.aborted || event?.id !== target.id) return;
+    // Catalog stubs: ratings/comments only — never hit /meta|/toc|/stream.
+    if (textUnavailable || !hasPublicationSection(target)) return;
+    void prefetchTree(target, signal);
   }
 
   /** Mercury /stream often omits leaves or whole indexes; always merge the a-tag walk. */
@@ -550,6 +575,14 @@
     };
   });
 
+  function decodeParam(raw: string): string {
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
   function paintEdition(target: Event): void {
     rememberEvents([target]);
     event = target;
@@ -557,31 +590,45 @@
     unreadable = false;
     textUnavailable = !hasPublicationSection(target);
     loading = false;
-    void fetchSocial(target);
     cancelTree();
     // Catalog stubs (no section a/e tags) are library cards only — no tree to fetch.
-    if (textUnavailable) return;
-    treeAbort = new AbortController();
-    void prefetchTree(target, treeAbort.signal);
+    // Readable editions: social first, then Mercury tree in the background (no a-tag walk).
+    void afterSocialPrefetchTree(target);
   }
 
   $effect(() => {
-    const dTag = params.d;
-    const npubParam = params.npub;
-    const pointer = params.naddr;
+    // Prefer router params; fall back to the hash so a stale/empty params object
+    // never skips the memory paint and flashes "Publication is loading...".
+    const hashPath =
+      typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '').split('?')[0] : '';
+    const hashDnpub = hashPath.match(/^\/publication\/d\/([^/]+)\/p\/([^/]+)\/?$/);
+    const hashDonly = hashPath.match(/^\/publication\/d\/([^/]+)\/?$/);
+    const hashPointer = hashPath.match(
+      /^\/publication\/((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i
+    );
+
+    const dTag = decodeParam(params.d || (hashDnpub?.[1] ?? hashDonly?.[1] ?? ''));
+    const npubParam = (params.npub || hashDnpub?.[2] || '').split('?')[0];
+    const pointerRaw = params.naddr || hashPointer?.[1] || '';
+    const pointer = pointerRaw && !dTag ? pointerRaw : '';
+    const routeKey = pointer || (dTag && npubParam ? `${dTag}|${npubParam}` : dTag || '');
     let cancelled = false;
 
-    editions = [];
-    reading = false;
-    tocOpen = false;
-    sections = [];
-    toc = [];
-    focusKey = '';
-    commentFocusApplied = '';
-    replyOpenId = null;
-    cancelTree();
-    error = false;
-    unreadable = false;
+    const sameRoute = Boolean(routeKey && routeKey === paintedRouteKey);
+    if (!sameRoute) {
+      paintedRouteKey = routeKey;
+      editions = [];
+      reading = false;
+      tocOpen = false;
+      sections = [];
+      toc = [];
+      focusKey = '';
+      commentFocusApplied = '';
+      replyOpenId = null;
+      cancelTree();
+      error = false;
+      unreadable = false;
+    }
 
     // Hash navigations keep the previous page's scroll — reset unless a deep-link will re-scroll.
     const q = new URLSearchParams(
@@ -589,24 +636,37 @@
     );
     const deep =
       q.has('comment') || q.has('rating') || q.has('section') || q.has('quote') || q.get('read') === '1';
-    if (!deep) {
+    if (!deep && !sameRoute) {
       queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
     }
 
     const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
     const slug = dTag ? normalizeDTag(dTag) || dTag : '';
+    const pending = sameRoute ? null : takePendingNavEvent();
+    const fromPending =
+      pending && pubkey && dTag && eventMatchesPublicationRoute(pending, KIND.PUBLICATION, pubkey, dTag)
+        ? pending
+        : pending && !dTag && pending.kind === KIND.PUBLICATION
+          ? pending
+          : null;
     const warm =
-      dTag && npubParam && pubkey
-        ? memoryFindByAddress(KIND.PUBLICATION, pubkey, slug)
-        : null;
+      fromPending ??
+      (dTag && pubkey ? memoryFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag) : null);
 
     if (warm) {
       // Already had this event on a shelf/search card — show header before any I/O.
-      paintEdition(warm);
-    } else {
+      if (!sameRoute) paintEdition(warm);
+    } else if (!sameRoute) {
       event = null;
       textUnavailable = false;
       loading = true;
+    }
+
+    if (sameRoute) {
+      // Effect re-fired for the same edition — keep header/social/tree; skip I/O restart.
+      return () => {
+        cancelled = true;
+      };
     }
 
     void (async () => {
@@ -669,13 +729,19 @@
           // Cover/search/landing already showed this event — paint from memory/cache only.
           // Do not REQ the same 30040 from relays just to render the header.
           if (warm) return;
-          const cached = await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug);
+          // Re-check memory after any await gap (HMR / late rememberEvents).
+          const again = memoryFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag);
+          if (again) {
+            paintEdition(again);
+            return;
+          }
+          const cached = await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag);
           if (cancelled) return;
           if (cached) {
             paintEdition(cached);
             return;
           }
-          const fetched = await fetchPublication(slug, pubkey);
+          const fetched = await fetchPublication(slug || dTag, pubkey);
           if (cancelled) return;
           if (fetched) paintEdition(fetched);
           else error = true;

@@ -83,12 +83,30 @@ function searchHasQuery(query: Record<string, unknown>): boolean {
 const COOLDOWN_MS = 60_000;
 let unavailableUntil = 0;
 
+/** naddrs whose /meta|/toc|/stream returned 404 — do not re-hit for this session. */
+const missingPublicationTrees = new Set<string>();
+
 function mercurySkipped(): boolean {
   return Date.now() < unavailableUntil;
 }
 
 function markMercuryDown(): void {
   unavailableUntil = Date.now() + COOLDOWN_MS;
+}
+
+function markPublicationTreeMissing(naddr: string): void {
+  const key = naddr.trim();
+  if (key) missingPublicationTrees.add(key);
+}
+
+function publicationTreeMissing(naddr: string): boolean {
+  return missingPublicationTrees.has(naddr.trim());
+}
+
+/** Test helper — clear session cooldowns and 404 cache. */
+export function resetMercuryClientState(): void {
+  unavailableUntil = 0;
+  missingPublicationTrees.clear();
 }
 
 async function mercuryRequest(path: string, init?: RequestInit): Promise<Response | null> {
@@ -209,8 +227,13 @@ export async function mercuryPublicationMeta(
   naddr: string,
   signal?: AbortSignal
 ): Promise<Record<string, unknown> | null> {
+  if (publicationTreeMissing(naddr)) return null;
   const encoded = encodeURIComponent(naddr);
   const res = await mercuryRequest(`/api/publications/${encoded}/meta`, { signal });
+  if (res?.status === 404) {
+    markPublicationTreeMissing(naddr);
+    return null;
+  }
   if (!res?.ok) return null;
   try {
     return (await res.json()) as Record<string, unknown>;
@@ -220,8 +243,13 @@ export async function mercuryPublicationMeta(
 }
 
 export async function mercuryPublicationToc(naddr: string, signal?: AbortSignal): Promise<unknown[] | null> {
+  if (publicationTreeMissing(naddr)) return null;
   const encoded = encodeURIComponent(naddr);
   const res = await mercuryRequest(`/api/publications/${encoded}/toc`, { signal });
+  if (res?.status === 404) {
+    markPublicationTreeMissing(naddr);
+    return null;
+  }
   if (!res?.ok) return null;
   try {
     const data = await res.json();
@@ -236,6 +264,7 @@ export async function mercuryPublicationStream(
   pos?: number,
   signal?: AbortSignal
 ): Promise<Event[]> {
+  if (publicationTreeMissing(naddr)) return [];
   const encoded = encodeURIComponent(naddr);
   const pageSize = 200;
   let from = pos != null && Number.isFinite(pos) ? Math.max(0, Math.floor(pos)) : 0;
@@ -246,6 +275,10 @@ export async function mercuryPublicationStream(
     if (signal?.aborted) break;
     const path = `/api/publications/${encoded}/stream?from=${from}&limit=${pageSize}`;
     const res = await mercuryRequest(path, { signal });
+    if (res?.status === 404) {
+      markPublicationTreeMissing(naddr);
+      break;
+    }
     if (!res?.ok) break;
     let page: Event[] = [];
     try {

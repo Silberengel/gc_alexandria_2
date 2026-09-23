@@ -30,7 +30,7 @@ import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { cacheFindByAddress } from './nostr/cache';
 import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
-import { warmAddress } from './nav-warm';
+import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
 import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
@@ -290,7 +290,14 @@ export function warmLandingRef(event: Event, referenced: Event[]): void {
     const hit = warmAddress(coord);
     if (hit) fromMem.push(hit);
   }
-  rememberEvents([...hits, ...fromMem, event]);
+  const pooled = [...hits, ...fromMem, event];
+  rememberEvents(pooled);
+  const paint =
+    (top && pooled.find((e) => eventAddress(e) === top)) ||
+    (work && pooled.find((e) => eventAddress(e) === work)) ||
+    pooled.find((e) => e.kind === KIND.PUBLICATION) ||
+    null;
+  if (paint) warmNavEvent(paint);
 }
 
 /** Path to the work page top (no deep-link query). */

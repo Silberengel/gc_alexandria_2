@@ -18,7 +18,6 @@
   } from '$lib/landing';
   import { warmNavEvent } from '$lib/nav-warm';
   import { publicationPath } from '$lib/metadata';
-  import { eventHref } from '$lib/listing-table';
   import { session } from '$lib/stores/session';
   import { listingDensity } from '$lib/stores/listing-density';
   import { get } from 'svelte/store';
@@ -279,9 +278,10 @@
             {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
               <a
                 class="cover"
-                href={eventHref(pub) ?? `#${publicationPath(pub)}`}
+                href={`#${publicationPath(pub)}`}
                 use:link
                 onpointerdown={() => warmNavEvent(pub)}
+                onclick={() => warmNavEvent(pub)}
               >
                 <Cover event={pub} />
               </a>

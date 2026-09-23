@@ -41,6 +41,33 @@ describe('mercury unavailable cooldown', () => {
   });
 });
 
+describe('mercury publication 404 cache', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Not Found', { status: 404 }))
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('does not re-request meta/toc/stream for an naddr that 404d', async () => {
+    const { mercuryPublicationMeta, mercuryPublicationToc, mercuryPublicationStream } =
+      await import('./mercury');
+    const naddr = 'naddr1qqtest';
+    await expect(mercuryPublicationMeta(naddr)).resolves.toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    await expect(mercuryPublicationToc(naddr)).resolves.toBeNull();
+    await expect(mercuryPublicationStream(naddr)).resolves.toEqual([]);
+    // toc/stream short-circuit on the 404 cache from meta — no further HTTP.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('parsePublicationStreamNdjson', () => {
   it('unwraps NDJSON publication stream rows in pos order', async () => {
     const { finalizeEvent, generateSecretKey, getPublicKey } = await import('nostr-tools');
