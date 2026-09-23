@@ -109,7 +109,7 @@
           {/each}
           {#if showVerseStyling}
             <div class="edition-fact edition-fact-control">
-              <dt>Display</dt>
+              <dt>verse-styling</dt>
               <dd><VerseStylingToggle /></dd>
             </div>
           {/if}

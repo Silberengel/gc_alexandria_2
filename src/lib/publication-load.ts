@@ -503,10 +503,11 @@ function bibleSortKey(event: Event): [number, number, number] {
  * Document order: depth-first walk of a/e tags from the edition root through
  * loaded indexes. Mercury /stream pages arrive unordered; ToC is often
  * indexes-only — tag order on each parent is the authoritative sequence.
+ * Optional `limit` stops the walk early so huge corpora do not freeze the UI.
  */
 export function orderPublicationSections(
   list: Event[],
-  opts?: { root?: Event | null; toc?: TocEntry[] }
+  opts?: { root?: Event | null; toc?: TocEntry[]; limit?: number }
 ): Event[] {
   if (list.length < 2) return list;
 
@@ -539,13 +540,16 @@ export function orderPublicationSections(
     return undefined;
   };
 
+  const limit = opts?.limit != null && opts.limit > 0 ? opts.limit : Infinity;
   const ordered: Event[] = [];
   const seen = new Set<string>();
   const visit = (event: Event) => {
-    if (seen.has(event.id)) return;
+    if (seen.has(event.id) || ordered.length >= limit) return;
     seen.add(event.id);
     ordered.push(event);
+    if (ordered.length >= limit) return;
     for (const tag of event.tags) {
+      if (ordered.length >= limit) return;
       const child = resolveChild(tag);
       if (child) visit(child);
     }
@@ -556,6 +560,14 @@ export function orderPublicationSections(
       ? byId.get(opts.root.id.toLowerCase())!
       : null;
   if (root) visit(root);
+
+  if (ordered.length >= limit) {
+    const rest: Event[] = [];
+    for (const event of list) {
+      if (!seen.has(event.id)) rest.push(event);
+    }
+    return [...ordered, ...rest];
+  }
 
   const leftoverIndex = new Map<string, number>();
   const leftovers: Event[] = [];
@@ -732,7 +744,12 @@ function isIndexEntry(entry: TocEntry): boolean {
 export function enrichToc(toc: TocEntry[], sections: Event[]): TocEntry[] {
   if (!sections.length) return toc;
   if (!toc.length) {
-    return sections.map((section, i) => ({
+    // Never build a 1:1 ToC from tens of thousands of leaves — indexes only.
+    const source =
+      sections.length > 400
+        ? sections.filter((s) => s.kind === KIND.PUBLICATION)
+        : sections;
+    return source.map((section, i) => ({
       pos: i,
       title: sectionHeading(section),
       address: eventAddress(section),
@@ -742,12 +759,39 @@ export function enrichToc(toc: TocEntry[], sections: Event[]): TocEntry[] {
       kind: section.kind
     }));
   }
+
+  const byId = new Map<string, Event>();
+  const byAddr = new Map<string, Event>();
+  const byD = new Map<string, Event>();
+  for (const section of sections) {
+    byId.set(section.id.toLowerCase(), section);
+    const addr = eventAddress(section);
+    for (const key of publicationCoordinateLookupKeys(addr)) {
+      byAddr.set(key.toLowerCase(), section);
+    }
+    const d = firstTag(section, 'd');
+    if (d && !byD.has(d)) byD.set(d, section);
+  }
+
   const used = new Set<string>();
   return toc.map((entry) => {
     // Nested 30040 headings keep their own titles — never bind to a section body by list index.
     if (isIndexEntry(entry)) return entry;
-    const hit = sections.find((s) => !used.has(s.id) && sectionMatchesEntry(s, entry));
-    if (!hit) return entry;
+    let hit: Event | undefined;
+    if (entry.id) hit = byId.get(entry.id.toLowerCase());
+    if (!hit && entry.address) {
+      for (const key of publicationCoordinateLookupKeys(entry.address)) {
+        hit = byAddr.get(key.toLowerCase());
+        if (hit) break;
+      }
+    }
+    if (!hit && entry.address) {
+      const d = entry.address.includes(':')
+        ? entry.address.split(':').slice(2).join(':')
+        : entry.address;
+      if (d) hit = byD.get(d);
+    }
+    if (!hit || used.has(hit.id)) return entry;
     used.add(hit.id);
     return {
       ...entry,

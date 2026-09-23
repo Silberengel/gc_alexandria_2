@@ -2822,11 +2822,18 @@ mark.text-highlight.highlight-flash,
 }
 
 /* Bible verses (type=bible): flowing prose with superscript verse numbers. */
-.bible-flow {
-  margin: 0 0 1.25rem;
-  font-size: 1.05rem;
-  line-height: 1.55;
-  max-width: 100%;
+.reader-paint-more {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 1.25rem 0 2rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+}
+.reader-paint-more .muted {
+  margin: 0;
+  font-size: 0.9rem;
 }
 .bible-run-heading {
   display: block;

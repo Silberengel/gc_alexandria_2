@@ -74,6 +74,8 @@ const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'iden
 
 /** Hard cap so a hung Mercury TCP never blocks landing paint for minutes. */
 const MERCURY_FETCH_TIMEOUT_MS = 4_000;
+/** Stream pages can be large NDJSON; allow longer than meta/toc. */
+const MERCURY_STREAM_BODY_TIMEOUT_MS = 30_000;
 
 function searchHasQuery(query: Record<string, unknown>): boolean {
   return SEARCH_FIELDS.some((key) => typeof query[key] === 'string' && String(query[key]).trim().length > 0);
@@ -109,13 +111,18 @@ export function resetMercuryClientState(): void {
   missingPublicationTrees.clear();
 }
 
-async function mercuryRequest(path: string, init?: RequestInit): Promise<Response | null> {
+async function mercuryRequest(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<Response | null> {
   if (mercurySkipped()) return null;
-  const timeout = AbortSignal.timeout(MERCURY_FETCH_TIMEOUT_MS);
+  const timeoutMs = init?.timeoutMs ?? MERCURY_FETCH_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const { timeoutMs: _omit, ...fetchInit } = init ?? {};
   const signal =
-    init?.signal != null ? AbortSignal.any([init.signal, timeout]) : timeout;
+    fetchInit.signal != null ? AbortSignal.any([fetchInit.signal, timeout]) : timeout;
   try {
-    const res = await fetch(`${trimSlash(MERCURY_HTTP)}${path}`, { ...init, signal });
+    const res = await fetch(`${trimSlash(MERCURY_HTTP)}${path}`, { ...fetchInit, signal });
     // Proxy DNS/outages often surface as 5xx rather than a thrown fetch error.
     if (res.status === 502 || res.status === 503 || res.status === 504) {
       markMercuryDown();
@@ -263,27 +270,54 @@ export async function mercuryPublicationStream(
   naddr: string,
   pos?: number,
   signal?: AbortSignal,
-  onPage?: (page: Event[]) => void
+  onPage?: (page: Event[]) => void,
+  opts?: { maxEvents?: number }
 ): Promise<Event[]> {
   if (publicationTreeMissing(naddr)) return [];
   const encoded = encodeURIComponent(naddr);
   const pageSize = 200;
+  const maxEvents = opts?.maxEvents ?? Infinity;
   let from = pos != null && Number.isFinite(pos) ? Math.max(0, Math.floor(pos)) : 0;
   const out: Event[] = [];
   const seen = new Set<string>();
+  let pageFailures = 0;
 
   for (;;) {
     if (signal?.aborted) break;
+    if (out.length >= maxEvents) break;
     const path = `/api/publications/${encoded}/stream?from=${from}&limit=${pageSize}`;
-    const res = await mercuryRequest(path, { signal });
+    const res = await mercuryRequest(path, { signal, timeoutMs: MERCURY_STREAM_BODY_TIMEOUT_MS });
     if (res?.status === 404) {
       markPublicationTreeMissing(naddr);
       break;
     }
-    if (!res?.ok) break;
+    if (!res?.ok) {
+      pageFailures += 1;
+      if (pageFailures >= 3) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 400 * pageFailures));
+      continue;
+    }
     let page: Event[] = [];
     try {
-      const text = await res.text();
+      // Body read can hang even after headers; race a timeout so one stuck page
+      // cannot block the reader forever — but allow long Bible pages.
+      const text = await Promise.race([
+        res.text(),
+        new Promise<string>((_, reject) => {
+          const t = setTimeout(
+            () => reject(new Error('mercury stream body timeout')),
+            MERCURY_STREAM_BODY_TIMEOUT_MS
+          );
+          signal?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(t);
+              reject(new Error('aborted'));
+            },
+            { once: true }
+          );
+        })
+      ]);
       // Prefer NDJSON (current Mercury). Fall back to a JSON array of events/wrappers.
       page = parsePublicationStreamNdjson(text);
       if (!page.length) {
@@ -306,21 +340,38 @@ export async function mercuryPublicationStream(
         }
       }
     } catch {
-      break;
+      pageFailures += 1;
+      if (pageFailures >= 3) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 400 * pageFailures));
+      continue;
     }
     if (!page.length) break;
+    pageFailures = 0;
     const fresh: Event[] = [];
     for (const e of page) {
       if (seen.has(e.id)) continue;
       seen.add(e.id);
       out.push(e);
       fresh.push(e);
+      if (out.length >= maxEvents) break;
     }
     if (fresh.length) onPage?.(fresh);
+    if (out.length >= maxEvents) break;
     if (page.length < pageSize) break;
     from += page.length;
+    // Let the UI flush progressive adopts between Mercury pages (Bible-sized streams).
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
-  if (out.length) void cachePutMany(out).catch(() => {});
+  if (out.length) {
+    // Chunk cache writes so a 30k-event Bible does not freeze the tab in one put.
+    const CHUNK = 250;
+    for (let i = 0; i < out.length; i += CHUNK) {
+      void cachePutMany(out.slice(i, i + CHUNK)).catch(() => {});
+      if (i + CHUNK < out.length) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+    }
+  }
   return out;
 }

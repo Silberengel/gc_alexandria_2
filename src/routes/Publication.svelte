@@ -87,7 +87,13 @@
   let highlights = $state<Event[]>([]);
   let reading = $state(false);
   let sections = $state<Event[]>([]);
+  /** Full loaded corpus — not reactive, so ingesting stream pages does not remount the pane. */
+  let sectionCorpus: Event[] = [];
+  /** Reactive length for “Show more” UI (corpus itself stays non-reactive). */
+  let corpusCount = $state(0);
   let toc = $state<TocEntry[]>([]);
+  /** How many ordered sections to mount in the reading pane (grows on scroll / jump). */
+  let paintLimit = $state(100);
   let error = $state(false);
   /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
@@ -137,9 +143,13 @@
     for (let i = 0; i < sections.length; i++) map.set(sections[i]!.id, i);
     return map;
   });
+  const paintedSections = $derived(sections);
   const readerGroups = $derived(
-    $verseStyling ? groupReaderSections(sections) : sections.map((ev) => ({ kind: 'block' as const, event: ev }))
+    $verseStyling
+      ? groupReaderSections(paintedSections)
+      : paintedSections.map((ev) => ({ kind: 'block' as const, event: ev }))
   );
+  const moreToPaint = $derived(paintLimit < corpusCount);
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
   const urlFocusComment = $derived(
@@ -149,6 +159,92 @@
   function cancelTree(): void {
     treeAbort?.abort();
     treeAbort = null;
+    clearAdoptFlush();
+  }
+
+  let adoptFlushTimer = 0;
+  let adoptPending: Event[] = [];
+  let adoptEdition: Event | null = null;
+
+  function clearAdoptFlush(): void {
+    if (adoptFlushTimer) {
+      clearTimeout(adoptFlushTimer);
+      adoptFlushTimer = 0;
+    }
+    adoptPending = [];
+    adoptEdition = null;
+  }
+
+  function refreshTocFromCorpus(): void {
+    if (!toc.length || !sectionCorpus.length) return;
+    // Indexes only — never walk tens of thousands of verse leaves into the ToC.
+    const indexes: Event[] = [];
+    for (const e of sectionCorpus) {
+      if (e.kind === KIND.PUBLICATION) indexes.push(e);
+    }
+    if (!indexes.length) return;
+    toc = expandTocFromSections(toc, indexes);
+  }
+
+  function publishPainted(edition: Event, reorder: boolean): void {
+    if (reorder && sectionCorpus.length > 1) {
+      // Cap DFS work: only walk far enough for the painted window.
+      sectionCorpus = orderPublicationSections(sectionCorpus, {
+        root: edition,
+        toc,
+        limit: Math.max(paintLimit + 40, 160)
+      });
+    }
+    corpusCount = sectionCorpus.length;
+    sections = sectionCorpus.slice(0, Math.min(paintLimit, sectionCorpus.length));
+  }
+
+  /** Coalesce stream pages; keep corpus off the reactive path until a cheap paint publish. */
+  function scheduleAdopt(batch: Event[], edition: Event, immediate = false): void {
+    if (batch.length) {
+      adoptPending = mergePublicationSections(adoptPending, batch);
+    }
+    adoptEdition = edition;
+    const flush = (reorder: boolean, isImmediate = false) => {
+      adoptFlushTimer = 0;
+      const pending = adoptPending;
+      const ed = adoptEdition ?? edition;
+      adoptPending = [];
+      if (pending.length) {
+        sectionCorpus = mergePublicationSections(sectionCorpus, pending);
+      }
+      if (!toc.length) toc = parseToc(null, ed);
+      // Always deepen the ToC from loaded 30040 indexes (OT → book → chapter).
+      refreshTocFromCorpus();
+      // Reorder only while the corpus is modest — large Bibles keep stream order until scroll/jump.
+      const doReorder = reorder && sectionCorpus.length <= (isImmediate ? 2000 : 900);
+      publishPainted(ed, doReorder);
+    };
+    if (immediate) {
+      if (adoptFlushTimer) clearTimeout(adoptFlushTimer);
+      adoptFlushTimer = 0;
+      flush(true, true);
+      return;
+    }
+    if (adoptFlushTimer) return;
+    adoptFlushTimer = window.setTimeout(() => flush(false, false), 600);
+  }
+
+  const PAINT_STEP = 80;
+
+  function extendPaint(): void {
+    if (paintLimit >= sectionCorpus.length) return;
+    paintLimit = Math.min(sectionCorpus.length, paintLimit + PAINT_STEP);
+    if (event) publishPainted(event, true);
+  }
+
+  function ensurePaintedThrough(index: number): void {
+    if (index < 0) return;
+    const need = Math.min(sectionCorpus.length, index + PAINT_STEP);
+    if (need > paintLimit) {
+      paintLimit = need;
+      if (event) publishPainted(event, true);
+    }
   }
 
   async function fetchSocial(target: Event): Promise<void> {
@@ -198,12 +294,7 @@
       if (signal.aborted) return;
       if (!rawToc) return;
       toc = parseToc(rawToc, target);
-      const streamed = await mercuryPublicationStream(naddr, undefined, signal);
-      if (signal.aborted) return;
-      if (streamed.length) {
-        adoptSections(streamed, target);
-        void enrichHighlightsFromSections(sections);
-      }
+      // Do not pull the full /stream on the info page — Bible-sized pubs freeze the tab.
     } catch {
       if (signal.aborted) return;
     }
@@ -226,8 +317,8 @@
   }
 
   /** Mercury /stream often omits leaves; fall back to a document-stack a-tag walk when the
-   * stream is empty or indexes-only. Never POST Mercury /events/filter per coordinate —
-   * that stampedes the proxy when Mercury is 502 and is not how trees are meant to load. */
+   * stream is empty. Never walk after a wide index-only Mercury result — Bible-sized
+   * trees stampede relays and freeze the reader for minutes. */
   async function loadSectionEvents(
     edition: Event,
     signal?: AbortSignal,
@@ -236,16 +327,25 @@
     let streamed: Event[] = [];
     if (!isMercuryUnavailable()) {
       try {
-        streamed = await mercuryPublicationStream(naddrFor(edition), undefined, signal, (page) => {
-          onBatch?.(page);
-        });
+        streamed = await mercuryPublicationStream(
+          naddrFor(edition),
+          undefined,
+          signal,
+          (page) => {
+            onBatch?.(page);
+          },
+          // Soft cap so a broken stream cannot grow without bound; Bible is ~30k.
+          { maxEvents: 50_000 }
+        );
       } catch {
         streamed = [];
       }
     }
     if (signal?.aborted) return streamed;
-    // Full Mercury tree with leaf bodies — do not also walk every a-tag (Bible-sized pubs).
     if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) return streamed;
+    const indexCount = streamed.filter((e) => e.kind === KIND.PUBLICATION).length;
+    // Mercury returned structure only (e.g. Intro/OT/NT). ToC jump loads leaves on demand.
+    if (indexCount >= 3) return streamed;
     const walked = await fallbackSections(edition, {
       signal,
       onHit: (hit) => onBatch?.([hit])
@@ -387,12 +487,16 @@
     setTimeout(() => scrollToHighlightQuote(quote, attempts - 1), 120);
   }
 
-  function mergeSections(primary: Event[], rest: Event[]): Event[] {
-    return mergePublicationSections(primary, rest);
+  function mergeSections(...lists: Event[][]): Event[] {
+    return mergePublicationSections(...lists);
   }
 
   function orderSectionsByToc(list: Event[], entries: TocEntry[], root?: Event | null): Event[] {
-    return orderPublicationSections(list, { root: root ?? event, toc: entries });
+    return orderPublicationSections(list, {
+      root: root ?? event,
+      toc: entries,
+      limit: Math.max(paintLimit + 40, 160)
+    });
   }
 
   function freezeTocFromSections(list: Event[]): void {
@@ -411,12 +515,19 @@
   }
 
   /** Prefer a real ToC (Mercury / partition) before inventing one from loaded leaves. */
-  function adoptSections(list: Event[], edition: Event): void {
+  function adoptSections(
+    list: Event[],
+    edition: Event,
+    opts?: { expandToc?: boolean }
+  ): void {
     if (!toc.length) toc = parseToc(null, edition);
-    const merged = ensureIndexHeadings(list, toc);
-    toc = expandTocFromSections(toc, merged);
-    sections = orderSectionsByToc(merged, toc, edition);
-    freezeTocFromSections(sections);
+    sectionCorpus = mergePublicationSections(ensureIndexHeadings(list, toc), sectionCorpus);
+    if (opts?.expandToc !== false) toc = expandTocFromSections(toc, sectionCorpus);
+    if (paintLimit < 100 && sectionCorpus.length) {
+      paintLimit = Math.min(100, sectionCorpus.length);
+    }
+    publishPainted(edition, true);
+    freezeTocFromSections(sectionCorpus);
   }
 
   async function ensureReadingSections(): Promise<boolean> {
@@ -435,26 +546,23 @@
     try {
       await ensureToc(edition);
       if (signal.aborted || event?.id !== edition.id) return false;
-      // First viewport: edition heading + ToC shell (feature: readable without the entire book).
+      // First viewport: edition heading + ToC shell (readable without the entire book).
       adoptSections([edition], edition);
       readingBusy = false;
 
-      const loaded = await loadSectionEvents(edition, signal, (batch) => {
+      // Do not await the full Mercury/relay pull — large pubs can stream for a long time.
+      void loadSectionEvents(edition, signal, (batch) => {
         if (signal.aborted || event?.id !== edition.id || !reading) return;
-        adoptSections(mergeSections(sections, batch), edition);
-        void enrichHighlightsFromSections(batch);
+        scheduleAdopt(batch, edition);
+      }).then(() => {
+        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        scheduleAdopt([], edition, true);
+        if (!sectionCorpus.length) {
+          unreadable = true;
+          reading = false;
+          setReadQuery(false);
+        }
       });
-      if (signal.aborted || event?.id !== edition.id) return sections.length > 0;
-      if (loaded.length) {
-        adoptSections(mergeSections(sections, loaded), edition);
-        void enrichHighlightsFromSections(loaded);
-      }
-      if (!sections.length) {
-        unreadable = true;
-        reading = false;
-        setReadQuery(false);
-        return false;
-      }
       return true;
     } finally {
       if (event?.id === edition.id) readingBusy = false;
@@ -672,7 +780,10 @@
       reading = false;
       tocOpen = false;
       sections = [];
+      sectionCorpus = [];
+      corpusCount = 0;
       toc = [];
+      paintLimit = 100;
       focusKey = '';
       commentFocusApplied = '';
       replyOpenId = null;
@@ -828,16 +939,18 @@
     if (!sections.length) {
       await fillReadingSections(event);
     } else if (!sections.some((e) => e.kind !== KIND.PUBLICATION)) {
-      // Prefetch / first paint may have left indexes-only; fill leaf bodies progressively.
+      // Prefetch / first paint may have left indexes-only; fill leaf bodies in the background.
       const edition = event;
       cancelTree();
       treeAbort = new AbortController();
       const signal = treeAbort.signal;
       readingBusy = false;
-      await loadSectionEvents(edition, signal, (batch) => {
+      void loadSectionEvents(edition, signal, (batch) => {
         if (signal.aborted || event?.id !== edition.id || !reading) return;
-        adoptSections(mergeSections(sections, batch), edition);
-        void enrichHighlightsFromSections(batch);
+        scheduleAdopt(batch, edition);
+      }).then(() => {
+        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        scheduleAdopt([], edition, true);
       });
     }
     const resume = loadResume(eventAddress(event));
@@ -858,36 +971,53 @@
   }
 
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
-    const article =
-      (sectionId
-        ? document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)
-        : null) ??
-      (address
-        ? document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)
-        : null) ??
-      document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"]`);
+    let idx = -1;
+    if (sectionId) idx = sectionCorpus.findIndex((s) => s.id === sectionId);
+    if (idx < 0 && address) {
+      idx = sectionCorpus.findIndex((s) => eventAddress(s) === address);
+    }
+    if (idx < 0 && Number.isFinite(pos)) {
+      idx = Math.min(sectionCorpus.length - 1, Math.max(0, Math.floor(pos)));
+    }
+    if (idx >= 0) ensurePaintedThrough(idx);
 
-    // Prefer the hero (or article top) so ToC jumps keep the image above the heading.
-    const el =
-      article?.querySelector<HTMLElement>('.section-hero') ??
-      article ??
-      (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
-      (address
-        ? document.querySelector<HTMLElement>(
-            `[data-section-addr="${CSS.escape(address)}"] .section-heading`
-          )
-        : null) ??
-      document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"] .section-heading`);
+    const run = () => {
+      const article =
+        (sectionId
+          ? document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)
+          : null) ??
+        (address
+          ? document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)
+          : null) ??
+        document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(idx >= 0 ? idx : pos))}"]`);
 
-    if (!el) return;
-    const topBar = document.querySelector('.top-bar');
-    const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
-    const top = el.getBoundingClientRect().top + window.scrollY - offset;
-    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+      const el =
+        article?.querySelector<HTMLElement>('.section-hero') ??
+        article ??
+        (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
+        (address
+          ? document.querySelector<HTMLElement>(
+              `[data-section-addr="${CSS.escape(address)}"] .section-heading`
+            )
+          : null) ??
+        document.querySelector<HTMLElement>(
+          `[data-read-pos="${CSS.escape(String(idx >= 0 ? idx : pos))}"] .section-heading`
+        );
+
+      if (!el) return;
+      const topBar = document.querySelector('.top-bar');
+      const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
+      const top = el.getBoundingClientRect().top + window.scrollY - offset;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+    };
+
+    // Allow Svelte to mount newly painted nodes before scrolling.
+    queueMicrotask(() => requestAnimationFrame(run));
   }
 
   function findLoadedSection(entry: TocEntry): Event | undefined {
-    const matches = sections.filter(
+    const pool = sectionCorpus.length ? sectionCorpus : sections;
+    const matches = pool.filter(
       (s) =>
         (entry.id && s.id === entry.id) ||
         (entry.address != null && entry.address !== '' && eventAddress(s) === entry.address)
@@ -1047,6 +1177,18 @@
   }
 
   /** Resume tracking without a11y listeners on non-interactive verse/section markup. */
+  $effect(() => {
+    const root = readingPane;
+    if (!reading || !root || !moreToPaint) return;
+    const onScroll = () => {
+      const room = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+      if (room < 1200) extendPaint();
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  });
+
   $effect(() => {
     const root = readingPane;
     if (!root) return;
@@ -1273,12 +1415,12 @@
             placeholder="Find in this publication…"
             onEnter={cyclePageFind}
           />
-          {#if jumpBusy && !sections.length}
+          {#if jumpBusy && !paintedSections.length}
             <p class="loading-hint jump-busy" aria-hidden="true">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               Opening “{jumpLabel || 'section'}”…
             </p>
-          {:else if readingBusy || !sections.length}
+          {:else if !paintedSections.length && (readingBusy || !sections.length)}
             <p class="loading-hint">Publication is loading...</p>
           {/if}
           {#each readerGroups as group, gi (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
@@ -1288,10 +1430,7 @@
                 {#each verses as verse (verse.id)}
                   {@const sectionKey = eventAddress(verse)}
                   {@const disp = bibleDisplay(verse)}
-                  {@const pos =
-                    readerToc.find((e) => e.id === verse.id || e.address === sectionKey)?.pos ??
-                    sectionReadPos.get(verse.id) ??
-                    0}
+                  {@const pos = sectionReadPos.get(verse.id) ?? 0}
                   {#if disp.kind === 'heading'}
                     <h3
                       class="bible-run-heading"
@@ -1382,10 +1521,7 @@
               {@const sectionKey = eventAddress(section)}
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
-              {@const pos =
-                readerToc.find((e) => e.id === section.id || e.address === sectionKey)?.pos ??
-                sectionReadPos.get(section.id) ??
-                gi}
+              {@const pos = sectionReadPos.get(section.id) ?? gi}
               <article
                 class="reader-section"
                 class:reader-index={isIndex}
@@ -1512,6 +1648,14 @@
               </article>
             {/if}
           {/each}
+          {#if moreToPaint}
+            <div class="reader-paint-more">
+              <p class="muted">
+                Showing {paintedSections.length} of {corpusCount} sections
+              </p>
+              <button class="btn" type="button" onclick={extendPaint}>Show more</button>
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
