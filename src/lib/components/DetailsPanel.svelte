@@ -2,6 +2,7 @@
   import type { Event } from 'nostr-tools';
   import { eventAddress } from '$lib/nostr/verify';
   import { eventSources } from '$lib/nostr/event-sources';
+  import CopyPointerButton from './CopyPointerButton.svelte';
 
   interface Props {
     event: Event;
@@ -19,24 +20,27 @@
   });
 </script>
 
-<details class="accordion details-panel">
-  <summary>Details</summary>
-  <dl class="details-list">
-    <dt>Event id</dt>
-    <dd><code>{event.id}</code></dd>
-    <dt>Coordinate</dt>
-    <dd><code>{coord}</code></dd>
-    <dt>Where it was found</dt>
-    <dd>
-      {#if sources.length}
-        <ul class="found-list">
-          {#each sources as source}
-            <li><code>{source}</code></li>
-          {/each}
-        </ul>
-      {:else}
-        <span class="muted">Not yet observed on a relay</span>
-      {/if}
-    </dd>
-  </dl>
-</details>
+<div class="details-panel-wrap">
+  <CopyPointerButton {event} class="details-more-menu" />
+  <details class="accordion details-panel">
+    <summary>Details</summary>
+    <dl class="details-list">
+      <dt>Event id</dt>
+      <dd><code>{event.id}</code></dd>
+      <dt>Coordinate</dt>
+      <dd><code>{coord}</code></dd>
+      <dt>Where it was found</dt>
+      <dd>
+        {#if sources.length}
+          <ul class="found-list">
+            {#each sources as source}
+              <li><code>{source}</code></li>
+            {/each}
+          </ul>
+        {:else}
+          <span class="muted">Not yet observed on a relay</span>
+        {/if}
+      </dd>
+    </dl>
+  </details>
+</div>

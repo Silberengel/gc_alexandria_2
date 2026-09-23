@@ -13,7 +13,8 @@ Feature: Generic event card
     When I see an event with no dedicated renderer
     Then I see a generic card, not a blank gap or raw JSON
     And published by is a userbadge
-    And title, summary, subjects, source, remaining Markdown content, and media are shown when present
+    And title (≤100 chars) and body (≤250 chars) are plain text with markup stripped when present
+    And subjects, source, and media are shown when present
     And if there is nothing to show I still see published by and a no-preview placeholder
 
   Scenario: Media is never shown twice

@@ -27,8 +27,11 @@ Feature: Search
     When I submit a query from the landing global search bar
     Then I am on /search
     And I see result cards as they arrive
+    And each card has a more menu to copy its nevent or naddr and open it on njump.me or jumble.imwald.eu
+    And unfamiliar kinds show a kind line, a title only when a title tag is present (≤100, plaintext), author, and plaintext body from content (≤250, markup stripped)
     And full, compact-grid, and table layout icon buttons switch density (persisted with home and profile)
     And in full view those cards are horizontal, with the full cover on the left, summary when present, and up to three per row on a wide screen
+    And result cards are cropped to at most 500px tall
     And in compact grid view results are compact cells in that same responsive column count
     And in table view results are a sortable text table with no pictures, paging at 250
     And I do not see bookshelves, landing highlights, What we are discussing, subject buttons, or label buttons

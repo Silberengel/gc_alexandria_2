@@ -14,6 +14,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import EditionReaderMeta from '$lib/components/EditionReaderMeta.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
+  import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { KIND } from '$lib/constants';
   import { publicationPath, hasPublicationSection } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
@@ -42,7 +43,6 @@
     decodePublicationPointer,
     enrichToc,
     buildTocTree,
-    copyPointerForEvent,
     ensureIndexHeadings,
     expandTocFromSections,
     hexFromNpubParam,
@@ -85,7 +85,6 @@
   let replyOpenId = $state<string | null>(null);
   let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
-  let sectionMenuOpen = $state<string | null>(null);
   let sectionCommentsOpen = $state<Record<string, boolean>>({});
   let treeAbort: AbortController | null = null;
   let pageFilter = $state('');
@@ -922,24 +921,15 @@
     }
   }
 
-  async function copySectionPointer(section: Event): Promise<void> {
-    const { text } = copyPointerForEvent(section);
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* clipboard unavailable */
-    }
+  async function loadSectionComments(section: Event): Promise<void> {
+    const a = eventAddress(section);
+    if (sectionComments[a]) return;
+    sectionComments = { ...sectionComments, [a]: await fetchThreadEvents(section, 40) };
   }
 
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
     saveResume(eventAddress(event), { pos, sectionId: section.id });
-  }
-
-  async function loadSectionComments(section: Event): Promise<void> {
-    const a = eventAddress(section);
-    if (sectionComments[a]) return;
-    sectionComments = { ...sectionComments, [a]: await fetchThreadEvents(section, 40) };
   }
 
   async function postComment(): Promise<void> {
@@ -1199,80 +1189,51 @@
               {/if}
               {#if !isIndex}
               <div class="section-toolbar">
-                <div class="menu-wrap">
-                  <button
-                    class="btn btn-icon"
-                    type="button"
-                    aria-label="Section actions"
-                    aria-expanded={sectionMenuOpen === sectionKey}
-                    title="More"
-                    onclick={() => {
-                      sectionMenuOpen = sectionMenuOpen === sectionKey ? null : sectionKey;
-                    }}
-                  >
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="1.75" />
-                      <circle cx="12" cy="12" r="1.75" />
-                      <circle cx="19" cy="12" r="1.75" />
-                    </svg>
-                  </button>
-                  {#if sectionMenuOpen === sectionKey}
-                    {@const copyPtr = copyPointerForEvent(section)}
-                    <ul class="menu-panel menu-panel-end" role="menu">
-                      <li>
-                        {#if $session.pubkey}
-                          <button
-                            class="menu-item"
-                            type="button"
-                            onclick={() => {
-                              sectionMenuOpen = null;
-                              void saveHighlight(section);
-                            }}
-                          >
-                            Save highlight
-                          </button>
-                        {:else}
-                          <button
-                            class="menu-item"
-                            type="button"
-                            onclick={() => {
-                              sectionMenuOpen = null;
-                              openLoginDialog();
-                            }}
-                          >
-                            Sign in to highlight
-                          </button>
-                        {/if}
-                      </li>
-                      <li>
+                <CopyPointerButton event={section}>
+                  {#snippet before()}
+                    <li role="none">
+                      {#if $session.pubkey}
                         <button
                           class="menu-item"
                           type="button"
+                          role="menuitem"
                           onclick={() => {
-                            sectionMenuOpen = null;
-                            void copySectionPointer(section);
+                            void saveHighlight(section);
                           }}
                         >
-                          {copyPtr.label}
+                          Save highlight
                         </button>
-                      </li>
-                      <li>
+                      {:else}
                         <button
                           class="menu-item"
                           type="button"
+                          role="menuitem"
                           onclick={() => {
-                            sectionMenuOpen = null;
-                            const open = !sectionCommentsOpen[sectionKey];
-                            sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
-                            if (open) void loadSectionComments(section);
+                            openLoginDialog();
                           }}
                         >
-                          {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                          Sign in to highlight
                         </button>
-                      </li>
-                    </ul>
-                  {/if}
-                </div>
+                      {/if}
+                    </li>
+                  {/snippet}
+                  {#snippet after()}
+                    <li role="none">
+                      <button
+                        class="menu-item"
+                        type="button"
+                        role="menuitem"
+                        onclick={() => {
+                          const open = !sectionCommentsOpen[sectionKey];
+                          sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                          if (open) void loadSectionComments(section);
+                        }}
+                      >
+                        {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                      </button>
+                    </li>
+                  {/snippet}
+                </CopyPointerButton>
               </div>
               {#if sectionCommentsOpen[sectionKey]}
                 <div class="section-comments">

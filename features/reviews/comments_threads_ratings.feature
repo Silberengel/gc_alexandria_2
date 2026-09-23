@@ -16,7 +16,7 @@ Feature: Comments, threads, and ratings
 
   Scenario: Section comments sit behind a more menu
     When I am reading a section
-    Then the bottom of that section has a more menu with highlight and comment actions
+    Then the bottom of that section has a more menu with highlight, copy pointer, njump.me, jumble.imwald.eu, and comment actions
     And there is no horizontal rule above those controls
     When I open Comments from that menu
     Then I see kind 1111 comments targeted at that section

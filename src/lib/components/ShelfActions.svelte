@@ -25,6 +25,7 @@
     type BookshelfState
   } from '$lib/bookshelf-actions';
   import { MY_BOOK_COLLECTION_D_TAG, type BookshelfShelfOption } from '$lib/bookshelf';
+  import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
 
   interface Props {
     publication: Event;
@@ -34,6 +35,10 @@
   let mine = $state<Event[]>([]);
   let listsOpen = $state(false);
   let shelfOpen = $state(false);
+  let listsPlace = $state<MenuPlacement>({ side: 'start', up: false });
+  let shelfPlace = $state<MenuPlacement>({ side: 'start', up: false });
+  let listsWrap: HTMLDivElement | undefined = $state();
+  let shelfWrap: HTMLDivElement | undefined = $state();
   let busy = $state(false);
   let busySlug = $state<string | null>(null);
   let bookshelf = $state<BookshelfState | null>(null);
@@ -183,13 +188,14 @@
 
 {#if $session.pubkey}
   <div class="shelf-actions">
-    <div class="menu-wrap">
+    <div class="menu-wrap" bind:this={listsWrap}>
       <button
         class="btn"
         type="button"
         disabled={!!busySlug}
         aria-expanded={listsOpen}
         onclick={() => {
+          if (!listsOpen && listsWrap) listsPlace = placeMenuPanel(listsWrap, { width: 240, height: 280 });
           listsOpen = !listsOpen;
           shelfOpen = false;
         }}
@@ -197,7 +203,13 @@
         Add to a list
       </button>
       {#if listsOpen}
-        <ul class="menu-panel" role="menu">
+        <ul
+          class="menu-panel"
+          class:menu-panel-end={listsPlace.side === 'end'}
+          class:menu-panel-start={listsPlace.side === 'start'}
+          class:menu-panel-up={listsPlace.up}
+          role="menu"
+        >
           {#each listOptions as opt (opt.slug)}
             <li>
               <button
@@ -221,13 +233,14 @@
       {/if}
     </div>
 
-    <div class="menu-wrap">
+    <div class="menu-wrap" bind:this={shelfWrap}>
       <button
         class="btn"
         type="button"
         disabled={busy || shelfLoading}
         aria-expanded={shelfOpen}
         onclick={() => {
+          if (!shelfOpen && shelfWrap) shelfPlace = placeMenuPanel(shelfWrap, { width: 240, height: 280 });
           shelfOpen = !shelfOpen;
           listsOpen = false;
         }}
@@ -235,7 +248,13 @@
         Add to your bookshelf
       </button>
       {#if shelfOpen}
-        <ul class="menu-panel" role="menu">
+        <ul
+          class="menu-panel"
+          class:menu-panel-end={shelfPlace.side === 'end'}
+          class:menu-panel-start={shelfPlace.side === 'start'}
+          class:menu-panel-up={shelfPlace.up}
+          role="menu"
+        >
           {#if !bookshelf?.shelves.length}
             <li>
               <button class="menu-item" type="button" disabled={busy} onclick={() => void ensureRootShelf()}>

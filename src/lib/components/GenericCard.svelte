@@ -1,55 +1,65 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import { link } from 'svelte-spa-router';
   import UserBadge from './UserBadge.svelte';
-  import EventBody from './EventBody.svelte';
-  import { cardMeta, displayTitle } from '$lib/metadata';
-  import { uniqueMedia, contentWithoutMediaUrls } from '$lib/media';
+  import CopyPointerButton from './CopyPointerButton.svelte';
+  import { eventPreview } from '$lib/event-preview';
+  import { uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
 
   interface Props {
     event: Event;
     embedDepth?: number;
+    /** Compact search-list row. */
+    density?: 'full' | 'list';
   }
 
-  let { event, embedDepth = 0 }: Props = $props();
+  let { event, density = 'full' }: Props = $props();
 
-  const meta = $derived(cardMeta(event));
-  const title = $derived(displayTitle(event));
+  const preview = $derived(eventPreview(event));
   const media = $derived(uniqueMedia(event));
-  const leftover = $derived(contentWithoutMediaUrls(event.content, media));
+  const isList = $derived(density === 'list');
 </script>
 
-<article class="card generic-card">
-  <p class="muted">Published by <UserBadge pubkey={event.pubkey} /></p>
-  {#if title && title !== 'Untitled'}
-    <h3>{title}</h3>
-  {/if}
-  {#if meta.summary && meta.summary !== leftover}
-    <p class="muted">{meta.summary}</p>
-  {/if}
-  {#if meta.subjects.length}
+<article class="card generic-card" class:generic-card-list={isList}>
+  <CopyPointerButton {event} class="generic-card-copy" />
+  <p class="generic-card-kind muted">{preview.kindLine}</p>
+  <h3 class="generic-card-title">{preview.headline}</h3>
+  <p class="generic-card-by muted">
+    by <UserBadge pubkey={event.pubkey} />
+  </p>
+  {#if preview.topics.length}
     <div class="chip-row">
-      {#each meta.subjects.slice(0, 8) as subject}
-        <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`}>{subject}</a>
+      {#each preview.topics as subject}
+        <a class="chip chip-quiet" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link
+          >{subject}</a
+        >
       {/each}
     </div>
   {/if}
-  {#if meta.source}
-    <p class="muted">Source: {meta.source}</p>
+  {#if !isList}
+    {#each [...preview.imageUrls, ...media.filter((m) => m.type === 'image').map((m) => m.url)]
+      .filter((u, i, arr) => arr.indexOf(u) === i)
+      .slice(0, 4) as url}
+      {#if isAllowedMediaUrl(url)}
+        <img class="generic-media" src={url} alt="" loading="lazy" />
+      {/if}
+    {/each}
+    {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}
+      {#if item.type === 'video' && isAllowedMediaUrl(item.url)}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video class="generic-media" src={item.url} controls></video>
+      {:else if item.type === 'audio' && isAllowedMediaUrl(item.url)}
+        <audio src={item.url} controls></audio>
+      {/if}
+    {/each}
   {/if}
-  {#each media as item}
-    {#if item.type === 'image' && isAllowedMediaUrl(item.url)}
-      <img class="generic-media" src={item.url} alt="" />
-    {:else if item.type === 'video' && isAllowedMediaUrl(item.url)}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video class="generic-media" src={item.url} controls></video>
-    {:else if item.type === 'audio' && isAllowedMediaUrl(item.url)}
-      <audio src={item.url} controls></audio>
-    {/if}
-  {/each}
-  {#if leftover}
-    <EventBody event={{ ...event, content: leftover }} {embedDepth} />
-  {:else if !media.length && title === 'Untitled' && !meta.summary}
-    <p class="muted">No preview</p>
+  {#if preview.summary && preview.summary !== preview.body}
+    <p class="generic-card-summary muted">{preview.summary}</p>
+  {/if}
+  {#if preview.body}
+    <p class="generic-card-body muted">{preview.body}</p>
+  {:else if !preview.summary && !media.length && !preview.imageUrls.length}
+    <p class="muted generic-card-empty">No text in this event.</p>
   {/if}
 </article>

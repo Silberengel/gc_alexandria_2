@@ -8,6 +8,7 @@
   import { warmWikiDeferTarget } from '$lib/wiki-defer';
   import Cover from './Cover.svelte';
   import CardMeta from './CardMeta.svelte';
+  import CopyPointerButton from './CopyPointerButton.svelte';
 
   interface Props {
     event: Event;
@@ -51,29 +52,33 @@
 </script>
 
 {#if isRow}
-  <a class="listing-row" href={`#${href}`} use:link onpointerdown={warmSelf}>
-    <span class="listing-row-cover">
-      <Cover {event} />
-    </span>
-    <span class="listing-row-body">
-      <span class="listing-row-title">
-        {#if meta.titles.length}
-          {#each meta.titles as name, i}
-            {#if i > 0}<span> · </span>{/if}{name}
-          {/each}
+  <div class="listing-row-wrap">
+    <a class="listing-row" href={`#${href}`} use:link onpointerdown={warmSelf}>
+      <span class="listing-row-cover">
+        <Cover {event} />
+      </span>
+      <span class="listing-row-body">
+        <span class="listing-row-title">
+          {#if meta.titles.length}
+            {#each meta.titles as name, i}
+              {#if i > 0}<span> · </span>{/if}{name}
+            {/each}
+          {:else}
+            {title}
+          {/if}
+        </span>
+        {#if authorByline}
+          <span class="listing-row-meta muted">{authorByline}</span>
         {:else}
-          {title}
+          <span class="listing-row-meta muted">{kindLabel}</span>
         {/if}
       </span>
-      {#if authorByline}
-        <span class="listing-row-meta muted">{authorByline}</span>
-      {:else}
-        <span class="listing-row-meta muted">{kindLabel}</span>
-      {/if}
-    </span>
-  </a>
+    </a>
+    <CopyPointerButton {event} class="listing-row-copy" />
+  </div>
 {:else}
   <div class="card pub-card" class:pub-card-wiki={isWiki}>
+    <CopyPointerButton {event} class="generic-card-copy" />
     <div class="pub-card-top">
       <a class="pub-card-cover" href={`#${href}`} use:link onpointerdown={warmSelf}>
         <Cover {event} />

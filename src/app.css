@@ -239,6 +239,10 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   padding: 0;
   border-radius: 999px;
 }
+.btn.btn-icon {
+  padding: 0;
+  border-radius: 999px;
+}
 .btn-icon svg {
   display: block;
   width: 1.25rem;
@@ -1223,7 +1227,24 @@ a.listing-row:hover {
   padding-top: 0.85rem;
 }
 
+.listing-row-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.listing-row-wrap .listing-row {
+  width: 100%;
+  padding-right: 2.4rem;
+}
+.listing-row-copy {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.25rem;
+  z-index: 2;
+}
+
 .pub-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1231,7 +1252,13 @@ a.listing-row:hover {
   overflow: hidden;
   min-width: 0;
   max-width: 100%;
+  max-height: 500px;
   padding: 0.75rem;
+  padding-right: 2.5rem;
+}
+.pub-card:has(.event-more-menu-open) {
+  overflow: visible;
+  z-index: 70;
 }
 
 .pub-card-top {
@@ -1948,6 +1975,113 @@ a.listing-row:hover {
   margin: 0.75rem 0;
   border-radius: 0.35rem;
 }
+
+.generic-card,
+.note-card {
+  position: relative;
+  padding-right: 2.5rem;
+  max-height: 500px;
+  overflow: hidden;
+}
+.generic-card:has(.event-more-menu-open),
+.note-card:has(.event-more-menu-open) {
+  overflow: visible;
+  z-index: 70;
+}
+.generic-card-copy {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  left: auto;
+  z-index: 2;
+}
+.generic-card-kind {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.generic-card-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  padding-right: 0.25rem;
+}
+.generic-card-by,
+.note-card-by {
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+}
+.generic-card-summary,
+.generic-card-body {
+  margin: 0.35rem 0 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.generic-card-list .generic-card-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.generic-card-empty {
+  font-style: italic;
+  margin: 0.35rem 0 0;
+}
+.result-card-wrap {
+  position: relative;
+  max-height: 500px;
+  overflow: hidden;
+}
+.result-card-wrap:has(.event-more-menu-open) {
+  overflow: visible;
+  z-index: 70;
+}
+.result-card-wrap .generic-card-copy {
+  top: 0.65rem;
+  right: 0.65rem;
+}
+.copy-pointer-btn {
+  width: 1.65rem;
+  height: 1.65rem;
+  min-width: 1.65rem;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+}
+.copy-pointer-btn .more-ellipsis {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  transform: translateY(-0.06em);
+}
+.copy-pointer-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.listing-table-copy-col {
+  width: 2.5rem;
+  text-align: right;
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .picture-gallery {
   display: grid;
   gap: 0.5rem;
@@ -2165,13 +2299,32 @@ a.listing-row:hover {
 .menu-wrap {
   position: relative;
 }
+/* Card/row chrome must win over .menu-wrap so the trigger stays top-right inside the card. */
+.menu-wrap.generic-card-copy,
+.menu-wrap.listing-row-copy,
+.menu-wrap.details-more-menu {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  left: auto;
+  bottom: auto;
+  z-index: 2;
+}
+.menu-wrap.listing-row-copy {
+  top: 0.35rem;
+  right: 0.25rem;
+}
+.menu-wrap.details-more-menu {
+  top: 0.55rem;
+  right: 0;
+}
 .menu-panel {
   position: absolute;
   z-index: 20;
   top: calc(100% + 0.25rem);
   left: 0;
   min-width: 14rem;
-  max-width: min(20rem, 90vw);
+  max-width: min(20rem, calc(100vw - 1rem));
   margin: 0;
   padding: 0.35rem 0;
   list-style: none;
@@ -2179,6 +2332,18 @@ a.listing-row:hover {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 18%, transparent);
+}
+.menu-panel.menu-panel-end {
+  left: auto;
+  right: 0;
+}
+.menu-panel.menu-panel-start {
+  left: 0;
+  right: auto;
+}
+.menu-panel.menu-panel-up {
+  top: auto;
+  bottom: calc(100% + 0.25rem);
 }
 .menu-item {
   display: flex;
@@ -2190,8 +2355,40 @@ a.listing-row:hover {
   background: transparent;
   color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   font: inherit;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.event-more-menu {
+  z-index: 3;
+}
+.menu-wrap.event-more-menu-open,
+.menu-wrap.generic-card-copy.event-more-menu-open,
+.menu-wrap.listing-row-copy.event-more-menu-open,
+.menu-wrap.details-more-menu.event-more-menu-open {
+  z-index: 80;
+}
+.event-more-menu .menu-panel {
+  z-index: 1;
+  min-width: 12.5rem;
+}
+.details-panel-wrap {
+  position: relative;
+  margin-top: 1rem;
+}
+.details-panel-wrap .accordion {
+  margin-top: 0;
+}
+.details-more-menu {
+  position: absolute;
+  top: 0.55rem;
+  right: 0;
+  z-index: 4;
+}
+.details-panel-wrap > .details-panel > summary {
+  padding-right: 2.25rem;
 }
 .menu-item:hover,
 .menu-item:focus-visible {

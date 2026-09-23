@@ -53,7 +53,7 @@ export function cardMeta(event: Event): CardMeta {
   if (!defers || (summaryTag && !isDeferralPlaceholderContent(summaryTag))) {
     const markup =
       looksLikeNativeAsciidoc(rawSummary) ? 'asciidoc' : blurbMarkupForKind(event.kind);
-    const fromContent = cardBlurb(rawSummary, { markup, max: 280 }) || undefined;
+    const fromContent = cardBlurb(rawSummary, { markup, max: 250 }) || undefined;
     // Never surface deferral placeholders as the teaser.
     summary =
       fromContent && !isDeferralPlaceholderContent(fromContent) ? fromContent : undefined;
@@ -61,7 +61,9 @@ export function cardMeta(event: Event): CardMeta {
   return {
     publishedBy: event.pubkey,
     authors: authors.length ? authors : nTags,
-    titles: titles.length ? titles : tTags,
+    titles: (titles.length ? titles : tTags)
+      .map((t) => cardBlurb(t, { markup: 'markdown', max: 100 }) || t.slice(0, 100))
+      .filter(Boolean),
     subjects: tagValue(event, 't'),
     source: firstTag(event, 's') ?? firstTag(event, 'source'),
     identifier: firstTag(event, 'i'),
@@ -77,9 +79,9 @@ export function cardMeta(event: Event): CardMeta {
 
 export function displayTitle(event: Event): string {
   const m = cardMeta(event);
-  if (m.titles[0]) return m.titles[0];
-  if (m.dTag) return m.dTag.replace(/-/g, ' ');
-  return 'Untitled';
+  const raw = m.titles[0] || (m.dTag ? m.dTag.replace(/-/g, ' ') : '') || 'Untitled';
+  if (raw === 'Untitled') return raw;
+  return cardBlurb(raw, { markup: 'markdown', max: 100 }) || raw.slice(0, 100);
 }
 
 export function npubFromInput(input: string): string | null {
