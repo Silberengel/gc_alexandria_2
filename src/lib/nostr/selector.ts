@@ -75,7 +75,9 @@ function maybeAggr(urls: string[]): string[] {
 export function documentStack(): string[] {
   let relays: string[] = [...DOCUMENT_SEARCH_RELAYS];
   if (ctx.signedIn) {
-    relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
+    // Defaults first so a 5-relay cap still hits library hosts; personal outboxes follow
+    // (strict outbox-first reads use viewerOutboxStack).
+    relays = [...DOCUMENT_SEARCH_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
   }
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
@@ -100,15 +102,16 @@ export function publicationSearchStack(): string[] {
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
-/** Viewer's NIP-65 outboxes (+ favorites/local) — for reading one's own replaceables. */
+/**
+ * Viewer's NIP-65 outboxes (+ favorites/local) only — for reading one's own replaceables.
+ * Do not append the full social/document defaults here; that re-fans every login REQ onto
+ * rate-limited personal relays (e.g. pipe.imwald.eu 12/min).
+ */
 export function viewerOutboxStack(): string[] {
-  if (!ctx.signedIn) return socialStack();
+  if (!ctx.signedIn) return socialStack().slice(0, 3);
   const personal = withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
-  // Fall through to social + document defaults so 30045 dirs still hit thecitadel when
-  // the personal outbox list is empty or incomplete.
-  return maybeAggr(
-    withoutBlocked(stackUrls([...personal, ...SOCIAL_RELAYS, ...DOCUMENT_SEARCH_RELAYS]))
-  );
+  if (personal.length) return withoutBlocked(stackUrls(personal));
+  return withoutBlocked(stackUrls([...SOCIAL_RELAYS.slice(0, 2), ...DOCUMENT_SEARCH_RELAYS.slice(0, 2)]));
 }
 
 /** Wiki read stack — wiki hosts first so a 2–3 relay cap still reaches them. */
@@ -120,7 +123,7 @@ export function wikiStack(): string[] {
 export function socialStack(): string[] {
   let relays: string[] = [...SOCIAL_RELAYS];
   if (ctx.signedIn) {
-    relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
+    relays = [...SOCIAL_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
   }
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
@@ -132,7 +135,7 @@ export function socialStack(): string[] {
 export function profileStack(): string[] {
   let relays: string[] = [...PROFILE_RELAYS];
   if (ctx.signedIn) {
-    relays = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local, ...relays];
+    relays = [...PROFILE_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
   }
   return withoutBlocked(stackUrls(relays));
 }

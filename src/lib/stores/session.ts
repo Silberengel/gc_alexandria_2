@@ -196,7 +196,8 @@ function createSessionStore() {
             4000
           ),
           // Explicit outbox pass for bookmarks/dirs — Jumble-style “my lists live on my writes”.
-          relayPool.query(outboxSocial, [shelfFilter], 4000, 5)
+          // Cap at 2 relays: personal write hosts are often rate-limited (e.g. 12 msg/min).
+          relayPool.query(outboxSocial, [shelfFilter], 4000, 2)
         ]);
       const doc = docResult.status === 'fulfilled' ? docResult.value : [];
       const social = socialResult.status === 'fulfilled' ? socialResult.value : [];

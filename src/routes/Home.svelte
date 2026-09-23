@@ -118,17 +118,34 @@
     prefetchImages(coverUrls);
   }
 
+  let loadInFlight = false;
+  let loadAgain = false;
+  let mergeInFlight = false;
+  let mergeAgain = false;
+  /** Metadata id-key for which My shelf was last successfully folded. */
+  let lastFoldedMetaKey = '';
+
   /** Drop identity-bound rows and label chips; keep GitCitadel/network while the next load runs. */
   function clearIdentityShelves(): void {
     shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
     labels = [];
+    lastFoldedMetaKey = '';
   }
 
-  let loadInFlight = false;
-  let loadAgain = false;
-  let mergeInFlight = false;
-  let mergeAgain = false;
+  function shelfMetaKey(events: Event[]): string {
+    return events
+      .filter(
+        (e) =>
+          e.kind === KIND.CONTACT_LIST ||
+          e.kind === KIND.BOOKMARK ||
+          e.kind === KIND.LABEL ||
+          e.kind === KIND.DIRECTORY
+      )
+      .map((e) => e.id)
+      .sort()
+      .join(',');
+  }
 
   async function mergeViewerShelves(): Promise<void> {
     // Claim the mutex first so overlapping metadata + loading callbacks cannot dual-start.
@@ -154,6 +171,15 @@
       landingStatus = 'Waiting for your login lists…';
       return;
     }
+    const foldKey = shelfMetaKey(meta);
+    if (
+      foldKey &&
+      foldKey === lastFoldedMetaKey &&
+      shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)
+    ) {
+      console.info(LOG, 'mergeViewerShelves skip: My shelf already folded for this metadata');
+      return;
+    }
     mergeInFlight = true;
     const kindCounts: Record<string, number> = {};
     for (const e of meta) {
@@ -170,6 +196,7 @@
     });
     shelfBusy = true;
     landingStatus = 'Loading your shelves…';
+    let timeoutId: ReturnType<typeof setTimeout> | 0 = 0;
     try {
       const known = [
         ...shelves.flatMap((s) => s.events),
@@ -177,14 +204,21 @@
         ...highlights,
         ...comments
       ];
+      let raceDone = false;
       const pack = await Promise.race([
-        loadViewerShelves(known),
-        new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) =>
-          setTimeout(() => {
+        loadViewerShelves(known).then((value) => {
+          raceDone = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          return value;
+        }),
+        new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) => {
+          timeoutId = setTimeout(() => {
+            if (raceDone) return;
+            raceDone = true;
             console.warn(LOG, 'mergeViewerShelves timed out after 8s');
             resolve({ shelves: [], labels: [] });
-          }, 8_000)
-        )
+          }, 8_000);
+        })
       ]);
       const summary = pack.shelves.map((s) => `${s.id}:${s.events.length}`).join(', ') || '(none)';
       console.info(LOG, 'mergeViewerShelves result', {
@@ -204,18 +238,25 @@
           .map((e) => coverImageUrl(e))
           .filter((u): u is string => !!u)
       );
-      landingStatus = pack.shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)
-        ? 'Your shelves are ready'
-        : 'Shelves updated (no My shelf covers resolved yet)';
+      if (pack.shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)) {
+        lastFoldedMetaKey = foldKey;
+        landingStatus = 'Your shelves are ready';
+      } else {
+        landingStatus = 'Shelves updated (no My shelf covers resolved yet)';
+      }
     } catch (err) {
       console.warn(LOG, 'mergeViewerShelves failed', err);
       landingStatus = 'Could not load your shelves (see console)';
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       mergeInFlight = false;
       shelfBusy = false;
       if (mergeAgain && !loadInFlight) {
         mergeAgain = false;
-        void mergeViewerShelves();
+        // Trailing rematch is only needed when My shelf never painted.
+        const haveMine = shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length);
+        if (!haveMine) void mergeViewerShelves();
+        else console.info(LOG, 'mergeViewerShelves skip trailing rematch (My shelf already painted)');
       }
     }
   }

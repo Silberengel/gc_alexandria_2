@@ -106,6 +106,11 @@
   let sectionCorpus: Event[] = [];
   /** Reactive length for “Show more” UI (corpus itself stays non-reactive). */
   let corpusCount = $state(0);
+  /**
+   * Document-order index in `sectionCorpus` for `data-read-pos` / reading-queue progress.
+   * Rebuilt in publishPainted from the full corpus (not the painted prefix).
+   */
+  let sectionReadPos = $state(new Map<string, number>());
   let toc = $state<TocEntry[]>([]);
   /** How many ordered sections to mount in the reading pane (grows on scroll / jump). */
   let paintLimit = $state(100);
@@ -152,17 +157,6 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
-  /**
-   * Document-order index for `data-read-pos`.
-   * `sections` is always an ordered prefix of `sectionCorpus` (via publishPainted),
-   * so painted index === corpus index. Do not read the non-reactive corpus here.
-   */
-  const sectionReadPos = $derived.by(() => {
-    const painted = sections;
-    const map = new Map<string, number>();
-    for (let i = 0; i < painted.length; i++) map.set(painted[i]!.id, i);
-    return map;
-  });
   const paintedSections = $derived(sections);
   const readerGroups = $derived(
     $verseStyling
@@ -216,6 +210,12 @@
       });
     }
     corpusCount = sectionCorpus.length;
+    // Full-corpus indices for reading progress — not the painted-prefix length.
+    const posMap = new Map<string, number>();
+    for (let i = 0; i < sectionCorpus.length; i++) {
+      posMap.set(sectionCorpus[i]!.id, i);
+    }
+    sectionReadPos = posMap;
     sections = sectionCorpus.slice(0, Math.min(paintLimit, sectionCorpus.length));
   }
 
@@ -874,6 +874,7 @@
       tocOpen = false;
       sections = [];
       sectionCorpus = [];
+      sectionReadPos = new Map();
       corpusCount = 0;
       toc = [];
       paintLimit = 100;
@@ -1261,19 +1262,23 @@
 
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
-    saveResume(eventAddress(event), { pos, sectionId: section.id });
+    // Prefer corpus index for this section so progress uses document order, not a
+    // painted-prefix / readerGroups fallback that may have drifted.
+    const corpusPos = indexInCorpus(section.id);
+    const resolvedPos = corpusPos >= 0 ? corpusPos : pos;
+    saveResume(eventAddress(event), { pos: resolvedPos, sectionId: section.id });
     const prev = readerPos;
-    readerPos = pos;
+    readerPos = resolvedPos;
     readerSectionId = section.id;
-    if (pos !== prev) {
+    if (resolvedPos !== prev) {
       sectionTick = true;
       window.setTimeout(() => {
         sectionTick = false;
       }, 600);
       void syncReadingProgress({
         publication: event,
-        pos,
-        total: Math.max(corpusCount, 1),
+        pos: resolvedPos,
+        total: Math.max(corpusCount, sectionCorpus.length, 1),
         sectionId: section.id
       });
     }
@@ -1589,7 +1594,7 @@
           {:else if !paintedSections.length && (readingBusy || !sections.length)}
             <p class="loading-hint">Publication is loading...</p>
           {/if}
-          {#each readerGroups as group, gi (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
+          {#each readerGroups as group (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
             {#if group.kind === 'bible'}
               {@const verses = group.verses}
               <div class="bible-flow">
@@ -1687,7 +1692,7 @@
               {@const sectionKey = eventAddress(section)}
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
-              {@const pos = sectionReadPos.get(section.id) ?? gi}
+              {@const pos = sectionReadPos.get(section.id) ?? 0}
               <article
                 class="reader-section"
                 class:reader-index={isIndex}

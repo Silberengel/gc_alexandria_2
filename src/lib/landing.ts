@@ -49,6 +49,33 @@ export type LandingView = LandingSnapshot & {
 
 export { warmAddress, warmNavEvent } from './nav-warm';
 
+/** Race `work` against a timeout without logging after `work` already won. */
+function raceWithTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  onTimeout: () => T,
+  warn?: string
+): Promise<T> {
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | 0 = 0;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (warn) console.warn(warn);
+      resolve(onTimeout());
+    }, ms);
+  });
+  return Promise.race([
+    work.then((value) => {
+      settled = true;
+      if (timer) clearTimeout(timer);
+      return value;
+    }),
+    timeout
+  ]);
+}
+
 function currentViewerPubkey(): string | null {
   return session.getPubkey()?.toLowerCase() ?? null;
 }
@@ -552,15 +579,12 @@ async function resolveShelfPublications(
     }
   };
 
-  await Promise.race([
+  await raceWithTimeout(
     run(),
-    new Promise<void>((resolve) => {
-      setTimeout(() => {
-        console.warn('[alexandria:landing] resolveShelfPublications budget exhausted', networkBudgetMs);
-        resolve();
-      }, networkBudgetMs);
-    })
-  ]);
+    networkBudgetMs,
+    () => undefined,
+    `[alexandria:landing] resolveShelfPublications budget exhausted ${networkBudgetMs}`
+  );
 
   return byAddr;
 }
@@ -584,14 +608,14 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   const outbox = viewerOutboxStack();
   const curator = GITCITADEL_CURATOR_HEX;
   const viewer = session.getPubkey();
-  // Two waves so we do not take 6 pool slots at once beside feed queries.
-  const [socialLabels, socialCuratorLabels, bookmarkWs] = await Promise.allSettled([
-    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 2500),
-    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 2500),
-    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 2500)
+  // Do NOT fetch unscoped bookmarks — a few fat 10003s expand into tens of thousands of
+  // memberships and starve cover resolve / rate-limit personal outboxes.
+  const [socialLabels, socialCuratorLabels] = await Promise.allSettled([
+    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 40 }], 2500),
+    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 80 }], 2500)
   ]);
   const [dirWs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
-    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 2500),
+    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 40 }], 2500),
     viewer
       ? relayPool.query(social, [{ kinds: [KIND.BOOKMARK], authors: [viewer], limit: 5 }], 2500)
       : Promise.resolve([] as Event[]),
@@ -613,7 +637,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
             }
           ],
           3000,
-          5
+          2
         )
       : Promise.resolve([] as Event[])
   ]);
@@ -625,7 +649,6 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
       outboxEvents.filter((e) => e.kind === KIND.LABEL)
     ),
     liveBookmarks: mergeEvents(
-      settled(bookmarkWs, []),
       settled(myBookmarks, []),
       outboxEvents.filter((e) => e.kind === KIND.BOOKMARK)
     ),
@@ -635,6 +658,28 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
       outboxEvents.filter((e) => e.kind === KIND.DIRECTORY)
     )
   };
+}
+
+/** Prefer the viewer's lists, curator, then follows — drop the long tail before resolve. */
+function prioritizeMemberships(
+  memberships: Membership[],
+  viewer: string | null,
+  follows: Set<string>,
+  limit: number
+): Membership[] {
+  const rank = (author: string): number => {
+    if (viewer && author === viewer) return 0;
+    if (author === GITCITADEL_CURATOR_HEX) return 1;
+    if (follows.has(author)) return 2;
+    return 3;
+  };
+  return [...memberships]
+    .sort((a, b) => {
+      const d = rank(a.author) - rank(b.author);
+      if (d !== 0) return d;
+      return b.created_at - a.created_at;
+    })
+    .slice(0, limit);
 }
 
 async function loadShelvesAndLabels(
@@ -676,7 +721,14 @@ async function loadShelvesAndLabels(
       )
     : mine;
   const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mineForMembership);
-  const memberships = membershipsFromEvents(combined);
+  const viewer = session.getPubkey();
+  const follows = followPubkeysFromMetadata(mine);
+  const memberships = prioritizeMemberships(
+    membershipsFromEvents(combined),
+    viewer,
+    follows,
+    viewerOnly ? 80 : 400
+  );
   const publications = await resolveShelfPublications(
     memberships,
     [...knownPubs, ...(cached?.shelves ?? []).flatMap((s) => s.events)],
@@ -687,8 +739,6 @@ async function loadShelvesAndLabels(
       hintEvents: combined
     }
   );
-  const viewer = session.getPubkey();
-  const follows = followPubkeysFromMetadata(mine);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
     viewer != null
@@ -899,15 +949,12 @@ export async function refreshLanding(
   paint(snapshot());
 
   // Never block Home forever on shelf author lookups — race and paint whatever we have.
-  const shelfPack = await Promise.race([
+  const shelfPack = await raceWithTimeout(
     shelvesPromise,
-    new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) => {
-      setTimeout(() => {
-        console.warn('[alexandria:landing] shelvesPromise timed out after 8s');
-        resolve({ shelves: [], labels: [] });
-      }, 8_000);
-    })
-  ]);
+    8_000,
+    () => ({ shelves: [] as LandingShelfSnap[], labels: [] as string[] }),
+    '[alexandria:landing] shelvesPromise timed out after 8s'
+  );
   if (shelvesHaveCovers(shelfPack.shelves)) {
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   } else if (!shelvesHaveCovers(shelves) && publications.length) {
