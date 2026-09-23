@@ -593,14 +593,17 @@ export function enrichToc(toc: TocEntry[], sections: Event[]): TocEntry[] {
 }
 
 export function hexFromNpubParam(raw: string): string {
+  const cleaned = raw.trim().split('?')[0].split('#')[0];
+  if (!cleaned) return '';
   try {
-    const decoded = nip19.decode(raw);
+    const decoded = nip19.decode(cleaned);
     if (decoded.type === 'npub') return decoded.data;
     if (decoded.type === 'nprofile') return decoded.data.pubkey;
   } catch {
     /* hex */
   }
-  return raw.toLowerCase();
+  const hex = cleaned.toLowerCase();
+  return /^[0-9a-f]{64}$/.test(hex) ? hex : '';
 }
 
 export function decodePublicationPointer(naddrOrNevent: string): {

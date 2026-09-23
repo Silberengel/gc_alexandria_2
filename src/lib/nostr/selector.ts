@@ -80,9 +80,9 @@ export function documentStack(): string[] {
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
-/** Wiki read stack */
+/** Wiki read stack — wiki hosts first so a 2–3 relay cap still reaches them. */
 export function wikiStack(): string[] {
-  return withoutBlocked(stackUrls([...documentStack(), ...WIKI_RELAYS]));
+  return withoutBlocked(stackUrls([...WIKI_RELAYS, ...documentStack()]));
 }
 
 /** Social/interaction stack */

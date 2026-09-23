@@ -29,8 +29,15 @@ describe('mercury unavailable cooldown', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(60_000);
-    await mercuryFilter({ kinds: [1], limit: 1 });
+    await mercuryFilter({ kinds: [30040], limit: 1 });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips HTTP when the filter has only non-document kinds', async () => {
+    const { mercuryFilter } = await import('./mercury');
+    const events = await mercuryFilter({ kinds: [1985, 1111, 10003], limit: 10 });
+    expect(events).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

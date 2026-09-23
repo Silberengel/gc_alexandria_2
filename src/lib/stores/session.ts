@@ -6,7 +6,6 @@ import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
 import { documentStack, profileStack, setSelectorContext, socialStack, writeStack } from '../nostr/selector';
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
-import { mercuryFilter } from '../nostr/mercury';
 import { mergeRememberedMetadata } from '../session-metadata';
 import { sanitizeStoredBunkerUrl } from '../bunker-auth-url';
 import type { BunkerLoginOptions, Signer, SignerType } from '../signer';
@@ -22,6 +21,7 @@ const SOCIAL_LOGIN_KINDS = [
   KIND.BLOCKED,
   KIND.FAVORITE,
   KIND.LABEL,
+  KIND.DIRECTORY,
   KIND.FOLLOW_SET,
   KIND.STATUS,
   KIND.PAYMENT
@@ -128,7 +128,7 @@ function createSessionStore() {
   }
 
   async function loadMetadata(pubkey: string): Promise<void> {
-    // Kind 0 is not on Mercury (document index). Fetch it from profile mirrors.
+    // Login lists / kind 0 are not on Mercury (document kinds only).
     // 1985/10003 live on the social stack — document-only REQs miss most bookmarks/labels.
     const listKinds = LOGIN_METADATA_KINDS.filter((k) => k !== KIND.METADATA);
     const listFilter = { authors: [pubkey], kinds: listKinds, limit: 100 };
@@ -139,18 +139,16 @@ function createSessionStore() {
     };
     const profileFilter = { authors: [pubkey], kinds: [KIND.METADATA], limit: 1 };
     try {
-      const [mercuryResult, docResult, socialResult, profileResult] = await Promise.allSettled([
-        mercuryFilter(listFilter),
+      const [docResult, socialResult, profileResult] = await Promise.allSettled([
         relayPool.query(documentStack(), [listFilter], 4000),
         relayPool.query(socialStack(), [socialFilter], 4000),
         relayPool.query(profileStack(), [profileFilter], 4000)
       ]);
-      const mercury = mercuryResult.status === 'fulfilled' ? mercuryResult.value : [];
       const doc = docResult.status === 'fulfilled' ? docResult.value : [];
       const social = socialResult.status === 'fulfilled' ? socialResult.value : [];
       const profiles = profileResult.status === 'fulfilled' ? profileResult.value : [];
       const byId = new Map<string, Event>();
-      for (const e of [...mercury, ...doc, ...social, ...profiles]) byId.set(e.id, e);
+      for (const e of [...doc, ...social, ...profiles]) byId.set(e.id, e);
       metadataEvents = [...byId.values()];
       metadata.set(metadataEvents);
       try {

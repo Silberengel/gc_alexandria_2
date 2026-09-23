@@ -31,7 +31,7 @@ import { documentStack, highlightStack, socialStack } from './nostr/selector';
 import { cacheFindByAddress } from './nostr/cache';
 import { memoryFindByAddress } from './nostr/event-memory';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
-import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, type Membership, type Shelf } from './shelves';
+import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -50,6 +50,50 @@ function sameViewer(cached: LandingView | LandingSnapshot | null | undefined, vi
   // Legacy snapshots without viewerPubkey are treated as anonymous-only.
   const cachedViewer = cached.viewerPubkey === undefined ? null : cached.viewerPubkey;
   return (cachedViewer ?? null) === (viewer ?? null);
+}
+
+function landingHasPaint(view: LandingView | LandingSnapshot): boolean {
+  return !!(
+    view.publications?.length ||
+    view.highlights?.length ||
+    view.comments?.length ||
+    (view.ratings?.length ?? 0) ||
+    (view.shelves ?? []).some((s) => s.events.length) ||
+    (view.labels?.length ?? 0)
+  );
+}
+
+function shelvesHaveCovers(shelves: LandingShelfSnap[] | undefined): boolean {
+  return (shelves ?? []).some((s) => s.events.length > 0);
+}
+
+/**
+ * Persist as soon as we have something to show — do not wait for resolveReferenced.
+ * Never replace a snapshot that has shelf covers with a later paint that only has feeds.
+ */
+function persistLandingSoon(view: LandingView): void {
+  if (!landingHasPaint(view)) return;
+  void (async () => {
+    try {
+      const prev = await cacheGetLandingSnapshot();
+      const shelves =
+        shelvesHaveCovers(view.shelves) || !shelvesHaveCovers(prev?.shelves)
+          ? (view.shelves ?? [])
+          : (prev?.shelves ?? []);
+      const ratings =
+        (view.ratings?.length ?? 0) > 0 ? view.ratings : (prev?.ratings ?? view.ratings ?? []);
+      const labels =
+        (view.labels?.length ?? 0) > 0 ? view.labels : (prev?.labels ?? view.labels ?? []);
+      await cachePutLandingSnapshot({
+        ...view,
+        shelves,
+        ratings,
+        labels
+      });
+    } catch {
+      /* private mode / quota */
+    }
+  })();
 }
 
 export const LANDING_FEED_LIMIT = 10;
@@ -328,11 +372,6 @@ const RATING_FILTERS: Filter[] = [
   { kinds: [KIND.RATING], '#m': ['book'], limit: 100 }
 ];
 
-async function mercuryFilters(filters: Filter[]): Promise<Event[]> {
-  const batches = await Promise.all(filters.map((filter) => mercuryFilter(filter)));
-  return mergeEvents(...batches);
-}
-
 function landingRatings(...lists: Event[][]): Event[] {
   return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
 }
@@ -374,7 +413,9 @@ async function resolveShelfPublications(memberships: Membership[], known: Event[
     groups.set(parsed.pubkey, g);
   }
 
-  await poolMap([...groups.values()], 4, async (group) => {
+  // Shelf covers must win against feed/reference queries — keep concurrency modest but
+  // give each author group enough relay wait time (2s was starving under pool contention).
+  await poolMap([...groups.values()], 3, async (group) => {
     const dValues = group.ds.slice(0, 40);
     if (!dValues.length) return;
     const filter = {
@@ -396,7 +437,8 @@ async function resolveShelfPublications(memberships: Membership[], known: Event[
       const ws = await relayPool.query(
         documentStack(),
         [{ kinds: [KIND.PUBLICATION], authors: [group.pubkey], '#d': still, limit: still.length }],
-        2000
+        4500,
+        4
       );
       for (const event of ws) {
         if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
@@ -437,17 +479,8 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   const social = socialStack();
   const document = documentStack();
   const curator = GITCITADEL_CURATOR_HEX;
-  const [
-    mercLabels,
-    mercCuratorLabels,
-    socialLabels,
-    socialCuratorLabels,
-    bookmarkWs,
-    dirWs
-  ] = await Promise.allSettled([
-    mercuryFilter({ kinds: [KIND.LABEL], limit: 100 }),
-    mercuryFilter({ kinds: [KIND.LABEL], authors: [curator], limit: 100 }),
-    // Always sample social labels — Mercury currently returns [] for kind 1985.
+  const [socialLabels, socialCuratorLabels, bookmarkWs, dirWs] = await Promise.allSettled([
+    // Labels / bookmarks / directories are social — Mercury only indexes document kinds.
     relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 2500),
     // GitCitadel shelf membership is curator-authored; pin that author so new labels show up on refresh.
     relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 2500),
@@ -455,12 +488,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
     relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 2500)
   ]);
   return {
-    liveLabels: mergeEvents(
-      settled(mercLabels, []),
-      settled(mercCuratorLabels, []),
-      settled(socialLabels, []),
-      settled(socialCuratorLabels, [])
-    ),
+    liveLabels: mergeEvents(settled(socialLabels, []), settled(socialCuratorLabels, [])),
     liveBookmarks: settled(bookmarkWs, []),
     liveDirs: settled(dirWs, [])
   };
@@ -471,6 +499,26 @@ async function loadShelvesAndLabels(
   cached?: LandingView | null,
   membership?: ShelfMembershipPack
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
+  // Signed-in: wait briefly for login lists so "My shelf" is not skipped on the first paint.
+  const viewerEarly = session.getPubkey();
+  if (viewerEarly && !session.getMetadata().length) {
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        unsub();
+        clearTimeout(timer);
+        resolve();
+      };
+      const unsub = session.metadata.subscribe((events) => {
+        if (events.length) finish();
+      });
+      const timer = setTimeout(finish, 6_000);
+      if (session.getMetadata().length) finish();
+    });
+  }
+
   const mine = session.getMetadata();
   const pack = membership ?? (await fetchShelfMembershipEvents());
   const { liveLabels, liveBookmarks, liveDirs } = pack;
@@ -513,6 +561,16 @@ async function loadShelvesAndLabels(
   };
 }
 
+/**
+ * Rebuild shelves from the signed-in viewer's login lists (bookmarks / labels / 30045).
+ * Used after metadata arrives so "My shelf" does not wait on a full landing refresh.
+ */
+export async function loadViewerShelves(
+  knownPubs: Event[] = []
+): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
+  return loadShelvesAndLabels(knownPubs, null, EMPTY_MEMBERSHIP);
+}
+
 export async function loadCachedLanding(): Promise<LandingView | null> {
   const viewer = currentViewerPubkey();
   const snap = await cacheGetLandingSnapshot();
@@ -533,7 +591,7 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
       snapForViewer.highlights.length ||
       snapForViewer.comments.length ||
       (snapForViewer.ratings?.length ?? 0) ||
-      (snapForViewer.shelves?.length ?? 0) ||
+      (snapForViewer.shelves ?? []).some((s) => s.events.length) ||
       (snapForViewer.labels?.length ?? 0))
   ) {
     return withSubjects({
@@ -560,15 +618,15 @@ export async function loadCachedLanding(): Promise<LandingView | null> {
   const highlights = newestHighlightPerAddress(rawHighlights).slice(0, LANDING_FEED_LIMIT);
   const comments = newestCommentPerWork(rawComments).slice(0, LANDING_FEED_LIMIT);
   const ratings = landingRatings(rawRatings);
+  // Never await resolveReferenced here — it contends for relay slots and delayed first paint
+  // by minutes on cold IndexedDB. Titles hydrate on the live refresh path.
   return withSubjects({
     viewerPubkey: viewer,
     publications,
     highlights,
     comments,
     ratings,
-    referenced: snapForViewer?.referenced?.length
-      ? snapForViewer.referenced
-      : await resolveReferenced([...highlights, ...comments, ...ratings], publications),
+    referenced: snapForViewer?.referenced ?? [],
     shelves: [],
     labels: snapForViewer?.labels ?? []
   });
@@ -581,48 +639,79 @@ export async function refreshLanding(
   const viewer = currentViewerPubkey();
   const cacheOk = sameViewer(cached, viewer);
 
-  // Membership is social/document WSS — Mercury does not index 1985/10003/30045.
-  // Start it early, but never block the first paint on it (prod looked blank for 30s+).
+  // Membership + social feeds are WSS only — Mercury indexes document kinds only.
   const membershipPromise = fetchShelfMembershipEvents();
-
-  const [pubsResult, wikiResult, commHttp, highHttp, rateHttp] = await Promise.allSettled([
-    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
-    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
-    mercuryFilters(COMMENT_FILTERS),
-    mercuryFilters(HIGHLIGHT_FILTERS),
-    mercuryFilters(RATING_FILTERS)
+  const feedWsPromise = Promise.all([
+    relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
+    relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
+    relayPool.query(socialStack(), RATING_FILTERS, 4000)
   ]);
 
-  const mercComments = settled(commHttp, []);
-  const mercHighlights = settled(highHttp, []);
-  const mercRatings = settled(rateHttp, []);
+  const [pubsResult, wikiResult] = await Promise.allSettled([
+    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
+    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 })
+  ]);
+
   const publications = preferLive(
     mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
     cacheOk ? cached?.publications : undefined
   );
 
-  // Paint Mercury + local cache immediately — subjects/chips appear even while shelves load.
-  // Merge cache so a just-published highlight (in the client cache) is not dropped when Mercury has older hits.
-  let comments = newestCommentPerWork(
-    mergeEvents(mercComments, cacheOk ? (cached?.comments ?? []) : [])
-  ).slice(0, LANDING_FEED_LIMIT);
-  let highlights = newestHighlightPerAddress(
-    mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
-  ).slice(0, LANDING_FEED_LIMIT);
-  let ratings = landingRatings(mercRatings, cacheOk ? (cached?.ratings ?? []) : []);
+  let comments = newestCommentPerWork(cacheOk ? (cached?.comments ?? []) : []).slice(
+    0,
+    LANDING_FEED_LIMIT
+  );
+  let highlights = newestHighlightPerAddress(cacheOk ? (cached?.highlights ?? []) : []).slice(
+    0,
+    LANDING_FEED_LIMIT
+  );
+  let ratings = landingRatings(cacheOk ? (cached?.ratings ?? []) : []);
+  let shelves = cacheOk ? (cached?.shelves ?? []) : [];
+  let labels = cacheOk ? (cached?.labels ?? []) : [];
+  let referenced = cacheOk ? (cached?.referenced ?? []) : [];
 
-  onUpdate?.(
+  const paint = (partial: LandingView): void => {
+    onUpdate?.(partial);
+    persistLandingSoon(partial);
+  };
+
+  const snapshot = (): LandingView =>
     withSubjects({
       viewerPubkey: viewer,
       publications,
       comments,
       highlights,
       ratings,
-      referenced: cacheOk ? (cached?.referenced ?? []) : [],
-      shelves: cacheOk ? (cached?.shelves ?? []) : [],
-      labels: cacheOk ? (cached?.labels ?? []) : []
-    })
+      referenced,
+      shelves,
+      labels
+    });
+
+  paint(snapshot());
+
+  // Immediate covers from Mercury pubs while label membership resolves (~5–8s).
+  if (!shelvesHaveCovers(shelves) && publications.some((e) => e.kind === KIND.PUBLICATION)) {
+    shelves = [
+      {
+        id: 'network',
+        title: SHELF_TITLES.network,
+        events: publications.filter((e) => e.kind === KIND.PUBLICATION).slice(0, 50)
+      }
+    ];
+    paint(snapshot());
+  }
+
+  // Resolve shelves as soon as membership returns — do not wait on slow social feed queries.
+  const shelvesPromise = membershipPromise.then((membership) =>
+    loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
   );
+  void shelvesPromise.then((pack) => {
+    if (!shelvesHaveCovers(pack.shelves) && !pack.labels.length) return;
+    // Merge — never replace, or a late membership pack wipes My shelf from minePack.
+    if (shelvesHaveCovers(pack.shelves)) shelves = mergeLandingShelves(shelves, pack.shelves);
+    if (pack.labels.length) labels = pack.labels;
+    paint(snapshot());
+  });
 
   // My shelf from login metadata — resolve in parallel with social membership (not after).
   const minePackPromise =
@@ -630,91 +719,49 @@ export async function refreshLanding(
       ? loadShelvesAndLabels(publications, cacheOk ? cached : null, EMPTY_MEMBERSHIP)
       : Promise.resolve(null);
 
-  // Social feeds: always merge Mercury + relays + cache. Mercury may lag or omit
-  // fresh outbox publishes (highlights/comments are not POSTed to Mercury).
-  const [commWs, highWs, rateWs, membership, minePack] = await Promise.all([
-    relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
-    relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
-    relayPool.query(socialStack(), RATING_FILTERS, 4000),
-    membershipPromise,
+  const [[commWs, highWs, rateWs], minePack] = await Promise.all([
+    feedWsPromise,
     minePackPromise
   ]);
 
-  if (minePack?.shelves.some((s) => s.events.length)) {
-    onUpdate?.(
-      withSubjects({
-        viewerPubkey: viewer,
-        publications,
-        comments: newestCommentPerWork(
-          mergeEvents(mercComments, cacheOk ? (cached?.comments ?? []) : [])
-        ).slice(0, LANDING_FEED_LIMIT),
-        highlights: newestHighlightPerAddress(
-          mergeEvents(mercHighlights, cacheOk ? (cached?.highlights ?? []) : [])
-        ).slice(0, LANDING_FEED_LIMIT),
-        ratings: landingRatings(mercRatings, cacheOk ? (cached?.ratings ?? []) : []),
-        referenced: cacheOk ? (cached?.referenced ?? []) : [],
-        shelves: minePack.shelves,
-        labels: minePack.labels.length ? minePack.labels : cacheOk ? (cached?.labels ?? []) : []
-      })
-    );
+  if (minePack && shelvesHaveCovers(minePack.shelves)) {
+    shelves = mergeLandingShelves(shelves, minePack.shelves);
+    if (minePack.labels.length) labels = minePack.labels;
+    paint(snapshot());
   }
 
   comments = newestCommentPerWork(
-    mergeEvents(mercComments, commWs, cacheOk ? (cached?.comments ?? []) : [])
+    mergeEvents(commWs, cacheOk ? (cached?.comments ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
   highlights = newestHighlightPerAddress(
-    mergeEvents(mercHighlights, highWs, cacheOk ? (cached?.highlights ?? []) : [])
+    mergeEvents(highWs, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
-  ratings = landingRatings(mercRatings, rateWs, cacheOk ? (cached?.ratings ?? []) : []);
+  ratings = landingRatings(rateWs, cacheOk ? (cached?.ratings ?? []) : []);
+  paint(snapshot());
 
-  // Keep My shelf visible while follows/GitCitadel/network membership finishes resolving.
-  const shelvesWhileWaiting =
-    minePack?.shelves.some((s) => s.events.length)
-      ? minePack.shelves
-      : cacheOk
-        ? (cached?.shelves ?? [])
-        : [];
-  const labelsWhileWaiting =
-    minePack?.labels.length
-      ? minePack.labels
-      : cacheOk
-        ? (cached?.labels ?? [])
-        : [];
+  const shelfPack = await shelvesPromise;
+  if (shelvesHaveCovers(shelfPack.shelves)) {
+    shelves = mergeLandingShelves(shelves, shelfPack.shelves);
+  } else if (!shelvesHaveCovers(shelves) && publications.length) {
+    // Last resort: show recent Mercury/cache pubs so the landing is never shelf-less.
+    shelves = [
+      {
+        id: 'network',
+        title: SHELF_TITLES.network,
+        events: publications.filter((e) => e.kind === KIND.PUBLICATION).slice(0, 50)
+      }
+    ];
+  }
+  if (shelfPack.labels.length) labels = shelfPack.labels;
+  paint(snapshot());
 
-  onUpdate?.(
-    withSubjects({
-      viewerPubkey: viewer,
-      publications,
-      comments,
-      highlights,
-      ratings,
-      referenced: cacheOk ? (cached?.referenced ?? []) : [],
-      shelves: shelvesWhileWaiting,
-      labels: labelsWhileWaiting
-    })
+  referenced = await resolveReferenced(
+    [...highlights, ...comments, ...ratings],
+    [...publications, ...(cacheOk ? (cached?.referenced ?? []) : []), ...shelves.flatMap((s) => s.events)]
   );
 
-  const [referenced, shelfPack] = await Promise.all([
-    resolveReferenced(
-      [...highlights, ...comments, ...ratings],
-      [...publications, ...(cacheOk ? (cached?.referenced ?? []) : [])]
-    ),
-    loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
-  ]);
-
-  // Always take the shelf pack for this viewer — never fall back to another identity's "My shelf".
-  const view = withSubjects({
-    viewerPubkey: viewer,
-    publications,
-    comments,
-    highlights,
-    ratings,
-    referenced,
-    shelves: shelfPack.shelves,
-    labels: shelfPack.labels.length ? shelfPack.labels : cacheOk ? (cached?.labels ?? []) : []
-  });
-  onUpdate?.(view);
-  void cachePutLandingSnapshot(view);
+  const view = snapshot();
+  paint(view);
   return view;
 }
 

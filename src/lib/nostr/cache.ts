@@ -60,10 +60,14 @@ function ingestList(rows: unknown): Event[] {
 }
 
 export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null> {
-  const cache = await openCache();
-  const res = await cache.match(LANDING_SNAPSHOT_KEY);
-  if (!res) return null;
   try {
+    const cache = await openCache();
+    const absolute =
+      typeof location !== 'undefined'
+        ? new URL(LANDING_SNAPSHOT_KEY, location.origin).href
+        : LANDING_SNAPSHOT_KEY;
+    const res = (await cache.match(absolute)) ?? (await cache.match(LANDING_SNAPSHOT_KEY));
+    if (!res) return null;
     const raw = (await res.json()) as LandingSnapshot;
     return {
       viewerPubkey:
@@ -93,39 +97,54 @@ export async function cacheGetLandingSnapshot(): Promise<LandingSnapshot | null>
 }
 
 export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<void> {
-  const cache = await openCache();
-  const body = JSON.stringify({
-    viewerPubkey: snap.viewerPubkey === undefined ? null : snap.viewerPubkey,
-    publications: snap.publications.slice(0, 50),
-    highlights: snap.highlights.slice(0, 10),
-    comments: snap.comments.slice(0, 10),
-    ratings: (snap.ratings ?? []).slice(0, 10),
-    referenced: (snap.referenced ?? []).slice(0, 80),
-    shelves: (snap.shelves ?? []).map((s) => ({
-      id: s.id,
-      title: s.title,
-      events: s.events.slice(0, 50),
-      ...(s.href ? { href: s.href } : {})
-    })),
-    labels: (snap.labels ?? []).slice(0, 25)
-  });
-  await cache.put(
-    LANDING_SNAPSHOT_KEY,
-    new Response(body, { headers: { 'Content-Type': 'application/json' } })
-  );
-  // Also index shelf/cover events so /publication/d/... can open offline / without Mercury.
-  const indexed = [
-    ...snap.publications,
-    ...(snap.referenced ?? []),
-    ...(snap.shelves ?? []).flatMap((s) => s.events)
-  ];
-  void cachePutMany(indexed);
+  try {
+    const cache = await openCache();
+    const body = JSON.stringify({
+      viewerPubkey: snap.viewerPubkey === undefined ? null : snap.viewerPubkey,
+      publications: snap.publications.slice(0, 50),
+      highlights: snap.highlights.slice(0, 10),
+      comments: snap.comments.slice(0, 10),
+      ratings: (snap.ratings ?? []).slice(0, 10),
+      referenced: (snap.referenced ?? []).slice(0, 80),
+      shelves: (snap.shelves ?? []).map((s) => ({
+        id: s.id,
+        title: s.title,
+        events: s.events.slice(0, 50),
+        ...(s.href ? { href: s.href } : {})
+      })),
+      labels: (snap.labels ?? []).slice(0, 25)
+    });
+    // Absolute URL — some browsers reject relative cache keys.
+    const req =
+      typeof location !== 'undefined'
+        ? new Request(new URL(LANDING_SNAPSHOT_KEY, location.origin).href)
+        : LANDING_SNAPSHOT_KEY;
+    await cache.put(
+      req,
+      new Response(body, { headers: { 'Content-Type': 'application/json' } })
+    );
+    // Also index shelf/cover events so /publication/d/... can open offline / without Mercury.
+    const indexed = [
+      ...snap.publications,
+      ...(snap.referenced ?? []),
+      ...(snap.shelves ?? []).flatMap((s) => s.events)
+    ];
+    void cachePutMany(indexed);
+  } catch {
+    /* private mode / quota — landing still works from memory this session */
+  }
 }
 
 /** Drop the landing snapshot (viewer-bound shelves/feeds) without wiping the rest of the event cache. */
 export async function cacheClearLandingSnapshot(): Promise<void> {
   try {
     const cache = await openCache();
+    const req =
+      typeof location !== 'undefined'
+        ? new URL(LANDING_SNAPSHOT_KEY, location.origin).href
+        : LANDING_SNAPSHOT_KEY;
+    await cache.delete(req);
+    // Legacy relative key from older builds.
     await cache.delete(LANDING_SNAPSHOT_KEY);
   } catch {
     /* private mode / unsupported */
@@ -302,8 +321,18 @@ export function cacheSizeHuman(): string {
 
 export async function clearEventCache(): Promise<void> {
   await caches.delete(CACHE_NAME);
+  try {
+    await caches.delete('alexandria-images-v1');
+  } catch {
+    /* ignore */
+  }
   localStorage.removeItem(META_KEY);
   localStorage.removeItem(SEARCH_KEYS_META);
+  try {
+    localStorage.removeItem('alexandria-profile-thumbs');
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function cacheCover(url: string, blob: Blob): Promise<void> {

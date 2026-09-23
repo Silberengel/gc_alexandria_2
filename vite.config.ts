@@ -43,6 +43,17 @@ export default defineConfig({
               expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 365 },
               cacheableResponse: { statuses: [0, 200] }
             }
+          },
+          {
+            // Cover / avatar CDNs — CacheFirst so refresh paints from disk.
+            urlPattern:
+              /^https:\/\/(i\.nostr\.build|cdn\.nostr\.build|image\.nostr\.build|www\.gutenberg\.org|covers\.openlibrary\.org)\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'alexandria-media-cdn',
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
           }
         ]
       },

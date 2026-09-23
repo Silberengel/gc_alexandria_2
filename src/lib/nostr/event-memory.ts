@@ -5,6 +5,8 @@ import { firstTag } from './verify';
 /** Session-local index of events already shown in the UI (shelves, search, etc.). */
 const byId = new Map<string, Event>();
 const byAddr = new Map<string, Event>();
+/** Newest kind-0 per pubkey — badges remount without waiting on profile relays. */
+const byMetaPubkey = new Map<string, Event>();
 
 function addrKey(kind: number, pubkey: string, d: string): string {
   return `${kind}:${pubkey.toLowerCase()}:${normalizeDTag(d) || d}`;
@@ -17,9 +19,14 @@ export function rememberEvents(events: Event[]): void {
     const prev = byId.get(id);
     if (!prev || event.created_at >= prev.created_at) byId.set(id, event);
 
+    const pk = event.pubkey.toLowerCase();
+    if (event.kind === 0) {
+      const cur = byMetaPubkey.get(pk);
+      if (!cur || event.created_at >= cur.created_at) byMetaPubkey.set(pk, event);
+    }
+
     const d = firstTag(event, 'd');
     if (d == null) continue;
-    const pk = event.pubkey.toLowerCase();
     for (const variant of new Set([d, ...dTagVariants(d), normalizeDTag(d)].filter(Boolean))) {
       const key = addrKey(event.kind, pk, variant);
       const cur = byAddr.get(key);
@@ -30,6 +37,10 @@ export function rememberEvents(events: Event[]): void {
 
 export function memoryGetEvent(id: string): Event | null {
   return byId.get(id.toLowerCase()) ?? null;
+}
+
+export function memoryFindMetadata(pubkey: string): Event | null {
+  return byMetaPubkey.get(pubkey.trim().toLowerCase()) ?? null;
 }
 
 export function memoryFindByAddress(kind: number, pubkey: string, d: string): Event | null {

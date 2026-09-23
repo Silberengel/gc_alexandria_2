@@ -82,6 +82,19 @@ describe('fetchBrainstormNip50Events', () => {
     query.mockReset();
   });
 
+  it('omits kinds when searching the full corpus', async () => {
+    query.mockResolvedValue([wikiEvent('1'.repeat(64))]);
+    const events = await fetchBrainstormNip50Events({
+      query: 'aristotle',
+      observerPubkey: 'aa'.repeat(32),
+      trustFilterEnabled: false
+    });
+    expect(events).toHaveLength(1);
+    const [, filters] = query.mock.calls[0] as [string[], { search: string; kinds?: number[] }[]];
+    expect(filters[0]?.kinds).toBeUndefined();
+    expect(filters[0]?.search).toContain('aristotle');
+  });
+
   it('requests wiki kinds on the staging Brainstorm relay', async () => {
     query.mockResolvedValue([wikiEvent('1'.repeat(64))]);
     const events = await fetchBrainstormNip50Events({

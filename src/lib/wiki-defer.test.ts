@@ -43,10 +43,12 @@ describe('wiki deference', () => {
   });
 
   it('builds a wiki path from a defer coordinate', async () => {
+    const { nip19 } = await import('nostr-tools');
     const { wikiPathFromCoordinate, wikiDeferTargetHref } = await import('./wiki-defer');
     const pk = 'b'.repeat(64);
+    const npub = nip19.npubEncode(pk);
     expect(wikiPathFromCoordinate(`30818:${pk}:bitcoin`)).toBe(
-      `/wiki/d/bitcoin/p/${pk}`
+      `/wiki/d/bitcoin/p/${npub}`
     );
     const article = ev({
       tags: [
@@ -55,7 +57,7 @@ describe('wiki deference', () => {
       ],
       content: 'Read nostr:naddr1qqqq instead.'
     });
-    expect(wikiDeferTargetHref(article)).toBe(`/wiki/d/preferred/p/${pk}`);
+    expect(wikiDeferTargetHref(article)).toBe(`/wiki/d/preferred/p/${npub}`);
   });
 
   it('collects every pubkey that defers to the preferred article', async () => {

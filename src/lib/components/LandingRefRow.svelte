@@ -3,7 +3,15 @@
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import { KIND } from '$lib/constants';
-  import { displayRefTitle, focusHrefForRef, pathForRef } from '$lib/landing';
+  import {
+    displayRefTitle,
+    focusHrefForRef,
+    pathForRef,
+    topLevelPublicationAddress
+  } from '$lib/landing';
+  import { referencedLibraryAddress, referencedSectionAddress } from '$lib/library-scope';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { rememberEvents } from '$lib/nostr/event-memory';
 
   interface Props {
     event: Event;
@@ -23,12 +31,28 @@
         ? 'View comment'
         : 'View'
   );
+
+  /** Seed event-memory before SPA nav so Wiki/Publication can paint without a relay round-trip. */
+  function warmWork(): void {
+    const work = referencedLibraryAddress(event);
+    const section = referencedSectionAddress(event);
+    const top = topLevelPublicationAddress(section ?? work, referenced);
+    const coords = [top, work, section].filter((c): c is string => !!c);
+    const hits = referenced.filter((e) => coords.includes(eventAddress(e)));
+    if (hits.length) rememberEvents(hits);
+  }
 </script>
 
 <li class="landing-ref landing-feed-card">
   <div class="landing-ref-work">
     {#if pageHref}
-      <a class="landing-ref-title" href={`#${pageHref}`} use:link title="Open publication">{title}</a>
+      <a
+        class="landing-ref-title"
+        href={`#${pageHref}`}
+        use:link
+        title="Open publication"
+        onpointerdown={warmWork}
+      >{title}</a>
     {:else}
       <span class="landing-ref-title">{title}</span>
     {/if}
@@ -44,6 +68,7 @@
         href={`#${itemHref}`}
         use:link
         title={`${viewLabel} on the edition page`}
+        onpointerdown={warmWork}
       >
         {viewLabel}
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">

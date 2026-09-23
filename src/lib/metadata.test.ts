@@ -47,7 +47,7 @@ describe('cardMeta summary', () => {
     expect(meta.summary).toContain('This is a simple PHP CLI program');
   });
 
-  it('does not use deferral placeholders as the card summary', () => {
+  it('does not use deferral placeholders as the card summary', async () => {
     const pk = 'c'.repeat(64);
     const meta = cardMeta(
       ev(
@@ -62,7 +62,8 @@ describe('cardMeta summary', () => {
     );
     expect(meta.defers).toBe(true);
     expect(meta.summary).toBeUndefined();
-    expect(meta.deferHref).toBe(`/wiki/d/preferred/p/${pk}`);
+    const { nip19 } = await import('nostr-tools');
+    expect(meta.deferHref).toBe(`/wiki/d/preferred/p/${nip19.npubEncode(pk)}`);
   });
 });
 

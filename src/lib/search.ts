@@ -1,9 +1,5 @@
 import { KIND } from './constants';
-import {
-  BRAINSTORM_PUBLICATION_SEARCH_KINDS,
-  BRAINSTORM_WIKI_SEARCH_KINDS,
-  fetchBrainstormNip50Events
-} from './brainstorm-search';
+import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
@@ -35,6 +31,11 @@ export type SearchResult = {
 };
 
 const HEX64 = /^[0-9a-f]{64}$/i;
+
+/** Brainstorm NIP-50 — all kinds; extensions only on that host. */
+function brainstormSearch(query: string, limit = 80): Promise<Event[]> {
+  return fetchBrainstormNip50Events({ query, limit });
+}
 
 function stripNostr(s: string): string {
   return s.trim().replace(/^nostr:/i, '');
@@ -257,7 +258,6 @@ async function fanOutSearch(
   void trustedAssertions.resolveProvider(session.getPubkey());
 
   const hints = identifierHints(q);
-  const brainstormKinds = [...BRAINSTORM_PUBLICATION_SEARCH_KINDS, ...BRAINSTORM_WIKI_SEARCH_KINDS];
   const tasks = [
     mercuryPublicationSearch({ q, limit: 100 }),
     mercuryPublicationSearch({ d: dTags[0], limit: 100 }),
@@ -272,7 +272,7 @@ async function fanOutSearch(
     mercurySectionSearch({ q, limit: 100 }),
     mercuryWikiSearch({ q, limit: 100 }),
     cacheScanText(q),
-    fetchBrainstormNip50Events({ query: q, kinds: brainstormKinds, limit: 80 }),
+    brainstormSearch(q),
     ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
     relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [tagSlug], limit: 100 }]),
     relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [tagSlug], limit: 100 }])
@@ -302,24 +302,28 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
   const key = `author:${normalizeSearchKey(author)}`;
   const cached = await paintCached(key, onUpdate);
   const slug = relayTagSlug(author);
-  const [mercury, wiki, relays] = await Promise.all([
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [mercury, wiki, relays, brainstorm] = await Promise.all([
     mercuryPublicationSearch({ author, limit: 100 }),
     mercuryWikiSearch({ author, limit: 100 }),
-    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }])
+    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }]),
+    brainstormSearch(author)
   ]);
-  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
+  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays, ...brainstorm]), cached, onUpdate);
 }
 
 export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `title:${normalizeSearchKey(title)}`;
   const cached = await paintCached(key, onUpdate);
   const slug = relayTagSlug(title);
-  const [mercury, wiki, relays] = await Promise.all([
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [mercury, wiki, relays, brainstorm] = await Promise.all([
     mercuryPublicationSearch({ title, limit: 100 }),
     mercuryWikiSearch({ title, limit: 100 }),
-    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }])
+    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }]),
+    brainstormSearch(title)
   ]);
-  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays]), cached, onUpdate);
+  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays, ...brainstorm]), cached, onUpdate);
 }
 
 export async function runIdentifierSearch(identifier: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -327,33 +331,50 @@ export async function runIdentifierSearch(identifier: string, onUpdate: (r: Sear
   const cached = await paintCached(key, onUpdate);
   const hints = identifierHints(identifier);
   const ids = hints.length ? hints : [identifier];
-  const batches = await Promise.all(
-    ids.flatMap((id) => [
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const batches = await Promise.all([
+    ...ids.flatMap((id) => [
       mercuryPublicationSearch({ identifier: id, limit: 100 }),
       mercuryPublicationSearch({ s: id, limit: 100 }),
       mercuryWikiSearch({ identifier: id, limit: 100 }),
       mercuryWikiSearch({ s: id, limit: 100 })
-    ])
-  );
+    ]),
+    brainstormSearch(identifier)
+  ]);
   await finishWithGrapevine(key, mergeById(batches.flat()), cached, onUpdate);
 }
 
 export async function runLanguageSearch(language: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `language:${normalizeSearchKey(language)}`;
   const cached = await paintCached(key, onUpdate);
-  await finishWithGrapevine(key, await mercuryPublicationSearch({ language, limit: 100 }), cached, onUpdate);
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [mercury, brainstorm] = await Promise.all([
+    mercuryPublicationSearch({ language, limit: 100 }),
+    brainstormSearch(language)
+  ]);
+  await finishWithGrapevine(key, mergeById([...mercury, ...brainstorm]), cached, onUpdate);
 }
 
 export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `subject:${normalizeSearchKey(subject)}`;
   const cached = await paintCached(key, onUpdate);
-  await finishWithGrapevine(key, await searchBySubject(subject), cached, onUpdate);
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [subjects, brainstorm] = await Promise.all([
+    searchBySubject(subject),
+    brainstormSearch(subject)
+  ]);
+  await finishWithGrapevine(key, mergeById([...subjects, ...brainstorm]), cached, onUpdate);
 }
 
 export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `label:${normalizeSearchKey(label)}`;
   const cached = await paintCached(key, onUpdate);
-  await finishWithGrapevine(key, await searchByLabel(label), cached, onUpdate);
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [labels, brainstorm] = await Promise.all([
+    searchByLabel(label),
+    brainstormSearch(`label:${label}`)
+  ]);
+  await finishWithGrapevine(key, mergeById([...labels, ...brainstorm]), cached, onUpdate);
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {
@@ -372,15 +393,17 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
   const variants = dTagVariants(d);
   const kinds = [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.DIRECTORY];
   const filter: Filter = { kinds, '#d': variants.slice(0, 12), limit: 100 };
-  const [mercuryPubs, mercuryWiki, relays, filtered] = await Promise.all([
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  const [mercuryPubs, mercuryWiki, relays, filtered, brainstorm] = await Promise.all([
     mercuryPublicationSearch({ d: slug, limit: 100 }),
     mercuryWikiSearch({ d: slug, limit: 100 }),
     relayPool.query(documentStack(), [filter]),
-    mercuryFilter(filter)
+    mercuryFilter(filter),
+    brainstormSearch(slug)
   ]);
   await finishWithGrapevine(
     key,
-    mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered]),
+    mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered, ...brainstorm]),
     cached,
     onUpdate
   );
@@ -459,11 +482,7 @@ export async function searchByBookshelf(d: string, npubOrHex?: string): Promise<
     limit: authors.length ? 5 : 20,
     ...(authors.length ? { authors } : {})
   };
-  const [m, w] = await Promise.all([
-    mercuryFilter(filter),
-    relayPool.query(documentStack(), [filter])
-  ]);
-  const dirs = mergeById([...m, ...w]);
+  const dirs = mergeById(await relayPool.query(documentStack(), [filter]));
   if (!dirs.length) return [];
   const addresses = new Set<string>();
   const eventIds = new Set<string>();

@@ -24,10 +24,6 @@ vi.mock('../nostr/pool', () => ({
   }
 }));
 
-vi.mock('../nostr/mercury', () => ({
-  mercuryFilter: vi.fn(async () => [])
-}));
-
 vi.mock('../nostr/cache', () => ({
   cachePutMany: vi.fn(async () => undefined),
   cacheClearLandingSnapshot: vi.fn(async () => undefined)

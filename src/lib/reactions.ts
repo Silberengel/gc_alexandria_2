@@ -95,7 +95,7 @@ export async function fetchReactionsForIds(ids: string[], limit = 100): Promise<
   for (let i = 0; i < unique.length; i += 20) batches.push(unique.slice(i, i + 20));
   const hits = await Promise.all(
     batches.map((batch) =>
-      relayPool.query(socialStack(), [{ kinds: [KIND.REACTION], '#e': batch, limit }], 4000, 2)
+      relayPool.query(socialStack(), [{ kinds: [KIND.REACTION], '#e': batch, limit }], 4000)
     )
   );
   const byId = new Map<string, Event>();

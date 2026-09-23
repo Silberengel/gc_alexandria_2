@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
+import { KIND, MUTED_PARENT_PLACEHOLDER, MISSING_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { nestComments, threadNodeKey } from './comments';
 import { commentDraft } from './drafts';
 import {
@@ -213,7 +213,7 @@ describe('comments nest', () => {
     expect(tree[0]?.placeholder).toBeNull();
   });
 
-  it('uses the shared placeholder for a missing parent', () => {
+  it('keeps a missing-parent placeholder (does not claim muted, does not promote)', () => {
     const reply = ev({
       id: '2'.repeat(64),
       kind: KIND.COMMENT,
@@ -226,10 +226,30 @@ describe('comments nest', () => {
     });
     const tree = nestComments([reply, other]);
     expect(tree).toHaveLength(2);
-    expect(tree[0]?.placeholder).toBe(MUTED_PARENT_PLACEHOLDER);
+    expect(tree[0]?.placeholder).toBe(MISSING_PARENT_PLACEHOLDER);
     expect(tree[0]?.missingParentId).toBe('9'.repeat(64));
     expect(tree[1]?.missingParentId).toBe('8'.repeat(64));
     expect(threadNodeKey(tree[0]!)).not.toBe(threadNodeKey(tree[1]!));
+    expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+  });
+
+  it('uses the muted placeholder only when the parent event is muted', () => {
+    const parent = ev({
+      id: '9'.repeat(64),
+      kind: KIND.COMMENT,
+      pubkey: 'aa'.repeat(32),
+      tags: []
+    });
+    const reply = ev({
+      id: '2'.repeat(64),
+      kind: KIND.COMMENT,
+      tags: [['e', parent.id]]
+    });
+    const mute = { pubkeys: new Set([parent.pubkey]), eventIds: new Set<string>() };
+    const tree = nestComments([parent, reply], mute);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.placeholder).toBe(MUTED_PARENT_PLACEHOLDER);
+    expect(tree[0]?.missingParentId).toBe(parent.id);
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
   });
 });

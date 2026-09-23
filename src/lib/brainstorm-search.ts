@@ -56,10 +56,11 @@ export function buildBrainstormSearchQuery(opts: {
 
 /**
  * NIP-50 REQ against the Brainstorm search relay. Extensions stay on this host only.
+ * Omit `kinds` to search the full corpus (staging indexes all kinds).
  */
 export async function fetchBrainstormNip50Events(opts: {
   query: string;
-  kinds: readonly number[];
+  kinds?: readonly number[];
   observerPubkey?: string | null;
   trustFilterEnabled?: boolean;
   rankCutoff?: number;
@@ -67,7 +68,7 @@ export async function fetchBrainstormNip50Events(opts: {
   timeoutMs?: number;
 }): Promise<Event[]> {
   const q = opts.query.trim();
-  if (!q || opts.kinds.length === 0) return [];
+  if (!q) return [];
 
   let observerPubkey = opts.observerPubkey;
   let trustFilterEnabled = opts.trustFilterEnabled;
@@ -90,13 +91,15 @@ export async function fetchBrainstormNip50Events(opts: {
   });
   if (!search) return [];
 
+  const kinds = opts.kinds?.length ? [...opts.kinds] : undefined;
   try {
     const events = await relayPool.query(
       [brainstormSearchRelayUrl()],
-      [{ kinds: [...opts.kinds], search, limit: opts.limit ?? 80 }],
+      [{ ...(kinds ? { kinds } : {}), search, limit: opts.limit ?? 80 }],
       opts.timeoutMs ?? 14_000
     );
-    const kindSet = new Set(opts.kinds);
+    if (!kinds) return events;
+    const kindSet = new Set(kinds);
     return events.filter((e) => kindSet.has(e.kind));
   } catch {
     return [];

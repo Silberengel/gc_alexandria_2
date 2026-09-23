@@ -29,7 +29,13 @@ export const DEFAULT_NOSTRCONNECT_RELAY = [
 
 export const WIKI_RELAYS = ['wss://relay.wikifreedia.xyz'] as const;
 
-export const SOCIAL_RELAYS = ['wss://theforest.nostr1.com', ...THIRD_PARTY_RELAYS] as const;
+export const SOCIAL_RELAYS = [
+  'wss://theforest.nostr1.com',
+  // GitCitadel booklist labels (kind 1985) — keep early so pool's 3-relay cap still hits them.
+  'wss://thecitadel.nostr1.com',
+  // pipe.imwald.eu is last in THIRD_PARTY — do not pin it early (rate-limits at 12/min).
+  ...THIRD_PARTY_RELAYS
+] as const;
 
 /** Kind-0 / profile mirrors — same set as jumble `PROFILE_RELAY_URLS` (not Mercury). */
 export const PROFILE_RELAYS = [
@@ -75,8 +81,9 @@ export const GITCITADEL_CURATOR_NPUB =
 export const NIP32_BOOKLIST_LABEL = 'booklist';
 export const NIP32_UGC_NAMESPACE = 'ugc';
 
-export const MUTED_PARENT_PLACEHOLDER =
-  'This npub is muted or the event could not be found.';
+export const MUTED_PARENT_PLACEHOLDER = 'This author is muted.';
+/** Shown while/after a parent id was requested but not returned from relays. */
+export const MISSING_PARENT_PLACEHOLDER = 'Parent comment could not be found.';
 
 export const REPO_OWNER_HEX =
   'fd208ee8c8f283780a9552896e4823cc9dc6bfd442063889577106940fd927c1';

@@ -89,7 +89,7 @@ export function wikiPathFromCoordinate(coordinate: string | undefined): string |
   const d = parts.slice(2).join(':');
   if (kind !== KIND.WIKI && kind !== KIND.SPEC) return null;
   if (!/^[0-9a-f]{64}$/.test(pubkey) || !d) return null;
-  return `/wiki/d/${encodeURIComponent(d)}/p/${encodeURIComponent(pubkey)}`;
+  return `/wiki/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(pubkey)}`;
 }
 
 /** Prefer a-tag coordinate; fall back to naddr embedded in placeholder content. */
@@ -103,7 +103,7 @@ export function wikiDeferTargetHref(event: Event): string | null {
     if (decoded.type !== 'naddr') return null;
     const { kind, pubkey, identifier } = decoded.data;
     if (kind !== KIND.WIKI && kind !== KIND.SPEC) return null;
-    return `/wiki/d/${encodeURIComponent(identifier)}/p/${encodeURIComponent(pubkey.toLowerCase())}`;
+    return `/wiki/d/${encodeURIComponent(identifier)}/p/${nip19.npubEncode(pubkey.toLowerCase())}`;
   } catch {
     return null;
   }

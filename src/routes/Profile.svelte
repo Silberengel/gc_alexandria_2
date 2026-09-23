@@ -19,6 +19,9 @@
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
+  import { cachePutEvent } from '$lib/nostr/cache';
+  import { rememberEvents } from '$lib/nostr/event-memory';
+  import { rememberProfileFromKind0 } from '$lib/profile-cache';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
   import { publicationTargets, isPublicationLabelEvent } from '$lib/nip32';
   import { publicationTargetsFromDirectory } from '$lib/bookshelf';
@@ -230,6 +233,11 @@
         relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }])
       ]);
     profile = p[0] ?? null;
+    if (profile) {
+      rememberEvents([profile]);
+      rememberProfileFromKind0(profile);
+      void cachePutEvent(profile);
+    }
     const parsed = parseKind0(profile);
     const payById = new Map<string, Event>();
     for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);

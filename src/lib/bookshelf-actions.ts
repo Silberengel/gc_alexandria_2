@@ -13,17 +13,13 @@ import {
   type BookshelfShelfOption
 } from './bookshelf';
 import { documentStack } from './nostr/selector';
-import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { signAndPublish } from './sign';
 
 async function fetchDirectoryByD(pubkey: string, d: string): Promise<Event | null> {
   const filter = { kinds: [KIND.DIRECTORY], authors: [pubkey], '#d': [d], limit: 1 };
-  const [m, w] = await Promise.all([
-    mercuryFilter(filter),
-    relayPool.query(documentStack(), [filter])
-  ]);
-  return m[0] ?? w[0] ?? null;
+  const hits = await relayPool.query(documentStack(), [filter]);
+  return hits[0] ?? null;
 }
 
 export type BookshelfState = {

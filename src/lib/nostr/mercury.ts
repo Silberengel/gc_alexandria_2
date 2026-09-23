@@ -1,8 +1,25 @@
 import type { Filter, Event } from 'nostr-tools';
-import { MERCURY_HTTP, MERCURY_WSS } from '../constants';
+import { KIND, MERCURY_HTTP, MERCURY_WSS } from '../constants';
 import { ingestEvent } from './verify';
 import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
+
+/** Mercury indexes only these document kinds — never social / lists / profiles. */
+const MERCURY_DOCUMENT_KINDS = new Set<number>([
+  KIND.LONG_FORM,
+  KIND.PUBLICATION,
+  KIND.SECTION,
+  KIND.WIKI,
+  KIND.SPEC
+]);
+
+/** Drop social kinds from a Mercury filter; null means skip the request entirely. */
+function documentOnlyFilter(filter: Filter): Filter | null {
+  if (!filter.kinds?.length) return filter;
+  const kinds = filter.kinds.filter((k) => MERCURY_DOCUMENT_KINDS.has(k));
+  if (!kinds.length) return null;
+  return kinds.length === filter.kinds.length ? filter : { ...filter, kinds };
+}
 
 function trimSlash(base: string): string {
   return base.replace(/\/+$/, '');
@@ -55,6 +72,9 @@ const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/
 
 const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const;
 
+/** Hard cap so a hung Mercury TCP never blocks landing paint for minutes. */
+const MERCURY_FETCH_TIMEOUT_MS = 4_000;
+
 function searchHasQuery(query: Record<string, unknown>): boolean {
   return SEARCH_FIELDS.some((key) => typeof query[key] === 'string' && String(query[key]).trim().length > 0);
 }
@@ -73,15 +93,21 @@ function markMercuryDown(): void {
 
 async function mercuryRequest(path: string, init?: RequestInit): Promise<Response | null> {
   if (mercurySkipped()) return null;
+  const timeout = AbortSignal.timeout(MERCURY_FETCH_TIMEOUT_MS);
+  const signal =
+    init?.signal != null ? AbortSignal.any([init.signal, timeout]) : timeout;
   try {
-    const res = await fetch(`${trimSlash(MERCURY_HTTP)}${path}`, init);
+    const res = await fetch(`${trimSlash(MERCURY_HTTP)}${path}`, { ...init, signal });
     // Proxy DNS/outages often surface as 5xx rather than a thrown fetch error.
     if (res.status === 502 || res.status === 503 || res.status === 504) {
       markMercuryDown();
       return null;
     }
     return res;
-  } catch {
+  } catch (err) {
+    // Timeouts must not trip the 60s cooldown — AbortError is expected under load.
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') return null;
     markMercuryDown();
     return null;
   }
@@ -92,16 +118,18 @@ export function isMercuryUnavailable(): boolean {
 }
 
 export async function mercuryFilter(filter: Filter): Promise<Event[]> {
+  const scoped = documentOnlyFilter(filter);
+  if (!scoped) return [];
   try {
-    const body: Record<string, unknown> = { limit: Math.min(100, filter.limit ?? 100) };
-    if (filter.ids?.length) body.ids = filter.ids.map((id) => id.toLowerCase());
-    if (filter.authors?.length) body.authors = filter.authors.map((a) => a.toLowerCase());
-    if (filter.kinds?.length) body.kinds = filter.kinds;
-    if (filter.since != null) body.since = filter.since;
-    if (filter.until != null) body.until = filter.until;
-    for (const key of Object.keys(filter)) {
+    const body: Record<string, unknown> = { limit: Math.min(100, scoped.limit ?? 100) };
+    if (scoped.ids?.length) body.ids = scoped.ids.map((id) => id.toLowerCase());
+    if (scoped.authors?.length) body.authors = scoped.authors.map((a) => a.toLowerCase());
+    if (scoped.kinds?.length) body.kinds = scoped.kinds;
+    if (scoped.since != null) body.since = scoped.since;
+    if (scoped.until != null) body.until = scoped.until;
+    for (const key of Object.keys(scoped)) {
       if (key.length === 2 && key.startsWith('#')) {
-        const v = (filter as Record<string, unknown>)[key];
+        const v = (scoped as Record<string, unknown>)[key];
         if (Array.isArray(v) && v.length) body[key] = v;
       }
     }

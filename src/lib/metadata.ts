@@ -32,12 +32,12 @@ export type CardMeta = {
 
 export function publicationPath(event: Event): string {
   const d = firstTag(event, 'd') ?? '';
-  return `/publication/d/${encodeURIComponent(d)}/p/${encodeURIComponent(event.pubkey)}`;
+  return `/publication/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
 }
 
 export function wikiPath(event: Event): string {
   const d = firstTag(event, 'd') ?? '';
-  return `/wiki/d/${encodeURIComponent(d)}/p/${encodeURIComponent(event.pubkey)}`;
+  return `/wiki/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
 }
 
 export function cardMeta(event: Event): CardMeta {

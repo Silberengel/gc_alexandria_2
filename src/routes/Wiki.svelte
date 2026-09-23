@@ -13,11 +13,13 @@
   import { wikiPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys } from '$lib/wiki-defer';
+  import { normalizeDTag } from '$lib/dtag';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
+  import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
@@ -65,6 +67,70 @@
 
   let commentFocusApplied = $state('');
 
+  function decodeParam(raw: string): string {
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  /** Sync only — landing/search already put this in memory. Never scan Cache Storage here. */
+  function warmWiki(pubkey: string, d: string): Event | null {
+    const slug = normalizeDTag(d) || d;
+    return (
+      memoryFindByAddress(KIND.WIKI, pubkey, slug) ??
+      memoryFindByAddress(KIND.SPEC, pubkey, slug) ??
+      memoryFindByAddress(KIND.WIKI, pubkey, d) ??
+      memoryFindByAddress(KIND.SPEC, pubkey, d)
+    );
+  }
+
+  /**
+   * Cold load: Mercury (if up) then wikiStack across many relays in parallel.
+   * `onHit` fires as soon as any relay returns the article so SPA nav can paint early.
+   */
+  async function loadWikiByAuthorD(
+    pubkey: string,
+    d: string,
+    onHit?: (event: Event) => void
+  ): Promise<Event | null> {
+    if (!/^[0-9a-f]{64}$/.test(pubkey)) return null;
+    const slug = normalizeDTag(d) || d;
+    const dValues = [...new Set([d, slug].filter(Boolean))];
+    const filter = {
+      kinds: [KIND.WIKI, KIND.SPEC],
+      authors: [pubkey],
+      '#d': dValues,
+      limit: 2
+    };
+    let reported = false;
+    const report = (event: Event): void => {
+      if (reported) return;
+      if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) return;
+      reported = true;
+      onHit?.(event);
+    };
+    const mercuryP = mercuryFilter(filter);
+    const relayP = relayPool.query(wikiStack(), [filter], 8000, 10, (batch) => {
+      const hit = batch.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC);
+      if (hit) report(hit);
+    });
+    const mHits = await mercuryP;
+    if (mHits[0]) {
+      report(mHits[0]);
+      void relayP;
+      return mHits[0];
+    }
+    const wHits = await relayP;
+    const hit = wHits.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC) ?? wHits[0] ?? null;
+    if (hit) report(hit);
+    return hit;
+  }
+
+  function isBech32Pointer(value: string): boolean {
+    return /^(naddr|nevent|note)1[02-9ac-hj-np-z]+$/i.test(value.trim());
+  }
   $effect(() => {
     if (!event || loading) return;
     void $querystring;
@@ -134,16 +200,17 @@
     const byId = new Map<string, Event>();
     for (const batch of batches) for (const e of batch) byId.set(e.id, e);
     if (byId.size < 2) {
-      const relayHits = await relayPool.query(wikiStack(), filters, 4000, 2);
+      const relayHits = await relayPool.query(wikiStack(), filters, 4000);
       for (const e of relayHits) byId.set(e.id, e);
     }
     return deferrerPubkeys([...byId.values()], target, seeds);
   }
 
   async function paintWiki(fetched: Event): Promise<void> {
-    if (await forwardDeference(fetched)) return;
+    // Paint immediately — never leave "Page is loading…" waiting on deference I/O.
     event = fetched;
     loading = false;
+    if (await forwardDeference(fetched)) return;
     // Social + deferrers after first paint — waiting on them left the page stuck under rate limits.
     void loadSocial(fetched);
     void loadDeferrers(fetched).then((deferrers) => {
@@ -199,52 +266,82 @@
   }
 
   $effect(() => {
-    const dTag = params.d;
-    const npubParam = params.npub;
-    const naddr = params.naddr;
+    // Prefer router params; fall back to parsing the hash so a stale/empty params
+    // object never skips the lookup and flashes "not found".
+    const hashPath = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '').split('?')[0] : '';
+    const hashDnpub = hashPath.match(/^\/wiki\/d\/([^/]+)\/p\/([^/]+)\/?$/);
+    const hashDonly = hashPath.match(/^\/wiki\/d\/([^/]+)\/?$/);
+    const hashPointer = hashPath.match(/^\/wiki\/((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i);
+
+    const dTag = decodeParam(
+      params.d || (hashDnpub?.[1] ?? hashDonly?.[1] ?? '')
+    );
+    const npubParam = (params.npub || hashDnpub?.[2] || '').split('?')[0];
+    const naddrRaw = params.naddr || hashPointer?.[1] || '';
+    const naddr = isBech32Pointer(naddrRaw) ? naddrRaw : '';
+
     let cancelled = false;
-    event = null;
     versions = [];
     comments = [];
     highlights = [];
     replyOpenId = null;
     error = false;
     forwarding = false;
-    loading = true;
     deferredByList = seedDeferrersFromUrl();
+
+    const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
+    const warm = dTag && pubkey ? warmWiki(pubkey, dTag) : null;
+
+    if (warm) {
+      void paintWiki(warm);
+    } else {
+      event = null;
+      loading = true;
+    }
 
     void (async () => {
       try {
+        // Author+d is the normal deep link — never let a stray naddr param steal this path.
+        if (dTag && npubParam) {
+          if (!pubkey) {
+            if (!cancelled) error = true;
+            return;
+          }
+          if (warm) return;
+          const fetched = await loadWikiByAuthorD(pubkey, dTag, (early) => {
+            if (!cancelled) void paintWiki(early);
+          });
+          if (cancelled) return;
+          if (fetched) {
+            if (!event || event.id !== fetched.id) await paintWiki(fetched);
+          } else if (!cancelled && !event) error = true;
+          return;
+        }
+
         if (naddr) {
           const decoded = decodePublicationPointer(naddr);
           if (!decoded) {
-            error = true;
+            if (!cancelled) error = true;
             return;
           }
           let fetched: Event | null = null;
-          if (decoded.id) fetched = await fetchById(decoded.id);
-          else if (decoded.pubkey && decoded.d != null) {
-            const filter = {
-              kinds: [decoded.kind ?? KIND.WIKI, KIND.SPEC],
-              authors: [decoded.pubkey],
-              '#d': [decoded.d],
-              limit: 2
-            };
+          if (decoded.id) {
+            fetched = memoryGetEvent(decoded.id) ?? (await fetchById(decoded.id));
+          } else if (decoded.pubkey && decoded.d != null) {
             fetched =
-              (await Promise.all([
-                mercuryFilter(filter),
-                relayPool.query(wikiStack(), [filter])
-              ]).then(([m, w]) => m[0] ?? w[0] ?? null));
+              warmWiki(decoded.pubkey, decoded.d) ??
+              (await loadWikiByAuthorD(decoded.pubkey, decoded.d, (early) => {
+                if (!cancelled) void paintWiki(early);
+              }));
           }
           if (cancelled) return;
           if (!fetched || (fetched.kind !== KIND.WIKI && fetched.kind !== KIND.SPEC)) {
-            error = true;
+            if (!event) error = true;
             return;
           }
           const path = wikiPath(fetched);
           const here = window.location.hash.replace(/^#/, '').split('?')[0];
           if (here !== path) {
-            // Let the d/npub route effect load once — avoid double social fan-out.
             replace(path);
             return;
           }
@@ -256,7 +353,7 @@
           const filter = { kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 50 };
           const [m, w] = await Promise.all([
             mercuryFilter(filter),
-            relayPool.query(wikiStack(), [filter], 5000, 2)
+            relayPool.query(wikiStack(), [filter], 8000)
           ]);
           const byId = new Map<string, Event>();
           for (const e of [...m, ...w]) byId.set(e.id, e);
@@ -270,26 +367,7 @@
           return;
         }
 
-        if (dTag && npubParam) {
-          const pubkey = hexFromNpubParam(npubParam);
-          const filter = {
-            kinds: [KIND.WIKI, KIND.SPEC],
-            authors: [pubkey],
-            '#d': [dTag],
-            limit: 1
-          };
-          const [wHits, mHits] = await Promise.all([
-            relayPool.query(wikiStack(), [filter], 5000, 2),
-            mercuryFilter(filter)
-          ]);
-          const fetched = wHits[0] ?? mHits[0] ?? null;
-          if (cancelled) return;
-          if (!fetched) {
-            error = true;
-            return;
-          }
-          await paintWiki(fetched);
-        }
+        if (!cancelled) error = true;
       } catch {
         if (!cancelled) error = true;
       } finally {

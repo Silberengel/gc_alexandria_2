@@ -7,7 +7,7 @@
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
-  import { LANDING_FEED_LIMIT, loadCachedLanding, mergeLandingShelves, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
+  import { LANDING_FEED_LIMIT, loadCachedLanding, loadViewerShelves, mergeLandingShelves, orderShelfCovers, refreshLanding, type LandingView } from '$lib/landing';
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
   import { listingDensity } from '$lib/stores/listing-density';
@@ -15,6 +15,8 @@
   import { muteState, filterMuted } from '$lib/mute';
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { isViewerBoundShelfId } from '$lib/shelves';
+  import { coverImageUrl } from '$lib/cover';
+  import { prefetchImages } from '$lib/image-cache';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import type { LandingShelfSnap } from '$lib/nostr/cache';
@@ -27,11 +29,16 @@
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
   const shelfSeed = Math.floor(Date.now() / 1000);
-  let loadGen = 0;
 
   const visibleShelves = $derived(
     shelves
-      .map((s) => ({ ...s, events: filterMuted(s.events, $muteState) }))
+      .map((s) => {
+        // Curated shelves keep their covers; mute only drops authors on open network rows.
+        if (s.id === 'network') {
+          return { ...s, events: filterMuted(s.events, $muteState) };
+        }
+        return s;
+      })
       .filter((s) => s.events.length)
   );
   const visibleHighlights = $derived(filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT));
@@ -61,14 +68,27 @@
     referenced = view.referenced ?? [];
     subjects = view.subjects;
     const nextShelves = view.shelves ?? [];
-    shelves = replaceShelves ? nextShelves : mergeLandingShelves(shelves, nextShelves);
-    labels = view.labels ?? [];
+    const nextHasCovers = nextShelves.some((s) => s.events.length);
+    // Never wipe painted covers with an empty final pack (relay starvation used to do that).
+    if (replaceShelves && nextHasCovers) {
+      shelves = nextShelves;
+    } else {
+      shelves = mergeLandingShelves(shelves, nextShelves);
+    }
+    if (view.labels?.length || replaceShelves) labels = view.labels ?? [];
     rememberEvents([
       ...view.publications,
       ...(view.referenced ?? []),
       ...(view.shelves ?? []).flatMap((s) => s.events),
       ...(view.ratings ?? [])
     ]);
+    const coverUrls = [
+      ...(view.shelves ?? []).flatMap((s) => s.events),
+      ...(view.publications ?? [])
+    ]
+      .map((e) => coverImageUrl(e))
+      .filter((u): u is string => !!u);
+    prefetchImages(coverUrls);
   }
 
   /** Drop identity-bound rows and label chips; keep GitCitadel/network while the next load runs. */
@@ -78,25 +98,71 @@
     labels = [];
   }
 
+  let loadInFlight = false;
+  let loadAgain = false;
+
+  async function mergeViewerShelves(): Promise<void> {
+    if (!session.getPubkey() || !session.getMetadata().length) return;
+    try {
+      const known = [
+        ...shelves.flatMap((s) => s.events),
+        ...ratings,
+        ...highlights,
+        ...comments
+      ];
+      const pack = await loadViewerShelves(known);
+      if (!pack.shelves.some((s) => s.events.length) && !pack.labels.length) return;
+      shelves = mergeLandingShelves(shelves, pack.shelves);
+      if (pack.labels.length) labels = pack.labels;
+      rememberEvents(pack.shelves.flatMap((s) => s.events));
+      prefetchImages(
+        pack.shelves
+          .flatMap((s) => s.events)
+          .map((e) => coverImageUrl(e))
+          .filter((u): u is string => !!u)
+      );
+    } catch {
+      /* soft-fail — full landing reload may still fill shelves */
+    }
+  }
+
   async function loadLanding(): Promise<void> {
-    const gen = ++loadGen;
+    // Coalesce overlapping loads (login pubkey + metadata + loading flag) into a trailing
+    // reload — but never abandon an in-flight refresh's progressive shelf paints mid-way
+    // by bumping a generation counter (that left the UI on ratings-only forever).
+    if (loadInFlight) {
+      loadAgain = true;
+      return;
+    }
+    loadInFlight = true;
+    loadAgain = false;
+    const identity = session.getPubkey();
     const replaceFromCache = shelves.length === 0;
     try {
       const cached = await loadCachedLanding();
-      if (gen !== loadGen) return;
       if (cached) apply(cached, replaceFromCache);
       const live = await refreshLanding(cached, (view) => {
-        if (gen === loadGen) apply(view, false);
+        // Drop updates only when the viewer identity changed under us.
+        if (session.getPubkey() !== identity) return;
+        apply(view, false);
       });
-      if (gen !== loadGen) return;
-      apply(live, true);
+      if (session.getPubkey() === identity) apply(live, true);
+      // Metadata often arrives during refreshLanding — fold My shelf in once more.
+      if (session.getPubkey() === identity) await mergeViewerShelves();
     } catch {
       /* network/cache failures must not leave home stuck blank forever */
+    } finally {
+      loadInFlight = false;
+      if (loadAgain) {
+        loadAgain = false;
+        void loadLanding();
+      }
     }
   }
 
   onMount(() => {
-    let lastPk: string | null | undefined;
+    // Seed so the initial session.subscribe callback does not double-fetch.
+    let lastPk: string | null | undefined = get(session).pubkey;
     let lastMetaKey: string | undefined;
     let debounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -106,16 +172,17 @@
       debounce = setTimeout(() => {
         debounce = null;
         void loadLanding();
-      }, 250);
+      }, 400);
     }
 
+    // Paint from Cache API immediately — do not wait on session debounce / relays.
+    void loadLanding();
+
     const unsubSession = session.subscribe(($s) => {
-      if ($s.pubkey === lastPk && lastPk !== undefined) return;
+      if ($s.pubkey === lastPk) return;
       lastPk = $s.pubkey;
       lastMetaKey = undefined;
       clearIdentityShelves();
-      // Always refresh public feeds/shelves — do not wait on mute decrypt / login metadata.
-      // My shelf still fills in when metadata arrives (see unsubMeta / unsubLoading).
       scheduleLoad();
     });
     const unsubMeta = session.metadata.subscribe((events) => {
@@ -124,8 +191,6 @@
         lastMetaKey = undefined;
         return;
       }
-      // Still fetching login lists — skip the empty clear from applyPubkey.
-      if (get(session).loading) return;
       const key = events
         .filter((e) => e.kind === 3 || e.kind === 10003 || e.kind === 1985 || e.kind === 30045)
         .map((e) => e.id)
@@ -133,12 +198,18 @@
         .join(',');
       if (key === lastMetaKey) return;
       lastMetaKey = key;
-      scheduleLoad();
+      // Immediately fold My shelf / folders from login lists — do not wait for loading=false
+      // or a full landing round-trip (that raced and left only "From the network").
+      if (key) void mergeViewerShelves();
+      if (!get(session).loading) scheduleLoad();
     });
     // When metadata load finishes (even with empty lists), refresh once for My shelf.
-    let wasLoading = false;
+    let wasLoading = get(session).loading;
     const unsubLoading = session.subscribe(($s) => {
-      if (wasLoading && !$s.loading && $s.pubkey) scheduleLoad();
+      if (wasLoading && !$s.loading && $s.pubkey) {
+        void mergeViewerShelves();
+        scheduleLoad();
+      }
       wasLoading = $s.loading;
     });
     return () => {

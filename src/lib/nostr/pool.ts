@@ -26,11 +26,15 @@ function usableRelays(urls: string[], max: number): string[] {
 class RelayPool {
   private pool = new SimplePool();
   private signedIn = false;
-  /** Cap parallel query() calls — landing used to fire many stack scans at once. */
+  /**
+   * Cap parallel query() calls (each may fan out to many relays).
+   * Keep this high enough that wiki/profile loads are not queued behind landing feeds.
+   */
   private activeQueries = 0;
   private queryWaiters: Array<() => void> = [];
-  private static readonly MAX_PARALLEL_QUERIES = 2;
-  private static readonly MAX_RELAYS_PER_QUERY = 3;
+  private static readonly MAX_PARALLEL_QUERIES = 8;
+  /** Default fan-out per REQ — enough to include wiki/social hosts past document relays. */
+  private static readonly MAX_RELAYS_PER_QUERY = 10;
 
   setSignedIn(signedIn: boolean): void {
     this.signedIn = signedIn;
@@ -49,12 +53,17 @@ class RelayPool {
     }
   }
 
-  /** Never throws — dead relays return []. */
+  /**
+   * Never throws — dead relays return [].
+   * Hits up to `maxRelays` in parallel and optionally streams merges via `onBatch`
+   * as each relay answers (callers can paint before the slowest EOSE).
+   */
   async query(
     relays: string[],
     filters: Filter[],
     timeoutMs = 8000,
-    maxRelays = RelayPool.MAX_RELAYS_PER_QUERY
+    maxRelays = RelayPool.MAX_RELAYS_PER_QUERY,
+    onBatch?: (events: Event[]) => void
   ): Promise<Event[]> {
     try {
       const wssRelays = usableRelays(relays, maxRelays);
@@ -63,30 +72,41 @@ class RelayPool {
 
       return await this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
-        // Hit a few relays in parallel — sequential maxWait per relay made landing shelves stall for 30s+.
-        const concurrency = Math.min(2, wssRelays.length);
         const pool = this.pool;
-        let next = 0;
-        async function worker(): Promise<void> {
-          while (next < wssRelays.length) {
-            const i = next++;
-            const url = wssRelays[i]!;
+
+        const emit = (): void => {
+          if (!onBatch || !byId.size) return;
+          try {
+            onBatch([...byId.values()]);
+          } catch {
+            /* caller paint must not break the query */
+          }
+        };
+
+        // All selected relays in parallel — do not serialize behind a concurrency-2 worker pool.
+        await Promise.all(
+          wssRelays.map(async (url) => {
             for (const filter of cleanFilters) {
               try {
                 const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
+                let added = false;
                 for (const event of batch) {
                   const v = ingestEvent(event);
                   if (!v) continue;
                   noteEventSource(v.id, url);
-                  if (!byId.has(v.id)) byId.set(v.id, v);
+                  if (!byId.has(v.id)) {
+                    byId.set(v.id, v);
+                    added = true;
+                  }
                 }
+                if (added) emit();
               } catch {
                 /* one relay failed — continue */
               }
             }
-          }
-        }
-        await Promise.all(Array.from({ length: Math.min(concurrency, wssRelays.length) }, () => worker()));
+          })
+        );
+
         const events = [...byId.values()];
         try {
           await cachePutMany(events);

@@ -1,8 +1,9 @@
 import type { Event } from 'nostr-tools';
-import { KIND, MUTED_PARENT_PLACEHOLDER } from './constants';
+import { KIND, MISSING_PARENT_PLACEHOLDER, MUTED_PARENT_PLACEHOLDER } from './constants';
 import { type MuteState, isMutedEvent } from './mute';
+import { fetchByIds } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
-import { socialStack } from './nostr/selector';
+import { documentStack, socialStack } from './nostr/selector';
 import { eventAddress, firstTag } from './nostr/verify';
 
 export type ThreadNode = {
@@ -48,6 +49,25 @@ export function commentTargetsAddress(event: Event, address: string): boolean {
   return event.tags.some((t) => (t[0] === 'A' || t[0] === 'a') && t[1] === address);
 }
 
+/** Parent ids referenced by thread events that are not yet in `have`. */
+export function missingCommentParentIds(
+  events: Event[],
+  have: ReadonlySet<string>,
+  rootEventIds: Iterable<string> = []
+): string[] {
+  const roots = new Set(
+    [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id))
+  );
+  const missing = new Set<string>();
+  for (const event of events) {
+    if (!isThreadEvent(event)) continue;
+    const parentId = commentParentId(event);
+    if (!parentId || roots.has(parentId) || have.has(parentId)) continue;
+    missing.add(parentId);
+  }
+  return [...missing];
+}
+
 export function nestComments(
   comments: Event[],
   mute?: MuteState,
@@ -75,6 +95,21 @@ export function nestComments(
     return node;
   }
 
+  function attachUnderPlaceholder(parentId: string, node: ThreadNode, label: string): void {
+    let placeholder = placeholders.get(parentId);
+    if (!placeholder) {
+      placeholder = {
+        event: null,
+        placeholder: label,
+        missingParentId: parentId,
+        children: []
+      };
+      placeholders.set(parentId, placeholder);
+      roots.push(placeholder);
+    }
+    placeholder.children.push(node);
+  }
+
   const roots: ThreadNode[] = [];
   const seenRoot = new Set<ThreadNode>();
 
@@ -93,18 +128,12 @@ export function nestComments(
       nodeFor(parent).children.push(node);
       continue;
     }
-    let placeholder = placeholders.get(parentId);
-    if (!placeholder) {
-      placeholder = {
-        event: null,
-        placeholder: MUTED_PARENT_PLACEHOLDER,
-        missingParentId: parentId,
-        children: []
-      };
-      placeholders.set(parentId, placeholder);
-      roots.push(placeholder);
+    if (parent && mute && isMutedEvent(parent, mute)) {
+      attachUnderPlaceholder(parentId, node, MUTED_PARENT_PLACEHOLDER);
+      continue;
     }
-    placeholder.children.push(node);
+    // Parent still missing after relay recovery — keep a stub, do not promote to root.
+    attachUnderPlaceholder(parentId, node, MISSING_PARENT_PLACEHOLDER);
   }
 
   return roots;
@@ -167,10 +196,55 @@ export function nip22TagsForTarget(target: Event, replyTo?: Event): string[][] {
   return tags;
 }
 
-/** Kind 1111 by a/A plus kind 1 / 1111 by e (root and one hop of replies). */
+/** Social + document (+ inbox/outbox when signed in) — full scan for missing parents. */
+function threadRelayUniverse(): string[] {
+  return [...new Set([...socialStack(), ...documentStack()])];
+}
+
+/**
+ * Pull missing parent events by id from Mercury + a wide relay set.
+ * Walks a few hops so reply chains can reassemble.
+ */
+export async function resolveMissingCommentParents(
+  events: Event[],
+  rootEventIds: Iterable<string> = [],
+  maxHops = 3
+): Promise<Event[]> {
+  const byId = new Map<string, Event>();
+  for (const e of events) {
+    if (e?.id) byId.set(e.id.toLowerCase(), e);
+  }
+  const roots = [...rootEventIds];
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    const missing = missingCommentParentIds([...byId.values()], new Set(byId.keys()), roots).slice(
+      0,
+      24
+    );
+    if (!missing.length) break;
+
+    const found = await fetchByIds(missing, 8);
+    for (const e of found) byId.set(e.id.toLowerCase(), e);
+
+    const still = missing.filter((id) => !byId.has(id));
+    if (!still.length) continue;
+
+    const wide = await relayPool.query(
+      threadRelayUniverse(),
+      [{ ids: still, limit: still.length }],
+      6000,
+      12
+    );
+    for (const e of wide) byId.set(e.id.toLowerCase(), e);
+  }
+
+  return [...byId.values()];
+}
+
+/** Kind 1111 by a/A plus kind 1 / 1111 by e (root and replies), then recover missing parents. */
 export async function fetchThreadEvents(target: Event, limit = 40): Promise<Event[]> {
   const a = eventAddress(target);
-  // Keep filter count and relay fan-out low — social relays rate-limit ~12 REQ/min.
+  // Keep initial filter count and fan-out modest — social relays rate-limit ~12 REQ/min.
   const first = await relayPool.query(
     socialStack(),
     [
@@ -196,6 +270,12 @@ export async function fetchThreadEvents(target: Event, limit = 40): Promise<Even
     for (const e of nested) {
       if (isThreadEvent(e)) byId.set(e.id.toLowerCase(), e);
     }
+  }
+
+  // Parents often live on a different relay than the reply — scan the full stack by id.
+  const recovered = await resolveMissingCommentParents([...byId.values()], [target.id]);
+  for (const e of recovered) {
+    if (isThreadEvent(e)) byId.set(e.id.toLowerCase(), e);
   }
   return [...byId.values()];
 }

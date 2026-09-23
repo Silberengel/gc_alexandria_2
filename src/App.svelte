@@ -31,17 +31,11 @@
     '*': NotFound
   };
 
-  let ready = $state(false);
-
   onMount(() => {
     scheduleDeletionSweep();
-    // Hydrate from persisted session only (sign-out clears localStorage — stay anonymous).
-    void session.restore().finally(() => {
-      ready = true;
-    });
+    // Hydrate in the background — never blank the SPA while bunker/extension restore runs.
+    void session.restore();
   });
 </script>
 
-{#if ready}
-  <Router {routes} />
-{/if}
+<Router {routes} />

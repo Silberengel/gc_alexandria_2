@@ -3,6 +3,7 @@
   import { coverImageUrl } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { hasPublicationSection } from '$lib/metadata';
+  import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
 
   interface Props {
     event: Event;
@@ -13,15 +14,47 @@
   let { event, alt, loading = 'lazy' }: Props = $props();
 
   let failedFor = $state<string | null>(null);
+  let displaySrc = $state('');
+
   const remote = $derived(coverImageUrl(event));
+  const placeholder = $derived(coverPlaceholderUrl(event));
   const broken = $derived(failedFor === event.id);
-  const src = $derived(remote && !broken ? remote : coverPlaceholderUrl(event));
   const label = $derived(alt ?? coverTitle(event));
   const readable = $derived(hasPublicationSection(event));
+
+  $effect(() => {
+    const id = event.id;
+    const remoteUrl = remote;
+    const ph = placeholder;
+    let cancelled = false;
+
+    if (!remoteUrl || broken) {
+      displaySrc = ph;
+      return;
+    }
+
+    const peek = peekCachedImageSrc(remoteUrl);
+    displaySrc = peek ?? remoteUrl;
+
+    void cachedImageSrc(remoteUrl).then((src) => {
+      if (!cancelled && failedFor !== id) displaySrc = src;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <span class="cover-frame">
-  <img {src} alt={label} {loading} onerror={() => { if (remote) failedFor = event.id; }} />
+  <img
+    src={displaySrc || placeholder}
+    alt={label}
+    {loading}
+    onerror={() => {
+      if (remote) failedFor = event.id;
+    }}
+  />
   {#if readable}
     <span class="book-badge" title="This edition can be read" aria-label="Readable edition">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
