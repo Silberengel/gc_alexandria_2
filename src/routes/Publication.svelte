@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { replace, querystring } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -137,10 +137,17 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
-  /** Document order index — unique `data-read-pos` even when ToC lacks the leaf. */
+  /**
+   * Document-order index in `sectionCorpus`.
+   * `sections` is only the painted prefix, and painting can reorder the corpus,
+   * so `data-read-pos` must follow the corpus index `scrollToSection` queries.
+   */
   const sectionReadPos = $derived.by(() => {
+    // `sections` is the reactive signal publishPainted updates with the corpus.
+    const painted = sections;
+    const corpus = sectionCorpus.length ? sectionCorpus : painted;
     const map = new Map<string, number>();
-    for (let i = 0; i < sections.length; i++) map.set(sections[i]!.id, i);
+    for (let i = 0; i < corpus.length; i++) map.set(corpus[i]!.id, i);
     return map;
   });
   const paintedSections = $derived(sections);
@@ -238,13 +245,40 @@
     if (event) publishPainted(event, true);
   }
 
-  function ensurePaintedThrough(index: number): void {
+  function indexInCorpus(sectionId?: string, address?: string, pos = NaN): number {
+    if (sectionId) {
+      const idx = sectionCorpus.findIndex((s) => s.id === sectionId);
+      if (idx >= 0) return idx;
+    }
+    if (address) {
+      const idx = sectionCorpus.findIndex((s) => eventAddress(s) === address);
+      if (idx >= 0) return idx;
+    }
+    if (Number.isFinite(pos) && sectionCorpus.length) {
+      return Math.min(sectionCorpus.length - 1, Math.max(0, Math.floor(pos)));
+    }
+    return -1;
+  }
+
+  function paintThrough(index: number, reorder: boolean): void {
     if (index < 0) return;
     const need = Math.min(sectionCorpus.length, index + PAINT_STEP);
-    if (need > paintLimit) {
-      paintLimit = need;
-      if (event) publishPainted(event, true);
-    }
+    if (need <= paintLimit) return;
+    paintLimit = need;
+    if (event) publishPainted(event, reorder);
+  }
+
+  /**
+   * Extend the painted prefix so `index` is mounted.
+   * Reordering inside publishPainted can move `sectionId` past that prefix;
+   * a second pass paints its new corpus index without reordering again.
+   */
+  function ensurePaintedThrough(index: number, sectionId?: string): void {
+    if (index < 0 && !sectionId) return;
+    paintThrough(index, true);
+    if (!sectionId) return;
+    const moved = sectionCorpus.findIndex((s) => s.id === sectionId);
+    if (moved >= paintLimit) paintThrough(moved, false);
   }
 
   async function fetchSocial(target: Event): Promise<void> {
@@ -971,48 +1005,43 @@
   }
 
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
-    let idx = -1;
-    if (sectionId) idx = sectionCorpus.findIndex((s) => s.id === sectionId);
-    if (idx < 0 && address) {
-      idx = sectionCorpus.findIndex((s) => eventAddress(s) === address);
-    }
-    if (idx < 0 && Number.isFinite(pos)) {
-      idx = Math.min(sectionCorpus.length - 1, Math.max(0, Math.floor(pos)));
-    }
-    if (idx >= 0) ensurePaintedThrough(idx);
+    const idx = indexInCorpus(sectionId, address, pos);
+    if (idx >= 0) ensurePaintedThrough(idx, sectionId);
 
-    const run = () => {
-      const article =
-        (sectionId
-          ? document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)
-          : null) ??
-        (address
-          ? document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)
-          : null) ??
-        document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(idx >= 0 ? idx : pos))}"]`);
+    // Paint updates state synchronously, but the nodes mount on the next flush.
+    void tick().then(() => {
+      const readPos = indexInCorpus(sectionId, address, pos);
+      const posKey = String(readPos >= 0 ? readPos : pos);
+      requestAnimationFrame(() => {
+        const article =
+          (sectionId
+            ? document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)
+            : null) ??
+          (address
+            ? document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)
+            : null) ??
+          document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(posKey)}"]`);
 
-      const el =
-        article?.querySelector<HTMLElement>('.section-hero') ??
-        article ??
-        (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
-        (address
-          ? document.querySelector<HTMLElement>(
-              `[data-section-addr="${CSS.escape(address)}"] .section-heading`
-            )
-          : null) ??
-        document.querySelector<HTMLElement>(
-          `[data-read-pos="${CSS.escape(String(idx >= 0 ? idx : pos))}"] .section-heading`
-        );
+        const el =
+          article?.querySelector<HTMLElement>('.section-hero') ??
+          article ??
+          (sectionId ? document.getElementById(`section-${sectionId}`) : null) ??
+          (address
+            ? document.querySelector<HTMLElement>(
+                `[data-section-addr="${CSS.escape(address)}"] .section-heading`
+              )
+            : null) ??
+          document.querySelector<HTMLElement>(
+            `[data-read-pos="${CSS.escape(posKey)}"] .section-heading`
+          );
 
-      if (!el) return;
-      const topBar = document.querySelector('.top-bar');
-      const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
-      const top = el.getBoundingClientRect().top + window.scrollY - offset;
-      window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
-    };
-
-    // Allow Svelte to mount newly painted nodes before scrolling.
-    queueMicrotask(() => requestAnimationFrame(run));
+        if (!el) return;
+        const topBar = document.querySelector('.top-bar');
+        const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
+        const top = el.getBoundingClientRect().top + window.scrollY - offset;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+      });
+    });
   }
 
   function findLoadedSection(entry: TocEntry): Event | undefined {
