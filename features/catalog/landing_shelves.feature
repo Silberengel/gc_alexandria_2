@@ -22,7 +22,7 @@ Feature: Landing bookshelves
     And table view shows one sortable Title/Author table for all shelf entries (no per-shelf split), paging at 250
     And covers use the publication's image tag when present, else a cover placeholder
     And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
-    And a cover shows a book-icon badge at the bottom-right when that publication's index has at least one e-tag or a non-30040 a-tag (nested 30040s alone do not count)
+    And a cover shows a book-icon badge at the bottom-right when that publication's index has any a-tag or e-tag (including nested 30040 indexes)
     And covers load when they enter view
     And publications on a shelf are ranked newest first
     And when a shelf has fewer than 10 publications I see all of them

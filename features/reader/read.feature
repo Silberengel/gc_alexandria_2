@@ -27,12 +27,17 @@ Feature: In-browser reader
 
   Scenario: Catalog stubs are not readable
     Given a 30040 with no section a-tags or e-tags (a copyright library card)
-    And nested 30040 a-tags alone do not count as sections
     When I open the publication page
     Then I see the header and interaction lists
     And I do not see a "Read the publication" button
     And I see that this is a catalog entry only
     And the site does not start /meta, /toc, or /stream for that edition
+
+  Scenario: Nested 30040 indexes are readable
+    Given a 30040 whose a-tags are only nested 30040 indexes (e.g. part/chapter trees)
+    When I open the publication page
+    Then I see a "Read the publication" button
+    And pressing it walks those nested indexes for leaf sections
 
   Scenario: Non-30041 sections are still readable
     Given a 30040 whose a-tags include 30818, 30817, 11, 30023, or other non-30040 kinds

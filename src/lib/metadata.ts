@@ -125,14 +125,13 @@ export function countSections(event: Event, sections: Event[]): number {
   ).length;
 }
 
-/** True when a 30040 index lists at least one section: any `e`, or an `a` whose kind is not 30040. */
+/** True when a 30040 index lists children to walk: any `a` (including nested 30040) or `e`. */
 export function hasPublicationSection(event: Event): boolean {
   if (event.kind !== KIND.PUBLICATION) return false;
   for (const tag of event.tags) {
     if (tag[0] === 'a' && tag[1]) {
       const parsed = parseAddress(tag[1]);
-      // Nested publication indexes are not readable sections.
-      if (parsed && parsed.kind !== KIND.PUBLICATION) return true;
+      if (parsed) return true;
     }
     if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) return true;
   }

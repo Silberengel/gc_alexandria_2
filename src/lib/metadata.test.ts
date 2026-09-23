@@ -26,9 +26,12 @@ describe('hasPublicationSection', () => {
     expect(hasPublicationSection(ev(30040, [['e', 'd'.repeat(64)]]))).toBe(true);
   });
 
-  it('is false for stubs, nested-only 30040 indexes, and non-publications', () => {
+  it('is true for nested 30040 indexes (walkable trees)', () => {
+    expect(hasPublicationSection(ev(30040, [['a', `30040:${pk}:nested`]]))).toBe(true);
+  });
+
+  it('is false for empty catalog stubs and non-publications', () => {
     expect(hasPublicationSection(ev(30040, [['title', 'Stub'], ['d', 'stub']]))).toBe(false);
-    expect(hasPublicationSection(ev(30040, [['a', `30040:${pk}:nested`]]))).toBe(false);
     expect(hasPublicationSection(ev(30818, [['a', `30041:${pk}:ch1`]]))).toBe(false);
   });
 });
