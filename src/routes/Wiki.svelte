@@ -89,8 +89,9 @@
   }
 
   /**
-   * Cold load: Mercury (if up) then wikiStack across many relays in parallel.
+   * Cold load: Mercury (if up) then wikiStack across relays in parallel.
    * `onHit` fires as soon as any relay returns the article so SPA nav can paint early.
+   * Uses a priority pool slot so Home background FoF/deletion REQs cannot starve wiki.
    */
   async function loadWikiByAuthorD(
     pubkey: string,
@@ -113,18 +114,23 @@
       reported = true;
       onHit?.(event);
     };
-    const mercuryP = mercuryFilter(filter);
-    const relayP = relayPool.query(wikiStack(), [filter], 8000, 10, (batch) => {
-      const hit = batch.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC);
-      if (hit) report(hit);
-    });
-    const mHits = await mercuryP;
+    // Mercury HTTP first — does not take a WebSocket pool slot.
+    const mHits = await mercuryFilter(filter);
     if (mHits[0]) {
       report(mHits[0]);
-      void relayP;
       return mHits[0];
     }
-    const wHits = await relayP;
+    const wHits = await relayPool.query(
+      wikiStack(),
+      [filter],
+      4000,
+      5,
+      (batch) => {
+        const hit = batch.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC);
+        if (hit) report(hit);
+      },
+      { priority: true }
+    );
     const hit = wHits.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC) ?? wHits[0] ?? null;
     if (hit) report(hit);
     return hit;
@@ -323,7 +329,10 @@
           }
           if (warm) return;
           const slug = normalizeDTag(dTag) || dTag;
+          // Memory / shallow cache only — a full Cache Storage walk blocks wiki for seconds.
           const cached =
+            memoryFindByAddress(KIND.WIKI, pubkey, slug) ??
+            memoryFindByAddress(KIND.SPEC, pubkey, slug) ??
             (await cacheFindByAddress(KIND.WIKI, pubkey, slug)) ??
             (await cacheFindByAddress(KIND.SPEC, pubkey, slug));
           if (cancelled) return;

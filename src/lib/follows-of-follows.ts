@@ -92,7 +92,8 @@ async function rebuild(
       const events = await relayPool.query(
         socialStack(),
         [{ kinds: [KIND.CONTACT_LIST], authors: batch, limit: batch.length }],
-        4000
+        3500,
+        2
       );
       const newest = new Map<string, Event>();
       for (const ev of events) {

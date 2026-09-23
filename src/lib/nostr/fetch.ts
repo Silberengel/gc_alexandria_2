@@ -1,6 +1,6 @@
 import type { Event, Filter } from 'nostr-tools';
 import { KIND } from '../constants';
-import { isEventDeleted, refreshDeletionsFor } from '../deletions';
+import { isEventDeleted } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
@@ -41,7 +41,8 @@ function stackForKind(kind: number): string[] {
 
 async function hideIfDeleted(event: Event | null): Promise<Event | null> {
   if (!event) return null;
-  await refreshDeletionsFor([event]).catch(() => {});
+  // Use in-memory tombstones only on the hot path — a live kind-5 refresh per address
+  // saturates the relay pool and stalls wiki/publication navigation.
   if (!isEventDeleted(event)) {
     rememberEvents([event]);
     return event;
@@ -77,7 +78,14 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
     };
     const mercury = await mercuryFilter(filter);
     if (mercury[0]) return hideIfDeleted(mercury[0]);
-    const ws = await relayPool.query(stackForKind(parsed.kind), [filter]);
+    const ws = await relayPool.query(
+      stackForKind(parsed.kind),
+      [filter],
+      4000,
+      5,
+      undefined,
+      { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
+    );
     return hideIfDeleted(ws[0] ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;

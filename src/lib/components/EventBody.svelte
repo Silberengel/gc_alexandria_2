@@ -63,6 +63,12 @@
         const { text, refs } = protectNostrRefsForMarkup(src);
         const rendered = markHighlights(await renderWithFallback(k, text, tags), q);
         next = expandNostrRefPlaceholders(rendered, refs);
+        // Paint the article immediately — embedded naddr/note fetches used to hold
+        // "Page is loading…" until every ref resolved (and fought the relay pool).
+        if (!cancelled) {
+          segments = next;
+          bodyPending = false;
+        }
         await Promise.all(
           next.map(async (seg, i) => {
             if (seg.type !== 'ref' || embedDepth > 1) return;
@@ -75,29 +81,30 @@
             }
           })
         );
-      } else {
-        const segs = splitNostrRefs(src);
-        next = [];
-        await Promise.all(
-          segs.map(async (seg, i) => {
-            if (seg.type === 'text') {
-              const rendered = await renderWithFallback(k, seg.text, tags);
-              next[i] = { type: 'html', html: markHighlights(rendered, q) };
-              return;
-            }
-            next[i] = seg;
-            if (embedDepth > 1) return;
-            if (seg.kind === 'naddr' && seg.naddr) {
-              found[i] = await fetchByAddress(
-                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
-              );
-            } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
-              found[i] = await fetchById(seg.id);
-            }
-          })
-        );
+        if (!cancelled) resolved = { ...found };
+        return;
       }
 
+      const segs = splitNostrRefs(src);
+      next = [];
+      await Promise.all(
+        segs.map(async (seg, i) => {
+          if (seg.type === 'text') {
+            const rendered = await renderWithFallback(k, seg.text, tags);
+            next[i] = { type: 'html', html: markHighlights(rendered, q) };
+            return;
+          }
+          next[i] = seg;
+          if (embedDepth > 1) return;
+          if (seg.kind === 'naddr' && seg.naddr) {
+            found[i] = await fetchByAddress(
+              `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
+            );
+          } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
+            found[i] = await fetchById(seg.id);
+          }
+        })
+      );
       if (!cancelled) {
         segments = next;
         resolved = found;

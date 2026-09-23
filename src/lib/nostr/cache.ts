@@ -276,7 +276,8 @@ export async function cacheScanByKind(kind: number, limit = 100): Promise<Event[
 export async function cacheFindByAddress(
   kind: number,
   pubkey: string,
-  d: string
+  d: string,
+  opts?: { deep?: boolean }
 ): Promise<Event | null> {
   const pk = pubkey.toLowerCase();
   const wanted = new Set(dTagVariants(d));
@@ -302,6 +303,9 @@ export async function cacheFindByAddress(
     for (const shelf of landing.shelves ?? []) for (const e of shelf.events) consider(e);
   }
   if (best) return best;
+
+  // Default: skip the full Cache Storage walk — it blocks wiki/nav for seconds on a warm cache.
+  if (!opts?.deep) return null;
 
   const cache = await openCache();
   const m = meta();

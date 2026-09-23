@@ -43,9 +43,12 @@ class RelayPool {
     this.signedIn = signedIn;
   }
 
-  private async withQuerySlot<T>(fn: () => Promise<T>): Promise<T> {
+  private async withQuerySlot<T>(fn: () => Promise<T>, priority = false): Promise<T> {
+    const limit = priority
+      ? RelayPool.MAX_PARALLEL_QUERIES + 2
+      : RelayPool.MAX_PARALLEL_QUERIES;
     const waitStarted = Date.now();
-    while (this.activeQueries >= RelayPool.MAX_PARALLEL_QUERIES) {
+    while (this.activeQueries >= limit) {
       if (Date.now() - waitStarted > 15_000) {
         console.warn('[alexandria:pool] waited 15s for a query slot — continuing to avoid deadlock');
         break;
@@ -71,13 +74,16 @@ class RelayPool {
    * Never throws — dead relays return [].
    * Hits up to `maxRelays` in parallel and optionally streams merges via `onBatch`
    * as each relay answers (callers can paint before the slowest EOSE).
+   * Pass `priority: true` for navigation (wiki/publication) so Home background work
+   * cannot hold the last slots for minutes.
    */
   async query(
     relays: string[],
     filters: Filter[],
     timeoutMs = 8000,
     maxRelays = RelayPool.MAX_RELAYS_PER_QUERY,
-    onBatch?: (events: Event[]) => void
+    onBatch?: (events: Event[]) => void,
+    opts?: { priority?: boolean }
   ): Promise<Event[]> {
     try {
       const wssRelays = usableRelays(relays, maxRelays);
@@ -126,18 +132,33 @@ class RelayPool {
         };
 
         let events: Event[] = [];
+        let raceDone = false;
+        let hardCapTimer: ReturnType<typeof setTimeout> | 0 = 0;
         try {
           events = await Promise.race([
-            run(),
+            run().then((value) => {
+              raceDone = true;
+              if (hardCapTimer) clearTimeout(hardCapTimer);
+              return value;
+            }),
             new Promise<Event[]>((resolve) => {
-              setTimeout(() => {
-                console.warn('[alexandria:pool] query hard-cap', hardCapMs, 'ms', cleanFilters[0]?.kinds);
+              hardCapTimer = setTimeout(() => {
+                if (raceDone) return;
+                raceDone = true;
+                console.warn(
+                  '[alexandria:pool] query hard-cap',
+                  hardCapMs,
+                  'ms',
+                  cleanFilters[0]?.kinds
+                );
                 resolve([...byId.values()]);
               }, hardCapMs);
             })
           ]);
         } catch {
           events = [...byId.values()];
+        } finally {
+          if (hardCapTimer) clearTimeout(hardCapTimer);
         }
         try {
           await cachePutMany(events);
@@ -145,7 +166,7 @@ class RelayPool {
           /* cache write must not fail the read path */
         }
         return events;
-      });
+      }, opts?.priority === true);
     } catch {
       return [];
     }
