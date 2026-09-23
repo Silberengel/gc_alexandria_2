@@ -32,6 +32,8 @@
   import ReadingNowPanel from '$lib/components/ReadingNowPanel.svelte';
   import { KIND } from '$lib/constants';
 
+  const LOG = '[alexandria:landing]';
+
   let comments = $state<Event[]>([]);
   let highlights = $state<Event[]>([]);
   let ratings = $state<Event[]>([]);
@@ -39,6 +41,9 @@
   let subjects = $state<string[]>([]);
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
+  let landingBusy = $state(true);
+  let landingStatus = $state('Starting…');
+  let shelfBusy = $state(false);
   const shelfSeed = Math.floor(Date.now() / 1000);
 
   const visibleShelves = $derived(
@@ -52,6 +57,10 @@
       })
       .filter((s) => s.events.length)
   );
+  const hasViewerShelves = $derived(
+    visibleShelves.some((s) => isViewerBoundShelfId(s.id))
+  );
+  const showLandingSpinner = $derived(landingBusy || shelfBusy || $session.loading);
   const visibleHighlights = $derived(filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT));
   const visibleComments = $derived(filterMuted(comments, $muteState).slice(0, LANDING_FEED_LIMIT));
   const visibleRatings = $derived(filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT));
@@ -82,8 +91,14 @@
     const nextShelves = view.shelves ?? [];
     const nextHasCovers = nextShelves.some((s) => s.events.length);
     // Never wipe painted covers with an empty final pack (relay starvation used to do that).
+    // Always union viewer-bound shelves (My shelf / follows / folders) so a late network-only
+    // snapshot cannot erase them after mergeViewerShelves painted them.
     if (replaceShelves && nextHasCovers) {
-      shelves = nextShelves;
+      const prevBound = shelves.filter((s) => isViewerBoundShelfId(s.id));
+      const merged = mergeLandingShelves(prevBound, nextShelves);
+      const bound = merged.filter((s) => isViewerBoundShelfId(s.id));
+      const rest = merged.filter((s) => !isViewerBoundShelfId(s.id));
+      shelves = [...bound, ...rest];
     } else {
       shelves = mergeLandingShelves(shelves, nextShelves);
     }
@@ -112,9 +127,49 @@
 
   let loadInFlight = false;
   let loadAgain = false;
+  let mergeInFlight = false;
+  let mergeAgain = false;
 
   async function mergeViewerShelves(): Promise<void> {
-    if (!session.getPubkey() || !session.getMetadata().length) return;
+    // Claim the mutex first so overlapping metadata + loading callbacks cannot dual-start.
+    if (mergeInFlight) {
+      mergeAgain = true;
+      console.info(LOG, 'mergeViewerShelves coalesced');
+      return;
+    }
+    // Do not compete with refreshLanding for relay slots — that stalled every page.
+    if (loadInFlight) {
+      mergeAgain = true;
+      console.info(LOG, 'mergeViewerShelves deferred until landing idle');
+      return;
+    }
+    const pk = session.getPubkey();
+    const meta = session.getMetadata();
+    if (!pk) {
+      console.info(LOG, 'mergeViewerShelves skip: not signed in');
+      return;
+    }
+    if (!meta.length) {
+      console.info(LOG, 'mergeViewerShelves skip: metadata empty (login lists not ready)');
+      landingStatus = 'Waiting for your login lists…';
+      return;
+    }
+    mergeInFlight = true;
+    const kindCounts: Record<string, number> = {};
+    for (const e of meta) {
+      const k = String(e.kind);
+      kindCounts[k] = (kindCounts[k] ?? 0) + 1;
+    }
+    console.info(LOG, 'mergeViewerShelves start', {
+      pubkey: pk.slice(0, 8),
+      metaEvents: meta.length,
+      bookmarks: kindCounts[String(KIND.BOOKMARK)] ?? 0,
+      labels: kindCounts[String(KIND.LABEL)] ?? 0,
+      directories: kindCounts[String(KIND.DIRECTORY)] ?? 0,
+      kindCounts
+    });
+    shelfBusy = true;
+    landingStatus = 'Loading your shelves…';
     try {
       const known = [
         ...shelves.flatMap((s) => s.events),
@@ -122,8 +177,24 @@
         ...highlights,
         ...comments
       ];
-      const pack = await loadViewerShelves(known);
-      if (!pack.shelves.some((s) => s.events.length) && !pack.labels.length) return;
+      const pack = await Promise.race([
+        loadViewerShelves(known),
+        new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) =>
+          setTimeout(() => {
+            console.warn(LOG, 'mergeViewerShelves timed out after 8s');
+            resolve({ shelves: [], labels: [] });
+          }, 8_000)
+        )
+      ]);
+      const summary = pack.shelves.map((s) => `${s.id}:${s.events.length}`).join(', ') || '(none)';
+      console.info(LOG, 'mergeViewerShelves result', {
+        shelfRows: summary,
+        labelChips: pack.labels.length
+      });
+      if (!pack.shelves.some((s) => s.events.length) && !pack.labels.length) {
+        landingStatus = 'No personal shelf lists found on relays yet';
+        return;
+      }
       shelves = mergeLandingShelves(shelves, pack.shelves);
       if (pack.labels.length) labels = pack.labels;
       rememberEvents(pack.shelves.flatMap((s) => s.events));
@@ -133,8 +204,19 @@
           .map((e) => coverImageUrl(e))
           .filter((u): u is string => !!u)
       );
-    } catch {
-      /* soft-fail — full landing reload may still fill shelves */
+      landingStatus = pack.shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)
+        ? 'Your shelves are ready'
+        : 'Shelves updated (no My shelf covers resolved yet)';
+    } catch (err) {
+      console.warn(LOG, 'mergeViewerShelves failed', err);
+      landingStatus = 'Could not load your shelves (see console)';
+    } finally {
+      mergeInFlight = false;
+      shelfBusy = false;
+      if (mergeAgain && !loadInFlight) {
+        mergeAgain = false;
+        void mergeViewerShelves();
+      }
     }
   }
 
@@ -144,27 +226,43 @@
     // by bumping a generation counter (that left the UI on ratings-only forever).
     if (loadInFlight) {
       loadAgain = true;
+      console.info(LOG, 'loadLanding coalesced (already in flight)');
       return;
     }
     loadInFlight = true;
     loadAgain = false;
+    landingBusy = true;
     const identity = session.getPubkey();
     const replaceFromCache = shelves.length === 0;
+    console.info(LOG, 'loadLanding start', { identity: identity?.slice(0, 8) ?? null });
     try {
+      landingStatus = 'Loading cached landing…';
       const cached = await loadCachedLanding();
+      console.info(LOG, 'cache', {
+        hit: !!cached,
+        shelves: cached?.shelves?.map((s) => `${s.id}:${s.events.length}`).join(', ') ?? ''
+      });
       if (cached) apply(cached, replaceFromCache);
+      landingStatus = 'Refreshing shelves and feeds…';
       const live = await refreshLanding(cached, (view) => {
         // Drop updates only when the viewer identity changed under us.
         if (session.getPubkey() !== identity) return;
         apply(view, false);
       });
+      console.info(LOG, 'refreshLanding done', {
+        shelves: live.shelves.map((s) => `${s.id}:${s.events.length}`).join(', '),
+        ratings: live.ratings?.length ?? 0
+      });
       if (session.getPubkey() === identity) apply(live, true);
-      // Metadata often arrives during refreshLanding — fold My shelf in once more.
-      if (session.getPubkey() === identity) await mergeViewerShelves();
-    } catch {
-      /* network/cache failures must not leave home stuck blank forever */
+      landingStatus = '';
+    } catch (err) {
+      console.warn(LOG, 'loadLanding failed', err);
+      landingStatus = 'Landing refresh failed (see console)';
     } finally {
       loadInFlight = false;
+      landingBusy = false;
+      // Fold My shelf only after landing releases relay slots.
+      if (session.getPubkey()) void mergeViewerShelves();
       if (loadAgain) {
         loadAgain = false;
         void loadLanding();
@@ -180,7 +278,7 @@
 
     function scheduleLoad(): void {
       if (debounce) clearTimeout(debounce);
-      // Coalesce sign-in (pubkey + metadata clear + metadata fill) into one refresh.
+      // Coalesce sign-in (pubkey change) into one refresh.
       debounce = setTimeout(() => {
         debounce = null;
         void loadLanding();
@@ -209,25 +307,25 @@
             e.kind === KIND.CONTACT_LIST ||
             e.kind === KIND.BOOKMARK ||
             e.kind === KIND.LABEL ||
-            e.kind === KIND.DIRECTORY ||
-            e.kind === KIND.READING_QUEUE
+            e.kind === KIND.DIRECTORY
         )
         .map((e) => e.id)
         .sort()
         .join(',');
       if (key === lastMetaKey) return;
       lastMetaKey = key;
-      // Immediately fold My shelf / folders from login lists — do not wait for loading=false
-      // or a full landing round-trip (that raced and left only "From the network").
+      console.info(LOG, 'metadata changed — folding shelves', {
+        keyEvents: key ? key.split(',').length : 0,
+        sessionLoading: get(session).loading
+      });
+      // Fold My shelf from login lists only — do NOT scheduleLoad here.
       if (key) void mergeViewerShelves();
-      if (!get(session).loading) scheduleLoad();
     });
-    // When metadata load finishes (even with empty lists), refresh once for My shelf.
     let wasLoading = get(session).loading;
     const unsubLoading = session.subscribe(($s) => {
       if (wasLoading && !$s.loading && $s.pubkey) {
+        console.info(LOG, 'session loading finished — folding shelves');
         void mergeViewerShelves();
-        scheduleLoad();
       }
       wasLoading = $s.loading;
     });
@@ -257,6 +355,26 @@
   </header>
 
   <ReadingNowPanel />
+
+  {#if showLandingSpinner || landingStatus}
+    <p class="loading-hint landing-status" class:landing-status-busy={showLandingSpinner}>
+      {#if showLandingSpinner}
+        <span class="landing-status-dot" aria-hidden="true"></span>
+      {/if}
+      {#if $session.loading}
+        Signing in and fetching your lists…
+      {:else if landingStatus}
+        {landingStatus}
+      {:else}
+        Loading library…
+      {/if}
+    </p>
+  {:else if $session.pubkey && !hasViewerShelves}
+    <p class="muted landing-status">
+      Signed in, but My shelf / folders did not load. Open the browser console and filter for
+      <code>alexandria:landing</code>.
+    </p>
+  {/if}
 
   {#if visibleShelves.length}
     <div class="listing-toolbar">

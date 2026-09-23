@@ -4,7 +4,7 @@ import { KIND, LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
-import { documentStack, profileStack, setSelectorContext, socialStack, writeStack } from '../nostr/selector';
+import { documentStack, profileStack, setSelectorContext, socialStack, viewerOutboxStack, writeStack } from '../nostr/selector';
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mergeRememberedMetadata } from '../session-metadata';
 import { rememberDeletion } from '../deletions';
@@ -25,9 +25,11 @@ const SOCIAL_LOGIN_KINDS = [
   KIND.DIRECTORY,
   KIND.FOLLOW_SET,
   KIND.STATUS,
-  KIND.PAYMENT,
-  KIND.READING_QUEUE
+  KIND.PAYMENT
 ] as const;
+
+/** Pinned separately so My shelf / reading queue are not crowded out of the limit:100 batch. */
+const SHELF_LOGIN_KINDS = [KIND.BOOKMARK, KIND.DIRECTORY, KIND.READING_QUEUE] as const;
 
 const SESSION_STORAGE_KEY = 'alexandria-session';
 
@@ -129,6 +131,22 @@ function createSessionStore() {
     applyMuteList(parseMuteList(muteEvent, extra));
   }
 
+  async function applyRelayContextFromEvents(events: Event[]): Promise<void> {
+    const relayList = latestReplaceable(events, KIND.RELAY_LIST);
+    const favoriteList = latestReplaceable(events, KIND.FAVORITE);
+    const blockedList = latestReplaceable(events, KIND.BLOCKED);
+    const localList = latestReplaceable(events, KIND.LOCAL);
+    const { inbox, outbox } = nip65InboxOutbox(relayList);
+    setSelectorContext({
+      signedIn: true,
+      inbox,
+      outbox,
+      favorites: relayTagUrls(favoriteList),
+      local: relayTagUrls(localList),
+      blocked: relayTagUrls(blockedList)
+    });
+  }
+
   async function loadMetadata(pubkey: string): Promise<void> {
     // Login lists / kind 0 are not on Mercury (document kinds only).
     // 1985/10003 live on the social stack — document-only REQs miss most bookmarks/labels.
@@ -140,19 +158,75 @@ function createSessionStore() {
       limit: 100
     };
     const profileFilter = { authors: [pubkey], kinds: [KIND.METADATA], limit: 1 };
+    // Bookmarks + directories + reading queue must not compete with dozens of 1985s in the
+    // multi-kind limit:100 batch — otherwise My shelf never appears.
+    const shelfFilter = {
+      authors: [pubkey],
+      kinds: [...SHELF_LOGIN_KINDS],
+      limit: 40
+    };
     try {
-      const [docResult, socialResult, profileResult] = await Promise.allSettled([
-        relayPool.query(documentStack(), [listFilter], 4000),
-        relayPool.query(socialStack(), [socialFilter], 4000),
-        relayPool.query(profileStack(), [profileFilter], 4000)
+      // Phase 1: NIP-65 / favorites so subsequent shelf REQs include the viewer's outboxes.
+      const bootKinds = [KIND.RELAY_LIST, KIND.FAVORITE, KIND.BLOCKED, KIND.LOCAL];
+      const [bootSocial, bootProfile] = await Promise.allSettled([
+        relayPool.query(
+          socialStack(),
+          [{ authors: [pubkey], kinds: bootKinds, limit: 20 }],
+          2500
+        ),
+        relayPool.query(profileStack(), [profileFilter], 2500)
       ]);
+      const bootEvents = [
+        ...(bootSocial.status === 'fulfilled' ? bootSocial.value : []),
+        ...(bootProfile.status === 'fulfilled' ? bootProfile.value : [])
+      ];
+      await applyRelayContextFromEvents(bootEvents);
+
+      // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
+      const outboxSocial = viewerOutboxStack();
+      const [docResult, socialResult, profileResult, shelfResult, dirResult, outboxShelf] =
+        await Promise.allSettled([
+          relayPool.query(documentStack(), [listFilter], 4000),
+          relayPool.query(socialStack(), [socialFilter], 4000),
+          relayPool.query(profileStack(), [profileFilter], 4000),
+          relayPool.query(socialStack(), [shelfFilter], 4000),
+          relayPool.query(
+            documentStack(),
+            [{ authors: [pubkey], kinds: [KIND.DIRECTORY], limit: 40 }],
+            4000
+          ),
+          // Explicit outbox pass for bookmarks/dirs — Jumble-style “my lists live on my writes”.
+          relayPool.query(outboxSocial, [shelfFilter], 4000, 5)
+        ]);
       const doc = docResult.status === 'fulfilled' ? docResult.value : [];
       const social = socialResult.status === 'fulfilled' ? socialResult.value : [];
       const profiles = profileResult.status === 'fulfilled' ? profileResult.value : [];
+      const shelf = shelfResult.status === 'fulfilled' ? shelfResult.value : [];
+      const dirs = dirResult.status === 'fulfilled' ? dirResult.value : [];
+      const outboxLists = outboxShelf.status === 'fulfilled' ? outboxShelf.value : [];
       const byId = new Map<string, Event>();
-      for (const e of [...doc, ...social, ...profiles]) byId.set(e.id, e);
+      for (const e of [...bootEvents, ...doc, ...social, ...profiles, ...shelf, ...dirs, ...outboxLists]) {
+        byId.set(e.id, e);
+      }
       metadataEvents = [...byId.values()];
       metadata.set(metadataEvents);
+      const kindCounts: Record<string, number> = {};
+      for (const e of metadataEvents) {
+        const k = String(e.kind);
+        kindCounts[k] = (kindCounts[k] ?? 0) + 1;
+      }
+      console.info('[alexandria:session] login metadata', {
+        pubkey: pubkey.slice(0, 8),
+        total: metadataEvents.length,
+        bookmarks: kindCounts[String(KIND.BOOKMARK)] ?? 0,
+        directories: kindCounts[String(KIND.DIRECTORY)] ?? 0,
+        labels: kindCounts[String(KIND.LABEL)] ?? 0,
+        readingQueue: kindCounts[String(KIND.READING_QUEUE)] ?? 0,
+        shelfQueryEvents: shelf.length,
+        dirQueryEvents: dirs.length,
+        outboxShelfEvents: outboxLists.length,
+        kindCounts
+      });
       try {
         await cachePutMany(metadataEvents);
       } catch {
@@ -167,20 +241,7 @@ function createSessionStore() {
         void applyMuteFromMetadata(metadataEvents).catch(() => {});
       }, 3500);
 
-      const relayList = latestReplaceable(metadataEvents, KIND.RELAY_LIST);
-      const favoriteList = latestReplaceable(metadataEvents, KIND.FAVORITE);
-      const blockedList = latestReplaceable(metadataEvents, KIND.BLOCKED);
-      const localList = latestReplaceable(metadataEvents, KIND.LOCAL);
-      const { inbox, outbox } = nip65InboxOutbox(relayList);
-
-      setSelectorContext({
-        signedIn: true,
-        inbox,
-        outbox,
-        favorites: relayTagUrls(favoriteList),
-        local: relayTagUrls(localList),
-        blocked: relayTagUrls(blockedList)
-      });
+      await applyRelayContextFromEvents(metadataEvents);
       void import('../trusted-assertions').then(({ trustedAssertions }) => {
         trustedAssertions.resetForViewer(pubkey);
         void trustedAssertions.resolveProvider(pubkey);

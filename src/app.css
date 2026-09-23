@@ -1693,6 +1693,45 @@ a.listing-row:hover {
   margin: 1.25rem 0;
   opacity: 0.8;
 }
+.landing-status {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.35rem 0 1rem;
+  font-size: 0.92rem;
+}
+.landing-status code {
+  font-size: 0.85em;
+}
+.landing-status-busy {
+  opacity: 1;
+  color: var(--text);
+}
+.landing-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent, #8b6914);
+  flex: 0 0 auto;
+  animation: landing-pulse 1s ease-in-out infinite;
+}
+@keyframes landing-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-status-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
 .jump-busy {
   display: inline-flex;
   align-items: center;

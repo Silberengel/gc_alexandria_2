@@ -44,8 +44,19 @@ class RelayPool {
   }
 
   private async withQuerySlot<T>(fn: () => Promise<T>): Promise<T> {
+    const waitStarted = Date.now();
     while (this.activeQueries >= RelayPool.MAX_PARALLEL_QUERIES) {
-      await new Promise<void>((resolve) => this.queryWaiters.push(resolve));
+      if (Date.now() - waitStarted > 15_000) {
+        console.warn('[alexandria:pool] waited 15s for a query slot — continuing to avoid deadlock');
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 400);
+        this.queryWaiters.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
     }
     this.activeQueries++;
     try {
@@ -76,6 +87,7 @@ class RelayPool {
       return await this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
         const pool = this.pool;
+        const hardCapMs = Math.max(timeoutMs + 2000, 5000);
 
         const emit = (): void => {
           if (!onBatch || !byId.size) return;
@@ -86,31 +98,47 @@ class RelayPool {
           }
         };
 
-        // All selected relays in parallel — do not serialize behind a concurrency-2 worker pool.
-        await Promise.all(
-          wssRelays.map(async (url) => {
-            for (const filter of cleanFilters) {
-              try {
-                const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
-                let added = false;
-                for (const event of batch) {
-                  const v = ingestEvent(event);
-                  if (!v) continue;
-                  noteEventSource(v.id, url);
-                  if (!byId.has(v.id)) {
-                    byId.set(v.id, v);
-                    added = true;
+        const run = async (): Promise<Event[]> => {
+          // All selected relays in parallel — do not serialize behind a concurrency-2 worker pool.
+          await Promise.all(
+            wssRelays.map(async (url) => {
+              for (const filter of cleanFilters) {
+                try {
+                  const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
+                  let added = false;
+                  for (const event of batch) {
+                    const v = ingestEvent(event);
+                    if (!v) continue;
+                    noteEventSource(v.id, url);
+                    if (!byId.has(v.id)) {
+                      byId.set(v.id, v);
+                      added = true;
+                    }
                   }
+                  if (added) emit();
+                } catch {
+                  /* one relay failed — continue */
                 }
-                if (added) emit();
-              } catch {
-                /* one relay failed — continue */
               }
-            }
-          })
-        );
+            })
+          );
+          return [...byId.values()];
+        };
 
-        const events = [...byId.values()];
+        let events: Event[] = [];
+        try {
+          events = await Promise.race([
+            run(),
+            new Promise<Event[]>((resolve) => {
+              setTimeout(() => {
+                console.warn('[alexandria:pool] query hard-cap', hardCapMs, 'ms', cleanFilters[0]?.kinds);
+                resolve([...byId.values()]);
+              }, hardCapMs);
+            })
+          ]);
+        } catch {
+          events = [...byId.values()];
+        }
         try {
           await cachePutMany(events);
         } catch {

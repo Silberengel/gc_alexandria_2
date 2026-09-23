@@ -80,6 +80,37 @@ export function documentStack(): string[] {
   return maybeAggr(withoutBlocked(stackUrls(relays)));
 }
 
+/**
+ * Resolve 30040 covers for shelves: library/index relays first, then the viewer's
+ * inbox/outbox (NIP-65) so personal mirrors and a-tag hints still win.
+ * Do not put personal write relays alone at the front — a 2–5 relay cap would then
+ * never reach thecitadel/Mercury where most editions live.
+ */
+export function publicationSearchStack(): string[] {
+  let relays: string[] = [...DOCUMENT_SEARCH_RELAYS];
+  if (ctx.signedIn) {
+    relays = [
+      ...DOCUMENT_SEARCH_RELAYS,
+      ...ctx.outbox,
+      ...ctx.inbox,
+      ...ctx.favorites,
+      ...ctx.local
+    ];
+  }
+  return maybeAggr(withoutBlocked(stackUrls(relays)));
+}
+
+/** Viewer's NIP-65 outboxes (+ favorites/local) — for reading one's own replaceables. */
+export function viewerOutboxStack(): string[] {
+  if (!ctx.signedIn) return socialStack();
+  const personal = withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
+  // Fall through to social + document defaults so 30045 dirs still hit thecitadel when
+  // the personal outbox list is empty or incomplete.
+  return maybeAggr(
+    withoutBlocked(stackUrls([...personal, ...SOCIAL_RELAYS, ...DOCUMENT_SEARCH_RELAYS]))
+  );
+}
+
 /** Wiki read stack — wiki hosts first so a 2–3 relay cap still reaches them. */
 export function wikiStack(): string[] {
   return withoutBlocked(stackUrls([...WIKI_RELAYS, ...documentStack()]));

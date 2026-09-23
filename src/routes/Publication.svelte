@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { replace, querystring } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import TopBar from '$lib/components/TopBar.svelte';
@@ -153,16 +153,14 @@
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
   /**
-   * Document-order index in `sectionCorpus`.
-   * `sections` is only the painted prefix, and painting can reorder the corpus,
-   * so `data-read-pos` must follow the corpus index `scrollToSection` queries.
+   * Document-order index for `data-read-pos`.
+   * `sections` is always an ordered prefix of `sectionCorpus` (via publishPainted),
+   * so painted index === corpus index. Do not read the non-reactive corpus here.
    */
   const sectionReadPos = $derived.by(() => {
-    // `sections` is the reactive signal publishPainted updates with the corpus.
     const painted = sections;
-    const corpus = sectionCorpus.length ? sectionCorpus : painted;
     const map = new Map<string, number>();
-    for (let i = 0; i < corpus.length; i++) map.set(corpus[i]!.id, i);
+    for (let i = 0; i < painted.length; i++) map.set(painted[i]!.id, i);
     return map;
   });
   const paintedSections = $derived(sections);
@@ -1275,7 +1273,7 @@
       void syncReadingProgress({
         publication: event,
         pos,
-        total: Math.max(corpusCount, sectionCorpus.length, 1),
+        total: Math.max(corpusCount, 1),
         sectionId: section.id
       });
     }
@@ -1298,9 +1296,9 @@
   $effect(() => {
     const root = readingPane;
     if (!reading || !root) return;
-    // Rebind when more sections paint.
     void paintedSections.length;
     let raf = 0;
+    let lastPos = -1;
     const pickVisible = () => {
       raf = 0;
       const nodes = root.querySelectorAll<HTMLElement>('[data-read-pos][data-section-id]');
@@ -1323,8 +1321,11 @@
       if (!chosen) return;
       const pos = Number(chosen.dataset.readPos);
       const id = chosen.dataset.sectionId;
-      if (!Number.isFinite(pos) || !id) return;
-      const section = sections.find((s) => s.id === id) ?? sectionCorpus.find((s) => s.id === id);
+      if (!Number.isFinite(pos) || !id || pos === lastPos) return;
+      lastPos = pos;
+      const section =
+        sections.find((s) => s.id === id) ??
+        untrack(() => sectionCorpus.find((s) => s.id === id));
       if (section) rememberPos(pos, section);
     };
     const onScroll = () => {
@@ -1332,9 +1333,11 @@
       raf = requestAnimationFrame(pickVisible);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
-    queueMicrotask(pickVisible);
+    // Delay first pick so initial layout/scroll-to-resume does not spam relay publishes.
+    const boot = window.setTimeout(pickVisible, 400);
     return () => {
       window.removeEventListener('scroll', onScroll);
+      window.clearTimeout(boot);
       if (raf) cancelAnimationFrame(raf);
     };
   });
@@ -1705,7 +1708,7 @@
                     <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
                       <TrackReadingButton
                         publication={event}
-                        total={Math.max(corpusCount, sectionCorpus.length)}
+                        total={corpusCount}
                         pos={readerPos}
                         sectionId={readerSectionId}
                         readLabels={editionReads}

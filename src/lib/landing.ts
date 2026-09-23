@@ -27,8 +27,13 @@ import {
 import { fetchByAddress, fetchByIds, poolMap } from './nostr/fetch';
 import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
-import { documentStack, highlightStack, socialStack } from './nostr/selector';
-import { cacheFindByAddress } from './nostr/cache';
+import {
+  documentStack,
+  highlightStack,
+  publicationSearchStack,
+  socialStack,
+  viewerOutboxStack
+} from './nostr/selector';
 import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
@@ -404,89 +409,159 @@ function landingRatings(...lists: Event[][]): Event[] {
   return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
 }
 
-async function resolveShelfPublications(memberships: Membership[], known: Event[]): Promise<Map<string, Event>> {
+/** Relay hints from `["a", coord, relayUrl]` on bookmark/label/directory events. */
+function relayHintsForAddresses(events: Event[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const event of events) {
+    for (const tag of event.tags) {
+      if (tag[0] !== 'a' || !tag[1] || !tag[2]) continue;
+      const hint = tag[2].trim();
+      if (!/^wss?:\/\//i.test(hint)) continue;
+      const list = out.get(tag[1]) ?? [];
+      if (!list.includes(hint)) list.push(hint);
+      out.set(tag[1], list);
+    }
+  }
+  return out;
+}
+
+async function resolveShelfPublications(
+  memberships: Membership[],
+  known: Event[],
+  opts?: {
+    networkBudgetMs?: number;
+    maxAddrs?: number;
+    maxGroups?: number;
+    hintEvents?: Event[];
+  }
+): Promise<Map<string, Event>> {
   const byAddr = new Map<string, Event>();
   for (const event of known) {
     if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
   }
 
+  const maxAddrs = opts?.maxAddrs ?? 24;
+  const maxGroups = opts?.maxGroups ?? 4;
+  const networkBudgetMs = opts?.networkBudgetMs ?? 6_000;
+
   const missingAddrs = [
     ...new Set(memberships.flatMap((m) => (m.address && !byAddr.has(m.address) ? [m.address] : [])))
-  ].slice(0, 80);
+  ].slice(0, maxAddrs);
 
-  // Local cache/memory first — My shelf should paint without waiting on relays.
-  await poolMap(missingAddrs, 8, async (addr) => {
-    const parsed = parseAddress(addr);
-    if (!parsed || parsed.kind !== KIND.PUBLICATION) return;
-    let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
-    if (!event) {
+  const hints = relayHintsForAddresses(opts?.hintEvents ?? []);
+
+  const run = async (): Promise<void> => {
+    // Fast local only — never O(n) Cache Storage scans per address (that hung My shelf).
+    let landing: LandingSnapshot | null = null;
+    try {
+      landing = await cacheGetLandingSnapshot();
+    } catch {
+      landing = null;
+    }
+    const landingPool: Event[] = [];
+    if (landing) {
+      landingPool.push(...(landing.publications ?? []));
+      landingPool.push(...(landing.referenced ?? []));
+      for (const shelf of landing.shelves ?? []) landingPool.push(...shelf.events);
+    }
+    for (const addr of missingAddrs) {
+      if (byAddr.has(addr)) continue;
+      const parsed = parseAddress(addr);
+      if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+      let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+      if (!event) {
+        for (const e of landingPool) {
+          if (e.kind !== KIND.PUBLICATION) continue;
+          if (eventAddress(e) === addr) {
+            event = e;
+            break;
+          }
+        }
+      }
+      if (event?.kind === KIND.PUBLICATION) byAddr.set(addr, event);
+    }
+
+    type AuthorGroup = { pubkey: string; ds: string[]; hintRelays: string[] };
+    const groups = new Map<string, AuthorGroup>();
+    for (const addr of missingAddrs) {
+      if (byAddr.has(addr)) continue;
+      const parsed = parseAddress(addr);
+      if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+      const g = groups.get(parsed.pubkey) ?? { pubkey: parsed.pubkey, ds: [], hintRelays: [] };
+      if (!g.ds.includes(parsed.d)) g.ds.push(parsed.d);
+      for (const url of hints.get(addr) ?? []) {
+        if (!g.hintRelays.includes(url)) g.hintRelays.push(url);
+      }
+      groups.set(parsed.pubkey, g);
+    }
+
+    await poolMap([...groups.values()].slice(0, maxGroups), 2, async (group) => {
+      const dValues = group.ds.slice(0, 24);
+      if (!dValues.length) return;
+      const filter = {
+        kinds: [KIND.PUBLICATION],
+        authors: [group.pubkey],
+        '#d': dValues,
+        limit: Math.min(100, dValues.length)
+      };
       try {
-        event = await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+        for (const event of await mercuryFilter(filter)) {
+          if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+        }
       } catch {
-        event = null;
+        /* mercury soft-fail */
       }
-    }
-    if (event?.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
-  });
-
-  // Batch remaining by author — one Mercury/WS round-trip per author, not per address.
-  type AuthorGroup = { pubkey: string; ds: string[] };
-  const groups = new Map<string, AuthorGroup>();
-  for (const addr of missingAddrs) {
-    if (byAddr.has(addr)) continue;
-    const parsed = parseAddress(addr);
-    if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
-    const g = groups.get(parsed.pubkey) ?? { pubkey: parsed.pubkey, ds: [] };
-    if (!g.ds.includes(parsed.d)) g.ds.push(parsed.d);
-    groups.set(parsed.pubkey, g);
-  }
-
-  // Shelf covers must win against feed/reference queries — keep concurrency modest but
-  // give each author group enough relay wait time (2s was starving under pool contention).
-  await poolMap([...groups.values()], 3, async (group) => {
-    const dValues = group.ds.slice(0, 40);
-    if (!dValues.length) return;
-    const filter = {
-      kinds: [KIND.PUBLICATION],
-      authors: [group.pubkey],
-      '#d': dValues,
-      limit: Math.min(100, dValues.length)
-    };
-    try {
-      for (const event of await mercuryFilter(filter)) {
-        if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+      const still = dValues.filter((d) => !byAddr.has(`${KIND.PUBLICATION}:${group.pubkey}:${d}`));
+      if (!still.length) return;
+      const relays = [...group.hintRelays, ...publicationSearchStack()];
+      try {
+        const ws = await relayPool.query(
+          relays,
+          [{ kinds: [KIND.PUBLICATION], authors: [group.pubkey], '#d': still, limit: still.length }],
+          2500,
+          5
+        );
+        for (const event of ws) {
+          if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+        }
+      } catch {
+        /* relay soft-fail */
       }
-    } catch {
-      /* mercury soft-fail */
-    }
-    const still = dValues.filter((d) => !byAddr.has(`${KIND.PUBLICATION}:${group.pubkey}:${d}`));
-    if (!still.length) return;
+    });
+
+    const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
+    if (!missingIds.length) return;
     try {
-      const ws = await relayPool.query(
-        documentStack(),
-        [{ kinds: [KIND.PUBLICATION], authors: [group.pubkey], '#d': still, limit: still.length }],
-        4500,
-        4
+      const byId = new Map(
+        (await Promise.race([
+          fetchByIds(missingIds.slice(0, 12), 2),
+          new Promise<Event[]>((resolve) => setTimeout(() => resolve([]), 2500))
+        ])).map((e) => [e.id, e])
       );
-      for (const event of ws) {
-        if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+      for (const membership of memberships) {
+        if (membership.address) continue;
+        if (!membership.eventId) continue;
+        const event = byId.get(membership.eventId);
+        if (event?.kind === KIND.PUBLICATION) {
+          membership.address = eventAddress(event);
+          byAddr.set(membership.address, event);
+        }
       }
     } catch {
-      /* relay soft-fail */
+      /* id resolve soft-fail */
     }
-  });
+  };
 
-  const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
-  const byId = new Map((await fetchByIds(missingIds.slice(0, 40), 6)).map((e) => [e.id, e]));
-  for (const membership of memberships) {
-    if (membership.address) continue;
-    if (!membership.eventId) continue;
-    const event = byId.get(membership.eventId);
-    if (event?.kind === KIND.PUBLICATION) {
-      membership.address = eventAddress(event);
-      byAddr.set(membership.address, event);
-    }
-  }
+  await Promise.race([
+    run(),
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        console.warn('[alexandria:landing] resolveShelfPublications budget exhausted', networkBudgetMs);
+        resolve();
+      }, networkBudgetMs);
+    })
+  ]);
+
   return byAddr;
 }
 
@@ -506,30 +581,73 @@ const EMPTY_MEMBERSHIP: ShelfMembershipPack = {
 async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   const social = socialStack();
   const document = documentStack();
+  const outbox = viewerOutboxStack();
   const curator = GITCITADEL_CURATOR_HEX;
-  const [socialLabels, socialCuratorLabels, bookmarkWs, dirWs] = await Promise.allSettled([
-    // Labels / bookmarks / directories are social — Mercury only indexes document kinds.
+  const viewer = session.getPubkey();
+  // Two waves so we do not take 6 pool slots at once beside feed queries.
+  const [socialLabels, socialCuratorLabels, bookmarkWs] = await Promise.allSettled([
     relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 80 }], 2500),
-    // GitCitadel shelf membership is curator-authored; pin that author so new labels show up on refresh.
     relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 100 }], 2500),
-    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 2500),
-    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 2500)
+    relayPool.query(social, [{ kinds: [KIND.BOOKMARK], limit: 80 }], 2500)
   ]);
+  const [dirWs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
+    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 80 }], 2500),
+    viewer
+      ? relayPool.query(social, [{ kinds: [KIND.BOOKMARK], authors: [viewer], limit: 5 }], 2500)
+      : Promise.resolve([] as Event[]),
+    viewer
+      ? relayPool.query(
+          document,
+          [{ kinds: [KIND.DIRECTORY], authors: [viewer], limit: 40 }],
+          2500
+        )
+      : Promise.resolve([] as Event[]),
+    viewer
+      ? relayPool.query(
+          outbox,
+          [
+            {
+              kinds: [KIND.BOOKMARK, KIND.DIRECTORY, KIND.LABEL],
+              authors: [viewer],
+              limit: 40
+            }
+          ],
+          3000,
+          5
+        )
+      : Promise.resolve([] as Event[])
+  ]);
+  const outboxEvents = settled(myOutboxLists, []);
   return {
-    liveLabels: mergeEvents(settled(socialLabels, []), settled(socialCuratorLabels, [])),
-    liveBookmarks: settled(bookmarkWs, []),
-    liveDirs: settled(dirWs, [])
+    liveLabels: mergeEvents(
+      settled(socialLabels, []),
+      settled(socialCuratorLabels, []),
+      outboxEvents.filter((e) => e.kind === KIND.LABEL)
+    ),
+    liveBookmarks: mergeEvents(
+      settled(bookmarkWs, []),
+      settled(myBookmarks, []),
+      outboxEvents.filter((e) => e.kind === KIND.BOOKMARK)
+    ),
+    liveDirs: mergeEvents(
+      settled(dirWs, []),
+      settled(myDirs, []),
+      outboxEvents.filter((e) => e.kind === KIND.DIRECTORY)
+    )
   };
 }
 
 async function loadShelvesAndLabels(
   knownPubs: Event[],
   cached?: LandingView | null,
-  membership?: ShelfMembershipPack
+  membership?: ShelfMembershipPack,
+  opts?: { viewerOnly?: boolean }
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
+  const viewerOnly = opts?.viewerOnly === true;
   // Signed-in: wait briefly for login lists so "My shelf" is not skipped on the first paint.
+  // Viewer-only fold already has metadata — never block here.
   const viewerEarly = session.getPubkey();
-  if (viewerEarly && !session.getMetadata().length) {
+  if (!viewerOnly && viewerEarly && !session.getMetadata().length) {
     await new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
@@ -542,21 +660,33 @@ async function loadShelvesAndLabels(
       const unsub = session.metadata.subscribe((events) => {
         if (events.length) finish();
       });
-      const timer = setTimeout(finish, 6_000);
+      const timer = setTimeout(finish, 4_000);
       if (session.getMetadata().length) finish();
     });
   }
 
   const mine = session.getMetadata();
-  const pack = membership ?? (await fetchShelfMembershipEvents());
+  const pack = membership ?? (viewerOnly ? EMPTY_MEMBERSHIP : await fetchShelfMembershipEvents());
   const { liveLabels, liveBookmarks, liveDirs } = pack;
   const mineDirs = mine.filter((e) => e.kind === KIND.DIRECTORY);
-  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mine);
+  // For My-shelf fold: prefer bookmarks + directories so 12 labels do not explode author lookups.
+  const mineForMembership = viewerOnly
+    ? mine.filter(
+        (e) => e.kind === KIND.BOOKMARK || e.kind === KIND.DIRECTORY || e.kind === KIND.LABEL
+      )
+    : mine;
+  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mineForMembership);
   const memberships = membershipsFromEvents(combined);
-  const publications = await resolveShelfPublications(memberships, [
-    ...knownPubs,
-    ...(cached?.shelves ?? []).flatMap((s) => s.events)
-  ]);
+  const publications = await resolveShelfPublications(
+    memberships,
+    [...knownPubs, ...(cached?.shelves ?? []).flatMap((s) => s.events)],
+    {
+      ...(viewerOnly
+        ? { networkBudgetMs: 5_000, maxAddrs: 24, maxGroups: 6 }
+        : { networkBudgetMs: 7_000, maxAddrs: 24, maxGroups: 4 }),
+      hintEvents: combined
+    }
+  );
   const viewer = session.getPubkey();
   const follows = followPubkeysFromMetadata(mine);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
@@ -564,6 +694,19 @@ async function loadShelvesAndLabels(
     viewer != null
       ? nestedShelvesForViewer(mergeEvents(liveDirs, mineDirs), publications, viewer)
       : [];
+  console.info('[alexandria:landing] loadShelvesAndLabels', {
+    viewer: viewer?.slice(0, 8) ?? null,
+    viewerOnly,
+    memberships: memberships.length,
+    resolvedPubs: publications.size,
+    mineMeta: mine.length,
+    liveBookmarks: liveBookmarks.length,
+    liveDirs: liveDirs.length,
+    shelves: [
+      ...shelves.map((s) => `${s.id}:${s.events.length}`),
+      ...nested.map((s) => `${s.id}:${s.events.length}`)
+    ]
+  });
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
   let viewerNpub = '';
   if (viewer) {
@@ -596,7 +739,7 @@ async function loadShelvesAndLabels(
 export async function loadViewerShelves(
   knownPubs: Event[] = []
 ): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
-  return loadShelvesAndLabels(knownPubs, null, EMPTY_MEMBERSHIP);
+  return loadShelvesAndLabels(knownPubs, null, EMPTY_MEMBERSHIP, { viewerOnly: true });
 }
 
 export async function loadCachedLanding(): Promise<LandingView | null> {
@@ -733,33 +876,18 @@ export async function refreshLanding(
   }
 
   // Resolve shelves as soon as membership returns — do not wait on slow social feed queries.
+  // Single shelf resolve path (not a parallel minePack) so we do not saturate the relay pool.
   const shelvesPromise = membershipPromise.then((membership) =>
     loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
   );
   void shelvesPromise.then((pack) => {
     if (!shelvesHaveCovers(pack.shelves) && !pack.labels.length) return;
-    // Merge — never replace, or a late membership pack wipes My shelf from minePack.
     if (shelvesHaveCovers(pack.shelves)) shelves = mergeLandingShelves(shelves, pack.shelves);
     if (pack.labels.length) labels = pack.labels;
     paint(snapshot());
   });
 
-  // My shelf from login metadata — resolve in parallel with social membership (not after).
-  const minePackPromise =
-    viewer && session.getMetadata().length
-      ? loadShelvesAndLabels(publications, cacheOk ? cached : null, EMPTY_MEMBERSHIP)
-      : Promise.resolve(null);
-
-  const [[commWs, highWs, rateWs], minePack] = await Promise.all([
-    feedWsPromise,
-    minePackPromise
-  ]);
-
-  if (minePack && shelvesHaveCovers(minePack.shelves)) {
-    shelves = mergeLandingShelves(shelves, minePack.shelves);
-    if (minePack.labels.length) labels = minePack.labels;
-    paint(snapshot());
-  }
+  const [commWs, highWs, rateWs] = await feedWsPromise;
 
   comments = newestCommentPerWork(
     mergeEvents(commWs, cacheOk ? (cached?.comments ?? []) : [])
@@ -770,7 +898,16 @@ export async function refreshLanding(
   ratings = landingRatings(rateWs, cacheOk ? (cached?.ratings ?? []) : []);
   paint(snapshot());
 
-  const shelfPack = await shelvesPromise;
+  // Never block Home forever on shelf author lookups — race and paint whatever we have.
+  const shelfPack = await Promise.race([
+    shelvesPromise,
+    new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) => {
+      setTimeout(() => {
+        console.warn('[alexandria:landing] shelvesPromise timed out after 8s');
+        resolve({ shelves: [], labels: [] });
+      }, 8_000);
+    })
+  ]);
   if (shelvesHaveCovers(shelfPack.shelves)) {
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   } else if (!shelvesHaveCovers(shelves) && publications.length) {
@@ -786,10 +923,15 @@ export async function refreshLanding(
   if (shelfPack.labels.length) labels = shelfPack.labels;
   paint(snapshot());
 
-  referenced = await resolveReferenced(
+  // Hydrate highlight/comment titles in the background — do not gate landing return.
+  void resolveReferenced(
     [...highlights, ...comments, ...ratings],
     [...publications, ...(cacheOk ? (cached?.referenced ?? []) : []), ...shelves.flatMap((s) => s.events)]
-  );
+  ).then((refs) => {
+    if (!refs.length) return;
+    referenced = refs;
+    paint(snapshot());
+  });
 
   const view = snapshot();
   paint(view);
