@@ -39,4 +39,5 @@ Feature: Appearance
     And that concurrent limit persists in this browser and does not change kind 16374
     And I see Keep reading queue on this device only (off by default)
     And when that toggle is on, Track / progress / Stop write only to this browser and do not publish kind 16374
+    And when that toggle is turned off again, the on-device queue is published as kind 16374 before leaving local-only
     And that local-only choice persists in this browser

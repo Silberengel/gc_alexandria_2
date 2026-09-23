@@ -98,6 +98,9 @@ Feature: In-browser reader
     Then I return near the last position
     When I refresh while reading
     Then I stay in the reader (via read=1) near that position
+    And the reader paints a window around the focused section immediately — it does not Ascidoctor-render every chapter from the start through that point
+    And a complete Cache Storage stream snapshot is preferred over re-running Mercury
+    And the rest of the publication still fills in so earlier chapters (via scroll-up) and the full ToC are available
 
   Scenario: Track reading once the stream length is known
     Given I am signed in and reading a publication whose flattened section stream length is known

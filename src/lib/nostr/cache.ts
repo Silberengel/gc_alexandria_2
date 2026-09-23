@@ -31,8 +31,11 @@ async function openCache(): Promise<Cache> {
 }
 
 const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
+const PUBLICATION_STREAM_PREFIX = '/snapshot/publication-stream/';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
 const MAX_SEARCH_SNAPSHOTS = 20;
+/** Cap stored stream leaves so a Bible does not blow Cache Storage quota. */
+const MAX_PUBLICATION_STREAM_EVENTS = 4_000;
 
 export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
 
@@ -133,6 +136,81 @@ export async function cachePutLandingSnapshot(snap: LandingSnapshot): Promise<vo
   } catch {
     /* private mode / quota — landing still works from memory this session */
   }
+}
+
+function publicationStreamKey(editionAddress: string): string {
+  return `${PUBLICATION_STREAM_PREFIX}${encodeURIComponent(editionAddress.toLowerCase())}`;
+}
+
+/** Persist a publication's loaded section stream for instant reopen / offline read. */
+export async function cachePutPublicationStream(
+  editionAddress: string,
+  events: Event[],
+  opts?: { complete?: boolean }
+): Promise<void> {
+  const addr = editionAddress.trim();
+  if (!addr || !events.length) return;
+  try {
+    const incoming = events
+      .map((e) => ingestEvent(e))
+      .filter((e): e is Event => !!e);
+    if (!incoming.length) return;
+
+    const existing = await cacheGetPublicationStreamSnapshot(addr);
+    const byId = new Map<string, Event>();
+    for (const e of existing.events) byId.set(e.id, e);
+    for (const e of incoming) byId.set(e.id, e);
+    const verified = [...byId.values()].slice(0, MAX_PUBLICATION_STREAM_EVENTS);
+    const complete = Boolean(opts?.complete) || existing.complete;
+
+    const cache = await openCache();
+    const key = publicationStreamKey(addr);
+    const req =
+      typeof location !== 'undefined' ? new Request(new URL(key, location.origin).href) : key;
+    await cache.put(
+      req,
+      new Response(JSON.stringify({ address: addr, events: verified, complete }), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    // Keep individual events addressable for Continue / fetchById.
+    void cachePutMany(verified);
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export type PublicationStreamSnapshot = {
+  events: Event[];
+  /** True when a full Mercury/relay fill wrote this snapshot (not a warm window). */
+  complete: boolean;
+};
+
+/** Sections previously streamed for this edition, if any. */
+export async function cacheGetPublicationStreamSnapshot(
+  editionAddress: string
+): Promise<PublicationStreamSnapshot> {
+  const addr = editionAddress.trim();
+  if (!addr) return { events: [], complete: false };
+  try {
+    const cache = await openCache();
+    const key = publicationStreamKey(addr);
+    const absolute =
+      typeof location !== 'undefined' ? new URL(key, location.origin).href : key;
+    const res = (await cache.match(absolute)) ?? (await cache.match(key));
+    if (!res) return { events: [], complete: false };
+    const raw = (await res.json()) as { events?: unknown; complete?: unknown };
+    const list = ingestList(raw.events);
+    if (list.length) rememberEvents(list);
+    return { events: list, complete: raw.complete === true };
+  } catch {
+    return { events: [], complete: false };
+  }
+}
+
+/** Sections previously streamed for this edition, if any. */
+export async function cacheGetPublicationStream(editionAddress: string): Promise<Event[]> {
+  return (await cacheGetPublicationStreamSnapshot(editionAddress)).events;
 }
 
 /** Drop the landing snapshot (viewer-bound shelves/feeds) without wiping the rest of the event cache. */

@@ -181,6 +181,18 @@ export async function promoteReadingToFront(editionAddress: string): Promise<Eve
 }
 
 /**
+ * After turning off local-only, publish the on-device queue as kind 16374
+ * so relay progress matches what was tracked privately.
+ */
+export async function publishLocalReadingQueueToRelays(): Promise<Event | null> {
+  if (!sessionOk()) return null;
+  await flushReadingProgress();
+  const entries = get(localReadingQueue);
+  if (!entries.length) return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  return signAndPublish(readingQueueDraft(entries));
+}
+
+/**
  * Mark read (if needed), then drop from the reading queue.
  * Call this from the read-label toggle when the edition is tracked — not from section progress.
  */

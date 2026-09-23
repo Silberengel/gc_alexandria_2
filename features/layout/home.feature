@@ -19,4 +19,6 @@ Feature: Library home
     When I open the home page
     Then I see Reading now excerpt cards for the active concurrent subset (first N from Settings)
     And each card has cover, title, progress, excerpt at pos, and Continue into the reader
+    And Continue opens the reader at that book's tracked section (or pos), not the edition top
+    And active queue editions and nearby stream pages are warmed into the client event cache for offline reopen
     And Up next lists waiting books with Read now to move one to the front of the queue

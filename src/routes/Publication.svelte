@@ -35,7 +35,7 @@
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
-  import { cacheFindByAddress } from '$lib/nostr/cache';
+  import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
@@ -113,7 +113,14 @@
   let sectionReadPos = $state(new Map<string, number>());
   let toc = $state<TocEntry[]>([]);
   /** How many ordered sections to mount in the reading pane (grows on scroll / jump). */
-  let paintLimit = $state(100);
+  /**
+   * Painted window into `sectionCorpus` (not always a prefix from 0).
+   * Mid-book Continue only mounts nearby sections so Ascidoctor is not run on 1..N.
+   */
+  let paintOrigin = $state(0);
+  let paintEnd = $state(35);
+  /** Keep this section id inside the painted window across corpus merges. */
+  let paintPinId = $state('');
   let error = $state(false);
   /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
@@ -163,7 +170,7 @@
       ? groupReaderSections(paintedSections)
       : paintedSections.map((ev) => ({ kind: 'block' as const, event: ev }))
   );
-  const moreToPaint = $derived(paintLimit < corpusCount);
+  const moreToPaint = $derived(paintEnd < corpusCount);
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
   const urlFocusComment = $derived(
@@ -206,17 +213,28 @@
       sectionCorpus = orderPublicationSections(sectionCorpus, {
         root: edition,
         toc,
-        limit: Math.max(paintLimit + 40, 160)
+        limit: Math.max(paintEnd + 40, paintOrigin + 160, 160)
       });
     }
     corpusCount = sectionCorpus.length;
-    // Full-corpus indices for reading progress — not the painted-prefix length.
+    // Full-corpus indices for reading progress — not the painted-window length.
     const posMap = new Map<string, number>();
     for (let i = 0; i < sectionCorpus.length; i++) {
       posMap.set(sectionCorpus[i]!.id, i);
     }
     sectionReadPos = posMap;
-    sections = sectionCorpus.slice(0, Math.min(paintLimit, sectionCorpus.length));
+    if (paintPinId) {
+      const pinned = sectionCorpus.findIndex((s) => s.id === paintPinId);
+      if (pinned >= 0 && (pinned < paintOrigin || pinned >= paintEnd)) {
+        paintOrigin = Math.max(0, pinned - 6);
+        paintEnd = Math.min(sectionCorpus.length, Math.max(paintOrigin + 1, pinned + 28));
+      }
+    }
+    const start = Math.max(0, Math.min(paintOrigin, sectionCorpus.length));
+    const end = Math.max(start, Math.min(paintEnd, sectionCorpus.length));
+    paintOrigin = start;
+    paintEnd = end;
+    sections = sectionCorpus.slice(start, end);
   }
 
   /** Coalesce stream pages; keep corpus off the reactive path until a cheap paint publish. */
@@ -250,12 +268,34 @@
     adoptFlushTimer = window.setTimeout(() => flush(false, false), 600);
   }
 
-  const PAINT_STEP = 80;
+  const PAINT_STEP = 40;
+
+  /** Mount only a window around `index` so mid-book reopen stays cheap. */
+  function focusPaintWindow(index: number): void {
+    if (index < 0 || !sectionCorpus.length) return;
+    const before = 6;
+    const after = 28;
+    paintOrigin = Math.max(0, index - before);
+    paintEnd = Math.min(sectionCorpus.length, Math.max(paintOrigin + 1, index + after));
+    if (event) publishPainted(event, false);
+  }
 
   function extendPaint(): void {
-    if (paintLimit >= sectionCorpus.length) return;
-    paintLimit = Math.min(sectionCorpus.length, paintLimit + PAINT_STEP);
+    if (paintEnd >= sectionCorpus.length) return;
+    paintEnd = Math.min(sectionCorpus.length, paintEnd + PAINT_STEP);
     if (event) publishPainted(event, true);
+  }
+
+  /** Prepend earlier sections when the reader scrolls near the top of the window. */
+  function extendPaintBackward(): void {
+    if (paintOrigin <= 0 || !event) return;
+    const before = document.documentElement.scrollHeight;
+    paintOrigin = Math.max(0, paintOrigin - PAINT_STEP);
+    publishPainted(event, false);
+    requestAnimationFrame(() => {
+      const delta = document.documentElement.scrollHeight - before;
+      if (delta > 0) window.scrollBy(0, delta);
+    });
   }
 
   function indexInCorpus(sectionId?: string, address?: string, pos = NaN): number {
@@ -275,23 +315,28 @@
 
   function paintThrough(index: number, reorder: boolean): void {
     if (index < 0) return;
+    // Far outside the current window → jump the window (do not paint 0..index).
+    if (index < paintOrigin - 2 || index >= paintEnd) {
+      focusPaintWindow(index);
+      return;
+    }
     const need = Math.min(sectionCorpus.length, index + PAINT_STEP);
-    if (need <= paintLimit) return;
-    paintLimit = need;
+    if (need <= paintEnd) return;
+    paintEnd = need;
     if (event) publishPainted(event, reorder);
   }
 
   /**
-   * Extend the painted prefix so `index` is mounted.
-   * Reordering inside publishPainted can move `sectionId` past that prefix;
+   * Extend the painted window so `index` is mounted.
+   * Reordering inside publishPainted can move `sectionId` past that window;
    * a second pass paints its new corpus index without reordering again.
    */
   function ensurePaintedThrough(index: number, sectionId?: string): void {
     if (index < 0 && !sectionId) return;
-    paintThrough(index, true);
+    if (index >= 0) paintThrough(index, true);
     if (!sectionId) return;
     const moved = sectionCorpus.findIndex((s) => s.id === sectionId);
-    if (moved >= paintLimit) paintThrough(moved, false);
+    if (moved >= 0 && (moved < paintOrigin || moved >= paintEnd)) paintThrough(moved, false);
   }
 
   async function fetchSocial(target: Event): Promise<void> {
@@ -409,14 +454,47 @@
     void prefetchTree(target, signal);
   }
 
-  /** Mercury /stream often omits leaves; fall back to a document-stack a-tag walk when the
-   * stream is empty. Never walk after a wide index-only Mercury result — Bible-sized
-   * trees stampede relays and freeze the reader for minutes. */
+  /** Prefer a cached stream snapshot, then Mercury /stream, then a-tag walk. */
   async function loadSectionEvents(
     edition: Event,
     signal?: AbortSignal,
     onBatch?: (batch: Event[]) => void
   ): Promise<Event[]> {
+    const editionAddr = eventAddress(edition);
+
+    // Instant reopen: we already streamed this book into Cache Storage earlier.
+    try {
+      const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
+      if (signal?.aborted) return [];
+      const cached = snap.events;
+      if (cached.some((e) => e.kind !== KIND.PUBLICATION)) {
+        rememberEvents(cached);
+        onBatch?.(cached);
+        // Full snapshot → skip Mercury. Warm/partial → paint now, refresh in background.
+        if (snap.complete) return cached;
+        if (!isMercuryUnavailable()) {
+          void mercuryPublicationStream(
+            naddrFor(edition),
+            undefined,
+            signal,
+            (page) => {
+              if (signal?.aborted) return;
+              onBatch?.(page);
+            },
+            { maxEvents: 50_000 }
+          )
+            .then((fresh) => {
+              if (signal?.aborted || !fresh.length) return;
+              void cachePutPublicationStream(editionAddr, fresh, { complete: true });
+            })
+            .catch(() => {});
+        }
+        return cached;
+      }
+    } catch {
+      /* ignore cache errors — fall through to live load */
+    }
+
     let streamed: Event[] = [];
     if (!isMercuryUnavailable()) {
       try {
@@ -435,7 +513,10 @@
       }
     }
     if (signal?.aborted) return streamed;
-    if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) return streamed;
+    if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
+      void cachePutPublicationStream(editionAddr, streamed, { complete: true });
+      return streamed;
+    }
     const indexCount = streamed.filter((e) => e.kind === KIND.PUBLICATION).length;
     // Mercury returned structure only (e.g. Intro/OT/NT). ToC jump loads leaves on demand.
     if (indexCount >= 3) return streamed;
@@ -444,7 +525,11 @@
       onHit: (hit) => onBatch?.([hit])
     });
     if (signal?.aborted) return streamed;
-    return mergePublicationSections(streamed, walked);
+    const merged = mergePublicationSections(streamed, walked);
+    if (merged.some((e) => e.kind !== KIND.PUBLICATION)) {
+      void cachePutPublicationStream(editionAddr, merged, { complete: true });
+    }
+    return merged;
   }
 
   /** Document-stack / memory walk only (features/reader/read.feature fallback). */
@@ -475,16 +560,9 @@
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
       if (!kind || !pubkey || !d) return;
-      let hit = memoryFindByAddress(kind, pubkey, d);
-      if (!hit) {
-        const w = await relayPool.query(
-          documentStack(),
-          [{ kinds: [kind], authors: [pubkey], '#d': [d], limit: 1 }],
-          8_000,
-          3
-        );
-        hit = w[0] ?? null;
-      }
+      // Prefer memory → Cache Storage → relays (fetchByAddress) so offline reopens work.
+      let hit =
+        memoryFindByAddress(kind, pubkey, d) ?? (await fetchByAddress(coord));
       if (!hit || !claim(hit)) return;
       if (hit.kind === KIND.PUBLICATION) await expandChildren(hit);
     }
@@ -493,11 +571,7 @@
       if (signal?.aborted || out.length >= MAX_EVENTS) return;
       const key = id.toLowerCase();
       if (seen.has(key)) return;
-      let hit = memoryGetEvent(key);
-      if (!hit) {
-        const w = await relayPool.query(documentStack(), [{ ids: [key], limit: 1 }], 8_000, 3);
-        hit = w[0] ?? null;
-      }
+      let hit = memoryGetEvent(key) ?? (await fetchById(key));
       if (!hit || !claim(hit)) return;
       if (hit.kind === KIND.PUBLICATION) await expandChildren(hit);
     }
@@ -526,14 +600,17 @@
     comment: string;
     rating: string;
     read: boolean;
+    pos: number;
   } {
     const q = new URLSearchParams($querystring ?? '');
+    const posRaw = Number(q.get('pos'));
     return {
       section: (q.get('section') ?? '').trim(),
       quote: (q.get('quote') ?? '').trim(),
       comment: (q.get('comment') ?? '').trim().toLowerCase(),
       rating: (q.get('rating') ?? '').trim().toLowerCase(),
-      read: q.get('read') === '1'
+      read: q.get('read') === '1',
+      pos: Number.isFinite(posRaw) && posRaw >= 0 ? Math.floor(posRaw) : NaN
     };
   }
 
@@ -588,7 +665,7 @@
     return orderPublicationSections(list, {
       root: root ?? event,
       toc: entries,
-      limit: Math.max(paintLimit + 40, 160)
+      limit: Math.max(paintEnd + 40, paintOrigin + 160, 160)
     });
   }
 
@@ -616,8 +693,8 @@
     if (!toc.length) toc = parseToc(null, edition);
     sectionCorpus = mergePublicationSections(ensureIndexHeadings(list, toc), sectionCorpus);
     if (opts?.expandToc !== false) toc = expandTocFromSections(toc, sectionCorpus);
-    if (paintLimit < 100 && sectionCorpus.length) {
-      paintLimit = Math.min(100, sectionCorpus.length);
+    if (paintEnd < 35 && sectionCorpus.length) {
+      paintEnd = Math.min(35, sectionCorpus.length);
     }
     publishPainted(edition, true);
     freezeTocFromSections(sectionCorpus);
@@ -676,7 +753,7 @@
     });
   }
 
-  async function openFocusedReading(sectionAddr: string, quote: string): Promise<void> {
+  async function openFocusedReading(sectionAddr: string, quote: string, resumePos?: number): Promise<void> {
     if (!event || unreadable || !canRead) return;
     const key = `${sectionAddr}\0${quote}`;
     focusKey = key;
@@ -686,83 +763,106 @@
     const focusQuote = quote;
     const edition = event;
     try {
-      const parsed = parseAddress(focusAddr);
-      let focused: Event | null = null;
-      if (parsed) {
-        focused =
+      // Resolve the focused leaf in parallel so a cache hit paints ASAP.
+      const focusedPromise = (async (): Promise<Event | null> => {
+        if (/^[0-9a-f]{64}$/i.test(focusAddr)) {
+          return memoryGetEvent(focusAddr) ?? (await fetchById(focusAddr));
+        }
+        const parsed = parseAddress(focusAddr);
+        if (!parsed) return null;
+        return (
           memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
-          (await fetchByAddress(focusAddr));
-      }
-      if (focusKey !== key || event !== edition) return;
+          (await fetchByAddress(focusAddr))
+        );
+      })();
+
+      // Shell first — never leave the reader blank while ToC/stream run.
+      adoptSections([edition], edition);
+      readingBusy = false;
 
       if (!toc.length) {
         try {
           const rawToc = await mercuryPublicationToc(naddrFor(edition));
           if (focusKey !== key || event !== edition) return;
           toc = parseToc(rawToc, edition);
+          // Re-paint so index headings from Mercury ToC appear.
+          adoptSections(sectionCorpus, edition);
         } catch {
           if (focusKey !== key || event !== edition) return;
-          toc = parseToc(null, edition);
+          if (!toc.length) toc = parseToc(null, edition);
         }
       }
 
+      const focused = await focusedPromise;
+      if (focusKey !== key || event !== edition) return;
+      const focusedAddr = focused ? eventAddress(focused) : '';
       if (focused) {
         rememberEvents([focused]);
+        paintPinId = focused.id;
         adoptSections([focused], edition);
         void enrichHighlightsFromSections([focused]);
-        readingBusy = false;
-        queueMicrotask(() => {
-          scrollToSection(0, focused!.id, eventAddress(focused!));
-          if (focusQuote) scrollToHighlightQuote(focusQuote);
-        });
-      }
-
-      const entry = toc.find((t) => t.address === focusAddr);
-      let streamed: Event[] = [];
-      try {
-        if (entry && Number.isFinite(entry.pos)) {
-          streamed = await mercuryPublicationStream(naddrFor(edition), entry.pos);
-        }
-        if (!streamed.length) {
-          streamed = await mercuryPublicationStream(naddrFor(edition));
-        }
-      } catch {
-        streamed = [];
-      }
-      if (focusKey !== key || event !== edition) return;
-      if (!streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
-        streamed = mergeSections(
-          streamed,
-          await fallbackSections(edition, {
-            onHit: (hit) => {
-              if (focusKey !== key || event !== edition) return;
-              adoptSections(mergeSections(sections, [hit]), edition);
-            }
-          })
+        const earlyPos =
+          Number.isFinite(resumePos) && (resumePos as number) >= 0
+            ? (resumePos as number)
+            : indexInCorpus(focused.id, focusedAddr);
+        if (earlyPos >= 0) focusPaintWindow(earlyPos);
+        else focusPaintWindow(indexInCorpus(focused.id, focusedAddr));
+        scrollToSectionRetry(
+          earlyPos >= 0 ? earlyPos : 0,
+          focused.id,
+          focusedAddr || undefined
         );
-      }
-      if (focusKey !== key || event !== edition) return;
-      if (streamed.length) {
-        adoptSections(mergeSections(focused ? [focused] : [], streamed), edition);
-        void enrichHighlightsFromSections(sections);
-      } else if (focused) {
-        adoptSections([focused], edition);
+        if (focusQuote) scrollToHighlightQuote(focusQuote);
+      } else if (Number.isFinite(resumePos) && (resumePos as number) >= 0) {
+        paintPinId = '';
+        focusPaintWindow(resumePos as number);
       }
 
-      if (focused || sections.length) {
-        queueMicrotask(() => {
-          const scrollId = focused?.id ?? sections.find((s) => eventAddress(s) === focusAddr)?.id;
-          scrollToSection(entry?.pos ?? 0, scrollId, focusAddr);
-          if (focusQuote) scrollToHighlightQuote(focusQuote);
-        });
-      } else {
-        unreadable = true;
-        reading = false;
-      }
+      const entry =
+        toc.find((t) => t.address === focusAddr) ??
+        toc.find((t) => focused && t.id === focused.id) ??
+        toc.find((t) => focusedAddr && t.address === focusedAddr);
+
+      // Full progressive fill from the start (not from resume pos) so earlier
+      // chapters exist when scrolling up / opening the ToC.
+      cancelTree();
+      treeAbort = new AbortController();
+      const signal = treeAbort.signal;
+      void loadSectionEvents(edition, signal, (page) => {
+        if (signal.aborted || focusKey !== key || event !== edition) return;
+        scheduleAdopt(page, edition);
+      }).then(() => {
+        if (signal.aborted || focusKey !== key || event !== edition) return;
+        scheduleAdopt([], edition, true);
+        if (!sectionCorpus.some((e) => e.kind !== KIND.PUBLICATION) && !focused) {
+          unreadable = true;
+          reading = false;
+          return;
+        }
+        const scrollId =
+          focused?.id ??
+          sectionCorpus.find((s) => s.id === focusAddr || eventAddress(s) === focusAddr)?.id;
+        const pos =
+          Number.isFinite(resumePos) && (resumePos as number) >= 0
+            ? (resumePos as number)
+            : (entry?.pos ?? indexInCorpus(scrollId, focusedAddr || focusAddr));
+        if (scrollId) paintPinId = scrollId;
+        if (pos >= 0) {
+          focusPaintWindow(pos);
+          ensurePaintedThrough(pos, scrollId);
+        }
+        scrollToSectionRetry(
+          pos >= 0 ? pos : 0,
+          scrollId,
+          focusedAddr || focusAddr
+        );
+        if (focusQuote) scrollToHighlightQuote(focusQuote);
+      });
     } finally {
       if (focusKey === key) readingBusy = false;
     }
   }
+
 
   function applyUrlFocus(): void {
     if (!event || loading) return;
@@ -776,7 +876,7 @@
       const key = `${focus.section}\0${focus.quote}`;
       if (key === focusKey && reading) return;
       if (textUnavailable || unreadable || !canRead) return;
-      void openFocusedReading(focus.section, focus.quote);
+      void openFocusedReading(focus.section, focus.quote, focus.pos);
       return;
     }
     if (focus.quote) {
@@ -877,7 +977,9 @@
       sectionReadPos = new Map();
       corpusCount = 0;
       toc = [];
-      paintLimit = 100;
+      paintOrigin = 0;
+      paintEnd = 35;
+      paintPinId = '';
       focusKey = '';
       commentFocusApplied = '';
       replyOpenId = null;
@@ -1029,8 +1131,8 @@
 
   async function startReading(opts?: { fromUrl?: boolean }): Promise<void> {
     if (!event || unreadable || !canRead) return;
-    // URL sync can re-enter; ignore if we are already in (or entering) the reader.
-    if (reading && opts?.fromUrl) return;
+    // URL sync can re-enter; ignore if we are already reading with content on screen.
+    if (reading && opts?.fromUrl && sections.length) return;
     reading = true;
     if (!opts?.fromUrl) setReadQuery(true);
     if (!sections.length) {
@@ -1051,9 +1153,31 @@
       });
     }
     const resume = loadResume(eventAddress(event));
-    if (resume) {
-      queueMicrotask(() => scrollToSection(resume.pos, resume.sectionId));
+    const focus = focusFromUrl();
+    const pos = Number.isFinite(focus.pos) ? focus.pos : resume?.pos;
+    const sectionId = focus.section || resume?.sectionId;
+    if (sectionId) paintPinId = sectionId;
+    if (pos != null && Number.isFinite(pos) && pos >= 0) {
+      ensurePaintedThrough(pos, sectionId);
+      scrollToSectionRetry(pos, sectionId);
+    } else if (sectionId) {
+      const idx = indexInCorpus(sectionId);
+      if (idx >= 0) ensurePaintedThrough(idx, sectionId);
+      scrollToSectionRetry(0, sectionId);
     }
+  }
+
+  /** Retry until the target section is painted (stream may still be filling). */
+  function scrollToSectionRetry(pos: number, sectionId?: string, address?: string, attempts = 50): void {
+    scrollToSection(pos, sectionId, address);
+    const found =
+      (sectionId &&
+        document.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`)) ||
+      (address &&
+        document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)) ||
+      document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"]`);
+    if (found || attempts <= 0) return;
+    window.setTimeout(() => scrollToSectionRetry(pos, sectionId, address, attempts - 1), 120);
   }
 
   /** Leave the reader and restore the edition info page (ratings, comments, details). */
@@ -1295,6 +1419,7 @@
     const onScroll = () => {
       const room = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
       if (room < 1200) extendPaint();
+      if (window.scrollY < 600 && paintOrigin > 0) extendPaintBackward();
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();

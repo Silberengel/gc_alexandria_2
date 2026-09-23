@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { get } from 'svelte/store';
   import TopBar from '$lib/components/TopBar.svelte';
   import { appearance, type Scheme } from '$lib/stores/appearance';
   import { trust } from '$lib/stores/trust';
@@ -6,6 +7,7 @@
   import { localReadingQueue } from '$lib/stores/local-reading-queue';
   import { session } from '$lib/stores/session';
   import { readingQueueFromMetadata } from '$lib/reading-queue';
+  import { publishLocalReadingQueueToRelays } from '$lib/reading-queue-actions';
   import {
     READING_CONCURRENT_MAX,
     READING_CONCURRENT_MIN
@@ -19,12 +21,27 @@
   } from '$lib/fonts';
 
   let size = $state('0 B');
+  let localOnlyBusy = $state(false);
 
-  function setLocalOnly(on: boolean) {
+  async function setLocalOnly(on: boolean) {
+    if (localOnlyBusy) return;
     if (on) {
       localReadingQueue.seedIfEmpty(readingQueueFromMetadata(session.getMetadata()));
+      readingPrefs.setLocalOnly(true);
+      return;
     }
-    readingPrefs.setLocalOnly(on);
+    // Going public: publish the private queue so relay progress matches this device.
+    localOnlyBusy = true;
+    try {
+      const local = get(localReadingQueue);
+      if (local.length) {
+        const published = await publishLocalReadingQueueToRelays();
+        if (!published) return; // keep local-only if sign/publish failed
+      }
+      readingPrefs.setLocalOnly(false);
+    } finally {
+      localOnlyBusy = false;
+    }
   }
 
   const schemes: { id: Scheme; label: string; blurb: string; swatches: string[] }[] = [
@@ -216,13 +233,21 @@
       <span class="settings-toggle-text">
         <span class="settings-toggle-title">Keep reading queue on this device only</span>
         <span class="muted"
-          >Track, progress, and Stop stay in this browser — kind 16374 is not published to relays</span
+          >Track, progress, and Stop stay in this browser — kind 16374 is not published. Turning this
+          off publishes your on-device queue.</span
         >
       </span>
       <input
         type="checkbox"
         checked={$readingPrefs.localOnly}
-        onchange={(e) => setLocalOnly((e.target as HTMLInputElement).checked)}
+        disabled={localOnlyBusy}
+        onchange={(e) => {
+          const el = e.target as HTMLInputElement;
+          const want = el.checked;
+          // Snap back until the store updates (publish may fail / cancel).
+          el.checked = $readingPrefs.localOnly;
+          void setLocalOnly(want);
+        }}
       />
     </label>
   </section>

@@ -44,7 +44,18 @@ Feature: Client event cache
     Then the signed event is written to the client cache as it is sent to write relays
     And I can read that event from cache while relays are unreachable or I am offline
 
-  Scenario: Cache is bounded and clearable
+  Scenario: Reading now warms the cache
+    Given I am signed in with tracked books in Reading now
+    When those cards resolve on the home page
+    Then their editions, current sections, and a stream window around pos are written to the client cache
+    And Continue / reopen can paint that reading progress from cache while offline
+
+  Scenario: Publication stream snapshots reopen without Mercury
+    Given I have fully loaded a publication's section stream in this browser
+    When I leave and reopen that edition (including a hard refresh)
+    Then the reader paints a window of sections from a per-edition stream snapshot in Cache Storage
+    And a complete snapshot does not re-run Mercury for first paint
+    And an incomplete warm window still paints immediately while Mercury may refill in the background
     When I open Settings
     Then I see a human-readable cache size and a Clear Cache button
     When I press Clear Cache

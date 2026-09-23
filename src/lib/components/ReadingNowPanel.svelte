@@ -13,12 +13,15 @@
   } from '$lib/reading-queue';
   import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { promoteReadingToFront } from '$lib/reading-queue-actions';
+  import { warmReadingQueueCache } from '$lib/reading-queue-cache';
   import { cardBlurb, blurbMarkupForKind } from '$lib/card-blurb';
   import { editionMetadata } from '$lib/publication-metadata';
   import { publicationPath } from '$lib/metadata';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { rememberEvents } from '$lib/nostr/event-memory';
+  import { cachePutEvent } from '$lib/nostr/cache';
   import { firstTag } from '$lib/nostr/verify';
+  import { warmNavEvent } from '$lib/nav-warm';
 
   let editions = $state<Map<string, Event>>(new Map());
   /** Keyed by `${a}\\0${pos}\\0${sectionId}` so advances refresh the card. */
@@ -75,14 +78,17 @@
       const hit = editions.get(entry.a) ?? (await fetchByAddress(entry.a));
       if (!hit) return;
       rememberEvents([hit]);
+      void cachePutEvent(hit);
       editions = new Map(editions).set(entry.a, hit);
       const meta = editionMetadata(hit);
       titles = new Map(titles).set(entry.a, meta.titles[0] || 'Untitled');
 
       let section: Event | null = null;
       if (entry.sectionId) section = await loadSectionEvent(entry.sectionId);
-      if (section) rememberEvents([section]);
-      const leaf = await excerptEvent(section);
+      if (section) {
+        rememberEvents([section]);
+        void cachePutEvent(section);
+      }      const leaf = await excerptEvent(section);
       if (leaf) {
         const text = cardBlurb(leaf.content, {
           markup: blurbMarkupForKind(leaf.kind),
@@ -102,18 +108,23 @@
 
   $effect(() => {
     if (!signedIn) return;
-    for (const e of [...active, ...waiting.slice(0, 8)]) {
+    const queue = [...active, ...waiting.slice(0, 8)];
+    for (const e of queue) {
       void resolveEntry(e);
     }
+    warmReadingQueueCache(queue);
   });
 
   function continueHref(entry: ReadingQueueEntry, edition: Event | undefined): string {
     if (!edition) return '#/';
     const base = `#${publicationPath(edition)}`;
-    if (entry.sectionId && /^[0-9a-f]{64}$/i.test(entry.sectionId)) {
-      return `${base}?section=${entry.sectionId}&read=1`;
-    }
-    return `${base}?read=1`;
+    const q = new URLSearchParams();
+    q.set('read', '1');
+    // Prefer section id/address so Publication can open that leaf first.
+    const sid = (entry.sectionId ?? '').trim();
+    if (sid) q.set('section', sid);
+    if (Number.isFinite(entry.pos) && entry.pos >= 0) q.set('pos', String(Math.floor(entry.pos)));
+    return `${base}?${q.toString()}`;
   }
 
   async function readNow(entry: ReadingQueueEntry): Promise<void> {
@@ -124,6 +135,8 @@
       const edition = editions.get(entry.a) ?? (await fetchByAddress(entry.a));
       if (edition) {
         editions = new Map(editions).set(entry.a, edition);
+        warmNavEvent(edition);
+        void cachePutEvent(edition);
         const href = continueHref(entry, edition);
         window.location.hash = href.startsWith('#') ? href.slice(1) : href;
       }
@@ -144,12 +157,24 @@
           {@const blurb = excerpts.get(excerptKey(entry)) || '…'}
           <li class="reading-now-card">
             {#if edition}
-              <a class="reading-now-cover" href={continueHref(entry, edition)} use:link>
+              <a
+                class="reading-now-cover"
+                href={continueHref(entry, edition)}
+                use:link
+                onpointerdown={() => warmNavEvent(edition)}
+              >
                 <Cover event={edition} />
               </a>
+            {:else}
+              <div class="reading-now-cover" aria-hidden="true"></div>
             {/if}
             <div class="reading-now-body">
-              <a class="reading-now-title" href={continueHref(entry, edition)} use:link>
+              <a
+                class="reading-now-title"
+                href={continueHref(entry, edition)}
+                use:link
+                onpointerdown={() => warmNavEvent(edition)}
+              >
                 {titles.get(entry.a) || 'Loading…'}
               </a>
               <div
@@ -163,7 +188,14 @@
               </div>
               <p class="muted reading-now-excerpt">{blurb}</p>
               {#if edition}
-                <a class="btn btn-primary" href={continueHref(entry, edition)} use:link>Continue</a>
+                <a
+                  class="btn btn-primary"
+                  href={continueHref(entry, edition)}
+                  use:link
+                  onpointerdown={() => warmNavEvent(edition)}
+                >
+                  Continue
+                </a>
               {/if}
             </div>
           </li>
