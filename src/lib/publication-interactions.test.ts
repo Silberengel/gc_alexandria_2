@@ -138,7 +138,10 @@ describe('highlight draft', () => {
       id: '9'.repeat(64),
       pubkey: pk,
       kind: KIND.SECTION,
-      tags: [['d', 'ch1'], ['r', 'https://example.com/source?utm_source=test#frag']]
+      tags: [
+        ['d', 'ch1'],
+        ['r', 'https://example.com/chapter?source=gutenberg&utm_source=test#frag']
+      ]
     });
     const draft = highlightDraft(pub, section, 'quoted', 'surrounding paragraph');
     expect(draft.kind).toBe(KIND.HIGHLIGHT);
@@ -151,7 +154,7 @@ describe('highlight draft', () => {
       ['k', '30041'],
       ['e', section.id],
       ['p', pk, '', 'publisher'],
-      ['r', 'https://example.com/source', 'source'],
+      ['r', 'https://example.com/chapter?source=gutenberg', 'source'],
       ['context', 'surrounding paragraph']
     ]);
   });

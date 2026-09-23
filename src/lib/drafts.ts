@@ -13,8 +13,7 @@ const TRACKER_PARAMETERS = new Set([
   'mc_cid',
   'mc_eid',
   'ref',
-  'ref_',
-  'source'
+  'ref_'
 ]);
 
 export function publicationLabelDraft(
