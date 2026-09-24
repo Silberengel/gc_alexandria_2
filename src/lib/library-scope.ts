@@ -1,5 +1,6 @@
 import { nip19, type Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { isNewerReplaceable } from './nostr/replaceable';
 
 const LIBRARY_KINDS = new Set<number>([KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC]);
 
@@ -95,7 +96,7 @@ export function newestPerReferencedWork(
     const addr = referencedLibraryAddress(event);
     if (!addr) continue;
     const prev = byAddr.get(addr);
-    if (!prev || event.created_at > prev.created_at) byAddr.set(addr, event);
+    if (!prev || isNewerReplaceable(event, prev)) byAddr.set(addr, event);
   }
   return [...byAddr.values()].sort((a, b) => b.created_at - a.created_at);
 }

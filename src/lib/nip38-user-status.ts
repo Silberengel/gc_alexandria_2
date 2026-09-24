@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { isNewerReplaceable } from './nostr/replaceable';
 import { firstTag } from './nostr/verify';
 
 /** NIP-38 status types defined by the spec (kind 30315). */
@@ -70,7 +71,7 @@ export function selectUserStatuses(events: Event[]): {
     if (isUserStatusExpired(event)) continue;
     if (!(event.content ?? '').trim()) continue;
     const prev = best.get(d);
-    if (!prev || event.created_at >= prev.created_at) best.set(d, event);
+    if (!prev || isNewerReplaceable(event, prev)) best.set(d, event);
   }
   return {
     general: best.has('general') ? parseUserStatusEvent(best.get('general')!) : null,

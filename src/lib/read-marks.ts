@@ -10,6 +10,7 @@ import {
 } from './nip32';
 import { parseAddress } from './library-scope';
 import { type MuteState, notMuted } from './mute';
+import { isNewerReplaceable } from './nostr/replaceable';
 import { eventAddress } from './nostr/verify';
 
 export { isReadLabelSlug, isListPublicationLabelEvent };
@@ -34,7 +35,7 @@ export function distinctReadPubkeys(events: Event[], mute?: MuteState): string[]
     if (mute && !notMuted(event, mute)) continue;
     const pk = event.pubkey.toLowerCase();
     const prev = byPk.get(pk);
-    if (!prev || event.created_at > prev.created_at) byPk.set(pk, event);
+    if (!prev || isNewerReplaceable(event, prev)) byPk.set(pk, event);
   }
   return [...byPk.keys()];
 }
@@ -50,7 +51,7 @@ export function myReadLabel(
   for (const event of events) {
     if (event.pubkey.toLowerCase() !== pk) continue;
     if (!isReadLabelEvent(event) || !eventTargetsPublication(event, publication)) continue;
-    if (!best || event.created_at > best.created_at) best = event;
+    if (!best || isNewerReplaceable(event, best)) best = event;
   }
   return best;
 }
@@ -90,7 +91,7 @@ function newestPubkey(events: Event[], mute?: MuteState): string[] {
     if (mute && !notMuted(event, mute)) continue;
     const pk = event.pubkey.toLowerCase();
     const prev = byPk.get(pk);
-    if (!prev || event.created_at > prev.created_at) byPk.set(pk, event);
+    if (!prev || isNewerReplaceable(event, prev)) byPk.set(pk, event);
   }
   return [...byPk.keys()];
 }

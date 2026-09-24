@@ -20,6 +20,7 @@
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
+  import { isNewerReplaceable } from '$lib/nostr/replaceable';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
   import { muteState, filterMuted } from '$lib/mute';
@@ -105,7 +106,7 @@
       kinds: [KIND.WIKI, KIND.SPEC],
       authors: [pubkey],
       '#d': dValues,
-      limit: 2
+      limit: 5
     };
     let reported = false;
     const report = (event: Event): void => {
@@ -114,11 +115,20 @@
       reported = true;
       onHit?.(event);
     };
+    const pickNewest = (events: Event[]): Event | null => {
+      let best: Event | null = null;
+      for (const event of events) {
+        if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) continue;
+        if (!best || isNewerReplaceable(event, best)) best = event;
+      }
+      return best;
+    };
     // Mercury HTTP first — does not take a WebSocket pool slot.
     const mHits = await mercuryFilter(filter);
-    if (mHits[0]) {
-      report(mHits[0]);
-      return mHits[0];
+    const fromMercury = pickNewest(mHits);
+    if (fromMercury) {
+      report(fromMercury);
+      return fromMercury;
     }
     const wHits = await relayPool.query(
       wikiStack(),
@@ -126,12 +136,12 @@
       4000,
       5,
       (batch) => {
-        const hit = batch.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC);
+        const hit = pickNewest(batch);
         if (hit) report(hit);
       },
       { priority: true }
     );
-    const hit = wHits.find((e) => e.kind === KIND.WIKI || e.kind === KIND.SPEC) ?? wHits[0] ?? null;
+    const hit = pickNewest(wHits);
     if (hit) report(hit);
     return hit;
   }

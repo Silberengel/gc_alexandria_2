@@ -3,6 +3,7 @@ import { KIND } from './constants';
 import { coordinatesOverlap } from './publication-coordinate';
 import { eventAddress } from './nostr/verify';
 import { latestReplaceable } from './mute';
+import { isNewerReplaceable } from './nostr/replaceable';
 
 export type ReadingQueueEntry = {
   /** Edition coordinate `30040:pubkey:d`. */
@@ -184,7 +185,7 @@ export function readingQueueAuthorsForEdition(
     const entries = parseReadingQueue(event);
     if (!entries.some((e) => coordinatesOverlap(e.a, addr))) continue;
     const prev = byPk.get(pk);
-    if (!prev || event.created_at > prev.created_at) byPk.set(pk, event);
+    if (!prev || isNewerReplaceable(event, prev)) byPk.set(pk, event);
   }
   return [...byPk.keys()];
 }

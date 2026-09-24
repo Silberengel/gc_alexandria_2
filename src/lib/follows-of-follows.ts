@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { isValidPubkey } from './nip85-trusted-assertions';
+import { isNewerReplaceable } from './nostr/replaceable';
 import { relayPool } from './nostr/pool';
 import { socialStack } from './nostr/selector';
 
@@ -99,7 +100,7 @@ async function rebuild(
       for (const ev of events) {
         const pk = ev.pubkey.toLowerCase();
         const prev = newest.get(pk);
-        if (!prev || ev.created_at > prev.created_at) newest.set(pk, ev);
+        if (!prev || isNewerReplaceable(ev, prev)) newest.set(pk, ev);
       }
       for (const ev of newest.values()) {
         for (const p of pTags(ev)) {

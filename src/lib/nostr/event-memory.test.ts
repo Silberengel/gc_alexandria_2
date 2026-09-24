@@ -42,6 +42,15 @@ describe('event-memory', () => {
     expect(memoryFindByAddress(30040, 'a'.repeat(64), 'jane')?.created_at).toBe(5);
   });
 
+  it('on equal created_at keeps the lower id', () => {
+    const high = pub('tie', 3);
+    high.id = 'f'.repeat(64);
+    const low = pub('tie', 3);
+    low.id = '0'.repeat(64);
+    rememberEvents([high, low]);
+    expect(memoryFindByAddress(30040, 'a'.repeat(64), 'tie')?.id).toBe(low.id);
+  });
+
   it('indexes kind-0 metadata by pubkey', () => {
     const pk = 'c'.repeat(64);
     rememberEvents([meta(pk, 1, 'old'), meta(pk, 9, 'new')]);

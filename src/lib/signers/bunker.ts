@@ -150,8 +150,14 @@ export class BunkerSigner implements Signer {
   async signEvent(draft: DraftEvent) {
     if (!this.signer) throw new Error('Not logged in');
     await this.ensureConnected();
+    const template = {
+      kind: draft.kind,
+      content: draft.content,
+      tags: draft.tags,
+      created_at: draft.created_at ?? Math.floor(Date.now() / 1000)
+    };
     return withTimeout(
-      this.signer.signEvent(draft),
+      this.signer.signEvent(template),
       120_000,
       'Amber did not approve the signature in time. Open Amber, approve the request, and try again.'
     );

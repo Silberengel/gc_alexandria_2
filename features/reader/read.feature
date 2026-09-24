@@ -109,6 +109,8 @@ Feature: In-browser reader
     And when Settings → Keep reading queue on this device only is on, Track writes the queue only in this browser instead
     And a progress bar shows pos over total while tracked
     And scrolling into a new section advances pos on 16374 (not only clicks)
+    And scrolling upward or rereading an earlier section does not lower the tracked pos
+    And Reset tracking under the reader metadata sets the tracked pos back to 0
     And when Settings → Keep reading queue on this device only is on, those advances stay local and never publish 16374
     And Stop tracking removes the edition from 16374 without changing l=read
     When stream length is not yet known

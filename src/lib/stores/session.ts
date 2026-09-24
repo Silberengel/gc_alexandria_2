@@ -7,6 +7,7 @@ import { relayPool } from '../nostr/pool';
 import { documentStack, profileStack, setSelectorContext, socialStack, viewerOutboxStack, writeStack } from '../nostr/selector';
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mergeRememberedMetadata } from '../session-metadata';
+import { pruneToLatestReplaceables } from '../nostr/replaceable';
 import { rememberDeletion } from '../deletions';
 import { sanitizeStoredBunkerUrl } from '../bunker-auth-url';
 import type { BunkerLoginOptions, Signer, SignerType } from '../signer';
@@ -165,6 +166,8 @@ function createSessionStore() {
       kinds: [...SHELF_LOGIN_KINDS],
       limit: 40
     };
+    // Keep events authored this session (e.g. a just-signed 16374) across the replace below.
+    const priorLocal = metadataEvents;
     try {
       // Phase 1: NIP-65 / favorites so subsequent shelf REQs include the viewer's outboxes.
       const bootKinds = [KIND.RELAY_LIST, KIND.FAVORITE, KIND.BLOCKED, KIND.LOCAL];
@@ -209,7 +212,14 @@ function createSessionStore() {
       for (const e of [...bootEvents, ...doc, ...social, ...profiles, ...shelf, ...dirs, ...outboxLists]) {
         byId.set(e.id, e);
       }
-      metadataEvents = [...byId.values()];
+      let merged = [...byId.values()];
+      // Prefer a newer local kind 16374 / shelf / label over a stale relay copy.
+      for (const local of priorLocal) {
+        if (local.pubkey.toLowerCase() !== pubkey.toLowerCase()) continue;
+        merged = mergeRememberedMetadata(merged, local);
+      }
+      // One NIP-01 winner per replaceable/addressable coord (mute, relays, queue, dirs, …).
+      metadataEvents = pruneToLatestReplaceables(merged);
       metadata.set(metadataEvents);
       const kindCounts: Record<string, number> = {};
       for (const e of metadataEvents) {
@@ -258,8 +268,9 @@ function createSessionStore() {
       }, 3500);
     } catch {
       // Signed-in UI must still work offline / when every relay is down.
-      metadataEvents = [];
-      metadata.set([]);
+      // Do not wipe a queue the user just signed while relays failed.
+      metadataEvents = priorLocal;
+      metadata.set(metadataEvents);
       setSelectorContext({
         signedIn: true,
         inbox: [],
@@ -350,7 +361,7 @@ function createSessionStore() {
     try {
       const signer = new NostrConnectionSigner(clientSecretKey, connectionString);
       const result = await signer.login(abortSignal);
-      await adoptSigner(signer, result.pubkey, {
+      await adoptSigner(signer as Signer, result.pubkey, {
         signerType: 'bunker',
         bunker: result.bunkerString ? sanitizeStoredBunkerUrl(result.bunkerString) : undefined,
         bunkerClientSecretKey: signer.getClientSecretKey()
@@ -522,10 +533,21 @@ function createSessionStore() {
   }
 
   async function publish(event: Event): Promise<void> {
-    const relays = writeStack();
-    await relayPool.publish(relays, event);
-    await cachePutMany([event]);
+    // Cache + session metadata first so Reading now / shelves update as soon as Amber
+    // (or the extension) returns a signature — do not wait on write relays.
+    try {
+      await cachePutMany([event]);
+    } catch {
+      /* private mode / quota */
+    }
     rememberEvent(event);
+    const relays = writeStack();
+    await Promise.race([
+      relayPool.publish(relays, event),
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 8_000);
+      })
+    ]);
   }
 
   function rememberEvent(event: Event): void {

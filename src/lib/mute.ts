@@ -1,6 +1,7 @@
 import { derived, get, writable } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { isNewerReplaceable, pickLatestReplaceable } from './nostr/replaceable';
 
 export type MuteState = {
   pubkeys: Set<string>;
@@ -60,9 +61,7 @@ export function filterMuted(events: Event[], state: MuteState = get(muteState)):
 }
 
 export function newestMuteList(events: Event[]): Event | null {
-  const lists = events.filter((e) => e.kind === KIND.MUTE);
-  lists.sort((a, b) => b.created_at - a.created_at);
-  return lists[0] ?? null;
+  return pickLatestReplaceable(events, KIND.MUTE);
 }
 
 function parseMuteTagRows(plain: string): string[][] | null {
@@ -100,10 +99,13 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   if (content.startsWith('[')) return parseMuteTagRows(content) ?? [];
 
   const attempts: Array<(pubkey: string, ciphertext: string) => Promise<string>> = [];
+  /** When true, never fall back to window.nostr (wrong key while Amber/bunker is the session). */
+  let bunkerSession = false;
 
   // Prefer the active session signer (bunker / extension) when available.
   try {
     const { session } = await import('./stores/session');
+    bunkerSession = session.getSignerType() === 'bunker';
     const signer = session.getSigner();
     if (looksLikeNip44Ciphertext(content) && signer?.nip44Decrypt) {
       attempts.push((pk, ct) => signer.nip44Decrypt!(pk, ct));
@@ -112,7 +114,7 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
       attempts.push((pk, ct) => signer.nip04Decrypt!(pk, ct));
     }
     // Do not ask a browser extension to decrypt for a bunker session (wrong key / wrong UI).
-    if (session.getSignerType() !== 'bunker') {
+    if (!bunkerSession) {
       const ext = typeof window !== 'undefined' ? window.nostr : undefined;
       if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
         attempts.push(ext.nip44.decrypt.bind(ext.nip44));
@@ -125,7 +127,8 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
     /* session unavailable */
   }
 
-  if (!attempts.length) {
+  // Anonymous / NIP-07 paint with no signer attached yet — extension only, never for bunker.
+  if (!attempts.length && !bunkerSession) {
     const ext = typeof window !== 'undefined' ? window.nostr : undefined;
     if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
       attempts.push(ext.nip44.decrypt.bind(ext.nip44));
@@ -153,16 +156,25 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
 
 export const mutedPubkeys = derived(muteState, ($s) => $s.pubkeys);
 
+/** Newest event of `kind` (NIP-01 created_at, then lowest id). */
 export function latestReplaceable(events: Event[], kind: number): Event | null {
-  const hits = events.filter((e) => e.kind === kind);
-  hits.sort((a, b) => b.created_at - a.created_at);
-  return hits[0] ?? null;
+  return pickLatestReplaceable(events, kind);
 }
 
 export function followPubkeysFromMetadata(events: Event[]): Set<string> {
   const out = new Set<string>();
+  const contact = pickLatestReplaceable(events, KIND.CONTACT_LIST);
+  // Addressable follow sets: one winner per d (prune keeps latest per coord).
+  const followSets = new Map<string, Event>();
   for (const event of events) {
-    if (event.kind !== KIND.CONTACT_LIST && event.kind !== KIND.FOLLOW_SET) continue;
+    if (event.kind !== KIND.FOLLOW_SET) continue;
+    const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+    const key = `${event.pubkey.toLowerCase()}:${d}`;
+    const prev = followSets.get(key);
+    if (!prev || isNewerReplaceable(event, prev)) followSets.set(key, event);
+  }
+  for (const event of [contact, ...followSets.values()]) {
+    if (!event) continue;
     for (const tag of event.tags) {
       if (tag[0] === 'p' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
         out.add(tag[1].toLowerCase());

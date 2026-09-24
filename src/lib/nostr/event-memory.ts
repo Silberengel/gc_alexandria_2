@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { dTagVariants, normalizeDTag } from '../dtag';
+import { isNewerReplaceable } from './replaceable';
 import { firstTag } from './verify';
 
 /** Session-local index of events already shown in the UI (shelves, search, etc.). */
@@ -17,12 +18,12 @@ export function rememberEvents(events: Event[]): void {
     if (!event?.id || !event.pubkey) continue;
     const id = event.id.toLowerCase();
     const prev = byId.get(id);
-    if (!prev || event.created_at >= prev.created_at) byId.set(id, event);
+    if (!prev || isNewerReplaceable(event, prev)) byId.set(id, event);
 
     const pk = event.pubkey.toLowerCase();
     if (event.kind === 0) {
       const cur = byMetaPubkey.get(pk);
-      if (!cur || event.created_at >= cur.created_at) byMetaPubkey.set(pk, event);
+      if (!cur || isNewerReplaceable(event, cur)) byMetaPubkey.set(pk, event);
     }
 
     const d = firstTag(event, 'd');
@@ -30,7 +31,7 @@ export function rememberEvents(events: Event[]): void {
     for (const variant of new Set([d, ...dTagVariants(d), normalizeDTag(d)].filter(Boolean))) {
       const key = addrKey(event.kind, pk, variant);
       const cur = byAddr.get(key);
-      if (!cur || event.created_at >= cur.created_at) byAddr.set(key, event);
+      if (!cur || isNewerReplaceable(event, cur)) byAddr.set(key, event);
     }
   }
 }
@@ -53,7 +54,7 @@ export function memoryFindByAddress(kind: number, pubkey: string, d: string): Ev
   let best: Event | null = null;
   for (const variant of wanted) {
     const hit = byAddr.get(addrKey(kind, pk, variant));
-    if (hit && (!best || hit.created_at >= best.created_at)) best = hit;
+    if (hit && (!best || isNewerReplaceable(hit, best))) best = hit;
   }
   return best;
 }

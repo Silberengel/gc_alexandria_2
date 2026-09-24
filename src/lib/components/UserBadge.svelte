@@ -12,6 +12,7 @@
     rememberProfileFromKind0
   } from '$lib/profile-cache';
   import { memoryFindMetadata, rememberEvents } from '$lib/nostr/event-memory';
+  import { pickLatestReplaceable } from '$lib/nostr/replaceable';
   import { muteState, isMutedAuthor } from '$lib/mute';
   import { session } from '$lib/stores/session';
 
@@ -103,7 +104,7 @@
 
     const applyLocal = (events: Event[]) => {
       if (cancelled) return;
-      const local = events.find((e) => e.kind === KIND.METADATA && e.pubkey.toLowerCase() === pk);
+      const local = pickLatestReplaceable(events, KIND.METADATA, pk);
       if (local) applyKind0(local, fallback);
     };
     applyLocal(session.getMetadata());
@@ -128,7 +129,8 @@
         4000
       );
       if (cancelled) return;
-      const meta = fetched[0] ?? null;
+      const meta =
+        pickLatestReplaceable(fetched, KIND.METADATA, pk) ?? fetched[0] ?? null;
       if (meta) {
         void cachePutEvent(meta);
         applyKind0(meta, fallback);

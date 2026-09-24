@@ -22,3 +22,6 @@ Feature: Library home
     And Continue opens the reader at that book's tracked section (or pos), not the edition top
     And active queue editions and nearby stream pages are warmed into the client event cache for offline reopen
     And Up next lists waiting books with Read now to move one to the front of the queue
+    When I leave the reader and open the home page again (brand link or back)
+    Then the landing page is scrolled to the top, not left at the reader's deep scroll offset
+    And Reading now progress and Continue targets match the latest signed kind 16374 (from cache/session), even before relays echo it

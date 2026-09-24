@@ -15,6 +15,7 @@ import {
   type TrustedAssertionScore
 } from './nip85-trusted-assertions';
 import { normalizeWebSocketRelay } from './nostr/relay-filters';
+import { pickLatestReplaceable } from './nostr/replaceable';
 import { relayPool } from './nostr/pool';
 import type { Event, Filter } from 'nostr-tools';
 
@@ -214,10 +215,7 @@ function createTrustedAssertions() {
     };
     try {
       const events = await relayPool.query([...PROFILE_RELAYS], [filter], KIND_10040_TIMEOUT_MS);
-      const best = events
-        .filter((e) => e.kind === KIND.NIP85_PREFS && e.pubkey.toLowerCase() === pubkey)
-        .sort((a, b) => b.created_at - a.created_at)[0];
-      return best ?? null;
+      return pickLatestReplaceable(events, KIND.NIP85_PREFS, pubkey);
     } catch {
       return null;
     }

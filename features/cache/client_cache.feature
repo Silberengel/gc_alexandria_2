@@ -13,6 +13,7 @@ Feature: Client event cache
     Given I have loaded a publication's header, social lists, sections, and a cover
     When I leave and return in this browser, including while offline
     Then those ids and covers are served from cache
+    And replaceable and addressable events always keep only the newest version (highest created_at; on a tie, lowest id per NIP-01)
     And replaceable events may still refresh if a newer version exists
     When I open a landing shelf cover whose edition is in the landing snapshot
     Then the edition page paints from cache even if Mercury or relays fail
@@ -40,9 +41,11 @@ Feature: Client event cache
     And if live API and relays return nothing the snapshot stays on screen
 
   Scenario: Local publishes are written to cache
-    When I publish a comment, rating, highlight, booklist or other list label, bookshelf directory, bookmark, or bug report
-    Then the signed event is written to the client cache as it is sent to write relays
+    When I publish a comment, rating, highlight, booklist or other list label, bookshelf directory, bookmark, bug report, or reading-queue (16374)
+    Then the signed event is written to the client cache and session metadata as soon as it is signed
+    And write relays are best-effort afterward (UI must not wait on them)
     And I can read that event from cache while relays are unreachable or I am offline
+    And a later login-metadata refresh does not replace a newer locally signed kind 16374 with a stale relay copy
 
   Scenario: Reading now warms the cache
     Given I am signed in with tracked books in Reading now

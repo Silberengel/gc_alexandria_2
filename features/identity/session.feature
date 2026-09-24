@@ -29,6 +29,7 @@ Feature: Identity
     Then the site restores that pubkey from this browser's local storage and confirms via getPublicKey when the extension is ready
     And I do not paste an nsec into the page
     And My shelf can rebuild from login metadata without waiting minutes on per-address relay fetches
+    And login metadata keeps only the newest replaceable or addressable event per NIP-01 coordinate
     When I signed in with Amber or bunker
     Then reload restores the sanitized bunker:// URL and client secret from local storage
     And Track reading / progress publishes wake the bunker relays and open Amber for approval when needed

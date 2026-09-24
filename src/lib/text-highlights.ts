@@ -3,6 +3,7 @@ import { nip19 } from 'nostr-tools';
 import { relayPool } from './nostr/pool';
 import { profileStack } from './nostr/selector';
 import { firstTag } from './nostr/verify';
+import { pickLatestReplaceable } from './nostr/replaceable';
 import { toNostrBuildThumbUrl } from './nostr-build';
 import { session } from './stores/session';
 
@@ -52,7 +53,7 @@ export function seedHighlightProfile(pubkey: string, meta?: Event | null): void 
     profileCache.set(pk, profileFromKind0(meta));
     return;
   }
-  const mine = session.getMetadata().find((e) => e.kind === 0 && e.pubkey.toLowerCase() === pk);
+  const mine = pickLatestReplaceable(session.getMetadata(), 0, pk);
   if (mine) profileCache.set(pk, profileFromKind0(mine));
 }
 

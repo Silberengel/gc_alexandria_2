@@ -149,4 +149,39 @@ describe('session metadata remember', () => {
     const dirs = mergeRememberedMetadata([oldDir, otherDir], newDir);
     expect(dirs.map((e) => e.id).sort()).toEqual([newDir.id, otherDir.id].sort());
   });
+
+  it('replaces kind 16374 and kind 0 by pubkey+kind, keeping the NIP-01 winner on ties', () => {
+    const oldQ = ev({
+      id: 'f'.repeat(64),
+      pubkey: pk,
+      kind: KIND.READING_QUEUE,
+      created_at: 5
+    });
+    const newQ = ev({
+      id: '0'.repeat(64),
+      pubkey: pk,
+      kind: KIND.READING_QUEUE,
+      created_at: 5
+    });
+    // Same second: lowest id wins.
+    expect(mergeRememberedMetadata([oldQ], newQ).map((e) => e.id)).toEqual([newQ.id]);
+
+    const metaOld = ev({
+      id: '1'.repeat(64),
+      pubkey: pk,
+      kind: KIND.METADATA,
+      created_at: 1,
+      content: '{"name":"old"}'
+    });
+    const metaNew = ev({
+      id: '2'.repeat(64),
+      pubkey: pk,
+      kind: KIND.METADATA,
+      created_at: 2,
+      content: '{"name":"new"}'
+    });
+    expect(mergeRememberedMetadata([metaOld], metaNew).map((e) => e.id)).toEqual([metaNew.id]);
+    // Older incoming must not displace a newer local.
+    expect(mergeRememberedMetadata([metaNew], metaOld).map((e) => e.id)).toEqual([metaNew.id]);
+  });
 });

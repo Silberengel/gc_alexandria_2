@@ -7,6 +7,7 @@ import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { mercuryFilter } from './mercury';
 import { relayPool } from './pool';
+import { isNewerReplaceable } from './replaceable';
 import { documentStack, wikiStack } from './selector';
 
 export function mergeById(...lists: Event[][]): Event[] {
@@ -74,10 +75,20 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       kinds: [parsed.kind],
       authors: [parsed.pubkey],
       '#d': dValues.slice(0, 12),
-      limit: 1
+      limit: 5
+    };
+    const pickNewest = (events: Event[]): Event | null => {
+      let best: Event | null = null;
+      for (const event of events) {
+        if (event.kind !== parsed.kind) continue;
+        if (event.pubkey.toLowerCase() !== parsed.pubkey) continue;
+        if (!best || isNewerReplaceable(event, best)) best = event;
+      }
+      return best;
     };
     const mercury = await mercuryFilter(filter);
-    if (mercury[0]) return hideIfDeleted(mercury[0]);
+    const fromMercury = pickNewest(mercury);
+    if (fromMercury) return hideIfDeleted(fromMercury);
     const ws = await relayPool.query(
       stackForKind(parsed.kind),
       [filter],
@@ -86,7 +97,7 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       undefined,
       { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
     );
-    return hideIfDeleted(ws[0] ?? cached);
+    return hideIfDeleted(pickNewest(ws) ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;
   }

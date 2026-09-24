@@ -120,6 +120,7 @@ export async function signAndPublish(partial: {
 }): Promise<Event | null> {
   const signed = await signUnsigned(partial);
   if (!signed) return null;
-  const ok = await publishSigned(signed);
-  return ok ? signed : null;
+  // session.publish adopts locally before relays; always treat a successful sign as adopted.
+  await publishSigned(signed);
+  return signed;
 }

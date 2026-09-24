@@ -1,4 +1,5 @@
 import { bytesToHex } from '@noble/hashes/utils';
+import type { Event } from 'nostr-tools';
 import { BunkerSigner as NBunkerSigner, toBunkerURL } from 'nostr-tools/nip46';
 import { openBunkerAuthUrl } from '../bunker-auth-url';
 import type { DraftEvent, Signer } from '../signer';
@@ -44,27 +45,27 @@ export class NostrConnectionSigner implements Signer {
     return this.pubkey;
   }
 
-  async signEvent(draft: DraftEvent) {
+  async signEvent(draft: DraftEvent): Promise<Event> {
     if (!this.signer) throw new Error('Not logged in');
-    return new Promise((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        reject(
-          new Error(
-            'Amber did not approve the signature in time. Open Amber, approve the request, and try again.'
-          )
-        );
-      }, 120_000);
-      this.signer!.signEvent(draft).then(
-        (value) => {
-          window.clearTimeout(timer);
-          resolve(value);
-        },
-        (err) => {
-          window.clearTimeout(timer);
-          reject(err);
-        }
-      );
-    });
+    const template = {
+      kind: draft.kind,
+      content: draft.content,
+      tags: draft.tags,
+      created_at: draft.created_at ?? Math.floor(Date.now() / 1000)
+    };
+    const signed = await Promise.race([
+      this.signer.signEvent(template),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => {
+          reject(
+            new Error(
+              'Amber did not approve the signature in time. Open Amber, approve the request, and try again.'
+            )
+          );
+        }, 120_000);
+      })
+    ]);
+    return signed;
   }
 
   async nip04Encrypt(pubkey: string, plaintext: string) {

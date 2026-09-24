@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { firstTag, eventAddress } from './nostr/verify';
+import { isNewerReplaceable } from './nostr/replaceable';
 import { type MuteState, notMuted } from './mute';
 import {
   coordinatesOverlap,
@@ -140,7 +141,7 @@ export function newestRatingPerAuthor(
     if (!coord || !coordinatesOverlap(coord, address)) continue;
     if (mute && !notMuted(event, mute)) continue;
     const prev = byAuthor.get(event.pubkey);
-    if (!prev || event.created_at > prev.created_at) byAuthor.set(event.pubkey, event);
+    if (!prev || isNewerReplaceable(event, prev)) byAuthor.set(event.pubkey, event);
   }
   return [...byAuthor.values()].sort((a, b) => b.created_at - a.created_at);
 }
@@ -160,7 +161,7 @@ export function newestRatingPerPublication(events: Event[]): Event[] {
       }
     }
     const prev = byAddr.get(key);
-    if (!prev || event.created_at > prev.created_at) byAddr.set(key, event);
+    if (!prev || isNewerReplaceable(event, prev)) byAddr.set(key, event);
   }
   return [...byAddr.values()].sort((a, b) => b.created_at - a.created_at);
 }

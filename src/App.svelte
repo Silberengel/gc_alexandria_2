@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Router from 'svelte-spa-router';
+  import Router, { location } from 'svelte-spa-router';
   import Home from './routes/Home.svelte';
   import Search from './routes/Search.svelte';
   import Publication from './routes/Publication.svelte';
@@ -31,7 +31,24 @@
     '*': NotFound
   };
 
+  /** Path-only — query changes (?section=, ?read=) must not reset an in-progress deep scroll. */
+  let lastScrollPath = '';
+
+  $effect(() => {
+    const path = $location || '/';
+    if (path === lastScrollPath) return;
+    lastScrollPath = path;
+    // Reader scrollY otherwise carries onto Home (mobile lands at the bottom).
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  });
+
   onMount(() => {
+    // Hash SPA: keep the browser from re-applying a deep scroll after we reset.
+    try {
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    } catch {
+      /* ignore */
+    }
     scheduleDeletionSweep();
     // Hydrate in the background — never blank the SPA while bunker/extension restore runs.
     void session.restore();

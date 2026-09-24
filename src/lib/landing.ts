@@ -16,6 +16,7 @@ import {
 } from './library-scope';
 import { displayTitle } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
+import { compareReplaceableNewestFirst, pruneToLatestReplaceables } from './nostr/replaceable';
 import { newestRatingPerPublication, PUBLICATION_RATING_MARKS } from './ratings';
 import {
   cacheGetLandingSnapshot,
@@ -217,8 +218,7 @@ function shuffle<T>(items: T[], seed: number): T[] {
 }
 
 function byNewest(a: Event, b: Event): number {
-  if (b.created_at !== a.created_at) return b.created_at - a.created_at;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return compareReplaceableNewestFirst(a, b);
 }
 
 /**
@@ -720,7 +720,9 @@ async function loadShelvesAndLabels(
         (e) => e.kind === KIND.BOOKMARK || e.kind === KIND.DIRECTORY || e.kind === KIND.LABEL
       )
     : mine;
-  const combined = mergeEvents(liveLabels, liveBookmarks, liveDirs, mineForMembership);
+  const combined = pruneToLatestReplaceables(
+    mergeEvents(liveLabels, liveBookmarks, liveDirs, mineForMembership)
+  );
   const viewer = session.getPubkey();
   const follows = followPubkeysFromMetadata(mine);
   const memberships = prioritizeMemberships(
@@ -742,7 +744,11 @@ async function loadShelvesAndLabels(
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
     viewer != null
-      ? nestedShelvesForViewer(mergeEvents(liveDirs, mineDirs), publications, viewer)
+      ? nestedShelvesForViewer(
+          pruneToLatestReplaceables(mergeEvents(liveDirs, mineDirs)),
+          publications,
+          viewer
+        )
       : [];
   console.info('[alexandria:landing] loadShelvesAndLabels', {
     viewer: viewer?.slice(0, 8) ?? null,

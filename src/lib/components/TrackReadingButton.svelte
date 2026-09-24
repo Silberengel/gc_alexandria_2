@@ -9,7 +9,7 @@
     readingProgressPercent
   } from '$lib/reading-queue';
   import { viewerReadingEntries } from '$lib/viewer-reading-queue';
-  import { stopTrackingPublication, trackReadingPublication } from '$lib/reading-queue-actions';
+  import { stopTrackingPublication, trackReadingPublication, resetReadingProgress } from '$lib/reading-queue-actions';
   import { eventAddress } from '$lib/nostr/verify';
   import { myReadLabel, readLabelsForPublication } from '$lib/read-marks';
 
@@ -38,9 +38,9 @@
   const ready = $derived(total >= 1);
   const percent = $derived.by(() => {
     if (!entry) return 0;
-    const live = readingProgressPercent({ pos, total: Math.max(total, entry.total, 1) });
-    return Math.max(readingProgressPercent(entry), live);
+    return readingProgressPercent(entry);
   });
+  const behindTracked = $derived(!!entry && entry.pos > 0);
   const bunker = $derived($session.signerType === 'bunker');
 
   async function track(): Promise<void> {
@@ -87,6 +87,27 @@
       busy = false;
     }
   }
+
+  async function reset(): Promise<void> {
+    if (busy || !entry) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    busy = true;
+    errorHint = '';
+    try {
+      if (bunker) await session.ensureBunkerSigner();
+      const published = await resetReadingProgress({ publication, total });
+      if (!published) {
+        errorHint = bunker
+          ? 'Could not reset. Approve in Amber, then try again.'
+          : 'Could not reset tracking. Try again.';
+      }
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 {#if alreadyRead}
@@ -104,7 +125,20 @@
     <button class="btn btn-sm" type="button" disabled={busy} onclick={() => void stop()}>
       Stop tracking
     </button>
+    <button
+      class="btn btn-sm"
+      type="button"
+      disabled={busy || !behindTracked}
+      title="Clear tracked progress back to the start"
+      onclick={() => void reset()}
+    >
+      Reset tracking
+    </button>
   </div>
+  <p class="muted reading-track-hint">
+    Progress only moves forward as you read further. Scrolling up does not wipe it.
+    Reset tracking sets progress back to 0.
+  </p>
   <p class="muted reading-track-hint">Mark as read on the publication page to finish and leave the queue.</p>
   {#if bunker}
     <p class="muted reading-track-hint">Progress publishes after you approve in Amber (not on every scroll).</p>

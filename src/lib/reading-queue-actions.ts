@@ -14,6 +14,7 @@ import {
   upsertReadingEntry,
   type ReadingQueueEntry
 } from './reading-queue';
+import { coordinatesOverlap } from './publication-coordinate';
 import { signAndPublish, isSignInFlight } from './sign';
 import { session } from './stores/session';
 import { readingPrefs } from './stores/reading-prefs';
@@ -44,6 +45,22 @@ async function publishEntries(entries: ReadingQueueEntry[]): Promise<Event | nul
     return 'local';
   }
   return signAndPublish(readingQueueDraft(entries));
+}
+
+/**
+ * Tracked progress never moves backward from scroll (rereading / scrolling to metadata).
+ * Use {@link resetReadingProgress} to deliberately set a lower position.
+ */
+export function nextTrackedPos(currentPos: number, observedPos: number): number {
+  return Math.max(Math.max(0, Math.floor(currentPos)), Math.max(0, Math.floor(observedPos)));
+}
+
+function sameEdition(
+  publication: Event,
+  pending: { publication: Event } | null | undefined
+): boolean {
+  if (!pending) return false;
+  return coordinatesOverlap(eventAddress(publication), eventAddress(pending.publication));
 }
 
 /** Pending scroll progress — do not NIP-07-prompt on every verse crossing. */
@@ -105,9 +122,24 @@ async function publishProgressNow(opts: {
   const a = eventAddress(opts.publication);
   const cur = findQueueEntry(currentEntries(), a);
   if (!cur) return null;
+  // Scroll must not move tracked progress backward (metadata / reread).
+  if (opts.pos < cur.pos) {
+    if (opts.total > cur.total) {
+      return publishEntries(
+        upsertReadingEntry(currentEntries(), {
+          ...cur,
+          total: Math.max(opts.total, cur.total, 1),
+          updated: Math.floor(Date.now() / 1000)
+        })
+      );
+    }
+    if (get(readingPrefs).localOnly) return 'local';
+    return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  }
+  const pos = nextTrackedPos(cur.pos, opts.pos);
   if (
-    opts.pos === cur.pos &&
-    opts.total === cur.total &&
+    pos === cur.pos &&
+    opts.total <= cur.total &&
     (opts.sectionId ?? '') === (cur.sectionId ?? '')
   ) {
     if (get(readingPrefs).localOnly) return 'local';
@@ -115,9 +147,9 @@ async function publishProgressNow(opts: {
   }
   const next: ReadingQueueEntry = {
     a,
-    pos: opts.pos,
+    pos,
     total: Math.max(opts.total, cur.total, 1),
-    sectionId: opts.sectionId,
+    sectionId: opts.sectionId ?? cur.sectionId,
     updated: Math.floor(Date.now() / 1000)
   };
   return publishEntries(upsertReadingEntry(currentEntries(), next));
@@ -157,6 +189,7 @@ export async function stopTrackingPublication(publication: Event): Promise<Event
 /**
  * Update local progress intent; publish kind 16374 only after scrolling settles
  * so extension sign prompts are not fired on every section/verse crossing.
+ * Progress only advances forward — scrolling up does not rewrite the tracked pos.
  * When Settings → local-only, progress never leaves this browser.
  */
 export async function syncReadingProgress(opts: {
@@ -169,10 +202,41 @@ export async function syncReadingProgress(opts: {
   const a = eventAddress(opts.publication);
   const cur = findQueueEntry(currentEntries(), a);
   if (!cur) return null;
+
+  const pendingFloor =
+    sameEdition(opts.publication, pendingProgress) && pendingProgress
+      ? pendingProgress.pos
+      : 0;
+  const floor = Math.max(cur.pos, pendingFloor);
+
+  // Behind the watermark: keep any pending ahead-progress; only allow total growth.
+  if (opts.pos < floor) {
+    if (opts.total > cur.total && opts.total > (pendingProgress?.total ?? 0)) {
+      pendingProgress = {
+        publication: opts.publication,
+        pos: floor,
+        total: opts.total,
+        sectionId: pendingProgress?.sectionId ?? cur.sectionId
+      };
+      if (get(readingPrefs).localOnly) {
+        clearProgressTimer();
+        return flushReadingProgress();
+      }
+      clearProgressTimer();
+      progressTimer = setTimeout(() => {
+        progressTimer = 0;
+        void flushReadingProgress();
+      }, PROGRESS_DEBOUNCE_MS);
+    }
+    if (get(readingPrefs).localOnly) return 'local';
+    return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  }
+
   if (
     opts.pos === cur.pos &&
     opts.total === cur.total &&
-    (opts.sectionId ?? '') === (cur.sectionId ?? '')
+    (opts.sectionId ?? '') === (cur.sectionId ?? '') &&
+    !pendingProgress
   ) {
     if (get(readingPrefs).localOnly) return 'local';
     return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
@@ -194,6 +258,33 @@ export async function syncReadingProgress(opts: {
     void flushReadingProgress();
   }, PROGRESS_DEBOUNCE_MS);
   return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+}
+
+/**
+ * Force tracked progress back to the start (pos 0).
+ * Everyday scroll never calls this — only the Reset tracking control.
+ */
+export async function resetReadingProgress(opts: {
+  publication: Event;
+  total: number;
+}): Promise<Event | null | 'local'> {
+  if (!sessionOk()) return null;
+  const { publication, total } = opts;
+  if (total < 1) return null;
+  clearProgressTimer();
+  pendingProgress = null;
+  const a = eventAddress(publication);
+  const existing = findQueueEntry(currentEntries(), a);
+  if (!existing) return null;
+  return publishEntries(
+    upsertReadingEntry(currentEntries(), {
+      a,
+      pos: 0,
+      total: Math.max(total, existing.total, 1),
+      sectionId: undefined,
+      updated: Math.floor(Date.now() / 1000)
+    })
+  );
 }
 
 export async function promoteReadingToFront(editionAddress: string): Promise<Event | null | 'local'> {

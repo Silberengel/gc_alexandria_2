@@ -2,6 +2,7 @@ import type { Event } from 'nostr-tools';
 import { CACHE_KINDS } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryFindByAddress, rememberEvents } from './event-memory';
+import { isNewerReplaceable } from './replaceable';
 import { firstTag, ingestEvent } from './verify';
 
 const CACHE_NAME = 'alexandria-events-v1';
@@ -367,7 +368,7 @@ export async function cacheFindByAddress(
     if (!e || e.kind !== kind || e.pubkey !== pk) return;
     const ed = firstTag(e, 'd') ?? '';
     if (!wanted.has(ed) && !wanted.has(normalizeDTag(ed))) return;
-    if (!best || e.created_at >= best.created_at) best = e;
+    if (!best || isNewerReplaceable(e, best)) best = e;
   };
 
   // Memory already has shelf/search hits — skip the slow Cache Storage scan when present.

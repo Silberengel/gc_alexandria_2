@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { extractNip32LabelValues } from './nip32';
+import { isNewerReplaceable, replaceableCoord } from './nostr/replaceable';
 
 /** Stable key for a publication-list label: slug + target address or event id. */
 export function publicationLabelDedupeKey(event: Pick<Event, 'tags'>): string | null {
@@ -23,7 +24,7 @@ export function publicationLabelDedupeKey(event: Pick<Event, 'tags'>): string | 
 
 /**
  * Merge a newly authored metadata event into the session cache.
- * - DIRECTORY / BOOKMARK: keep newest per kind+d (addressable / replaceable).
+ * - NIP-01 replaceable / addressable: keep only the newest per coord (created_at, then lowest id).
  * - LABEL (1985): keep newest per slug+publication target (regular events; not kind+d).
  * - DELETION (5): drop referenced e-tagged and a-tagged events from the cache.
  */
@@ -50,20 +51,15 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
 
   byId.set(eventId, event);
 
-  if (event.kind === KIND.DIRECTORY || event.kind === KIND.BOOKMARK) {
-    const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+  const coord = replaceableCoord(event);
+  if (coord) {
     for (const [id, e] of [...byId]) {
       if (id === eventId) continue;
-      if (e.kind !== event.kind) continue;
-      const ed = e.tags.find((t) => t[0] === 'd')?.[1] ?? '';
-      if (ed === d && e.created_at <= event.created_at) byId.delete(id);
-    }
-  } else if (event.kind === KIND.READING_QUEUE) {
-    for (const [id, e] of [...byId]) {
-      if (id === eventId) continue;
-      if (e.kind !== KIND.READING_QUEUE) continue;
-      if (e.pubkey.toLowerCase() === event.pubkey.toLowerCase() && e.created_at <= event.created_at) {
-        byId.delete(id);
+      if (replaceableCoord(e) !== coord) continue;
+      if (isNewerReplaceable(event, e)) byId.delete(id);
+      else {
+        byId.delete(eventId);
+        break;
       }
     }
   } else if (event.kind === KIND.LABEL) {
@@ -72,8 +68,11 @@ export function mergeRememberedMetadata(existing: Event[], event: Event): Event[
       for (const [id, e] of [...byId]) {
         if (id === eventId) continue;
         if (e.kind !== KIND.LABEL) continue;
-        if (publicationLabelDedupeKey(e) === key && e.created_at <= event.created_at) {
-          byId.delete(id);
+        if (publicationLabelDedupeKey(e) !== key) continue;
+        if (isNewerReplaceable(event, e)) byId.delete(id);
+        else {
+          byId.delete(eventId);
+          break;
         }
       }
     }
