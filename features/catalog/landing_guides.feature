@@ -14,7 +14,7 @@ Feature: Landing starter guides
   Scenario: Home shows Guides when the curator tree is published
     Given the curator has published the starter-guides directory tree
     When I open the home page as a visitor or signed-in reader
-    Then I see a Guides section above Subjects and Labels
+    Then I see a Guides section directly below the landing title and byline, above Reading now and the shelves
     And genre guides appear in ancient-classics, great-books, catholic-classics, classic-novels, black-authors order
     And each guide chip uses curated styling distinct from Labels chips
     And clicking a guide opens an explicit bookshelf search scoped to the curator npub

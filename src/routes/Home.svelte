@@ -407,6 +407,17 @@
     </div>
   </header>
 
+  {#if visibleGuides.length}
+    <section class="landing-section landing-guides">
+      <h2 class="section-title">Guides</h2>
+      <div class="chip-row">
+        {#each visibleGuides as guide (guide.d)}
+          <a class="chip chip-curated" href={guide.href} use:link>{guide.title}</a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   <ReadingNowPanel />
 
   {#if showLandingSpinner || landingStatus}
@@ -509,17 +520,6 @@
         </section>
       {/if}
     </div>
-  {/if}
-
-  {#if visibleGuides.length}
-    <section class="landing-section">
-      <h2 class="section-title">Guides</h2>
-      <div class="chip-row">
-        {#each visibleGuides as guide (guide.d)}
-          <a class="chip chip-curated" href={guide.href} use:link>{guide.title}</a>
-        {/each}
-      </div>
-    </section>
   {/if}
 
   {#if visibleSubjects.length}

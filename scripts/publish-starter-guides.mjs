@@ -9,7 +9,7 @@
  * Env:
  *   NSEC                 — curator secret (never commit). Required for --publish.
  *   STARTER_GUIDES_SEED  — path to seed JSON (default: scripts/starter-guides/seed.json)
- *   RELAYS               — comma-separated wss URLs (default: thecitadel + forest)
+ *   RELAYS               — comma-separated wss URLs (default: thecitadel + theforest; not Mercury)
  *
  * Seed entries must resolve to live curator 30040 events. Missing ids abort that shelf.
  */
@@ -46,6 +46,8 @@ const GENRES = [
 const doPublish = process.argv.includes('--publish');
 const seedPath =
   process.env.STARTER_GUIDES_SEED || join(__dirname, 'starter-guides', 'seed.json');
+// Writable document/social relays only — Mercury is read-only (REST ingest).
+// Override with RELAYS=…
 const relayUrls = (process.env.RELAYS || 'wss://thecitadel.nostr1.com,wss://theforest.nostr1.com')
   .split(',')
   .map((s) => s.trim())
@@ -236,6 +238,7 @@ async function main() {
   // Publish leaves first so root folder a-tags can include event ids.
   const order = [...GENRES, ROOT_D];
   const publishedIds = new Map();
+  let failed = 0;
 
   for (const d of order) {
     let draft = drafts.get(d);
@@ -249,19 +252,32 @@ async function main() {
     }
     const signed = finalizeEvent({ ...draft }, sk);
     publishedIds.set(d, signed.id);
-    await Promise.any(
-      relayUrls.map(
-        (url) =>
-          new Promise((resolve, reject) => {
-            const pub = pool.publish([url], signed);
-            pub.then(resolve).catch(reject);
-            setTimeout(() => reject(new Error('timeout')), 8000);
-          })
-      )
-    ).catch(() => {});
-    console.log(`Published ${d} id=${signed.id.slice(0, 12)}…`);
+
+    // SimplePool.publish returns Promise[] (one per relay), not a single Promise.
+    const perRelay = pool.publish(relayUrls, signed).map((p, i) =>
+      Promise.race([
+        Promise.resolve(p).then(() => relayUrls[i]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 12_000))
+      ]).catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`  ${relayUrls[i]} rejected ${d}: ${msg}`);
+        return null;
+      })
+    );
+    const ok = (await Promise.all(perRelay)).filter(Boolean);
+    if (!ok.length) {
+      failed += 1;
+      console.error(`FAILED ${d} id=${signed.id.slice(0, 12)}… (no relay accepted)`);
+    } else {
+      console.log(`Published ${d} id=${signed.id.slice(0, 12)}… → ${ok.join(', ')}`);
+    }
   }
 
+  if (failed) {
+    console.error(`Done with ${failed} failure(s).`);
+    quietClose(pool);
+    process.exit(1);
+  }
   console.log('Done.');
   quietClose(pool);
   process.exit(0);
