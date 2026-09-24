@@ -28,3 +28,15 @@ Feature: Highlights
     And the quote is marked in the section body immediately after save, with the highlighter avatar
     And I do not need to refresh the page to see that mark
     And the landing Highlights list includes that quote when I return home (merged from cache/outbox, not only Mercury)
+
+  Scenario: Create highlight from the ToC chrome
+    Given I am signed in and reading
+    When I select non-empty text inside the reading pane
+    Then a Create highlight control appears in the ToC chrome next to Go to top
+    And the control is hidden when there is no reading-pane selection
+    When I press Create highlight
+    Then it signs a kind 9802 NIP-84 highlight for that selected text targeting the section under the selection
+    And the quote is marked in the section body immediately
+    And it then publishes on the outbox stack and social relays
+    And the reading-pane selection clears and the Create highlight control hides
+    And the ToC closes if it was open

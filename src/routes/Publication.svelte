@@ -161,6 +161,17 @@
   /** Expand/collapse state for nested ToC branches (default: top-level open). */
   let tocExpanded = $state<Record<string, boolean>>({});
   let readingPane = $state<HTMLElement | undefined>();
+  /**
+   * Snapshot of a non-empty reading-pane selection for "Create highlight" in ToC chrome.
+   * Survives selection collapse when the user opens the mobile ToC or clicks the control.
+   */
+  let readerHighlightDraft = $state<{
+    section: Event;
+    quote: string;
+    context?: string;
+  } | null>(null);
+  /** Skip one empty selectionchange after pointerdown on ToC / FAB. */
+  let keepHighlightDraft = false;
   const pageFind = createPageFindController();
 
   function isMarkupKind(kind: number): boolean {
@@ -1403,7 +1414,11 @@
 
         if (!el) return;
         const topBar = document.querySelector('.top-bar');
-        const offset = Math.ceil((topBar?.getBoundingClientRect().height ?? 72) + 16);
+        const barHidden =
+          document.documentElement.classList.contains('top-bar-concealed') ||
+          topBar?.classList.contains('is-concealed');
+        const barH = barHidden ? 0 : (topBar?.getBoundingClientRect().height ?? 72);
+        const offset = Math.ceil(barH + 16);
         const top = el.getBoundingClientRect().top + window.scrollY - offset;
         window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
       });
@@ -1471,8 +1486,86 @@
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') tocOpen = false;
     };
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (!t || !(t instanceof Element)) return;
+      if (t.closest('.toc, .toc-fab')) return;
+      tocOpen = false;
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Capture so the close wins before other UI handles the same tap.
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
+
+  function highlightContextFromSelection(sel: Selection | null, quote: string): string | undefined {
+    try {
+      const node = sel?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      const block = el?.closest('p, li, blockquote, pre, div.paragraph, article');
+      const full = block?.textContent?.trim();
+      if (full && full !== quote && full.includes(quote)) return full.slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }
+
+  function sectionFromReadingSelection(sel: Selection | null): Event | null {
+    if (!sel || !readingPane) return null;
+    const node = sel.anchorNode;
+    if (!node || !readingPane.contains(node)) return null;
+    const el = node instanceof Element ? node : node.parentElement;
+    const id = el?.closest('[data-section-id]')?.getAttribute('data-section-id')?.trim();
+    if (!id) return null;
+    return sectionCorpus.find((s) => s.id === id) ?? sections.find((s) => s.id === id) ?? null;
+  }
+
+  function syncReaderHighlightDraft(): void {
+    const sel = window.getSelection();
+    const quote = sel?.toString().trim() ?? '';
+    if (!quote || !sel) {
+      if (keepHighlightDraft) {
+        keepHighlightDraft = false;
+        return;
+      }
+      readerHighlightDraft = null;
+      return;
+    }
+    const section = sectionFromReadingSelection(sel);
+    if (!section || isPlaceholderSection(section)) {
+      readerHighlightDraft = null;
+      return;
+    }
+    readerHighlightDraft = {
+      section,
+      quote,
+      context: highlightContextFromSelection(sel, quote)
+    };
+  }
+
+  $effect(() => {
+    if (!reading) {
+      readerHighlightDraft = null;
+      keepHighlightDraft = false;
+      return;
+    }
+    const onSel = () => syncReaderHighlightDraft();
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      // Opening / using ToC chrome must not drop a captured quote.
+      if (t.closest('.toc, .toc-fab')) keepHighlightDraft = true;
+    };
+    document.addEventListener('selectionchange', onSel);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      document.removeEventListener('selectionchange', onSel);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
   });
 
   function cyclePageFind(): void {
@@ -1761,25 +1854,18 @@
     }
   }
 
-  async function saveHighlight(section: Event): Promise<void> {
+  async function saveHighlight(
+    section: Event,
+    preset?: { quote: string; context?: string }
+  ): Promise<void> {
     if (!$session.pubkey) {
       openLoginDialog();
       return;
     }
     const sel = window.getSelection();
-    const quote = sel?.toString().trim() ?? '';
+    const quote = preset?.quote ?? sel?.toString().trim() ?? '';
     if (!quote) return;
-    let context: string | undefined;
-    try {
-      const node = sel?.anchorNode;
-      const el =
-        node instanceof Element ? node : node?.parentElement;
-      const block = el?.closest('p, li, blockquote, pre, div.paragraph, article');
-      const full = block?.textContent?.trim();
-      if (full && full !== quote && full.includes(quote)) context = full.slice(0, 500);
-    } catch {
-      /* ignore */
-    }
+    const context = preset?.context ?? highlightContextFromSelection(sel, quote);
     if (!event) return;
     const signed = await signAndPublish(highlightDraft(event, section, quote, context));
     if (signed) {
@@ -1789,7 +1875,17 @@
       seedHighlightProfile(signed.pubkey, mine ?? null);
       highlights = [signed, ...highlights.filter((h) => h.id !== signed.id)];
       void ingestLocalLandingHighlight(signed, event);
+      window.getSelection()?.removeAllRanges();
+      readerHighlightDraft = null;
+      keepHighlightDraft = false;
     }
+  }
+
+  async function createHighlightFromReaderSelection(): Promise<void> {
+    const draft = readerHighlightDraft;
+    if (!draft) return;
+    tocOpen = false;
+    await saveHighlight(draft.section, { quote: draft.quote, context: draft.context });
   }
 
   function quotesFor(section: Event): TextHighlight[] {
@@ -1831,7 +1927,7 @@
   }
 </script>
 
-<TopBar />
+<TopBar autoHideOnScroll={reading} />
 <main class="shell">
   {#if error}
     <ErrorPage title="Edition not found" />
@@ -1922,14 +2018,27 @@
           <nav class="toc card" class:toc-open={tocOpen} aria-label="Table of contents">
             <div class="toc-chrome">
               <h2>Contents</h2>
-              <button
-                class="toc-goto-top"
-                type="button"
-                title="Jump to the start of this publication"
-                onclick={() => void goToReadingTop()}
-              >
-                Go to top
-              </button>
+              <div class="toc-chrome-actions">
+                {#if readerHighlightDraft}
+                  <button
+                    class="toc-create-highlight"
+                    type="button"
+                    title="Create a highlight from the selected text"
+                    onpointerdown={(e) => e.preventDefault()}
+                    onclick={() => void createHighlightFromReaderSelection()}
+                  >
+                    Create highlight
+                  </button>
+                {/if}
+                <button
+                  class="toc-goto-top"
+                  type="button"
+                  title="Jump to the start of this publication"
+                  onclick={() => void goToReadingTop()}
+                >
+                  Go to top
+                </button>
+              </div>
             </div>
             <div class="toc-scroll">
               <TocPanel

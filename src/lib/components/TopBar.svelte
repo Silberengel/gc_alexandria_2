@@ -8,12 +8,58 @@
 
   interface Props {
     showSearch?: boolean;
+    /** Publication reader: hide on scroll down, show on scroll up. */
+    autoHideOnScroll?: boolean;
   }
 
-  let { showSearch = false }: Props = $props();
+  let { showSearch = false, autoHideOnScroll = false }: Props = $props();
   let query = $state('');
   let suggestions = $state<string[]>([]);
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let concealed = $state(false);
+
+  $effect(() => {
+    if (!autoHideOnScroll) {
+      concealed = false;
+      document.documentElement.classList.remove('top-bar-concealed');
+      return;
+    }
+
+    const TOP_SHOW = 48;
+    const DELTA = 8;
+    let lastY = window.scrollY;
+    let raf = 0;
+
+    const apply = () => {
+      raf = 0;
+      const y = window.scrollY;
+      const dy = y - lastY;
+      if (y <= TOP_SHOW) {
+        concealed = false;
+        lastY = y;
+      } else if (Math.abs(dy) >= DELTA) {
+        concealed = dy > 0;
+        lastY = y;
+      }
+      document.documentElement.classList.toggle('top-bar-concealed', concealed);
+    };
+
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(apply);
+    };
+
+    // Fresh reader entry: start visible, then follow scroll direction.
+    concealed = false;
+    document.documentElement.classList.remove('top-bar-concealed');
+    lastY = window.scrollY;
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (raf) cancelAnimationFrame(raf);
+      document.documentElement.classList.remove('top-bar-concealed');
+    };
+  });
 
   function submitSearch(e: Event) {
     e.preventDefault();
@@ -49,7 +95,7 @@
   }
 </script>
 
-<header class="top-bar">
+<header class="top-bar" class:is-concealed={concealed}>
   <a class="brand" href="#/" use:link>
     <img src="/favicon.png" width="32" height="32" alt="" />
     <span>Library of Alexandria</span>

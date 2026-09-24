@@ -83,6 +83,11 @@ Feature: In-browser reader
     And the ToC marks which index or section is currently in the reading pane
     And ancestors of that row stay expanded so the current location stays visible
     And a sticky Go to top control stays in view in the ToC on mobile and desktop and jumps to the edition start
+    And when non-empty text is selected in the reading pane, a Create highlight control appears in the ToC chrome next to Go to top
+    And that control signs a NIP-84 highlight for the selection, marks it inline immediately, then publishes
+    And the Create highlight control is hidden when the reading-pane selection is empty
+    And scrolling down hides the top bar so the ToC is the only site navigation while reading
+    And scrolling up reveals the top bar again
     And clicking a ToC heading jumps to that section header
     And when that section has a hero image, the jump scrolls so the hero is visible above the heading
     And ToC entries whose section is not in the pane yet are shown disabled until that section loads

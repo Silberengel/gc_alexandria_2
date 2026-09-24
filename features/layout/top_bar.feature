@@ -21,6 +21,14 @@ Feature: Top bar and search
     And on a narrow screen the brand and session share the first row while nav sits on the row below
     And on a narrow screen the signed-in badge shows the profile picture without the display name
 
+  Scenario: Top bar auto-hides in the publication reader
+    When I am reading a publication
+    And I scroll down
+    Then the top bar hides so the ToC is the only site navigation
+    When I scroll up
+    Then the top bar is shown again
+    And when I leave the reader the top bar stays visible again
+
   Scenario: Global Nostr search is on the landing page
     When I am on /
     Then I can type into the global search bar and search Nostr events with typeahead

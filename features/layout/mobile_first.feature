@@ -17,6 +17,7 @@ Feature: Mobile-first layout
     And reading and wiki bodies keep a comfortable line length
     And on a phone the table of contents becomes a transparent icon at the bottom-right over the text
     And that icon opens the ToC in place and closes it again without covering the top bar
+    And tapping or clicking outside the open ToC closes it
     And Highlights and What we are discussing sit in two columns
     And in full view search result cards grow to two, then up to three columns on a wide screen
     And compact grid listings use that same one / two / three column rhythm
