@@ -38,7 +38,7 @@ import {
 import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
-import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, type Membership, type Shelf } from './shelves';
+import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, topLevelShelfEvents, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -176,14 +176,12 @@ export function mergeLandingShelves(
   for (const shelf of next) {
     seen.add(shelf.id);
     const older = prevById.get(shelf.id);
-    out.push(
-      older
-        ? {
-            ...shelf,
-            events: mergeEvents(older.events, shelf.events)
-          }
-        : shelf
-    );
+    const merged = older ? mergeEvents(older.events, shelf.events) : shelf.events;
+    out.push({
+      ...shelf,
+      // Promote/collapse so interim chapter covers do not stick after a better pack arrives.
+      events: topLevelShelfEvents(merged, merged)
+    });
   }
   for (const shelf of prev) {
     if (!seen.has(shelf.id)) out.push(shelf);
@@ -364,23 +362,103 @@ export function hrefForRef(event: Event, referenced: Event[]): string | null {
   return focusHrefForRef(event, referenced);
 }
 
+async function fetchParentsOfAddresses(addrs: string[]): Promise<Event[]> {
+  const unique = [...new Set(addrs.map((a) => a.trim()).filter(Boolean))].slice(0, 40);
+  if (!unique.length) return [];
+  const filter: Filter = { kinds: [KIND.PUBLICATION], '#a': unique, limit: 80 };
+  let hits = await mercuryFilter(filter);
+  if (!hits.length) {
+    try {
+      hits = await relayPool.query(documentStack(), [filter], 4_000, 3);
+    } catch {
+      hits = [];
+    }
+  }
+  return hits.filter((e) => e.kind === KIND.PUBLICATION);
+}
+
+/**
+ * Pull containing indexes into `byAddr` so nested chapters can promote to editions.
+ * A few hops cover bible-style trees (chapter → book → testament → bible).
+ */
+async function enrichPublicationParents(byAddr: Map<string, Event>, hops = 3): Promise<void> {
+  for (let hop = 0; hop < hops; hop++) {
+    const addrs = [...byAddr.keys()];
+    if (!addrs.length) break;
+    const parents = await fetchParentsOfAddresses(addrs);
+    let added = 0;
+    for (const parent of parents) {
+      const addr = eventAddress(parent);
+      if (byAddr.has(addr)) continue;
+      byAddr.set(addr, parent);
+      added += 1;
+    }
+    if (!added) break;
+  }
+  rememberEvents([...byAddr.values()]);
+}
+
+/** Resolve Mercury/cache pubs to top-level edition covers (fetch parents when needed). */
+export async function resolveTopLevelShelfEvents(events: Event[]): Promise<Event[]> {
+  const pubs = events.filter((e) => e.kind === KIND.PUBLICATION);
+  if (!pubs.length) return [];
+  const byAddr = new Map<string, Event>();
+  for (const e of pubs) byAddr.set(eventAddress(e), e);
+  await enrichPublicationParents(byAddr);
+  return topLevelShelfEvents(pubs, [...byAddr.values()]);
+}
+
 async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {
-  if (hops > 4) return null;
-  const parsed = parseAddress(childAddr);
-  if (!parsed || (parsed.kind !== KIND.SECTION && parsed.kind !== KIND.PUBLICATION)) return null;
-  const filter: Filter = { kinds: [KIND.PUBLICATION], '#a': [childAddr], limit: 5 };
-  const mercury = await mercuryFilter(filter);
-  const hits = mercury.length ? mercury : await relayPool.query(documentStack(), [filter]);
-  if (!hits.length) return null;
-  const sameAuthor = hits.filter(
-    (event) => event.pubkey === parsed.pubkey && eventAddress(event) !== childAddr
-  );
-  const first =
-    sameAuthor[0] ?? hits.find((event) => eventAddress(event) !== childAddr) ?? null;
-  if (!first) return null;
-  if (first.pubkey !== parsed.pubkey) return first;
-  const higher = await fetchContainingPublication(eventAddress(first), hops + 1);
-  return higher ?? first;
+  const chain = await fetchSuperindexes(childAddr, hops);
+  return chain.length ? chain[chain.length - 1]! : null;
+}
+
+
+/**
+ * Indexes that contain `childAddr` via an `a`-tag, nearest parent first
+ * (e.g. Numbers ch. 7 → Book of Numbers → Old Testament → …).
+ */
+export async function fetchSuperindexes(childAddr: string, startHop = 0): Promise<Event[]> {
+  const chain: Event[] = [];
+  const seen = new Set<string>([childAddr.trim().toLowerCase()]);
+  let current = childAddr.trim();
+  if (!current) return chain;
+
+  for (let hop = startHop; hop < startHop + 8; hop++) {
+    const parsed = parseAddress(current);
+    if (!parsed || (parsed.kind !== KIND.SECTION && parsed.kind !== KIND.PUBLICATION)) {
+      break;
+    }
+    const filter: Filter = { kinds: [KIND.PUBLICATION], '#a': [current], limit: 20 };
+    let hits = await mercuryFilter(filter);
+    if (!hits.length) hits = await relayPool.query(documentStack(), [filter]);
+    const parents = hits.filter((event) => {
+      const addr = eventAddress(event).toLowerCase();
+      return addr !== current.toLowerCase() && !seen.has(addr);
+    });
+    if (!parents.length) break;
+
+    const sameAuthor = parents.filter((p) => p.pubkey.toLowerCase() === parsed.pubkey);
+    if (!sameAuthor.length) {
+      // Different publisher — surface direct containers and stop (match prior walker).
+      for (const p of parents) {
+        const addr = eventAddress(p).toLowerCase();
+        if (seen.has(addr)) continue;
+        seen.add(addr);
+        chain.push(p);
+      }
+      break;
+    }
+
+    for (const p of sameAuthor) {
+      const addr = eventAddress(p).toLowerCase();
+      if (seen.has(addr)) continue;
+      seen.add(addr);
+      chain.push(p);
+    }
+    current = eventAddress(sameAuthor[0]!);
+  }
+  return chain;
 }
 
 export async function resolveReferenced(events: Event[], known: Event[]): Promise<Event[]> {
@@ -741,6 +819,7 @@ async function loadShelvesAndLabels(
       hintEvents: combined
     }
   );
+  await enrichPublicationParents(publications);
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
     viewer != null
@@ -894,7 +973,12 @@ export async function refreshLanding(
     cacheOk || cached ? (cached?.highlights ?? []) : []
   ).slice(0, LANDING_FEED_LIMIT);
   let ratings = landingRatings(cacheOk || cached ? (cached?.ratings ?? []) : []);
-  let shelves = cacheOk ? (cached?.shelves ?? []) : curatedCachedShelves;
+  // Re-collapse cached covers — older snapshots often stored every bible chapter.
+  const cachedShelves = (cacheOk ? (cached?.shelves ?? []) : curatedCachedShelves).map((s) => ({
+    ...s,
+    events: topLevelShelfEvents(s.events, s.events)
+  }));
+  let shelves = cachedShelves;
   let labels = cacheOk ? (cached?.labels ?? []) : [];
   let referenced = cacheOk || cached ? (cached?.referenced ?? []) : [];
 
@@ -921,14 +1005,19 @@ export async function refreshLanding(
 
   // Immediate covers from Mercury pubs while label membership resolves (~5–8s).
   if (!shelvesHaveCovers(shelves) && publications.some((e) => e.kind === KIND.PUBLICATION)) {
-    shelves = [
-      {
-        id: 'network',
-        title: SHELF_TITLES.network,
-        events: publications.filter((e) => e.kind === KIND.PUBLICATION).slice(0, 50)
-      }
-    ];
-    paint(snapshot());
+    const networkCovers = (
+      await resolveTopLevelShelfEvents(publications.filter((e) => e.kind === KIND.PUBLICATION))
+    ).slice(0, 50);
+    if (networkCovers.length) {
+      shelves = [
+        {
+          id: 'network',
+          title: SHELF_TITLES.network,
+          events: networkCovers
+        }
+      ];
+      paint(snapshot());
+    }
   }
 
   // Resolve shelves as soon as membership returns — do not wait on slow social feed queries.
@@ -965,13 +1054,18 @@ export async function refreshLanding(
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   } else if (!shelvesHaveCovers(shelves) && publications.length) {
     // Last resort: show recent Mercury/cache pubs so the landing is never shelf-less.
-    shelves = [
-      {
-        id: 'network',
-        title: SHELF_TITLES.network,
-        events: publications.filter((e) => e.kind === KIND.PUBLICATION).slice(0, 50)
-      }
-    ];
+    const networkCovers = (
+      await resolveTopLevelShelfEvents(publications.filter((e) => e.kind === KIND.PUBLICATION))
+    ).slice(0, 50);
+    if (networkCovers.length) {
+      shelves = [
+        {
+          id: 'network',
+          title: SHELF_TITLES.network,
+          events: networkCovers
+        }
+      ];
+    }
   }
   if (shelfPack.labels.length) labels = shelfPack.labels;
   paint(snapshot());

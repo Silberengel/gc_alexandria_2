@@ -1,9 +1,10 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { GITCITADEL_CURATOR_HEX } from './hex';
+import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
 import { publicationTargetsFromDirectory } from './bookshelf';
-import { eventAddress } from './nostr/verify';
+import { firstTag, eventAddress } from './nostr/verify';
 
 export type ShelfId = 'mine' | 'follows' | 'gitcitadel' | 'network';
 
@@ -100,6 +101,78 @@ const PRIORITY: Record<ShelfId, number> = {
   network: 3
 };
 
+/**
+ * Walk up a-tag parents within `known` until the root edition.
+ * When the parent is not in `known`, returns the event unchanged.
+ */
+export function promoteToTopLevel(event: Event, known: Event[]): Event {
+  if (event.kind !== KIND.PUBLICATION) return event;
+  const byAddr = new Map<string, Event>();
+  for (const e of known) {
+    if (e.kind === KIND.PUBLICATION) byAddr.set(eventAddress(e), e);
+  }
+  const pool = [...byAddr.values()];
+  let addr = eventAddress(event);
+  for (let i = 0; i < 8; i++) {
+    const parent = pool.find((p) => p.tags.some((t) => t[0] === 'a' && t[1] === addr));
+    if (!parent) break;
+    addr = eventAddress(parent);
+  }
+  return byAddr.get(addr) ?? event;
+}
+
+/**
+ * When parents are missing from the pool, sibling chapters still look "top-level".
+ * Collapse same-author pubs that share a cover image — keep the shortest d-tag
+ * (edition roots are shorter than `…-ch-7` style nested indexes).
+ */
+export function collapseSameCoverEditions(events: Event[]): Event[] {
+  const groups = new Map<string, Event[]>();
+  for (const event of events) {
+    if (event.kind !== KIND.PUBLICATION) continue;
+    const img = coverImageUrl(event)?.trim();
+    if (!img) continue;
+    const key = `${event.pubkey.toLowerCase()}|${img}`;
+    const list = groups.get(key) ?? [];
+    list.push(event);
+    groups.set(key, list);
+  }
+  const drop = new Set<string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const addrs = new Set(group.map((e) => eventAddress(e)));
+    const score = (e: Event): number => {
+      const childHits = e.tags.filter((t) => t[0] === 'a' && t[1] && addrs.has(t[1])).length;
+      const d = firstTag(e, 'd') ?? '';
+      // Prefer pubs that a-tag siblings (true parents), then shorter d-tags.
+      return childHits * 10_000 - d.length;
+    };
+    const ranked = [...group].sort((a, b) => score(b) - score(a));
+    for (const loser of ranked.slice(1)) drop.add(eventAddress(loser));
+  }
+  return events.filter((e) => e.kind !== KIND.PUBLICATION || !drop.has(eventAddress(e)));
+}
+
+/**
+ * Shelf covers are top-level 30040 editions only.
+ * Nested chapter/section indexes promote to a parent when that parent is in `known`,
+ * then same-cover siblings collapse when parents are still unknown.
+ */
+export function topLevelShelfEvents(events: Event[], known: Event[] = events): Event[] {
+  const byAddr = new Map<string, Event>();
+  for (const event of [...known, ...events]) {
+    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+  }
+  const pool = [...byAddr.values()];
+  const out = new Map<string, Event>();
+  for (const event of events) {
+    if (event.kind !== KIND.PUBLICATION) continue;
+    const top = promoteToTopLevel(event, pool);
+    out.set(eventAddress(top), top);
+  }
+  return collapseSameCoverEditions([...out.values()]);
+}
+
 export function assignShelves(
   memberships: Membership[],
   publications: Map<string, Event>,
@@ -108,23 +181,26 @@ export function assignShelves(
 ): Shelf[] {
   type Acc = { shelf: ShelfId; created_at: number };
   const best = new Map<string, Acc>();
+  const knownPubs = [...publications.values()];
 
   for (const membership of memberships) {
     const address = membership.address;
     if (!address) continue;
     const pub = publications.get(address);
     if (!pub) continue;
+    const top = promoteToTopLevel(pub, knownPubs);
+    const topAddr = eventAddress(top);
     const shelf = shelfForAuthor(membership.author, viewer, follows);
     if (!viewer && (shelf === 'mine' || shelf === 'follows')) continue;
-    const prev = best.get(address);
+    const prev = best.get(topAddr);
     if (!prev) {
-      best.set(address, { shelf, created_at: membership.created_at });
+      best.set(topAddr, { shelf, created_at: membership.created_at });
       continue;
     }
     if (PRIORITY[shelf] < PRIORITY[prev.shelf]) {
-      best.set(address, { shelf, created_at: membership.created_at });
+      best.set(topAddr, { shelf, created_at: membership.created_at });
     } else if (shelf === prev.shelf && membership.created_at > prev.created_at) {
-      best.set(address, { shelf, created_at: membership.created_at });
+      best.set(topAddr, { shelf, created_at: membership.created_at });
     }
   }
 
@@ -136,7 +212,7 @@ export function assignShelves(
   };
 
   for (const [address, acc] of best) {
-    const event = publications.get(address);
+    const event = publications.get(address) ?? knownPubs.find((e) => eventAddress(e) === address);
     if (!event) continue;
     buckets[acc.shelf].push({ event, created_at: acc.created_at });
   }
@@ -150,7 +226,8 @@ export function assignShelves(
       if (b.created_at !== a.created_at) return b.created_at - a.created_at;
       return eventAddress(a.event).localeCompare(eventAddress(b.event));
     });
-    shelves.push({ id, title: SHELF_TITLES[id], events: items.map((i) => i.event) });
+    const events = collapseSameCoverEditions(items.map((i) => i.event));
+    shelves.push({ id, title: SHELF_TITLES[id], events });
   }
   return shelves;
 }
@@ -171,23 +248,24 @@ export function nestedShelvesForViewer(
     const d = dir.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
     if (!d || d === 'my-book-collection') continue;
     const { addresses, eventIds } = publicationTargetsFromDirectory(dir);
-    const events: Event[] = [];
+    const raw: Event[] = [];
     const seen = new Set<string>();
     for (const address of addresses) {
       const pub = publications.get(address);
       if (pub && !seen.has(address)) {
         seen.add(address);
-        events.push(pub);
+        raw.push(pub);
       }
     }
     for (const eventId of eventIds) {
       for (const [addr, pub] of publications) {
         if (pub.id.toLowerCase() === eventId && !seen.has(addr)) {
           seen.add(addr);
-          events.push(pub);
+          raw.push(pub);
         }
       }
     }
+    const events = topLevelShelfEvents(raw, [...publications.values()]);
     if (!events.length) continue;
     events.sort((a, b) => b.created_at - a.created_at);
     out.push({

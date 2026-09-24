@@ -14,6 +14,7 @@
   import ReadButton from '$lib/components/ReadButton.svelte';
   import EditionPeople from '$lib/components/EditionPeople.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
+  import EditionSuperindexes from '$lib/components/EditionSuperindexes.svelte';
   import EditionReaderMeta from '$lib/components/EditionReaderMeta.svelte';
   import TrackReadingButton from '$lib/components/TrackReadingButton.svelte';
   import ReadingFinishModal from '$lib/components/ReadingFinishModal.svelte';
@@ -42,7 +43,7 @@
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
-  import { ingestLocalLandingHighlight } from '$lib/landing';
+  import { ingestLocalLandingHighlight, fetchSuperindexes } from '$lib/landing';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -114,6 +115,7 @@
   let readerSectionId = $state<string | undefined>(undefined);
   let sectionTick = $state(false);
   let reading = $state(false);
+  let superindexes = $state<Event[]>([]);
   let sections = $state<Event[]>([]);
   /** Full loaded corpus — not reactive, so ingesting stream pages does not remount the pane. */
   let sectionCorpus: Event[] = [];
@@ -1052,6 +1054,7 @@
   function paintEdition(target: Event): void {
     rememberEvents([target]);
     event = target;
+    superindexes = [];
     error = false;
     unreadable = false;
     textUnavailable = !hasPublicationSection(target);
@@ -1062,6 +1065,24 @@
     // Readable editions: social first, then Mercury tree in the background (no a-tag walk).
     void afterSocialPrefetchTree(target);
   }
+
+  $effect(() => {
+    const edition = event;
+    if (!edition || edition.kind !== KIND.PUBLICATION) {
+      superindexes = [];
+      return;
+    }
+    const addr = eventAddress(edition);
+    let cancelled = false;
+    void fetchSuperindexes(addr).then((parents) => {
+      if (cancelled || event?.id !== edition.id) return;
+      rememberEvents(parents);
+      superindexes = parents;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   $effect(() => {
     // Prefer router params; fall back to the hash so a stale/empty params object
@@ -1837,6 +1858,7 @@
           <ReadButton publication={event} readEvents={editionReads} />
         </div>
         <EditionHeader {event} {sections} />
+        <EditionSuperindexes parents={superindexes} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
           {#if canRead}

@@ -34,9 +34,9 @@ describe('landing cache fallback', () => {
 
 describe('mergeLandingShelves', () => {
   it('keeps prior shelves and unions events during progressive paints', () => {
-    const a = ev([['title', 'A']], '1');
-    const b = ev([['title', 'B']], '2');
-    const c = ev([['title', 'C']], '3');
+    const a = ev([['d', 'book-a'], ['title', 'A']], '1');
+    const b = ev([['d', 'book-b'], ['title', 'B']], '2');
+    const c = ev([['d', 'book-c'], ['title', 'C']], '3');
     const prev: LandingShelfSnap[] = [
       { id: 'network', title: 'Network', events: [a, b] },
       { id: 'mine', title: 'My shelf', events: [a] }

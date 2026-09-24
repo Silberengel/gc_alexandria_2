@@ -22,7 +22,7 @@ import {
 import { extractNip32LabelValues, isBooklistEvent, publicationTargets } from './nip32';
 import { splitNostrRefs, decodeNostrBech32 } from './nostr-refs';
 import { landingLabels } from './labels';
-import { assignShelves, membershipsFromEvents, withBookmarkTag } from './shelves';
+import { assignShelves, collapseSameCoverEditions, membershipsFromEvents, topLevelShelfEvents, withBookmarkTag } from './shelves';
 import { aggregateRating, ratingValue, newestRatingPerAuthor, newestRatingPerPublication } from './ratings';
 import { parseKind0, paymentRows } from './profile-fields';
 import { uniqueMedia, contentWithoutMediaUrls, rewriteBareImageUrls, promoteImageAutolinks } from './media';
@@ -493,6 +493,93 @@ describe('booklist and shelves', () => {
     ]);
     const shelves = assignShelves(membershipsFromEvents(labels), pubs, me, new Set());
     expect(shelves[0]?.events.map((e) => e.id)).toEqual([oldPub.id, newPub.id]);
+  });
+
+  it('omits nested chapter 30040s when a parent edition is known', () => {
+    const me = '6'.repeat(64);
+    const pk = '1'.repeat(64);
+    const chapter = ev({
+      id: 'f'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [['d', 'gen-ch-1'], ['title', 'Chapter 1']]
+    });
+    const edition = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [['d', 'genesis'], ['title', 'Genesis'], ['a', addr(chapter)]]
+    });
+    const labels = [booklist(me, chapter, 10), booklist(me, edition, 11)];
+    const pubs = new Map([
+      [addr(chapter), chapter],
+      [addr(edition), edition]
+    ]);
+    const shelves = assignShelves(membershipsFromEvents(labels), pubs, me, new Set());
+    expect(shelves[0]?.events.map((e) => e.id)).toEqual([edition.id]);
+    expect(topLevelShelfEvents([chapter, edition], [chapter, edition]).map((e) => e.id)).toEqual([
+      edition.id
+    ]);
+  });
+
+  it('promotes a lone chapter membership to its parent edition', () => {
+    const me = '6'.repeat(64);
+    const pk = '1'.repeat(64);
+    const chapter = ev({
+      id: 'f'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [['d', 'gen-ch-1'], ['title', 'Chapter 1']]
+    });
+    const edition = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [['d', 'genesis'], ['title', 'Genesis'], ['a', addr(chapter)]]
+    });
+    const labels = [booklist(me, chapter, 10)];
+    const pubs = new Map([
+      [addr(chapter), chapter],
+      [addr(edition), edition]
+    ]);
+    const shelves = assignShelves(membershipsFromEvents(labels), pubs, me, new Set());
+    expect(shelves[0]?.events.map((e) => e.id)).toEqual([edition.id]);
+  });
+
+  it('collapses same-author same-cover chapters when no parent is known', () => {
+    const pk = '1'.repeat(64);
+    const cover = 'https://example.com/bible.jpg';
+    const ch1 = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [
+        ['d', 'bible-douay-rheims-version-ot-the-bk-numbers-numbers-ch-1'],
+        ['title', 'Numbers 1'],
+        ['image', cover]
+      ]
+    });
+    const ch7 = ev({
+      id: 'b'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [
+        ['d', 'bible-douay-rheims-version-ot-the-bk-numbers-numbers-ch-7'],
+        ['title', 'Numbers 7'],
+        ['image', cover]
+      ]
+    });
+    const rootish = ev({
+      id: 'c'.repeat(64),
+      pubkey: pk,
+      kind: KIND.PUBLICATION,
+      tags: [
+        ['d', 'bible-douay-rheims'],
+        ['title', 'The Holie Bible'],
+        ['image', cover]
+      ]
+    });
+    expect(collapseSameCoverEditions([ch1, ch7, rootish]).map((e) => e.id)).toEqual([rootish.id]);
   });
 
   it('preserves other bookmark tags when adding and removing one', () => {

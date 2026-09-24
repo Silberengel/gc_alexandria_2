@@ -4,11 +4,19 @@ export type MenuPlacement = {
   side: 'end' | 'start';
   /** Open upward when there isn't room below. */
   up: boolean;
+  /** Viewport top for `position: fixed` panels. */
+  top: number;
+  /** Viewport left for `position: fixed` panels. */
+  left: number;
 };
 
 const MENU_MIN_W = 200;
 const MENU_EST_H = 160;
 const PAD = 8;
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(n, max));
+}
 
 export function placeMenuPanel(anchor: HTMLElement, opts?: { width?: number; height?: number }): MenuPlacement {
   const r = anchor.getBoundingClientRect();
@@ -28,5 +36,13 @@ export function placeMenuPanel(anchor: HTMLElement, opts?: { width?: number; hei
   const roomAbove = r.top - PAD;
   const up = roomBelow < h && roomAbove > roomBelow;
 
-  return { side, up };
+  const rawTop = up ? r.top - PAD - h : r.bottom + PAD;
+  const rawLeft = side === 'end' ? r.right - w : r.left;
+
+  return {
+    side,
+    up,
+    top: clamp(rawTop, PAD, Math.max(PAD, vh - h - PAD)),
+    left: clamp(rawLeft, PAD, Math.max(PAD, vw - w - PAD))
+  };
 }

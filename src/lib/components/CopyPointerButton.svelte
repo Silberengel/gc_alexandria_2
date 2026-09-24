@@ -30,11 +30,27 @@
   let timer = 0;
   let root: HTMLDivElement | undefined = $state();
   // Initial side is updated when opening; preferStart is applied in toggle().
-  let place: MenuPlacement = $state({ side: 'end', up: false });
+  let place: MenuPlacement = $state({ side: 'end', up: false, top: 0, left: 0 });
 
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
   const jumbleUrl = $derived(`https://jumble.imwald.eu/notes/${ptr.text}`);
+
+  function refreshPlace(): void {
+    if (!root) return;
+    let next = placeMenuPanel(root);
+    if (preferStart) {
+      const r = root.getBoundingClientRect();
+      if (window.innerWidth - r.left - 8 >= 200) {
+        next = {
+          ...next,
+          side: 'start',
+          left: Math.max(8, Math.min(r.left, window.innerWidth - 200 - 8))
+        };
+      }
+    }
+    place = next;
+  }
 
   async function copy(): Promise<void> {
     try {
@@ -53,13 +69,7 @@
   function toggle(e: MouseEvent): void {
     e.preventDefault();
     e.stopPropagation();
-    if (!open && root) {
-      place = placeMenuPanel(root);
-      if (preferStart) {
-        const r = root.getBoundingClientRect();
-        if (window.innerWidth - r.left - 8 >= 200) place = { ...place, side: 'start' };
-      }
-    }
+    if (!open) refreshPlace();
     open = !open;
     if (!open) {
       copied = false;
@@ -87,16 +97,17 @@
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
-    const onResize = () => {
-      if (root) place = placeMenuPanel(root);
-    };
+    const onReposition = () => refreshPlace();
     document.addEventListener('pointerdown', onDoc);
     document.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', onReposition);
+    // Capture: reading pane / ToC may scroll inside nested containers.
+    window.addEventListener('scroll', onReposition, true);
     return () => {
       document.removeEventListener('pointerdown', onDoc);
       document.removeEventListener('keydown', onKey);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
     };
   });
 </script>
@@ -124,10 +135,8 @@
   </button>
   {#if open}
     <ul
-      class="menu-panel"
-      class:menu-panel-end={place.side === 'end'}
-      class:menu-panel-start={place.side === 'start'}
-      class:menu-panel-up={place.up}
+      class="menu-panel menu-panel-fixed"
+      style={`top:${place.top}px;left:${place.left}px`}
       role="menu"
       onclick={onPanelClick}
       onkeydown={(e) => {
