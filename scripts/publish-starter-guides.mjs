@@ -122,6 +122,14 @@ function loadSeed() {
   return raw.shelves || raw;
 }
 
+function quietClose(pool) {
+  try {
+    pool.close(relayUrls);
+  } catch {
+    // nostr-tools rejects open subscriptions when sockets close; ignore.
+  }
+}
+
 async function main() {
   const seed = loadSeed();
   const pool = new SimplePool();
@@ -162,7 +170,7 @@ async function main() {
   if (misses.length) {
     console.error('\nUnresolved entries (fix seed; refusing to invent coordinates):');
     for (const m of misses) console.error(`  - ${m}`);
-    pool.close(relayUrls);
+    quietClose(pool);
     process.exitCode = 1;
     return;
   }
@@ -197,14 +205,14 @@ async function main() {
 
   if (!doPublish) {
     console.log('\nDry-run complete. Re-run with --publish and NSEC=… to sign and send.');
-    pool.close(relayUrls);
+    quietClose(pool);
     return;
   }
 
   const nsec = process.env.NSEC?.trim();
   if (!nsec) {
     console.error('NSEC env required for --publish');
-    pool.close(relayUrls);
+    quietClose(pool);
     process.exitCode = 1;
     return;
   }
@@ -220,7 +228,7 @@ async function main() {
   const pk = getPublicKey(sk);
   if (pk.toLowerCase() !== CURATOR_HEX) {
     console.error(`NSEC pubkey ${pk} does not match curator ${CURATOR_HEX}`);
-    pool.close(relayUrls);
+    quietClose(pool);
     process.exitCode = 1;
     return;
   }
@@ -255,10 +263,11 @@ async function main() {
   }
 
   console.log('Done.');
-  pool.close(relayUrls);
+  quietClose(pool);
+  process.exit(0);
 }
 
 main().catch((err) => {
   console.error(err);
-  process.exitCode = 1;
+  process.exit(1);
 });
