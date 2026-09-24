@@ -5,7 +5,7 @@ Feature: Card paging
   So that home, search, and profiles stay light
 
   Background:
-    Given card lists show 25 per page in full and compact views, current page only, loading when they enter view
+    Given card lists show 24 per page in full and compact views (3-column grid, no orphan row), current page only, loading when they enter view
     And table view pages at 250 events
     And search results stop at 100
     And each shelf shows at most 50 covers in full and compact views

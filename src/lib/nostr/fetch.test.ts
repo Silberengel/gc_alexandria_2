@@ -62,13 +62,40 @@ describe('fetch cache fallback', () => {
     query.mockReset().mockResolvedValue([]);
   });
 
-  it('returns a cached addressable event without hitting the network', async () => {
-    const cached = ev({ id: 'a'.repeat(64), kind: 30040, pubkey: 'b'.repeat(64) });
+  it('returns a rich cached 30040 without hitting the network', async () => {
+    const cached = ev({
+      id: 'a'.repeat(64),
+      kind: 30040,
+      pubkey: 'b'.repeat(64),
+      tags: [
+        ['d', 'jane'],
+        ['a', `30041:${'b'.repeat(64)}:ch1`]
+      ]
+    });
     memoryFindByAddress.mockReturnValue(cached);
     const { fetchByAddress } = await import('./fetch');
     await expect(fetchByAddress(`30040:${'b'.repeat(64)}:jane`)).resolves.toBe(cached);
     expect(mercuryFilter).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a thin cached 30040 (no a/e tags) from the network', async () => {
+    const thin = ev({ id: 'a'.repeat(64), kind: 30040, pubkey: 'b'.repeat(64) });
+    const rich = ev({
+      id: 'f'.repeat(64),
+      kind: 30040,
+      pubkey: 'b'.repeat(64),
+      created_at: 2,
+      tags: [
+        ['d', 'jane'],
+        ['a', `30041:${'b'.repeat(64)}:ch1`]
+      ]
+    });
+    memoryFindByAddress.mockReturnValue(thin);
+    query.mockResolvedValue([rich]);
+    const { fetchByAddress } = await import('./fetch');
+    await expect(fetchByAddress(`30040:${'b'.repeat(64)}:jane`)).resolves.toBe(rich);
+    expect(query).toHaveBeenCalled();
   });
 
   it('returns a cached id event without hitting the network', async () => {

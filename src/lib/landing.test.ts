@@ -53,7 +53,7 @@ describe('mergeLandingShelves', () => {
 });
 
 describe('orderLandingShelves', () => {
-  it('puts My shelf first, nested folders alphabetically, then GitCitadel, then network rows', () => {
+  it('puts My shelf first, nested folders alphabetically, then follows, then network', () => {
     const ordered = orderLandingShelves([
       { id: 'network', title: 'From the network' },
       { id: 'folder:Mystery', title: 'Mystery' },
@@ -66,7 +66,6 @@ describe('orderLandingShelves', () => {
       'mine',
       'folder:adventure',
       'folder:Mystery',
-      'gitcitadel',
       'follows',
       'network'
     ]);
@@ -95,10 +94,11 @@ describe('dedupeLandingShelfEvents', () => {
       { id: 'gitcitadel', title: 'GitCitadel', events: [shared, onlyGc] },
       { id: 'mine', title: 'My shelf', events: [shared] }
     ]);
-    expect(deduped.map((s) => s.id)).toEqual(['mine', 'gitcitadel', 'network']);
+    expect(deduped.map((s) => s.id)).toEqual(['mine', 'network']);
     expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
-    expect(deduped.find((s) => s.id === 'gitcitadel')?.events.map((e) => e.id)).toEqual([onlyGc.id]);
-    expect(deduped.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([onlyNet.id]);
+    expect(deduped.find((s) => s.id === 'network')?.events.map((e) => e.id).sort()).toEqual(
+      [onlyGc.id, onlyNet.id].sort()
+    );
   });
 
   it('allows the same cover on My shelf and a nested folder', () => {
@@ -106,13 +106,13 @@ describe('dedupeLandingShelfEvents', () => {
     const deduped = dedupeLandingShelfEvents([
       { id: 'folder:summer', title: 'Summer', events: [shared] },
       { id: 'mine', title: 'My shelf', events: [shared] },
-      { id: 'gitcitadel', title: 'GitCitadel', events: [shared] }
+      { id: 'network', title: 'From the network', events: [shared] }
     ]);
     expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
     expect(deduped.find((s) => s.id === 'folder:summer')?.events.map((e) => e.id)).toEqual([
       shared.id
     ]);
-    expect(deduped.find((s) => s.id === 'gitcitadel')).toBeUndefined();
+    expect(deduped.find((s) => s.id === 'network')).toBeUndefined();
   });
 });
 

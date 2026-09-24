@@ -97,7 +97,7 @@
     const nextShelves = view.shelves ?? [];
     const nextHasCovers = nextShelves.some((s) => s.events.length);
     // Never wipe painted covers with an empty final pack (relay starvation used to do that).
-    // Union into whatever is already painted — including GitCitadel/network. Filtering to
+    // Union into whatever is already painted — including network. Filtering to
     // viewer-bound rows only used to drop curated shelves when the live pack timed out thin.
     if (nextHasCovers || !shelves.some((s) => s.events.length)) {
       shelves = mergeLandingShelves(shelves, nextShelves);
@@ -125,7 +125,7 @@
   /** Metadata id-key for which My shelf was last successfully folded. */
   let lastFoldedMetaKey = '';
 
-  /** Drop identity-bound rows and label chips; keep GitCitadel/network while the next load runs. */
+  /** Drop identity-bound rows and label chips; keep network while the next load runs. */
   function clearIdentityShelves(): void {
     shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.

@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools';
-import { CACHE_KINDS } from '../constants';
+import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryFindByAddress, rememberEvents } from './event-memory';
 import { isNewerReplaceable } from './replaceable';
@@ -162,7 +162,12 @@ export async function cachePutPublicationStream(
     for (const e of existing.events) byId.set(e.id, e);
     for (const e of incoming) byId.set(e.id, e);
     const verified = [...byId.values()].slice(0, MAX_PUBLICATION_STREAM_EVENTS);
-    const complete = Boolean(opts?.complete) || existing.complete;
+    const hasLeaves = verified.some((e) => e.kind !== KIND.PUBLICATION);
+    // Never sticky-complete an indexes-only miss — that freezes the reader on empty headings.
+    const complete =
+      opts?.complete === false
+        ? false
+        : hasLeaves && (Boolean(opts?.complete) || existing.complete);
 
     const cache = await openCache();
     const key = publicationStreamKey(addr);
@@ -206,6 +211,22 @@ export async function cacheGetPublicationStreamSnapshot(
     return { events: list, complete: raw.complete === true };
   } catch {
     return { events: [], complete: false };
+  }
+}
+
+/** Drop a publication stream snapshot so the next Read re-walks Mercury/relays. */
+export async function cacheClearPublicationStream(editionAddress: string): Promise<void> {
+  const addr = editionAddress.trim();
+  if (!addr) return;
+  try {
+    const cache = await openCache();
+    const key = publicationStreamKey(addr);
+    const absolute =
+      typeof location !== 'undefined' ? new URL(key, location.origin).href : key;
+    await cache.delete(absolute);
+    await cache.delete(key);
+  } catch {
+    /* private mode / unsupported */
   }
 }
 

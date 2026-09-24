@@ -112,10 +112,8 @@ function persistLandingSoon(view: LandingView): void {
   void (async () => {
     try {
       const prev = await cacheGetLandingSnapshot();
-      const shelves =
-        shelvesHaveCovers(view.shelves) || !shelvesHaveCovers(prev?.shelves)
-          ? (view.shelves ?? [])
-          : (prev?.shelves ?? []);
+      // Union shelves so a timed-out paint cannot wipe a prior curated row.
+      const shelves = mergeLandingShelves(prev?.shelves ?? [], view.shelves ?? []);
       const ratings =
         (view.ratings?.length ?? 0) > 0 ? view.ratings : (prev?.ratings ?? view.ratings ?? []);
       const labels =
@@ -558,10 +556,25 @@ async function resolveShelfPublications(
   const maxAddrs = opts?.maxAddrs ?? 24;
   const maxGroups = opts?.maxGroups ?? 4;
   const networkBudgetMs = opts?.networkBudgetMs ?? 6_000;
+  const curator = GITCITADEL_CURATOR_HEX;
 
+  // Reserve address slots for curator memberships — viewer bookmarks alone
+  // used to fill maxAddrs and leave network without those covers.
+  const curatorMissing: string[] = [];
+  const otherMissing: string[] = [];
+  const seenMissing = new Set<string>();
+  for (const m of memberships) {
+    if (!m.address || byAddr.has(m.address) || seenMissing.has(m.address)) continue;
+    seenMissing.add(m.address);
+    if (m.author === curator) curatorMissing.push(m.address);
+    else otherMissing.push(m.address);
+  }
+  const curatorReserve = Math.min(12, Math.max(8, Math.floor(maxAddrs / 2)));
+  const curatorTake = curatorMissing.slice(0, curatorReserve);
   const missingAddrs = [
-    ...new Set(memberships.flatMap((m) => (m.address && !byAddr.has(m.address) ? [m.address] : [])))
-  ].slice(0, maxAddrs);
+    ...curatorTake,
+    ...otherMissing.slice(0, Math.max(0, maxAddrs - curatorTake.length))
+  ];
 
   const hints = relayHintsForAddresses(opts?.hintEvents ?? []);
 
@@ -596,21 +609,31 @@ async function resolveShelfPublications(
       if (event?.kind === KIND.PUBLICATION) byAddr.set(addr, event);
     }
 
-    type AuthorGroup = { pubkey: string; ds: string[]; hintRelays: string[] };
+    type AuthorGroup = { pubkey: string; ds: string[]; hintRelays: string[]; curator: boolean };
     const groups = new Map<string, AuthorGroup>();
     for (const addr of missingAddrs) {
       if (byAddr.has(addr)) continue;
       const parsed = parseAddress(addr);
       if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
-      const g = groups.get(parsed.pubkey) ?? { pubkey: parsed.pubkey, ds: [], hintRelays: [] };
+      const g =
+        groups.get(parsed.pubkey) ?? {
+          pubkey: parsed.pubkey,
+          ds: [],
+          hintRelays: [],
+          curator: false
+        };
       if (!g.ds.includes(parsed.d)) g.ds.push(parsed.d);
+      if (curatorTake.includes(addr)) g.curator = true;
       for (const url of hints.get(addr) ?? []) {
         if (!g.hintRelays.includes(url)) g.hintRelays.push(url);
       }
       groups.set(parsed.pubkey, g);
     }
 
-    await poolMap([...groups.values()].slice(0, maxGroups), 2, async (group) => {
+    // Prefer curator publication authors so maxGroups cannot drop those covers.
+    const orderedGroups = [...groups.values()].sort((a, b) => Number(b.curator) - Number(a.curator));
+
+    await poolMap(orderedGroups.slice(0, maxGroups), 2, async (group) => {
       const dValues = group.ds.slice(0, 24);
       if (!dValues.length) return;
       const filter = {
@@ -850,7 +873,7 @@ async function loadShelvesAndLabels(
     shelves: [
       ...shelves.map((s) => `${s.id}:${s.events.length}`),
       ...nested.map((s) => `${s.id}:${s.events.length}`)
-    ]
+    ].join(', ')
   });
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
   let viewerNpub = '';

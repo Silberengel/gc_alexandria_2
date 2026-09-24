@@ -11,8 +11,9 @@ Feature: Landing bookshelves
     And shelved means a kind 30045 directory a-tag or e-tag targeting a publication
     And all of those count as shelf membership for the priority rows
     And the GitCitadel curator is npub18cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqeyaztw
-    And shelf order after dedup is My shelf, then the viewer's nested folders A–Z by title, then GitCitadel, then From follows, then From the network
-    And a publication appears on at most one curated row (GitCitadel, follows, network) — those omit covers already on My shelf, nested folders, or a higher curated shelf
+    And shelf order after dedup is My shelf, then the viewer's nested folders A–Z by title, then From follows, then From the network
+    And a publication appears on at most one curated row (follows, network) — those omit covers already on My shelf, nested folders, or a higher curated shelf
+    And GitCitadel curator booklists feed From the network (there is no separate GitCitadel shelf)
     And the same publication may appear on both My shelf and nested folders
     And signed-in nested 30045 folders (not my-book-collection) appear as those alphabetical rows after My shelf
     And 1985 and 10003 membership uses the social/interaction stack
@@ -38,7 +39,7 @@ Feature: Landing bookshelves
     When I open the home page
     Then I see every non-empty shelf in priority order
     And I do not see a mine or follows shelf
-    And I do not see an empty GitCitadel or network shelf
+    And I do not see an empty network shelf
     When every shelf is empty
     Then I still see the global search bar
     And I see no shelf rows
@@ -54,7 +55,7 @@ Feature: Landing bookshelves
     And Alice's My shelf does not linger while Bob's landing loads
     And sign-in does not fire overlapping full landing refreshes that rate-limit relays
     And My shelf is built from Bob's login metadata rather than rescanning every social relay for all of Bob's bookmarks
-    And follows, GitCitadel, and network shelves still sample others' 1985, 10003, and 30045 membership from the social and document stacks
+    And follows and network shelves still sample others' 1985, 10003, and 30045 membership from the social and document stacks (including the GitCitadel curator)
 
   Scenario: Signed-in shelves follow the priority order
     Given I am signed in with a kind 3 follow list or kind 30000 follow sets
@@ -66,9 +67,9 @@ Feature: Landing bookshelves
     When I open the home page
     Then A and E appear only on my shelf
     And B appears only on the follows shelf
-    And C appears only on the GitCitadel shelf
-    And D can appear on the remaining shelf
-    And a refresh always re-queries the curator pubkey's kind 1985 labels on the social stack so new GitCitadel labels appear without waiting on a stale Mercury sample
+    And C and D appear on From the network
+    And when I follow the curator pubkey, curator booklists appear on From follows instead
+    And a refresh always re-queries the curator pubkey's kind 1985 labels on the social stack so new curator labels appear without waiting on a stale Mercury sample
 
   Scenario: Follows shelf uses follow list and follow sets
     Given I am signed in

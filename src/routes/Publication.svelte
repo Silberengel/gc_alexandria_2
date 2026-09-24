@@ -36,7 +36,7 @@
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
-  import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream } from '$lib/nostr/cache';
+  import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
@@ -154,6 +154,8 @@
   let paintedRouteKey = '';
   let pageFilter = $state('');
   let readingBusy = $state(false);
+  /** True while the section stream is still filling after the edition shell paints. */
+  let sectionsLoading = $state(false);
   /** ToC jump to a section that is not in the pane yet. */
   let jumpBusy = $state(false);
   let jumpLabel = $state('');
@@ -224,6 +226,10 @@
       : paintedSections.map((ev) => ({ kind: 'block' as const, event: ev }))
   );
   const moreToPaint = $derived(paintEnd < corpusCount);
+  /** Edition shell painted, but no nested sections yet — keep a loading hint under the header. */
+  const readingShellOnly = $derived(
+    !!event && paintedSections.length > 0 && paintedSections.every((s) => s.id === event!.id)
+  );
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   /** Tracked queue only — untracked editions use Read the publication (local resume still applies inside the reader). */
   const continueTarget = $derived.by(() => {
@@ -561,10 +567,11 @@
       const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
       if (signal?.aborted) return [];
       const cached = snap.events;
-      if (cached.some((e) => e.kind !== KIND.PUBLICATION)) {
+      const hasLeaves = cached.some((e) => e.kind !== KIND.PUBLICATION);
+      if (hasLeaves) {
         rememberEvents(cached);
         onBatch?.(cached);
-        // Full snapshot → paint from cache. Warm/partial → finish Mercury into the corpus.
+        // Full snapshot with real leaves → paint from cache.
         if (snap.complete) return cached;
         if (!isMercuryUnavailable()) {
           try {
@@ -588,6 +595,12 @@
           }
         }
         return cached;
+      }
+      // Indexes-only or empty snapshot: discard sticky complete and re-walk.
+      if (cached.length) {
+        rememberEvents(cached);
+        onBatch?.(cached);
+        void cacheClearPublicationStream(editionAddr);
       }
     } catch {
       /* ignore cache errors — fall through to live load */
@@ -616,9 +629,9 @@
       void cachePutPublicationStream(editionAddr, streamed, { complete: true });
       return streamed;
     }
-    const indexCount = streamed.filter((e) => e.kind === KIND.PUBLICATION).length;
-    // Mercury returned structure only (e.g. Intro/OT/NT). ToC jump loads leaves on demand.
-    if (indexCount >= 3) return streamed;
+    // Structure-only Mercury (e.g. Intro/OT/NT) or empty stream after timeout: walk a-tags
+    // for nested indexes / leaves. Match jumpTo — never leave ToC rows as permanent
+    // placeholders when relays still have the events (features/reader/read.feature).
     const walked = await fallbackSections(edition, {
       signal,
       onHit: (hit) => onBatch?.([hit])
@@ -640,7 +653,7 @@
     const signal = opts?.signal;
     const out: Event[] = [];
     const seen = new Set<string>();
-    const WALK_CONCURRENCY = 4;
+    const WALK_CONCURRENCY = 6;
     const MAX_EVENTS = 2_500;
 
     function claim(hit: Event): boolean {
@@ -683,6 +696,7 @@
         if (tag[0] === 'a' && tag[1]) coords.push(tag[1]);
         else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) ids.push(tag[1]);
       }
+      // Batch-resolve direct children first (one wave) so Koran-sized roots paint ASAP.
       if (coords.length) await poolMap(coords.slice(0, 400), WALK_CONCURRENCY, pushCoord);
       if (ids.length) await poolMap(ids.slice(0, 400), WALK_CONCURRENCY, pushId);
     }
@@ -817,6 +831,7 @@
   /** Load ToC + first heading immediately, then stream/walk sections into the pane. */
   async function fillReadingSections(edition: Event): Promise<boolean> {
     readingBusy = true;
+    sectionsLoading = true;
     cancelTree();
     treeAbort = new AbortController();
     const signal = treeAbort.signal;
@@ -833,13 +848,17 @@
         treeAbort = new AbortController();
       }
       const streamSignal = treeAbort?.signal;
-      if (!streamSignal) return true;
+      if (!streamSignal) {
+        sectionsLoading = false;
+        return true;
+      }
 
       // Do not await the full Mercury/relay pull — large pubs can stream for a long time.
       void loadSectionEvents(edition, streamSignal, (batch) => {
         if (streamSignal.aborted || event?.id !== edition.id || !reading) return;
         scheduleAdopt(batch, edition);
       }).then(() => {
+        if (event?.id === edition.id) sectionsLoading = false;
         if (streamSignal.aborted || event?.id !== edition.id || !reading) return;
         scheduleAdopt([], edition, true);
         if (!sectionCorpus.length) {
@@ -847,8 +866,13 @@
           reading = false;
           setReadQuery(false);
         }
+      }).catch(() => {
+        if (event?.id === edition.id) sectionsLoading = false;
       });
       return true;
+    } catch {
+      if (event?.id === edition.id) sectionsLoading = false;
+      return false;
     } finally {
       if (event?.id === edition.id) readingBusy = false;
     }
@@ -874,6 +898,7 @@
     focusKey = key;
     reading = true;
     readingBusy = true;
+    sectionsLoading = true;
     const focusAddr = sectionAddr;
     const focusQuote = quote;
     const edition = event;
@@ -951,6 +976,7 @@
         if (signal.aborted || focusKey !== key || event !== edition) return;
         scheduleAdopt(page, edition);
       }).then(() => {
+        if (event?.id === edition.id) sectionsLoading = false;
         if (signal.aborted || focusKey !== key || event !== edition) return;
         scheduleAdopt([], edition, true);
         if (!sectionCorpus.some((e) => e.kind !== KIND.PUBLICATION) && !focused) {
@@ -981,6 +1007,8 @@
             if (paintPinId === scrollId) paintPinId = '';
           }, 2500);
         }
+      }).catch(() => {
+        if (event?.id === edition.id) sectionsLoading = false;
       });
     } finally {
       if (focusKey === key) readingBusy = false;
@@ -1130,6 +1158,7 @@
       focusKey = '';
       commentFocusApplied = '';
       replyOpenId = null;
+      sectionsLoading = false;
       cancelTree();
       cancelPrefetch();
       error = false;
@@ -1376,6 +1405,7 @@
     reading = false;
     tocOpen = false;
     jumpBusy = false;
+    sectionsLoading = false;
     cancelTree();
     setReadQuery(false);
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
@@ -2219,9 +2249,8 @@
                         >Publication info</button
                       >
                     </div>
-                  {:else if missing}
-                    <p class="muted missing-section-hint">This section is unavailable.</p>
                   {/if}
+                  <!-- Nested index stubs keep the title heading only (Mercury row with no event). -->
                 {:else if missing}
                   <p class="muted missing-section-hint">This section is unavailable.</p>
                 {:else if isMarkupKind(section.kind)}
@@ -2336,6 +2365,11 @@
               </p>
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
             </div>
+          {:else if sectionsLoading}
+            <p class="loading-hint" aria-live="polite">
+              <span class="jump-busy-spinner" aria-hidden="true"></span>
+              {readingShellOnly ? 'Loading sections…' : 'Loading more sections…'}
+            </p>
           {/if}
         </div>
       </div>

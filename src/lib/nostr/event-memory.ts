@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
+import { KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
-import { preferRicherEvent } from '../metadata';
+import { preferRicherEvent, publicationSectionCount } from '../metadata';
 import { isNewerReplaceable } from './replaceable';
 import { firstTag } from './verify';
 
@@ -34,7 +35,21 @@ export function rememberEvents(events: Event[]): void {
     for (const variant of new Set([d, ...dTagVariants(d), normalizeDTag(d)].filter(Boolean))) {
       const key = addrKey(event.kind, pk, variant);
       const cur = byAddr.get(key);
-      if (!cur || isNewerReplaceable(event, cur)) byAddr.set(key, event);
+      if (!cur) {
+        byAddr.set(key, event);
+        continue;
+      }
+      // Reader walks need a/e tags — never let a thin catalog card replace a richer index.
+      if (event.kind === KIND.PUBLICATION && cur.kind === KIND.PUBLICATION) {
+        const curSecs = publicationSectionCount(cur);
+        const nextSecs = publicationSectionCount(event);
+        if (nextSecs > curSecs) {
+          byAddr.set(key, event);
+          continue;
+        }
+        if (nextSecs < curSecs) continue;
+      }
+      if (isNewerReplaceable(event, cur)) byAddr.set(key, event);
       else if (cur.id.toLowerCase() === id) byAddr.set(key, preferRicherEvent(cur, event));
     }
   }
@@ -58,7 +73,20 @@ export function memoryFindByAddress(kind: number, pubkey: string, d: string): Ev
   let best: Event | null = null;
   for (const variant of wanted) {
     const hit = byAddr.get(addrKey(kind, pk, variant));
-    if (hit && (!best || isNewerReplaceable(hit, best))) best = hit;
+    if (!hit) continue;
+    if (!best) {
+      best = hit;
+      continue;
+    }
+    if (kind === KIND.PUBLICATION) {
+      const bestSecs = publicationSectionCount(best);
+      const hitSecs = publicationSectionCount(hit);
+      if (hitSecs !== bestSecs) {
+        if (hitSecs > bestSecs) best = hit;
+        continue;
+      }
+    }
+    if (isNewerReplaceable(hit, best)) best = hit;
   }
   return best;
 }

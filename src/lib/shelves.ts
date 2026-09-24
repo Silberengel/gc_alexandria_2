@@ -1,12 +1,11 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { GITCITADEL_CURATOR_HEX } from './hex';
 import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { firstTag, eventAddress } from './nostr/verify';
 
-export type ShelfId = 'mine' | 'follows' | 'gitcitadel' | 'network';
+export type ShelfId = 'mine' | 'follows' | 'network';
 
 export type Shelf = {
   id: ShelfId;
@@ -35,46 +34,60 @@ export type Membership = {
 export const SHELF_TITLES: Record<ShelfId, string> = {
   mine: 'My shelf',
   follows: 'From follows',
-  gitcitadel: 'GitCitadel',
   network: 'From the network'
 };
 
 /** Core bucket order for assignShelves (folders are interleaved separately). */
-const SHELF_ORDER: ShelfId[] = ['mine', 'gitcitadel', 'follows', 'network'];
+const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'network'];
 
 /**
  * Home / landing row order:
  * 1. My shelf
  * 2. Viewer's nested folder shelves (A–Z by title)
- * 3. GitCitadel
- * 4. From follows, then From the network
+ * 3. From follows
+ * 4. From the network (includes GitCitadel curator lists)
  * Unknown ids stay at the end in input order.
+ * Legacy `gitcitadel` shelf ids are folded into network.
  */
 export function orderLandingShelves<T extends { id: string; title?: string }>(shelves: T[]): T[] {
   const mine: T[] = [];
   const folders: T[] = [];
-  const gitcitadel: T[] = [];
   const follows: T[] = [];
   const network: T[] = [];
   const other: T[] = [];
   for (const shelf of shelves) {
     if (shelf.id === 'mine') mine.push(shelf);
     else if (shelf.id.startsWith('folder:')) folders.push(shelf);
-    else if (shelf.id === 'gitcitadel') gitcitadel.push(shelf);
     else if (shelf.id === 'follows') follows.push(shelf);
-    else if (shelf.id === 'network') network.push(shelf);
-    else other.push(shelf);
+    else if (shelf.id === 'network' || shelf.id === 'gitcitadel') {
+      network.push(
+        shelf.id === 'gitcitadel'
+          ? ({ ...shelf, id: 'network', title: SHELF_TITLES.network } as T)
+          : shelf
+      );
+    } else other.push(shelf);
   }
   folders.sort((a, b) => {
     const ta = (a.title ?? a.id).trim();
     const tb = (b.title ?? b.id).trim();
     return ta.localeCompare(tb, undefined, { sensitivity: 'base' });
   });
-  return [...mine, ...folders, ...gitcitadel, ...follows, ...network, ...other];
+  // One network row — fold legacy gitcitadel covers into it when both were present.
+  let networkRow: T[] = network;
+  if (network.length > 1) {
+    const first = network[0]!;
+    if (Array.isArray((first as { events?: Event[] }).events)) {
+      const events = network.flatMap((s) => (s as { events?: Event[] }).events ?? []);
+      networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network, events } as T];
+    } else {
+      networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network } as T];
+    }
+  }
+  return [...mine, ...folders, ...follows, ...networkRow, ...other];
 }
 
 /**
- * Drop covers on GitCitadel / follows / network that already appear on a higher row.
+ * Drop covers on follows / network that already appear on a higher row.
  * Viewer-owned shelves (My shelf + nested folders) keep every cover — intentional duplicates stay.
  * Empty curated shelves after dedupe are omitted.
  */
@@ -105,7 +118,7 @@ export function dedupeLandingShelfEvents<
   return out;
 }
 
-/** My shelf and nested 30045 folders — not follows/GitCitadel/network. */
+/** My shelf and nested 30045 folders — not follows/network. */
 export function isViewerOwnedShelfId(id: string): boolean {
   return id === 'mine' || id.startsWith('folder:');
 }
@@ -159,16 +172,15 @@ function shelfForAuthor(
 ): ShelfId {
   if (viewer && author === viewer) return 'mine';
   if (viewer && follows.has(author)) return 'follows';
-  if (author === GITCITADEL_CURATOR_HEX) return 'gitcitadel';
+  // GitCitadel curator lists land on From the network with everyone else.
   return 'network';
 }
 
 /** Membership win priority when a pub appears on multiple lists (lower wins). Matches Home row order. */
 const PRIORITY: Record<ShelfId, number> = {
   mine: 0,
-  gitcitadel: 1,
-  follows: 2,
-  network: 3
+  follows: 1,
+  network: 2
 };
 
 /**
@@ -277,7 +289,6 @@ export function assignShelves(
   const buckets: Record<ShelfId, { event: Event; created_at: number }[]> = {
     mine: [],
     follows: [],
-    gitcitadel: [],
     network: []
   };
 

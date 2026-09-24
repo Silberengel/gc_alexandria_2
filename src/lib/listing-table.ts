@@ -3,7 +3,8 @@ import { KIND } from './constants';
 import { cardMeta, displayTitle, publicationPath, wikiPath } from './metadata';
 import type { ListingDensity } from './stores/listing-density';
 
-export const LISTING_PAGE_SIZE_DEFAULT = 25;
+/** Full/compact card grids use 3 columns — 24 fills complete rows (no orphan). */
+export const LISTING_PAGE_SIZE_DEFAULT = 24;
 export const LISTING_PAGE_SIZE_TABLE = 250;
 export const LISTING_TABLE_CELL_MAX = 100;
 

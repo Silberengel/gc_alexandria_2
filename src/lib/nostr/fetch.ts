@@ -2,7 +2,7 @@ import type { Event, Filter } from 'nostr-tools';
 import { KIND } from '../constants';
 import { isEventDeleted } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
-import { preferRicherEvent } from '../metadata';
+import { preferRicherEvent, publicationSectionCount } from '../metadata';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
@@ -56,6 +56,65 @@ async function hideIfDeleted(event: Event | null): Promise<Event | null> {
   return null;
 }
 
+/** Synthetic ToC stubs must not block a live fetch for the same address. */
+function isSyntheticPlaceholder(event: Event): boolean {
+  return event.created_at === 0 && /^0+$/.test(event.sig ?? '');
+}
+
+/** Catalog/search cards often lack a/e tags — never treat them as the final index. */
+function isThinPublicationIndex(event: Event): boolean {
+  return event.kind === KIND.PUBLICATION && publicationSectionCount(event) === 0;
+}
+
+/** Pick newest, but never prefer a thin 30040 over one that still has children to walk. */
+function pickBestAddressable(events: Event[], kind: number, pubkey: string): Event | null {
+  let best: Event | null = null;
+  for (const event of events) {
+    if (event.kind !== kind) continue;
+    if (event.pubkey.toLowerCase() !== pubkey) continue;
+    if (!best) {
+      best = event;
+      continue;
+    }
+    const bestSecs = publicationSectionCount(best);
+    const nextSecs = publicationSectionCount(event);
+    if (kind === KIND.PUBLICATION && nextSecs !== bestSecs) {
+      if (nextSecs > bestSecs) best = event;
+      continue;
+    }
+    if (isNewerReplaceable(event, best)) best = event;
+  }
+  return best;
+}
+
+/** Resolve with the first non-null result; wait for all only when every source misses. */
+function firstEvent(promises: Array<Promise<Event | null>>): Promise<Event | null> {
+  return new Promise((resolve) => {
+    let pending = promises.length;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    let done = false;
+    for (const p of promises) {
+      p.then((event) => {
+        if (done) return;
+        if (event) {
+          done = true;
+          resolve(event);
+          return;
+        }
+        pending -= 1;
+        if (pending === 0) resolve(null);
+      }).catch(() => {
+        if (done) return;
+        pending -= 1;
+        if (pending === 0) resolve(null);
+      });
+    }
+  });
+}
+
 export async function fetchByAddress(coord: string): Promise<Event | null> {
   let cached: Event | null = null;
   try {
@@ -69,8 +128,10 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
         cached = null;
       }
     }
-    // Shelf resolution and navigation already have the event — do not REQ every address again.
-    if (cached) return hideIfDeleted(cached);
+    if (cached && isSyntheticPlaceholder(cached)) cached = null;
+    // Rich indexes / leaves: trust cache. Thin 30040 catalog cards must still hit the network
+    // or nested Surahs/Preamble walks stop at empty headings.
+    if (cached && !isThinPublicationIndex(cached)) return hideIfDeleted(cached);
 
     const dValues = dTagVariants(parsed.d);
     const slug = normalizeDTag(parsed.d);
@@ -81,27 +142,30 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       '#d': dValues.slice(0, 12),
       limit: 5
     };
-    const pickNewest = (events: Event[]): Event | null => {
-      let best: Event | null = null;
-      for (const event of events) {
-        if (event.kind !== parsed.kind) continue;
-        if (event.pubkey.toLowerCase() !== parsed.pubkey) continue;
-        if (!best || isNewerReplaceable(event, best)) best = event;
-      }
-      return best;
-    };
-    const mercury = await mercuryFilter(filter);
-    const fromMercury = pickNewest(mercury);
-    if (fromMercury) return hideIfDeleted(fromMercury);
-    const ws = await relayPool.query(
-      stackForKind(parsed.kind),
-      [filter],
-      4000,
-      5,
-      undefined,
-      { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
-    );
-    return hideIfDeleted(pickNewest(ws) ?? cached);
+    // Race Mercury HTTP with relays — a hung /filter must not delay the a-tag walk.
+    const hit = await firstEvent([
+      mercuryFilter(filter).then((events) =>
+        pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase())
+      ),
+      relayPool
+        .query(
+          stackForKind(parsed.kind),
+          [filter],
+          4000,
+          5,
+          undefined,
+          { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
+        )
+        .then((events) => pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase()))
+    ]);
+    if (hit && cached) {
+      const chosen =
+        publicationSectionCount(hit) >= publicationSectionCount(cached) ? hit : cached;
+      if (chosen === hit) rememberEvents([hit]);
+      return hideIfDeleted(chosen);
+    }
+    if (hit) rememberEvents([hit]);
+    return hideIfDeleted(hit ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;
   }
@@ -119,13 +183,15 @@ export async function fetchById(id: string): Promise<Event | null> {
         cached = null;
       }
     }
+    if (cached && isSyntheticPlaceholder(cached)) cached = null;
     if (cached) return hideIfDeleted(cached);
 
     const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-    const mercury = await mercuryFilter(filter);
-    if (mercury[0]) return hideIfDeleted(mercury[0]);
-    const ws = await relayPool.query(documentStack(), [filter]);
-    return hideIfDeleted(ws[0] ?? cached);
+    const hit = await firstEvent([
+      mercuryFilter(filter).then((events) => events[0] ?? null),
+      relayPool.query(documentStack(), [filter]).then((events) => events[0] ?? null)
+    ]);
+    return hideIfDeleted(hit ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;
   }

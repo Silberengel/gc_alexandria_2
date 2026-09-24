@@ -6,7 +6,7 @@
     onPage: (page: number) => void;
   }
 
-  let { page, pageSize = 25, total, onPage }: Props = $props();
+  let { page, pageSize = 24, total, onPage }: Props = $props();
   const pages = $derived(Math.max(1, Math.ceil(total / pageSize)));
 </script>
 

@@ -293,8 +293,10 @@ export async function mercuryPublicationStream(
     }
     if (!res?.ok) {
       pageFailures += 1;
-      // Dead Mercury: fail over fast (was 3 × 30s = 90s of blank reader).
-      if (pageFailures >= 2) break;
+      // Dead/hung Mercury: fail over to a-tag walk immediately on the first page.
+      // Later pages may retry once (partial Bible streams), but from=0 must not sit
+      // through 2 × body timeouts before the reader walks relays.
+      if (from === 0 || pageFailures >= 2) break;
       await new Promise<void>((resolve) => setTimeout(resolve, 200 * pageFailures));
       continue;
     }
@@ -342,7 +344,7 @@ export async function mercuryPublicationStream(
       }
     } catch {
       pageFailures += 1;
-      if (pageFailures >= 2) break;
+      if (from === 0 || pageFailures >= 2) break;
       await new Promise<void>((resolve) => setTimeout(resolve, 200 * pageFailures));
       continue;
     }

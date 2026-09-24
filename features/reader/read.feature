@@ -75,7 +75,7 @@ Feature: In-browser reader
     And the top-level 30040 title is the first ToC link (jumps to the publication top) and the first reading-pane heading
     And basic edition metadata (authors, publisher, summary) appears under that top index heading
     And an index or section with an image tag shows that image as a hero above its heading
-    And a Mercury index row with no event still shows as a titled heading in the ToC and reading pane
+    And a Mercury index row with no event still shows as a titled heading in the ToC and reading pane (not an unavailable stub)
     And nested 30040 titles appear as headings in the reading pane (not only in the ToC)
     And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
@@ -97,6 +97,7 @@ Feature: In-browser reader
     And the reader shows a short opening state for that section so the jump does not look inert
     And the first viewport is readable without the entire book
     And opening with read=1 paints the edition shell even if a background ToC prefetch is aborted
+    And while sections are still streaming after that shell, a Loading sections hint stays visible under the header
     When I scroll later
     Then subsequent sections appear in order
     And missing sections show a placeholder with the section title and a ⋯ more menu (copy pointer / comments)
