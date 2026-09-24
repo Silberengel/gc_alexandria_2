@@ -111,16 +111,28 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
     if (looksLikeNip04Ciphertext(content) && signer?.nip04Decrypt) {
       attempts.push((pk, ct) => signer.nip04Decrypt!(pk, ct));
     }
+    // Do not ask a browser extension to decrypt for a bunker session (wrong key / wrong UI).
+    if (session.getSignerType() !== 'bunker') {
+      const ext = typeof window !== 'undefined' ? window.nostr : undefined;
+      if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
+        attempts.push(ext.nip44.decrypt.bind(ext.nip44));
+      }
+      if (looksLikeNip04Ciphertext(content) && typeof ext?.nip04?.decrypt === 'function') {
+        attempts.push(ext.nip04.decrypt.bind(ext.nip04));
+      }
+    }
   } catch {
     /* session unavailable */
   }
 
-  const ext = typeof window !== 'undefined' ? window.nostr : undefined;
-  if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
-    attempts.push(ext.nip44.decrypt.bind(ext.nip44));
-  }
-  if (looksLikeNip04Ciphertext(content) && typeof ext?.nip04?.decrypt === 'function') {
-    attempts.push(ext.nip04.decrypt.bind(ext.nip04));
+  if (!attempts.length) {
+    const ext = typeof window !== 'undefined' ? window.nostr : undefined;
+    if (looksLikeNip44Ciphertext(content) && typeof ext?.nip44?.decrypt === 'function') {
+      attempts.push(ext.nip44.decrypt.bind(ext.nip44));
+    }
+    if (looksLikeNip04Ciphertext(content) && typeof ext?.nip04?.decrypt === 'function') {
+      attempts.push(ext.nip04.decrypt.bind(ext.nip04));
+    }
   }
   for (const decrypt of attempts) {
     try {

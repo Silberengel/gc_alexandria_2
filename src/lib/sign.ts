@@ -27,42 +27,75 @@ export async function signUnsigned(partial: {
 }): Promise<Event | null> {
   signDepth += 1;
   try {
+    const expectedPubkey = session.getPubkey()?.toLowerCase() ?? '';
+    const signerType = session.getSignerType();
     let signer = session.getSigner();
+
     if (!signer) {
-      // Painted bunker identity with a dead socket — rebuild before giving up.
-      if (session.getSignerType() === 'bunker' && session.getPubkey()) {
-        try {
-          await session.ensureBunkerSigner();
-          signer = session.getSigner();
-        } catch {
+      if (signerType === 'bunker') {
+        // Amber / bunker session — never fall through to window.nostr (nos2x).
+        const ok = await session.ensureBunkerSigner();
+        signer = session.getSigner();
+        if (!ok || !signer) {
+          console.warn(
+            '[alexandria:sign] bunker session has no live signer; refusing NIP-07 fallback'
+          );
           return null;
         }
-      }
-      // Lazy attach NIP-07 when the session painted from storage but the signer is not ready yet.
-      if (!signer) {
-        if (!session.getPubkey() || !window.nostr?.signEvent) return null;
+      } else if (signerType === 'nip07' || (!signerType && expectedPubkey && window.nostr?.signEvent)) {
+        // Lazy attach NIP-07 when the session painted from storage but the signer is not ready yet.
         try {
           signer = new Nip07Signer();
           await signer.getPublicKey();
         } catch {
           return null;
         }
+      } else {
+        return null;
       }
     }
+
+    // Bunker identity must never use a NIP-07 extension, even if one is installed.
+    if (signerType === 'bunker' && signer instanceof Nip07Signer) {
+      console.warn('[alexandria:sign] bunker session had NIP-07 signer; reconnecting Amber');
+      const ok = await session.ensureBunkerSigner();
+      signer = session.getSigner();
+      if (!ok || !signer || signer instanceof Nip07Signer) {
+        console.warn('[alexandria:sign] could not rebuild bunker signer');
+        return null;
+      }
+    }
+
     // Mobile: wake bunker relay sockets before asking Amber to sign.
-    if (signer && 'ensureConnected' in signer && typeof (signer as BunkerSigner).ensureConnected === 'function') {
+    if (
+      signer &&
+      'ensureConnected' in signer &&
+      typeof (signer as BunkerSigner).ensureConnected === 'function'
+    ) {
       try {
         await (signer as BunkerSigner).ensureConnected();
       } catch {
         /* sign may still work */
       }
     }
+
     const signed = await signer.signEvent({
       kind: partial.kind,
       content: partial.content,
       tags: withClientTag(partial.tags)
     });
-    return ingestEvent(signed);
+    const event = ingestEvent(signed);
+    if (!event) return null;
+    // Guard against an extension signing as a different key while bunker was intended.
+    if (expectedPubkey && event.pubkey.toLowerCase() !== expectedPubkey) {
+      console.warn('[alexandria:sign] signed pubkey mismatch; dropping event', {
+        expected: expectedPubkey.slice(0, 8),
+        got: event.pubkey.slice(0, 8),
+        signerType
+      });
+      return null;
+    }
+    return event;
   } catch (err) {
     console.warn('[alexandria:sign] sign failed', err);
     return null;

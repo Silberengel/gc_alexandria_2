@@ -550,7 +550,8 @@ function createSessionStore() {
     getPubkey: () => get({ subscribe }).pubkey,
     getMetadata: () => metadataEvents,
     getSigner: () => activeSigner,
-    getSignerType: () => activeSignerType
+    /** Prefer live signer type; fall back to painted/persisted session type. */
+    getSignerType: () => activeSignerType ?? get({ subscribe }).signerType
   };
 }
 
