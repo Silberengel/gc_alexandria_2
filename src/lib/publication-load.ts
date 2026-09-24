@@ -4,9 +4,22 @@ import { KIND } from './constants';
 import { parseAddress } from './library-scope';
 import { firstTag, eventAddress } from './nostr/verify';
 import { coverTitle, humanizeTag } from './cover-fallback';
-import { displayTitle } from './metadata';
+import { displayTitle, publicationSectionCount } from './metadata';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 import { bibleDisplay, isBibleSection } from './bible-verse';
+import { isNewerReplaceable } from './nostr/replaceable';
+
+/** Prefer the walkable index when thin catalog cards share a coordinate with a full tree. */
+function preferWalkableIndex(a: Event, b: Event): Event {
+  const sa = publicationSectionCount(a);
+  const sb = publicationSectionCount(b);
+  if (sa !== sb) return sa > sb ? a : b;
+  if (a.id.toLowerCase() === b.id.toLowerCase()) {
+    if (a.tags.length !== b.tags.length) return a.tags.length > b.tags.length ? a : b;
+    return b;
+  }
+  return isNewerReplaceable(b, a) ? b : a;
+}
 
 export type TocEntry = {
   pos: number;
@@ -599,7 +612,9 @@ export function orderPublicationSections(
   for (const event of list) {
     byId.set(event.id.toLowerCase(), event);
     for (const key of publicationCoordinateLookupKeys(eventAddress(event))) {
-      byAddr.set(key.toLowerCase(), event);
+      const addrKey = key.toLowerCase();
+      const prev = byAddr.get(addrKey);
+      byAddr.set(addrKey, prev ? preferWalkableIndex(prev, event) : event);
     }
   }
 

@@ -105,6 +105,11 @@ function publicationTreeMissing(naddr: string): boolean {
   return missingPublicationTrees.has(naddr.trim());
 }
 
+/** True when Mercury /meta|/toc|/stream already 404'd this naddr this session. */
+export function isMercuryPublicationMissing(naddr: string): boolean {
+  return publicationTreeMissing(naddr);
+}
+
 /** Test helper — clear session cooldowns and 404 cache. */
 export function resetMercuryClientState(): void {
   unavailableUntil = 0;

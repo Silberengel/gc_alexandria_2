@@ -21,12 +21,13 @@
   import PageFilter from '$lib/components/PageFilter.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { KIND, NIP32_READ_LABEL } from '$lib/constants';
-  import { publicationPath, hasPublicationSection } from '$lib/metadata';
+  import { publicationPath, hasPublicationSection, publicationSectionCount } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
   import { filterDeletedEvents, refreshDeletionsFor } from '$lib/deletions';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import {
     isMercuryUnavailable,
+    isMercuryPublicationMissing,
     mercuryFilter,
     mercuryPublicationMeta,
     mercuryPublicationStream,
@@ -561,6 +562,7 @@
     onBatch?: (batch: Event[]) => void
   ): Promise<Event[]> {
     const editionAddr = eventAddress(edition);
+    const naddr = naddrFor(edition);
 
     // Instant reopen: we already streamed this book into Cache Storage earlier.
     try {
@@ -573,10 +575,10 @@
         onBatch?.(cached);
         // Full snapshot with real leaves → paint from cache.
         if (snap.complete) return cached;
-        if (!isMercuryUnavailable()) {
+        if (!isMercuryUnavailable() && !isMercuryPublicationMissing(naddr)) {
           try {
             const fresh = await mercuryPublicationStream(
-              naddrFor(edition),
+              naddr,
               undefined,
               signal,
               (page) => {
@@ -606,11 +608,23 @@
       /* ignore cache errors — fall through to live load */
     }
 
+    // Citadel-only trees 404 on Mercury — probe /meta first so we walk relays
+    // immediately instead of waiting on /stream body timeouts.
     let streamed: Event[] = [];
-    if (!isMercuryUnavailable()) {
+    let mercuryHosted = !isMercuryUnavailable() && !isMercuryPublicationMissing(naddr);
+    if (mercuryHosted) {
+      try {
+        const meta = await mercuryPublicationMeta(naddr, signal);
+        if (signal?.aborted) return [];
+        mercuryHosted = meta != null && !isMercuryPublicationMissing(naddr);
+      } catch {
+        mercuryHosted = false;
+      }
+    }
+    if (mercuryHosted) {
       try {
         streamed = await mercuryPublicationStream(
-          naddrFor(edition),
+          naddr,
           undefined,
           signal,
           (page) => {
@@ -629,11 +643,10 @@
       void cachePutPublicationStream(editionAddr, streamed, { complete: true });
       return streamed;
     }
-    // Structure-only Mercury (e.g. Intro/OT/NT) or empty stream after timeout: walk a-tags
-    // for nested indexes / leaves. Match jumpTo — never leave ToC rows as permanent
-    // placeholders when relays still have the events (features/reader/read.feature).
+    // Structure-only Mercury (e.g. Intro/OT/NT), empty stream, or citadel-only: walk a-tags.
     const walked = await fallbackSections(edition, {
       signal,
+      relaysOnly: !mercuryHosted || isMercuryPublicationMissing(naddr),
       onHit: (hit) => onBatch?.([hit])
     });
     if (signal?.aborted) return streamed;
@@ -647,14 +660,16 @@
   /** Document-stack / memory walk only (features/reader/read.feature fallback). */
   async function fallbackSections(
     target: Event,
-    opts?: { onHit?: (event: Event) => void; signal?: AbortSignal }
+    opts?: { onHit?: (event: Event) => void; signal?: AbortSignal; relaysOnly?: boolean }
   ): Promise<Event[]> {
     const onHit = opts?.onHit;
     const signal = opts?.signal;
+    const relaysOnly = opts?.relaysOnly === true;
     const out: Event[] = [];
     const seen = new Set<string>();
     const WALK_CONCURRENCY = 6;
     const MAX_EVENTS = 2_500;
+    const fetchOpts = relaysOnly ? { relaysOnly: true as const } : undefined;
 
     function claim(hit: Event): boolean {
       if (seen.has(hit.id)) return false;
@@ -672,9 +687,9 @@
       const pubkey = parts[1];
       const d = parts.slice(2).join(':');
       if (!kind || !pubkey || !d) return;
-      // Prefer memory → Cache Storage → relays (fetchByAddress) so offline reopens work.
-      let hit =
-        memoryFindByAddress(kind, pubkey, d) ?? (await fetchByAddress(coord));
+      // Always go through fetchByAddress: memory/cache may hold thin catalog 30040s
+      // (no a/e). Short-circuiting on those freezes nested Surahs/Preamble as empty headings.
+      const hit = await fetchByAddress(coord, fetchOpts);
       if (!hit || !claim(hit)) return;
       if (hit.kind === KIND.PUBLICATION) await expandChildren(hit);
     }
@@ -693,17 +708,32 @@
       const coords: string[] = [];
       const ids: string[] = [];
       for (const tag of ev.tags) {
-        if (tag[0] === 'a' && tag[1]) coords.push(tag[1]);
-        else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) ids.push(tag[1]);
+        const name = tag[0];
+        if ((name === 'a' || name === 'A') && tag[1]) coords.push(tag[1]);
+        else if ((name === 'e' || name === 'E') && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1]))
+          ids.push(tag[1]);
       }
       // Batch-resolve direct children first (one wave) so Koran-sized roots paint ASAP.
       if (coords.length) await poolMap(coords.slice(0, 400), WALK_CONCURRENCY, pushCoord);
       if (ids.length) await poolMap(ids.slice(0, 400), WALK_CONCURRENCY, pushId);
     }
 
+    // Catalog/search may have painted a thin root (ToC from Mercury, no a/e). Refresh
+    // before walking or nested Surahs/Preamble never expand.
+    let root = target;
+    if (publicationSectionCount(target) === 0) {
+      const refreshed = await fetchByAddress(eventAddress(target), fetchOpts);
+      if (refreshed && publicationSectionCount(refreshed) > 0) {
+        root = refreshed;
+        rememberEvents([refreshed]);
+        onHit?.(refreshed);
+      }
+    }
+
     // Root edition is the reading-pane top heading; walk its children (not the root itself).
-    seen.add(target.id);
-    await expandChildren(target);
+    seen.add(root.id);
+    if (root.id !== target.id) seen.add(target.id);
+    await expandChildren(root);
     return out;
   }
 
@@ -1651,12 +1681,17 @@
       }
 
       let streamed: Event[] = [];
+      const naddr = naddrFor(edition);
+      const skipMercury =
+        isMercuryUnavailable() || isMercuryPublicationMissing(naddr);
       try {
-        if (Number.isFinite(entry.pos)) {
-          streamed = await mercuryPublicationStream(naddrFor(edition), entry.pos);
-        }
-        if (!streamed.length) {
-          streamed = await mercuryPublicationStream(naddrFor(edition));
+        if (!skipMercury) {
+          if (Number.isFinite(entry.pos)) {
+            streamed = await mercuryPublicationStream(naddr, entry.pos);
+          }
+          if (!streamed.length) {
+            streamed = await mercuryPublicationStream(naddr);
+          }
         }
       } catch {
         streamed = [];
@@ -1666,6 +1701,7 @@
         streamed = mergeSections(
           streamed,
           await fallbackSections(edition, {
+            relaysOnly: skipMercury || isMercuryPublicationMissing(naddr),
             onHit: (hit) => {
               if (focusKey !== key || event !== edition) return;
               adoptSections(mergeSections(sections, [hit]), edition);

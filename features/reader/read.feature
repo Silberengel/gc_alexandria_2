@@ -47,6 +47,7 @@ Feature: In-browser reader
     When I open the publication page
     Then I see a "Read the publication" button
     And pressing it walks those nested indexes for leaf sections
+    And when Mercury has no /meta tree for this naddr, Read skips /stream and walks the document stack (e.g. thecitadel) only
 
   Scenario: Non-30041 sections are still readable
     Given a 30040 whose a-tags include 30818, 30817, 11, 30023, or other non-30040 kinds

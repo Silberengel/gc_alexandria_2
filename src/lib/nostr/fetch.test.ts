@@ -22,7 +22,8 @@ vi.mock('./cache', () => ({
 }));
 
 vi.mock('./mercury', () => ({
-  mercuryFilter: (...args: unknown[]) => mercuryFilter(...args)
+  mercuryFilter: (...args: unknown[]) => mercuryFilter(...args),
+  isMercuryUnavailable: () => false
 }));
 
 vi.mock('../deletions', () => ({
@@ -95,6 +96,45 @@ describe('fetch cache fallback', () => {
     query.mockResolvedValue([rich]);
     const { fetchByAddress } = await import('./fetch');
     await expect(fetchByAddress(`30040:${'b'.repeat(64)}:jane`)).resolves.toBe(rich);
+    expect(query).toHaveBeenCalled();
+  });
+
+  it('does not let a fast thin Mercury 30040 beat a richer relay copy', async () => {
+    const thin = ev({ id: 'a'.repeat(64), kind: 30040, pubkey: 'b'.repeat(64) });
+    const rich = ev({
+      id: 'f'.repeat(64),
+      kind: 30040,
+      pubkey: 'b'.repeat(64),
+      created_at: 2,
+      tags: [
+        ['d', 'jane'],
+        ['a', `30041:${'b'.repeat(64)}:ch1`]
+      ]
+    });
+    mercuryFilter.mockResolvedValue([thin]);
+    query.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([rich]), 30))
+    );
+    const { fetchByAddress } = await import('./fetch');
+    await expect(fetchByAddress(`30040:${'b'.repeat(64)}:jane`)).resolves.toBe(rich);
+  });
+
+  it('relaysOnly skips Mercury for citadel-only walks', async () => {
+    const rich = ev({
+      id: 'f'.repeat(64),
+      kind: 30040,
+      pubkey: 'b'.repeat(64),
+      tags: [
+        ['d', 'jane'],
+        ['a', `30041:${'b'.repeat(64)}:ch1`]
+      ]
+    });
+    query.mockResolvedValue([rich]);
+    const { fetchByAddress } = await import('./fetch');
+    await expect(
+      fetchByAddress(`30040:${'b'.repeat(64)}:jane`, { relaysOnly: true })
+    ).resolves.toBe(rich);
+    expect(mercuryFilter).not.toHaveBeenCalled();
     expect(query).toHaveBeenCalled();
   });
 

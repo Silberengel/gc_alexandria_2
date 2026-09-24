@@ -6,10 +6,15 @@ import { preferRicherEvent, publicationSectionCount } from '../metadata';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
-import { mercuryFilter } from './mercury';
+import { mercuryFilter, isMercuryUnavailable } from './mercury';
 import { relayPool } from './pool';
 import { isNewerReplaceable } from './replaceable';
 import { documentStack, wikiStack } from './selector';
+
+export type FetchByAddressOpts = {
+  /** Skip Mercury HTTP — use document/wiki relays only (citadel-only trees). */
+  relaysOnly?: boolean;
+};
 
 export function mergeById(...lists: Event[][]): Event[] {
   const byId = new Map<string, Event>();
@@ -115,7 +120,51 @@ function firstEvent(promises: Array<Promise<Event | null>>): Promise<Event | nul
   });
 }
 
-export async function fetchByAddress(coord: string): Promise<Event | null> {
+/**
+ * Like firstEvent, but a thin 30040 catalog card does not win the race — keep
+ * waiting for a richer index (or every source to finish) so nested walks can expand.
+ */
+function bestAddressableEvent(promises: Array<Promise<Event | null>>): Promise<Event | null> {
+  return new Promise((resolve) => {
+    let pending = promises.length;
+    if (!pending) {
+      resolve(null);
+      return;
+    }
+    let best: Event | null = null;
+    let settled = false;
+    const finish = (event: Event | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(event);
+    };
+    for (const p of promises) {
+      p.then((event) => {
+        if (settled) return;
+        if (event) {
+          best = best
+            ? pickBestAddressable([best, event], event.kind, event.pubkey.toLowerCase()) ?? best
+            : event;
+          if (!isThinPublicationIndex(best)) {
+            finish(best);
+            return;
+          }
+        }
+        pending -= 1;
+        if (pending === 0) finish(best);
+      }).catch(() => {
+        if (settled) return;
+        pending -= 1;
+        if (pending === 0) finish(best);
+      });
+    }
+  });
+}
+
+export async function fetchByAddress(
+  coord: string,
+  opts?: FetchByAddressOpts
+): Promise<Event | null> {
   let cached: Event | null = null;
   try {
     const parsed = parseAddress(coord);
@@ -142,22 +191,30 @@ export async function fetchByAddress(coord: string): Promise<Event | null> {
       '#d': dValues.slice(0, 12),
       limit: 5
     };
-    // Race Mercury HTTP with relays — a hung /filter must not delay the a-tag walk.
-    const hit = await firstEvent([
-      mercuryFilter(filter).then((events) =>
-        pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase())
-      ),
+    const pick = (events: Event[]) =>
+      pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase());
+    // Citadel-only books: skip Mercury so a hung/empty /filter cannot stall the a-tag walk.
+    const relaysOnly = opts?.relaysOnly === true || isMercuryUnavailable();
+    const relayTimeout = relaysOnly ? 8_000 : 4_000;
+    const sources: Array<Promise<Event | null>> = [
       relayPool
         .query(
           stackForKind(parsed.kind),
           [filter],
-          4000,
+          relayTimeout,
           5,
           undefined,
           { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
         )
-        .then((events) => pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase()))
-    ]);
+        .then(pick)
+    ];
+    if (!relaysOnly) {
+      sources.unshift(mercuryFilter(filter).then(pick));
+    }
+    const hit =
+      parsed.kind === KIND.PUBLICATION
+        ? await bestAddressableEvent(sources)
+        : await firstEvent(sources);
     if (hit && cached) {
       const chosen =
         publicationSectionCount(hit) >= publicationSectionCount(cached) ? hit : cached;
