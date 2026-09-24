@@ -540,18 +540,23 @@ export function ensureIndexHeadings(sections: Event[], toc: TocEntry[]): Event[]
   return dropSupersededPlaceholders([...sections, ...extra]);
 }
 
-/** Synthetic title-only index (created_at 0, zero sig) used when relays have no event. */
-export function isPlaceholderIndex(event: Event): boolean {
-  return event.kind === KIND.PUBLICATION && event.created_at === 0 && /^0+$/.test(event.sig);
+/** Synthetic title-only stub (created_at 0, zero sig) when relays have no event. */
+export function isPlaceholderSection(event: Event): boolean {
+  return event.created_at === 0 && /^0+$/.test(event.sig ?? '');
 }
 
-/** Drop placeholder 30040s when a real event for the same address is present. */
+/** @deprecated Prefer isPlaceholderSection — kept for callers that mean “ghost index”. */
+export function isPlaceholderIndex(event: Event): boolean {
+  return isPlaceholderSection(event);
+}
+
+/** Drop placeholders when a real event for the same address is present. */
 export function dropSupersededPlaceholders(sections: Event[]): Event[] {
   const realAddrs = new Set(
-    sections.filter((e) => !isPlaceholderIndex(e)).map((e) => eventAddress(e).toLowerCase())
+    sections.filter((e) => !isPlaceholderSection(e)).map((e) => eventAddress(e).toLowerCase())
   );
   return sections.filter(
-    (e) => !isPlaceholderIndex(e) || !realAddrs.has(eventAddress(e).toLowerCase())
+    (e) => !isPlaceholderSection(e) || !realAddrs.has(eventAddress(e).toLowerCase())
   );
 }
 
@@ -561,7 +566,7 @@ export function mergePublicationSections(...lists: Event[][]): Event[] {
   for (const list of lists) {
     for (const event of list) {
       const cur = byId.get(event.id);
-      if (!cur || (isPlaceholderIndex(cur) && !isPlaceholderIndex(event))) {
+      if (!cur || (isPlaceholderSection(cur) && !isPlaceholderSection(event))) {
         byId.set(event.id, event);
       }
     }
@@ -765,7 +770,7 @@ export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEn
   );
 }
 
-/** Deterministic placeholder id for ghost Mercury index rows (no published event). */
+/** Deterministic placeholder id for ghost Mercury rows (no published event). */
 function placeholderEventId(seed: string): string {
   const bytes = new Uint8Array(32);
   for (let i = 0; i < seed.length; i++) {
@@ -775,27 +780,78 @@ function placeholderEventId(seed: string): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Build a title-only 30040 when Mercury lists an index with no fetchable event. */
-export function placeholderIndexEvent(entry: TocEntry): Event | null {
-  if (!entry.index || !entry.address) return null;
+/** Build a title-only event when Mercury/ToC lists a row with no fetchable event. */
+export function placeholderSectionEvent(entry: TocEntry): Event | null {
+  if (!entry.address) return null;
   const parsed = parseAddress(entry.address);
-  if (!parsed || parsed.kind !== KIND.PUBLICATION) return null;
+  if (!parsed) return null;
+  const kind = entry.kind ?? parsed.kind;
   const title =
     entry.title && entry.title !== humanizeHeading(parsed.d)
       ? entry.title
-      : shortIndexTitle(parsed.d);
+      : entry.index
+        ? shortIndexTitle(parsed.d)
+        : humanizeHeading(parsed.d) || parsed.d;
+  const tags: string[][] = [
+    ['d', parsed.d],
+    ['title', title]
+  ];
   return {
-    id: entry.id && /^[0-9a-f]{64}$/i.test(entry.id) ? entry.id.toLowerCase() : placeholderEventId(entry.address),
+    id:
+      entry.id && /^[0-9a-f]{64}$/i.test(entry.id)
+        ? entry.id.toLowerCase()
+        : placeholderEventId(entry.address),
     pubkey: parsed.pubkey.toLowerCase(),
     created_at: 0,
-    kind: KIND.PUBLICATION,
-    tags: [
-      ['d', parsed.d],
-      ['title', title]
-    ],
+    kind,
+    tags,
     content: '',
     sig: '0'.repeat(128)
   };
+}
+
+/** Build a title-only 30040 when Mercury lists an index with no fetchable event. */
+export function placeholderIndexEvent(entry: TocEntry): Event | null {
+  if (!entry.index && !isIndexEntry(entry)) return null;
+  return placeholderSectionEvent({ ...entry, index: true });
+}
+
+/**
+ * Insert ToC stubs for addresses that never arrived as real events, so gaps
+ * (e.g. verse 13 between 12 and 14) still occupy a slot in the reading pane.
+ */
+export function ensureMissingSectionPlaceholders(sections: Event[], toc: TocEntry[]): Event[] {
+  if (!toc.length) return sections;
+  const haveReal = new Set<string>();
+  const haveAny = new Set<string>();
+  for (const section of sections) {
+    const id = section.id.toLowerCase();
+    const addr = eventAddress(section).toLowerCase();
+    haveAny.add(id);
+    haveAny.add(addr);
+    if (!isPlaceholderSection(section)) {
+      haveReal.add(id);
+      haveReal.add(addr);
+    }
+  }
+  const extra: Event[] = [];
+  for (const entry of toc) {
+    if (entry.root) continue;
+    const keys = [
+      entry.id?.toLowerCase(),
+      entry.address?.toLowerCase()
+    ].filter(Boolean) as string[];
+    if (!keys.length) continue;
+    if (keys.some((k) => haveReal.has(k))) continue;
+    if (keys.some((k) => haveAny.has(k))) continue;
+    const ph = placeholderSectionEvent(entry);
+    if (!ph) continue;
+    haveAny.add(ph.id.toLowerCase());
+    haveAny.add(eventAddress(ph).toLowerCase());
+    extra.push(ph);
+  }
+  if (!extra.length) return dropSupersededPlaceholders(sections);
+  return mergePublicationSections(sections, extra);
 }
 
 function sectionMatchesEntry(section: Event, entry: TocEntry): boolean {

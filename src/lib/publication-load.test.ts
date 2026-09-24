@@ -3,14 +3,17 @@ import type { Event } from 'nostr-tools';
 import {
   enrichToc,
   ensureIndexHeadings,
+  ensureMissingSectionPlaceholders,
   expandTocFromSections,
   copyPointerForEvent,
   humanizeHeading,
   isPlaceholderIndex,
+  isPlaceholderSection,
   mergePublicationSections,
   orderPublicationSections,
   parseToc,
   placeholderIndexEvent,
+  placeholderSectionEvent,
   sectionHeading,
   buildTocTree,
   activeTocEntry,
@@ -295,6 +298,41 @@ describe('parseToc', () => {
     expect(isPlaceholderIndex(merged[0]!)).toBe(false);
     const expanded = expandTocFromSections(toc, merged);
     expect(expanded.some((e) => e.address?.includes('living-like-god-in-france'))).toBe(true);
+  });
+
+  it('fills a missing leaf between loaded neighbors with a placeholder section', () => {
+    const pk = 'e'.repeat(64);
+    const root = ev({
+      id: '1'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'book'],
+        ['title', 'Book'],
+        ['a', `30041:${pk}:v12`],
+        ['a', `30041:${pk}:v13`],
+        ['a', `30041:${pk}:v14`]
+      ]
+    });
+    const v12 = ev({
+      id: '2'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'v12'], ['title', 'Verse 12']]
+    });
+    const v14 = ev({
+      id: '4'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'v14'], ['title', 'Verse 14']]
+    });
+    const toc = parseToc(null, root);
+    const filled = ensureMissingSectionPlaceholders([root, v12, v14], toc);
+    const ordered = orderPublicationSections(filled, { root, toc });
+    const gap = ordered.find((e) => firstTag(e, 'd') === 'v13');
+    expect(gap).toBeTruthy();
+    expect(isPlaceholderSection(gap!)).toBe(true);
+    expect(placeholderSectionEvent(toc.find((e) => e.address?.endsWith(':v13'))!)?.kind).toBe(30041);
   });
 
   it('lists leaf sections before nested 30040s in the fallback ToC', () => {

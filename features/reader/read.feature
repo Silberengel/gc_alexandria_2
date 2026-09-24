@@ -93,7 +93,7 @@ Feature: In-browser reader
     And opening with read=1 paints the edition shell even if a background ToC prefetch is aborted
     When I scroll later
     Then subsequent sections appear in order
-    And missing sections show a placeholder
+    And missing sections show a placeholder with the section title and a ⋯ more menu (copy pointer / comments)
     When I type into the page filter
     Then matching text in the section bodies is highlighted
     And the reader jumps to the first match

@@ -69,15 +69,18 @@
     activeTocEntry,
     tocPathKeys,
     ensureIndexHeadings,
+    ensureMissingSectionPlaceholders,
     expandTocFromSections,
     hexFromNpubParam,
     isPlaceholderIndex,
+    isPlaceholderSection,
     isUnreadableMeta,
     mergePublicationSections,
     orderPublicationSections,
     naddrFor,
     parseToc,
     placeholderIndexEvent,
+    placeholderSectionEvent,
     sectionHeading,
     tocEntryKey,
     type TocEntry
@@ -261,7 +264,10 @@
     toc = expandTocFromSections(toc, indexes);
   }
 
-  function publishPainted(edition: Event, reorder: boolean): void {
+  function publishPainted(edition: Event, reorder: boolean, fillGaps = false): void {
+    if (fillGaps && toc.length) {
+      sectionCorpus = ensureMissingSectionPlaceholders(sectionCorpus, toc);
+    }
     if (reorder && sectionCorpus.length > 1) {
       // Cap DFS work: only walk far enough for the painted window.
       sectionCorpus = orderPublicationSections(sectionCorpus, {
@@ -321,7 +327,7 @@
       refreshTocFromCorpus();
       // Reorder only while the corpus is modest — large Bibles keep stream order until scroll/jump.
       const doReorder = reorder && sectionCorpus.length <= (isImmediate ? 2000 : 900);
-      publishPainted(ed, doReorder);
+      publishPainted(ed, doReorder, isImmediate);
     };
     if (immediate) {
       if (adoptFlushTimer) clearTimeout(adoptFlushTimer);
@@ -1394,11 +1400,10 @@
   }
 
   function tocEntryLoaded(entry: TocEntry): boolean {
-    const hit = findLoadedSection(entry);
-    return !!hit && !isPlaceholderIndex(hit);
+    return !!findLoadedSection(entry);
   }
 
-  /** Leaf sections stay disabled until in the pane; nested 30040 headings stay jumpable. */
+  /** Leaf sections stay disabled until in the pane (real or placeholder); nested 30040s stay jumpable. */
   function tocEntryDisabled(entry: TocEntry): boolean {
     if (jumpBusy) return true;
     if (entry.index) return false;
@@ -1430,8 +1435,7 @@
     }
     // Keep an existing placeholder, or synthesize one for true ghost Mercury rows.
     if (loaded) return loaded;
-    if (entry.index) return placeholderIndexEvent(entry);
-    return null;
+    return placeholderSectionEvent(entry) ?? (entry.index ? placeholderIndexEvent(entry) : null);
   }
 
   $effect(() => {
@@ -1473,7 +1477,7 @@
     if (!event || unreadable || !canRead) return;
 
     const existing = findLoadedSection(entry);
-    if (existing) {
+    if (existing && !isPlaceholderSection(existing)) {
       scrollToSection(entry.pos, existing.id, eventAddress(existing));
       saveResume(eventAddress(event), { pos: entry.pos, sectionId: existing.id });
       return;
@@ -1490,7 +1494,7 @@
       if (focusKey !== key || event !== edition) return;
 
       if (focused) {
-        rememberEvents([focused]);
+        if (!isPlaceholderSection(focused)) rememberEvents([focused]);
         adoptSections(mergeSections(sections, [focused]), edition);
         void enrichHighlightsFromSections([focused]);
         jumpBusy = false;
@@ -2049,12 +2053,14 @@
               {@const section = group.event}
               {@const sectionKey = eventAddress(section)}
               {@const isIndex = section.kind === KIND.PUBLICATION}
+              {@const missing = isPlaceholderSection(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
               {@const pos = sectionReadPos.get(section.id) ?? 0}
               <article
                 class="reader-section"
                 class:reader-index={isIndex}
                 class:reader-edition={!!event && section.id === event.id}
+                class:reader-section-missing={missing}
                 data-read-pos={pos}
                 data-section-addr={sectionKey}
                 data-section-id={section.id}
@@ -2082,7 +2088,11 @@
                         >Publication info</button
                       >
                     </div>
+                  {:else if missing}
+                    <p class="muted missing-section-hint">This section is unavailable.</p>
                   {/if}
+                {:else if missing}
+                  <p class="muted missing-section-hint">This section is unavailable.</p>
                 {:else if isMarkupKind(section.kind)}
                   <div>
                     <EventBody event={section} quotes={quotesFor(section)} />
@@ -2090,10 +2100,11 @@
                 {:else}
                   <EventCard event={section} />
                 {/if}
-                {#if !isIndex}
+                {#if (!isIndex || missing) && !(event && section.id === event.id)}
                 <div class="section-toolbar">
                   <CopyPointerButton event={section}>
                     {#snippet before()}
+                      {#if !missing}
                       <li role="none">
                         {#if $session.pubkey}
                           <button
@@ -2119,6 +2130,7 @@
                           </button>
                         {/if}
                       </li>
+                      {/if}
                     {/snippet}
                     {#snippet after()}
                       <li role="none">

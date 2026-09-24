@@ -2031,6 +2031,13 @@ a.listing-row:hover {
   justify-content: flex-end;
   margin-top: 0.5rem;
 }
+.missing-section-hint {
+  margin: 0.35rem 0 0.15rem;
+  font-size: 0.95rem;
+}
+.reader-section-missing {
+  opacity: 0.92;
+}
 .section-comments {
   margin-top: 0.75rem;
 }
