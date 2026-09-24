@@ -18,6 +18,8 @@ Feature: In-browser reader
     And kind 9802 highlights are applied inline in section bodies once I read
     And I do not see section bodies
     And I see a "Read the publication" button
+    And when this edition is tracked or has a resume position on this device I also see "Continue reading"
+    And Continue reading opens the reader at the tracked section (or pos), like Reading now on the home page
     And I see a book-and-check control to mark the edition as read (kind 1985 l=read), with a count of distinct readers
     And that read mark is never shown as a list label chip or landing label
     And under the metadata I see People rows for who labeled, bookmarked, highlighted, or shelved it when any exist

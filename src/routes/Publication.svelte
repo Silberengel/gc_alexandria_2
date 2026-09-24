@@ -47,7 +47,15 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
-  import { flushReadingProgress, flushReadingProgressOnHide, flushReadingProgressOnVisible, syncReadingProgress } from '$lib/reading-queue-actions';
+  import {
+    flushReadingProgress,
+    flushReadingProgressOnHide,
+    flushReadingProgressOnVisible,
+    promoteReadingToFront,
+    syncReadingProgress
+  } from '$lib/reading-queue-actions';
+  import { findQueueEntry } from '$lib/reading-queue';
+  import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { readerSectionHeroUrl } from '$lib/cover';
@@ -201,6 +209,27 @@
   );
   const moreToPaint = $derived(paintEnd < corpusCount);
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
+  /** Tracked queue or this-browser resume — same target as landing Reading now → Continue. */
+  const continueTarget = $derived.by(() => {
+    if (!event || !canRead) return null;
+    const addr = eventAddress(event);
+    const entry = findQueueEntry($viewerReadingEntries, addr);
+    if (entry) {
+      return {
+        pos: entry.pos,
+        sectionId: entry.sectionId,
+        tracked: true as const
+      };
+    }
+    const resume = loadResume(addr);
+    if (!resume) return null;
+    return {
+      pos: resume.pos,
+      sectionId: resume.sectionId,
+      tracked: false as const
+    };
+  });
+  const canContinue = $derived(!!continueTarget);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
   const urlFocusComment = $derived(
     (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
@@ -1213,7 +1242,11 @@
     applyUrlFocus();
   });
 
-  async function startReading(opts?: { fromUrl?: boolean }): Promise<void> {
+  async function startReading(opts?: {
+    fromUrl?: boolean;
+    pos?: number;
+    sectionId?: string;
+  }): Promise<void> {
     if (!event || unreadable || !canRead) return;
     // URL sync can re-enter; ignore if we are already reading with content on screen.
     if (reading && opts?.fromUrl && sections.length) return;
@@ -1238,8 +1271,16 @@
     }
     const resume = loadResume(eventAddress(event));
     const focus = focusFromUrl();
-    const pos = Number.isFinite(focus.pos) ? focus.pos : resume?.pos;
-    const sectionId = focus.section || resume?.sectionId;
+    const pos =
+      opts?.pos !== undefined
+        ? opts.pos
+        : Number.isFinite(focus.pos)
+          ? focus.pos
+          : resume?.pos;
+    const sectionId =
+      opts?.sectionId !== undefined
+        ? opts.sectionId
+        : focus.section || resume?.sectionId;
     if (sectionId) paintPinId = sectionId;
     if (pos != null && Number.isFinite(pos) && pos >= 0) {
       ensurePaintedThrough(pos, sectionId);
@@ -1249,6 +1290,22 @@
       if (idx >= 0) ensurePaintedThrough(idx, sectionId);
       scrollToSectionRetry(0, sectionId);
     }
+  }
+
+  /** Same target as landing Reading now → Continue (tracked pos/section, else local resume). */
+  async function continueReading(): Promise<void> {
+    if (!event || !continueTarget) return;
+    const { pos, sectionId, tracked } = continueTarget;
+    if (tracked) void promoteReadingToFront(eventAddress(event));
+    const q = new URLSearchParams($querystring ?? '');
+    q.set('read', '1');
+    if (sectionId) q.set('section', sectionId);
+    else q.delete('section');
+    if (Number.isFinite(pos) && pos >= 0) q.set('pos', String(Math.floor(pos)));
+    else q.delete('pos');
+    q.delete('quote');
+    const qs = q.toString();
+    replace(qs ? `${hashPathOnly()}?${qs}` : hashPathOnly());
   }
 
   /** Retry until the target section is painted (stream may still be filling). */
@@ -1755,9 +1812,18 @@
         <div class="edition-actions">
           <ShelfActions publication={event} />
           {#if canRead}
-            <button class="btn btn-primary" type="button" onclick={() => void startReading()}
-              >Read the publication</button
-            >
+            {#if canContinue}
+              <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
+                >Continue reading</button
+              >
+              <button class="btn" type="button" onclick={() => void startReading()}
+                >Read the publication</button
+              >
+            {:else}
+              <button class="btn btn-primary" type="button" onclick={() => void startReading()}
+                >Read the publication</button
+              >
+            {/if}
           {/if}
         </div>
         {#if !canRead}
