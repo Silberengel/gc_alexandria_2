@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "starter-guides:dry-run": "node scripts/publish-starter-guides.mjs",
+    "starter-guides:publish": "node scripts/publish-starter-guides.mjs --publish"
   },
   "dependencies": {
     "@asciidoctor/core": "^3.0.4",

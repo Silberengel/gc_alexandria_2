@@ -32,6 +32,10 @@
   import type { LandingShelfSnap } from '$lib/nostr/cache';
   import ReadingNowPanel from '$lib/components/ReadingNowPanel.svelte';
   import { KIND } from '$lib/constants';
+  import {
+    loadStarterGuideChips,
+    type StarterGuideChip
+  } from '$lib/starter-guides';
 
   const LOG = '[alexandria:landing]';
 
@@ -42,6 +46,7 @@
   let subjects = $state<string[]>([]);
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
+  let guideChips = $state<StarterGuideChip[]>([]);
   let landingBusy = $state(true);
   let landingStatus = $state('Starting…');
   let shelfBusy = $state(false);
@@ -72,6 +77,7 @@
   const visibleRatings = $derived(filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT));
   const visibleSubjects = $derived(subjects);
   const visibleLabels = $derived(labels);
+  const visibleGuides = $derived(guideChips);
 
   /** All shelf publications in priority order, deduped — used by table view. */
   const allShelfEvents = $derived.by(() => {
@@ -285,6 +291,12 @@
       });
       if (cached) apply(cached, replaceFromCache);
       landingStatus = 'Refreshing shelves and feeds…';
+      void loadStarterGuideChips()
+        .then((chips) => {
+          if (session.getPubkey() !== identity) return;
+          guideChips = chips;
+        })
+        .catch(() => {});
       const live = await refreshLanding(cached, (view) => {
         // Drop updates only when the viewer identity changed under us.
         if (session.getPubkey() !== identity) return;
@@ -497,6 +509,17 @@
         </section>
       {/if}
     </div>
+  {/if}
+
+  {#if visibleGuides.length}
+    <section class="landing-section">
+      <h2 class="section-title">Guides</h2>
+      <div class="chip-row">
+        {#each visibleGuides as guide (guide.d)}
+          <a class="chip chip-curated" href={guide.href} use:link>{guide.title}</a>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   {#if visibleSubjects.length}

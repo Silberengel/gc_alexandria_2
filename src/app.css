@@ -2034,6 +2034,18 @@ a.listing-row:hover {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
+/* GitCitadel starter guides — distinct from community label chips. */
+.chip-curated {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  font-weight: 550;
+}
+.chip-curated:hover {
+  border-color: color-mix(in srgb, var(--accent) 75%, var(--border));
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  color: var(--text);
+}
 
 .userbadge {
   display: inline-flex;
