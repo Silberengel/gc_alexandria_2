@@ -2754,6 +2754,9 @@ a.listing-row:hover {
   text-transform: uppercase;
   color: var(--accent);
 }
+.toc-panel {
+  min-width: 0;
+}
 .toc-tree {
   list-style: none;
   margin: 0;
@@ -2837,6 +2840,15 @@ a.listing-row:hover {
 .toc-link:focus-visible .toc-link-text {
   text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
   color: var(--accent);
+}
+.toc-item.toc-current > .toc-row .toc-link {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.toc-item.toc-current > .toc-row .toc-link-text {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .toc-link:disabled {
   cursor: not-allowed;

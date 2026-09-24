@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools';
-import { get } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import { KIND } from './constants';
 import { publicationLabelDraft } from './drafts';
 import { latestReplaceable } from './mute';
@@ -28,6 +28,16 @@ export type FinishReadingResult = {
   /** Newly published or existing live l=read for this edition. */
   readEvent?: Event;
 };
+
+/** Live scroll progress not yet signed — Reading now / progress bar read this immediately. */
+export type PendingReadingProgress = {
+  a: string;
+  pos: number;
+  total: number;
+  sectionId?: string;
+};
+
+export const pendingReadingProgress = writable<PendingReadingProgress | null>(null);
 
 function currentEntries(): ReadingQueueEntry[] {
   if (get(readingPrefs).localOnly) return get(localReadingQueue);
@@ -71,14 +81,51 @@ let pendingProgress: {
   sectionId?: string;
 } | null = null;
 let progressTimer: ReturnType<typeof setTimeout> | 0 = 0;
-/** Quiet period after the last scroll advance before publishing kind 16374. */
-const PROGRESS_DEBOUNCE_MS = 12_000;
+/**
+ * Max wait from the *first* advance in a burst before signing.
+ * The timer is not reset on further scrolls (continuous reading used to starve publishes).
+ */
+const PROGRESS_PUBLISH_MS = 3_500;
 
 function clearProgressTimer(): void {
   if (progressTimer) {
     clearTimeout(progressTimer);
     progressTimer = 0;
   }
+}
+
+function publishPendingStore(): void {
+  if (!pendingProgress) {
+    pendingReadingProgress.set(null);
+    return;
+  }
+  pendingReadingProgress.set({
+    a: eventAddress(pendingProgress.publication),
+    pos: pendingProgress.pos,
+    total: pendingProgress.total,
+    sectionId: pendingProgress.sectionId
+  });
+}
+
+function queuePending(opts: {
+  publication: Event;
+  pos: number;
+  total: number;
+  sectionId?: string;
+}): void {
+  pendingProgress = opts;
+  publishPendingStore();
+  // Do not reset an in-flight timer — first advance in the burst starts the clock.
+  if (progressTimer) return;
+  progressTimer = setTimeout(() => {
+    progressTimer = 0;
+    void flushReadingProgress();
+  }, PROGRESS_PUBLISH_MS);
+}
+
+function clearPendingIntent(): void {
+  pendingProgress = null;
+  pendingReadingProgress.set(null);
 }
 
 /** Publish any debounced reading-queue progress immediately (leave reader / hide tab). */
@@ -88,9 +135,24 @@ export async function flushReadingProgress(): Promise<Event | null | 'local'> {
   // Amber: opening the signer backgrounds the tab. A nested flush would start a second
   // sign_event while the first is waiting for approval — drop that race.
   if (isSignInFlight()) return null;
+  if (!opts || !sessionOk()) {
+    clearPendingIntent();
+    return null;
+  }
+  // Drop the queued intent so further scrolls can start a new burst while this signs.
+  // Keep the UI store until the signed event lands (or a newer pending replaces it).
   pendingProgress = null;
-  if (!opts || !sessionOk()) return null;
-  return publishProgressNow(opts);
+  const result = await publishProgressNow(opts);
+  if (pendingProgress) {
+    publishPendingStore();
+  } else if (result) {
+    pendingReadingProgress.set(null);
+  } else {
+    // Sign failed — restore so a later flush / visibility can retry.
+    pendingProgress = opts;
+    publishPendingStore();
+  }
+  return result;
 }
 
 /**
@@ -165,7 +227,7 @@ export async function trackReadingPublication(opts: {
   const { publication, pos, total, sectionId } = opts;
   if (total < 1) return null;
   clearProgressTimer();
-  pendingProgress = null;
+  clearPendingIntent();
   const a = eventAddress(publication);
   const existing = findQueueEntry(currentEntries(), a);
   const entries = upsertReadingEntry(currentEntries(), {
@@ -181,14 +243,14 @@ export async function trackReadingPublication(opts: {
 export async function stopTrackingPublication(publication: Event): Promise<Event | null | 'local'> {
   if (!sessionOk()) return null;
   clearProgressTimer();
-  pendingProgress = null;
+  clearPendingIntent();
   const entries = removeReadingEntry(currentEntries(), eventAddress(publication));
   return publishEntries(entries);
 }
 
 /**
- * Update local progress intent; publish kind 16374 only after scrolling settles
- * so extension sign prompts are not fired on every section/verse crossing.
+ * Update live progress intent immediately (Reading now / bar); sign kind 16374 at most
+ * every few seconds from the first advance in a burst (timer does not reset on scroll).
  * Progress only advances forward — scrolling up does not rewrite the tracked pos.
  * When Settings → local-only, progress never leaves this browser.
  */
@@ -212,21 +274,18 @@ export async function syncReadingProgress(opts: {
   // Behind the watermark: keep any pending ahead-progress; only allow total growth.
   if (opts.pos < floor) {
     if (opts.total > cur.total && opts.total > (pendingProgress?.total ?? 0)) {
-      pendingProgress = {
+      const next = {
         publication: opts.publication,
         pos: floor,
         total: opts.total,
         sectionId: pendingProgress?.sectionId ?? cur.sectionId
       };
       if (get(readingPrefs).localOnly) {
+        queuePending(next);
         clearProgressTimer();
         return flushReadingProgress();
       }
-      clearProgressTimer();
-      progressTimer = setTimeout(() => {
-        progressTimer = 0;
-        void flushReadingProgress();
-      }, PROGRESS_DEBOUNCE_MS);
+      queuePending(next);
     }
     if (get(readingPrefs).localOnly) return 'local';
     return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
@@ -241,7 +300,7 @@ export async function syncReadingProgress(opts: {
     if (get(readingPrefs).localOnly) return 'local';
     return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
   }
-  pendingProgress = {
+  const next = {
     publication: opts.publication,
     pos: opts.pos,
     total: opts.total,
@@ -249,14 +308,11 @@ export async function syncReadingProgress(opts: {
   };
   // Local-only: apply immediately — no sign prompt to debounce.
   if (get(readingPrefs).localOnly) {
+    queuePending(next);
     clearProgressTimer();
     return flushReadingProgress();
   }
-  clearProgressTimer();
-  progressTimer = setTimeout(() => {
-    progressTimer = 0;
-    void flushReadingProgress();
-  }, PROGRESS_DEBOUNCE_MS);
+  queuePending(next);
   return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
 }
 
@@ -272,7 +328,7 @@ export async function resetReadingProgress(opts: {
   const { publication, total } = opts;
   if (total < 1) return null;
   clearProgressTimer();
-  pendingProgress = null;
+  clearPendingIntent();
   const a = eventAddress(publication);
   const existing = findQueueEntry(currentEntries(), a);
   if (!existing) return null;
@@ -320,7 +376,7 @@ export async function finishTrackedPublication(
 
   // Drop any pending scroll publish for this (or other) book before finishing.
   clearProgressTimer();
-  pendingProgress = null;
+  clearPendingIntent();
 
   const labels = opts?.readLabels ?? [];
   let readEvent =

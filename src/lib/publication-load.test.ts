@@ -12,7 +12,10 @@ import {
   parseToc,
   placeholderIndexEvent,
   sectionHeading,
-  buildTocTree
+  buildTocTree,
+  activeTocEntry,
+  tocPathKeys,
+  tocEntryKey
 } from './publication-load';
 import { firstTag } from './nostr/verify';
 
@@ -503,5 +506,67 @@ describe('humanizeHeading', () => {
   it('keeps numbered placeholders', () => {
     expect(humanizeHeading('Section 3')).toBe('Section 3');
     expect(humanizeHeading('preface')).toBe('Preface');
+  });
+});
+
+describe('activeTocEntry', () => {
+  it('prefers the exact section id, else the nearest preceding ToC row in the corpus', () => {
+    const pk = 'b'.repeat(64);
+    const chap = ev({
+      id: '1'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'ch1'], ['title', 'Chapter 1']]
+    });
+    const leaf = ev({
+      id: '2'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 's1'], ['title', 'Section 1']]
+    });
+    const later = ev({
+      id: '3'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 's2'], ['title', 'Section 2']]
+    });
+    const toc = [
+      {
+        pos: 0,
+        title: 'Chapter 1',
+        address: `30040:${pk}:ch1`,
+        id: chap.id,
+        depth: 0,
+        index: true
+      },
+      {
+        pos: 1,
+        title: 'Section 1',
+        address: `30041:${pk}:s1`,
+        id: leaf.id,
+        depth: 1
+      }
+    ];
+    expect(activeTocEntry(toc, { pos: 1, sectionId: leaf.id })?.id).toBe(leaf.id);
+    // Leaf not in ToC — walk corpus back to the nearest ToC row (Section 1).
+    expect(
+      activeTocEntry(
+        [toc[0]!],
+        { pos: 2, sectionId: later.id, corpus: [chap, leaf, later] }
+      )?.id
+    ).toBe(chap.id);
+    expect(
+      activeTocEntry(toc, { pos: 2, sectionId: later.id, corpus: [chap, leaf, later] })?.id
+    ).toBe(leaf.id);
+  });
+
+  it('returns ancestor keys for the active path', () => {
+    const toc = [
+      { pos: 0, title: 'Book', address: 'a', depth: 0, root: true, index: true },
+      { pos: 1, title: 'Part', address: 'b', depth: 1, index: true },
+      { pos: 2, title: 'Leaf', address: 'c', depth: 2 }
+    ];
+    const tree = buildTocTree(toc);
+    expect(tocPathKeys(tree, tocEntryKey(toc[2]!))).toEqual(['a', 'b', 'c']);
   });
 });

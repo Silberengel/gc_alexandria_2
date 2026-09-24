@@ -76,6 +76,8 @@ Feature: In-browser reader
     And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections
     And each ToC label and reading-pane section header is that section's title-tag, else a human T-tag, else a human d-tag
     And the ToC is a nested outline of those titles (expandable where nested)
+    And the ToC marks which index or section is currently in the reading pane
+    And ancestors of that row stay expanded so the current location stays visible
     And clicking a ToC heading jumps to that section header
     And when that section has a hero image, the jump scrolls so the hero is visible above the heading
     And ToC entries whose section is not in the pane yet are shown disabled until that section loads
@@ -110,6 +112,7 @@ Feature: In-browser reader
     And a progress bar shows pos over total while tracked
     And scrolling into a new section advances pos on 16374 (not only clicks)
     And scrolling upward or rereading an earlier section does not lower the tracked pos
+    And live progress appears on Reading now and the progress bar immediately, and a signed 16374 publish runs within a few seconds of the first advance in a burst (further scrolls do not postpone that publish)
     And Reset tracking under the reader metadata sets the tracked pos back to 0
     And when Settings → Keep reading queue on this device only is on, those advances stay local and never publish 16374
     And Stop tracking removes the edition from 16374 without changing l=read

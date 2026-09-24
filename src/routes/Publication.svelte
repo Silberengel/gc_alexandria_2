@@ -58,6 +58,8 @@
     decodePublicationPointer,
     enrichToc,
     buildTocTree,
+    activeTocEntry,
+    tocPathKeys,
     ensureIndexHeadings,
     expandTocFromSections,
     hexFromNpubParam,
@@ -164,6 +166,31 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
+  const activeToc = $derived(
+    activeTocEntry(readerToc, {
+      pos: readerPos,
+      sectionId: readerSectionId,
+      corpus: sectionCorpus
+    })
+  );
+  const activeTocKey = $derived(activeToc ? tocEntryKey(activeToc) : '');
+
+  $effect(() => {
+    const key = activeTocKey;
+    if (!key || !tocTree.length) return;
+    const path = tocPathKeys(tocTree, key);
+    if (path.length < 2) return;
+    // Keep ancestors expanded so the current row stays visible in the outline.
+    const ancestors = path.slice(0, -1);
+    let changed = false;
+    const next = { ...tocExpanded };
+    for (const k of ancestors) {
+      if (next[k] === true) continue;
+      next[k] = true;
+      changed = true;
+    }
+    if (changed) tocExpanded = next;
+  });
   const paintedSections = $derived(sections);
   const readerGroups = $derived(
     $verseStyling
@@ -1762,6 +1789,7 @@
             <TocPanel
               nodes={tocTree}
               expanded={tocExpanded}
+              activeKey={activeTocKey}
               isLoaded={tocEntryLoaded}
               isDisabled={tocEntryDisabled}
               onToggle={toggleTocBranch}

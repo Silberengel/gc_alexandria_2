@@ -196,6 +196,84 @@ export function tocEntryKey(entry: TocEntry): string {
   return entry.address ?? entry.id ?? `pos:${entry.pos}`;
 }
 
+/**
+ * Which ToC row matches the reading pane: exact section id/address, else the
+ * nearest preceding corpus section that appears in the ToC (index or leaf).
+ */
+export function activeTocEntry(
+  toc: TocEntry[],
+  opts: {
+    pos: number;
+    sectionId?: string;
+    /** Corpus in document order (may be denser than the ToC). */
+    corpus?: Event[];
+  }
+): TocEntry | null {
+  if (!toc.length) return null;
+  const { pos, sectionId, corpus } = opts;
+
+  if (sectionId) {
+    const byId = toc.find((e) => e.id?.toLowerCase() === sectionId.toLowerCase());
+    if (byId) return byId;
+  }
+
+  if (corpus?.length) {
+    const byId = new Map<string, TocEntry>();
+    const byAddr = new Map<string, TocEntry>();
+    for (const entry of toc) {
+      if (entry.id) byId.set(entry.id.toLowerCase(), entry);
+      if (entry.address) {
+        for (const key of publicationCoordinateLookupKeys(entry.address)) {
+          byAddr.set(key.toLowerCase(), entry);
+        }
+      }
+    }
+    const start = Math.min(Math.max(0, Math.floor(pos)), corpus.length - 1);
+    for (let i = start; i >= 0; i--) {
+      const section = corpus[i];
+      if (!section) continue;
+      const hit =
+        byId.get(section.id.toLowerCase()) ??
+        (() => {
+          for (const key of publicationCoordinateLookupKeys(eventAddress(section))) {
+            const e = byAddr.get(key.toLowerCase());
+            if (e) return e;
+          }
+          return undefined;
+        })();
+      if (hit) return hit;
+    }
+  }
+
+  let best: TocEntry | null = null;
+  for (const entry of toc) {
+    if (entry.pos > pos + 1e-9) continue;
+    if (
+      !best ||
+      entry.pos > best.pos ||
+      (entry.pos === best.pos && (entry.depth ?? 0) > (best.depth ?? 0))
+    ) {
+      best = entry;
+    }
+  }
+  return best;
+}
+
+/** Ancestor keys (root → parent) for a ToC node; empty if the key is missing. */
+export function tocPathKeys(nodes: TocNode[], targetKey: string): string[] {
+  const walk = (list: TocNode[], trail: string[]): string[] | null => {
+    for (const node of list) {
+      const key = tocEntryKey(node.entry);
+      const next = [...trail, key];
+      if (key === targetKey) return next;
+      const child = walk(node.children, next);
+      if (child) return child;
+    }
+    return null;
+  };
+  return walk(nodes, []) ?? [];
+}
+
 /** Non-30040 children from an index event (Mercury /toc embeds the event). */
 function leafEntriesFromItem(
   o: Record<string, unknown>,

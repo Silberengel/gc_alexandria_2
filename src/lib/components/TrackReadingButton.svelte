@@ -141,7 +141,9 @@
   </p>
   <p class="muted reading-track-hint">Mark as read on the publication page to finish and leave the queue.</p>
   {#if bunker}
-    <p class="muted reading-track-hint">Progress publishes after you approve in Amber (not on every scroll).</p>
+    <p class="muted reading-track-hint">
+      Progress is remembered as you read; Amber asks to publish every few seconds (not on every scroll).
+    </p>
   {/if}
 {:else}
   <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
