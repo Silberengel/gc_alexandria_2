@@ -26,6 +26,7 @@ Feature: Search
   Scenario: Landing search goes to /search
     When I submit a query from the landing global search bar
     Then I am on /search
+    And I see the search term at the top
     And I see result cards as they arrive
     And each card has a more menu to copy its nevent or naddr and open it on njump.me or jumble.imwald.eu
     And unfamiliar kinds show a kind line, a title only when a title tag is present (≤100, plaintext), author, and plaintext body from content (≤250, markup stripped)

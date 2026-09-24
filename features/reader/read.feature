@@ -17,9 +17,10 @@ Feature: In-browser reader
     And those lists are kind 34259 ratings for this edition's a-tag and kind 1111 / kind 1 threads
     And kind 9802 highlights are applied inline in section bodies once I read
     And I do not see section bodies
-    And I see a "Read the publication" button
-    And when this edition is tracked or has a resume position on this device I also see "Continue reading"
+    And I see a "Read the publication" button when this edition is not tracked
+    And when this edition is tracked I see "Continue reading" instead
     And Continue reading opens the reader at the tracked section (or pos), like Reading now on the home page
+    And Continue reading clears comment, rating, and quote query params so the reader is not blocked by an earlier deep link
     And I see a book-and-check control to mark the edition as read (kind 1985 l=read), with a count of distinct readers
     And that read mark is never shown as a list label chip or landing label
     And under the metadata I see People rows for who labeled, bookmarked, highlighted, or shelved it when any exist
@@ -80,6 +81,7 @@ Feature: In-browser reader
     And the ToC is a nested outline of those titles (expandable where nested)
     And the ToC marks which index or section is currently in the reading pane
     And ancestors of that row stay expanded so the current location stays visible
+    And a sticky Go to top control stays in view in the ToC on mobile and desktop and jumps to the edition start
     And clicking a ToC heading jumps to that section header
     And when that section has a hero image, the jump scrolls so the hero is visible above the heading
     And ToC entries whose section is not in the pane yet are shown disabled until that section loads

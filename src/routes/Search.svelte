@@ -30,6 +30,9 @@
   let pageFilter = $state('');
   let page = $state(1);
   let lastKey = '';
+  /** Active query shown under the Search heading (empty when no params). */
+  let searchTerm = $state('');
+  let searchKind = $state('');
 
   function hashParams(): URLSearchParams {
     const hash = window.location.hash;
@@ -43,9 +46,32 @@
       .join('&');
   }
 
+  function describeSearch(params: URLSearchParams): { kind: string; term: string } {
+    const keyed: [string, string][] = [
+      ['read', 'Read by'],
+      ['bookshelf', 'Bookshelf'],
+      ['d', 'Slug'],
+      ['subject', 'Subject'],
+      ['label', 'Label'],
+      ['author', 'Author'],
+      ['title', 'Title'],
+      ['identifier', 'Identifier'],
+      ['language', 'Language'],
+      ['q', '']
+    ];
+    for (const [key, kind] of keyed) {
+      const term = (params.get(key) ?? '').trim();
+      if (term) return { kind, term };
+    }
+    return { kind: '', term: '' };
+  }
+
   function runFromHash(): void {
     const params = hashParams();
     const key = searchKey(params);
+    const described = describeSearch(params);
+    searchTerm = described.term;
+    searchKind = described.kind;
     if (key === lastKey) return;
     lastKey = key;
     const q = params.get('q') ?? '';
@@ -59,7 +85,7 @@
     const d = params.get('d') ?? '';
     const shelfNpub = params.get('npub') ?? '';
     const read = params.get('read') ?? '';
-    const term = q || subject || label || author || title || identifier || language || bookshelf || d || read;
+    const term = described.term;
     if (!term) {
       events = [];
       loading = false;
@@ -107,6 +133,12 @@
 <TopBar />
 <main class="shell">
   <h1>Search</h1>
+  {#if searchTerm}
+    <p class="search-term">
+      {#if searchKind}<span class="muted">{searchKind}</span>{/if}
+      <span>{searchTerm}</span>
+    </p>
+  {/if}
   <div class="listing-toolbar">
     <PageFilter bind:value={pageFilter} />
     <ListingViewToggle label="Search results" />

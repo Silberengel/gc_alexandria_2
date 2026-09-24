@@ -209,24 +209,15 @@
   );
   const moreToPaint = $derived(paintEnd < corpusCount);
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
-  /** Tracked queue or this-browser resume — same target as landing Reading now → Continue. */
+  /** Tracked queue only — untracked editions use Read the publication (local resume still applies inside the reader). */
   const continueTarget = $derived.by(() => {
     if (!event || !canRead) return null;
-    const addr = eventAddress(event);
-    const entry = findQueueEntry($viewerReadingEntries, addr);
-    if (entry) {
-      return {
-        pos: entry.pos,
-        sectionId: entry.sectionId,
-        tracked: true as const
-      };
-    }
-    const resume = loadResume(addr);
-    if (!resume) return null;
+    const entry = findQueueEntry($viewerReadingEntries, eventAddress(event));
+    if (!entry) return null;
     return {
-      pos: resume.pos,
-      sectionId: resume.sectionId,
-      tracked: false as const
+      pos: entry.pos,
+      sectionId: entry.sectionId,
+      tracked: true as const
     };
   });
   const canContinue = $derived(!!continueTarget);
@@ -707,13 +698,21 @@
     return window.location.hash.replace(/^#/, '').split('?')[0] || (event ? publicationPath(event) : '');
   }
 
-  /** Sync ?read=1 without clobbering other deep-link params. */
+  /** Sync ?read=1. Turning off also clears section/pos/quote so applyUrlFocus cannot reopen the reader. */
   function setReadQuery(on: boolean): void {
     const q = new URLSearchParams($querystring ?? '');
-    const has = q.get('read') === '1';
-    if (on === has) return;
-    if (on) q.set('read', '1');
-    else q.delete('read');
+    if (on) {
+      if (q.get('read') === '1') return;
+      q.set('read', '1');
+    } else {
+      const had =
+        q.get('read') === '1' || q.has('section') || q.has('pos') || q.has('quote');
+      if (!had) return;
+      q.delete('read');
+      q.delete('section');
+      q.delete('pos');
+      q.delete('quote');
+    }
     const qs = q.toString();
     const path = hashPathOnly();
     replace(qs ? `${path}?${qs}` : path);
@@ -1303,13 +1302,19 @@
     else q.delete('section');
     if (Number.isFinite(pos) && pos >= 0) q.set('pos', String(Math.floor(pos)));
     else q.delete('pos');
+    // Drop info-page deep links so applyUrlFocus opens the reader, not comments/ratings.
     q.delete('quote');
+    q.delete('comment');
+    q.delete('rating');
     const qs = q.toString();
     replace(qs ? `${hashPathOnly()}?${qs}` : hashPathOnly());
   }
 
+  let scrollGen = 0;
+
   /** Retry until the target section is painted (stream may still be filling). */
   function scrollToSectionRetry(pos: number, sectionId?: string, address?: string, attempts = 50): void {
+    const gen = scrollGen;
     scrollToSection(pos, sectionId, address);
     const found =
       (sectionId &&
@@ -1318,13 +1323,18 @@
         document.querySelector<HTMLElement>(`[data-section-addr="${CSS.escape(address)}"]`)) ||
       document.querySelector<HTMLElement>(`[data-read-pos="${CSS.escape(String(pos))}"]`);
     if (found || attempts <= 0) return;
-    window.setTimeout(() => scrollToSectionRetry(pos, sectionId, address, attempts - 1), 120);
+    window.setTimeout(() => {
+      if (gen !== scrollGen) return;
+      scrollToSectionRetry(pos, sectionId, address, attempts - 1);
+    }, 120);
   }
 
   /** Leave the reader and restore the edition info page (ratings, comments, details). */
   function stopReading(): void {
     if (!reading) return;
     void flushReadingProgress();
+    scrollGen += 1;
+    focusKey = '';
     reading = false;
     tocOpen = false;
     jumpBusy = false;
@@ -1442,6 +1452,20 @@
 
   function cyclePageFind(): void {
     if (readingPane) pageFind.next(readingPane);
+  }
+
+  /** Sticky ToC control: jump to the edition root / reading-pane top. */
+  async function goToReadingTop(): Promise<void> {
+    const root = readerToc.find((e) => e.root) ?? readerToc[0];
+    if (root) {
+      await jumpTo(root);
+      return;
+    }
+    tocOpen = false;
+    if (!event || !canRead) return;
+    ensurePaintedThrough(0);
+    scrollToSectionRetry(0, event.id, eventAddress(event));
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
   async function jumpTo(entry: TocEntry): Promise<void> {
@@ -1816,9 +1840,6 @@
               <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
                 >Continue reading</button
               >
-              <button class="btn" type="button" onclick={() => void startReading()}
-                >Read the publication</button
-              >
             {:else}
               <button class="btn btn-primary" type="button" onclick={() => void startReading()}
                 >Read the publication</button
@@ -1873,16 +1894,28 @@
       <div class="reader-layout">
         {#if readerToc.length}
           <nav class="toc card" class:toc-open={tocOpen} aria-label="Table of contents">
-            <h2>Contents</h2>
-            <TocPanel
-              nodes={tocTree}
-              expanded={tocExpanded}
-              activeKey={activeTocKey}
-              isLoaded={tocEntryLoaded}
-              isDisabled={tocEntryDisabled}
-              onToggle={toggleTocBranch}
-              onJump={(entry) => void jumpTo(entry)}
-            />
+            <div class="toc-chrome">
+              <h2>Contents</h2>
+              <button
+                class="toc-goto-top"
+                type="button"
+                title="Jump to the start of this publication"
+                onclick={() => void goToReadingTop()}
+              >
+                Go to top
+              </button>
+            </div>
+            <div class="toc-scroll">
+              <TocPanel
+                nodes={tocTree}
+                expanded={tocExpanded}
+                activeKey={activeTocKey}
+                isLoaded={tocEntryLoaded}
+                isDisabled={tocEntryDisabled}
+                onToggle={toggleTocBranch}
+                onJump={(entry) => void jumpTo(entry)}
+              />
+            </div>
           </nav>
           <button
             class="toc-fab"

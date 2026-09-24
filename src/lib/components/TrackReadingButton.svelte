@@ -135,16 +135,16 @@
       Reset tracking
     </button>
   </div>
-  <p class="muted reading-track-hint">
-    Progress only moves forward as you read further. Scrolling up does not wipe it.
-    Reset tracking sets progress back to 0.
-  </p>
-  <p class="muted reading-track-hint">Mark as read on the publication page to finish and leave the queue.</p>
-  {#if bunker}
-    <p class="muted reading-track-hint">
-      Progress is remembered as you read; Amber asks to publish every few seconds (not on every scroll).
+  <aside class="reading-track-help" aria-label="Tracking help">
+    <p>
+      Progress only moves forward as you read further. Scrolling up does not wipe it.
+      Reset tracking sets progress back to 0.
     </p>
-  {/if}
+    <p>Mark as read on the publication page to finish and leave the queue.</p>
+    {#if bunker}
+      <p>Progress is remembered as you read; Amber asks to publish every few seconds (not on every scroll).</p>
+    {/if}
+  </aside>
 {:else}
   <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
     {$session.pubkey
@@ -154,7 +154,9 @@
       : 'Sign in to track reading'}
   </button>
   {#if bunker && !busy}
-    <p class="muted reading-track-hint">Amber will ask you to approve publishing your reading queue.</p>
+    <aside class="reading-track-help" aria-label="Tracking help">
+      <p>Amber will ask you to approve publishing your reading queue.</p>
+    </aside>
   {/if}
 {/if}
 {#if errorHint}
