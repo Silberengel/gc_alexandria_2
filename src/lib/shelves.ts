@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { isRenderableCatalogEvent } from './catalog-visibility';
 import { KIND } from './constants';
 import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
@@ -97,16 +98,17 @@ export function dedupeLandingShelfEvents<
   const seen = new Set<string>();
   const out: T[] = [];
   for (const shelf of orderLandingShelves(shelves)) {
+    const listable = shelf.events.filter(isRenderableCatalogEvent);
     const owned = isViewerOwnedShelfId(shelf.id);
     if (owned) {
-      for (const event of shelf.events) {
+      for (const event of listable) {
         seen.add(eventAddress(event) || event.id.toLowerCase());
       }
-      if (!shelf.events.length) continue;
-      out.push(shelf);
+      if (!listable.length) continue;
+      out.push(listable === shelf.events ? shelf : { ...shelf, events: listable });
       continue;
     }
-    const events = shelf.events.filter((event) => {
+    const events = listable.filter((event) => {
       const key = eventAddress(event) || event.id.toLowerCase();
       if (seen.has(key)) return false;
       seen.add(key);
@@ -250,6 +252,7 @@ export function topLevelShelfEvents(events: Event[], known: Event[] = events): E
   for (const event of events) {
     if (event.kind !== KIND.PUBLICATION) continue;
     const top = promoteToTopLevel(event, pool);
+    if (!isRenderableCatalogEvent(top)) continue;
     out.set(eventAddress(top), top);
   }
   return collapseSameCoverEditions([...out.values()]);
@@ -294,7 +297,7 @@ export function assignShelves(
 
   for (const [address, acc] of best) {
     const event = publications.get(address) ?? knownPubs.find((e) => eventAddress(e) === address);
-    if (!event) continue;
+    if (!event || !isRenderableCatalogEvent(event)) continue;
     buckets[acc.shelf].push({ event, created_at: acc.created_at });
   }
 

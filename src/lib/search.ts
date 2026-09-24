@@ -4,6 +4,7 @@ import { countReadPublications } from './read-marks';
 import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
+import { filterRenderableCatalogEvents } from './catalog-visibility';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
@@ -123,7 +124,7 @@ async function finishWithGrapevine(
   } catch {
     /* deletions optional */
   }
-  const visible = filterDeletedEvents(merged);
+  const visible = filterRenderableCatalogEvents(filterDeletedEvents(merged));
   const authors = [...new Set(visible.map((e) => e.pubkey))];
   try {
     await trustedAssertions.resolveProvider(session.getPubkey());
@@ -162,7 +163,7 @@ export function isNsec(input: string): boolean {
 }
 
 async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Promise<Event[]> {
-  const cached = filterDeletedEvents(await cacheGetSearchSnapshot(key));
+  const cached = filterRenderableCatalogEvents(filterDeletedEvents(await cacheGetSearchSnapshot(key)));
   rememberEvents(cached);
   onUpdate({ events: cached, loading: true, done: false });
   return cached;
@@ -527,7 +528,7 @@ async function resolvePublicationsFromLabelEvents(events: Event[]): Promise<Even
     const parts = coord.split(':');
     const pubkey = parts[1];
     const d = parts.slice(2).join(':');
-    if (!pubkey || !d) continue;
+    if (!pubkey || !d?.trim()) continue;
     const f: Filter = { kinds: [KIND.PUBLICATION], authors: [pubkey], '#d': [d], limit: 1 };
     const [m, w] = await Promise.all([mercuryFilter(f), relayPool.query(documentStack(), [f])]);
     const hit = m[0] ?? w[0];

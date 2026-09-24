@@ -15,6 +15,8 @@ import {
   referencedSectionAddress
 } from './library-scope';
 import { displayTitle } from './metadata';
+import { filterRenderableCatalogEvents, isRenderableCatalogEvent } from './catalog-visibility';
+import { refreshDeletionsFor } from './deletions';
 import { followPubkeysFromMetadata } from './mute';
 import { compareReplaceableNewestFirst, pruneToLatestReplaceables } from './nostr/replaceable';
 import { newestRatingPerPublication, PUBLICATION_RATING_MARKS } from './ratings';
@@ -223,7 +225,7 @@ function byNewest(a: Event, b: Event): number {
  * 10+: pin the 3 newest, shuffle the rest with a UNIX-timestamp seed.
  */
 export function orderShelfCovers(events: Event[], unixSeconds: number): Event[] {
-  const newest = [...events].sort(byNewest);
+  const newest = filterRenderableCatalogEvents(events).sort(byNewest);
   if (newest.length < 10) return newest;
   return [...newest.slice(0, 3), ...shuffle(newest.slice(3), unixSeconds)];
 }
@@ -596,6 +598,7 @@ async function resolveShelfPublications(
       if (byAddr.has(addr)) continue;
       const parsed = parseAddress(addr);
       if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+      if (!parsed.d?.trim()) continue;
       let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
       if (!event) {
         for (const e of landingPool) {
@@ -615,6 +618,7 @@ async function resolveShelfPublications(
       if (byAddr.has(addr)) continue;
       const parsed = parseAddress(addr);
       if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+      if (!parsed.d?.trim()) continue;
       const g =
         groups.get(parsed.pubkey) ?? {
           pubkey: parsed.pubkey,
@@ -853,6 +857,14 @@ async function loadShelvesAndLabels(
     }
   );
   await enrichPublicationParents(publications);
+  try {
+    await refreshDeletionsFor([...publications.values()]);
+  } catch {
+    /* deletions optional */
+  }
+  for (const [addr, event] of [...publications]) {
+    if (!isRenderableCatalogEvent(event)) publications.delete(addr);
+  }
   const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
   const nested =
     viewer != null

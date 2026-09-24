@@ -25,6 +25,8 @@ Feature: Landing bookshelves
     And table view shows one sortable Title/Author table for all shelf entries (no per-shelf split), paging at 250
     And covers use the publication's image tag when present, else a cover placeholder
     And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
+    And Untitled or deleted publications are never shown as shelf covers or list/bookshelf result cards
+    And memberships that target an empty d-tag or a deleted event are omitted
     And a cover shows a book-icon badge at the bottom-right when that publication's index has any a-tag or e-tag (including nested 30040 indexes)
     And covers load when they enter view
     And publications on a shelf are ranked newest first

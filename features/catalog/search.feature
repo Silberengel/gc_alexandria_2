@@ -118,6 +118,7 @@ Feature: Search
     When I open /search?bookshelf={d}
     Then the lookup is kind 30045 with that d-tag on the document stack
     And targeted publications appear as result cards
+    And Untitled or deleted targets are omitted from those cards
     And I do not also run full-text or the other tag fans
 
   Scenario: Publication and wiki lookups
