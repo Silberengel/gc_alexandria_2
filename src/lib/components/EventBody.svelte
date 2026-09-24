@@ -123,6 +123,41 @@
     if (!el || !ready || !q.length) return;
     return attachHighlightBadges(el);
   });
+
+  /**
+   * Hash-router apps cannot use plain `#section` hrefs — the browser replaces
+   * `#/wiki/...` with `#_publications` and the route breaks. Scroll in place instead.
+   */
+  function handleInPageAnchorClick(e: MouseEvent): void {
+    const hit = (e.target as Element | null)?.closest?.('a[href]');
+    if (!hit || !(hit instanceof HTMLAnchorElement)) return;
+    const href = (hit.getAttribute('href') ?? '').trim();
+    if (!href.startsWith('#') || href.startsWith('#/')) return;
+    // Always stop bare fragments — under hash routing they would replace the SPA route.
+    e.preventDefault();
+    e.stopPropagation();
+    let id = href.slice(1);
+    try {
+      id = decodeURIComponent(id);
+    } catch {
+      /* keep raw */
+    }
+    if (!id) return;
+    const root = bodyEl ?? document;
+    const target =
+      root.querySelector(`#${CSS.escape(id)}`) ??
+      document.getElementById(id) ??
+      (id.startsWith('_') ? null : root.querySelector(`#${CSS.escape(`_${id}`)}`));
+    if (!target) return;
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+
+  $effect(() => {
+    const el = bodyEl;
+    if (!el) return;
+    el.addEventListener('click', handleInPageAnchorClick);
+    return () => el.removeEventListener('click', handleInPageAnchorClick);
+  });
 </script>
 
 {#snippet embedCard(hit: Event)}

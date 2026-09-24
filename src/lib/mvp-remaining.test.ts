@@ -68,6 +68,17 @@ describe('wikilinks', () => {
       'link:#/search?d=nkbip-01[NKBIP-01]'
     );
   });
+
+  it('rewrites in-page section wikilinks to heading anchors', () => {
+    const adoc = rewriteWikilinks(
+      "[[#Publications|twenty-three children's tales]]",
+      'asciidoc'
+    );
+    expect(adoc).toContain("link:#_publications[twenty-three children's tales]");
+    expect(adoc).not.toContain('[[#Publications');
+    expect(rewriteWikilinks('[[#Publications]]', 'markdown')).toContain('[Publications](#_publications)');
+    expect(isAllowedHref('#_publications')).toBe(true);
+  });
 });
 
 describe('sanitize', () => {

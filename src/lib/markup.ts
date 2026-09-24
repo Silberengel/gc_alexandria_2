@@ -112,30 +112,65 @@ export function markupForKind(kind: number): MarkupFormat {
 
 export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown'): string {
   const hrefFor = (slug: string) => `#/search?d=${encodeURIComponent(slug)}`;
-  const toLink = (label: string, slug: string): string => {
-    if (!slug) return label;
-    if (format === 'asciidoc') return `link:${hrefFor(slug)}[${label}]`;
-    return `[${label}](${hrefFor(slug)})`;
+
+  /** Asciidoctor default sectids: idprefix `_`, idseparator `_`, lowercased. */
+  const sectionAnchorId = (fragment: string): string => {
+    const folded = fragment.normalize('NFD').replace(/\p{M}/gu, '');
+    let out = '';
+    for (const ch of folded) {
+      if (/\s/u.test(ch) || ch === '-' || ch === '.' || ch === '_') out += '_';
+      else if (/[0-9A-Za-z]/u.test(ch)) out += ch.toLowerCase();
+    }
+    const core = out.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return core ? `_${core}` : '';
+  };
+
+  const parseTarget = (raw: string): { slug: string; fragment: string } => {
+    const t = raw.trim();
+    if (!t) return { slug: '', fragment: '' };
+    if (t.startsWith('#')) return { slug: '', fragment: t.slice(1).trim() };
+    const hash = t.indexOf('#');
+    if (hash >= 0) {
+      return { slug: t.slice(0, hash).trim(), fragment: t.slice(hash + 1).trim() };
+    }
+    return { slug: t, fragment: '' };
+  };
+
+  const toLink = (label: string, targetRaw: string): string => {
+    const { slug, fragment } = parseTarget(targetRaw);
+    let text = label.trim();
+    if (text.startsWith('#')) text = text.slice(1).trim() || fragment;
+    if (!text) text = slug || fragment;
+    if (!slug && fragment) {
+      const id = sectionAnchorId(fragment);
+      if (!id) return text;
+      const href = `#${id}`;
+      if (format === 'asciidoc') return `link:${href}[${text}]`;
+      return `[${text}](${href})`;
+    }
+    const d = normalizeDTag(slug);
+    if (!d) return text;
+    if (format === 'asciidoc') return `link:${hrefFor(d)}[${text}]`;
+    return `[${text}](${hrefFor(d)})`;
   };
 
   let out = src;
 
-  // [[target|label]] and [[target]] — skip citation:: markers
-  out = out.replace(/\[\[([^\]|#]+)\|([^\]]+)\]\]/g, (match, target: string, label: string) => {
+  // [[target|label]] and [[target]] — allow #section / page#section; skip citation:: markers
+  out = out.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (match, target: string, label: string) => {
     if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
-    const slug = normalizeDTag(String(target).trim());
-    return toLink(String(label).trim() || String(target).trim(), slug);
+    return toLink(String(label), String(target));
   });
-  out = out.replace(/\[\[([^\]|#]+)\]\]/g, (match, target: string) => {
+  out = out.replace(/\[\[([^\]|]+)\]\]/g, (match, target: string) => {
     if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     const text = String(target).trim();
-    return toLink(text, normalizeDTag(text));
+    return toLink(text, text);
   });
 
   // Djot/MD unresolved reference links: [text][]
   out = out.replace(/\[([^\]\n]+)\]\[\]/g, (_m, target: string) => {
     const text = String(target).trim();
-    return toLink(text, normalizeDTag(text));
+    return toLink(text, text);
   });
 
   // Existing markdown / already-rewritten wiki or d-search links → normalize to d-search
@@ -143,8 +178,7 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown')
     /\[([^\]]+)\]\((#\/(?:wiki\/d\/|search\?d=)([^)#\s]+))\)/g,
     (_m, label: string, _href: string, raw: string) => {
       const decoded = decodeURIComponent(String(raw).replace(/\+/g, ' '));
-      const slug = normalizeDTag(decoded);
-      return toLink(String(label).trim() || decoded, slug);
+      return toLink(String(label).trim() || decoded, decoded);
     }
   );
 
@@ -154,8 +188,7 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown')
       /link:#\/wiki\/d\/([^[\s\]]+)\[([^\]]*)\]/g,
       (_m, raw: string, label: string) => {
         const decoded = decodeURIComponent(String(raw));
-        const slug = normalizeDTag(decoded);
-        return toLink(String(label).trim() || decoded, slug);
+        return toLink(String(label).trim() || decoded, decoded);
       }
     );
   }
@@ -168,7 +201,8 @@ const ALLOWED_URI = /^(?:(?:https?|mailto):|\/|#)/i;
 export function isAllowedHref(href: string): boolean {
   const trimmed = href.trim();
   if (!trimmed || trimmed.toLowerCase().startsWith('javascript:')) return false;
-  if (trimmed.startsWith('#/') || trimmed.startsWith('/')) return true;
+  // In-app routes (#/…), plain in-page anchors (#_section), and root-relative paths.
+  if (trimmed.startsWith('#') || trimmed.startsWith('/')) return true;
   try {
     const url = new URL(trimmed);
     return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:';

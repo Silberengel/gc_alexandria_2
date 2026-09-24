@@ -5,7 +5,7 @@ import { compareAuthorsByGrapevine, type GrapevineTrustContext } from './grapevi
 import { parseAddress } from './library-scope';
 import { looksLikeNativeAsciidoc } from './markup';
 import { firstTag, tagValue } from './nostr/verify';
-import { indexSlug } from './dtag';
+import { indexSlug, normalizeDTag } from './dtag';
 import { coverImageUrl } from './cover';
 import {
   isDeferralPlaceholderContent,
@@ -131,17 +131,33 @@ export function countSections(event: Event, sections: Event[]): number {
   ).length;
 }
 
-/** True when a 30040 index lists children to walk: any `a` (including nested 30040) or `e`. */
-export function hasPublicationSection(event: Event): boolean {
-  if (event.kind !== KIND.PUBLICATION) return false;
+/** Count walkable child pointers on a 30040 (`a`/`A`/`e`/`E`). */
+export function publicationSectionCount(event: Event): number {
+  let n = 0;
   for (const tag of event.tags) {
-    if (tag[0] === 'a' && tag[1]) {
-      const parsed = parseAddress(tag[1]);
-      if (parsed) return true;
-    }
-    if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) return true;
+    const name = tag[0];
+    if ((name === 'a' || name === 'A') && tag[1] && parseAddress(tag[1])) n += 1;
+    else if ((name === 'e' || name === 'E') && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) n += 1;
   }
-  return false;
+  return n;
+}
+
+/** True when a 30040 index lists children to walk: any `a`/`A` (including nested 30040) or `e`/`E`. */
+export function hasPublicationSection(event: Event): boolean {
+  return event.kind === KIND.PUBLICATION && publicationSectionCount(event) > 0;
+}
+
+/**
+ * When two copies of the same event id disagree on tags (search sources vary),
+ * keep the one with more section pointers so cover badges and readers stay correct.
+ */
+export function preferRicherEvent(a: Event, b: Event): Event {
+  if (a.id.toLowerCase() !== b.id.toLowerCase()) return b;
+  const sa = publicationSectionCount(a);
+  const sb = publicationSectionCount(b);
+  if (sa !== sb) return sa > sb ? a : b;
+  if (a.tags.length !== b.tags.length) return a.tags.length > b.tags.length ? a : b;
+  return b;
 }
 
 /** Search kind tier: publications first, then wiki/spec, then everything else. */
@@ -151,14 +167,35 @@ export function searchKindTier(kind: number): number {
   return 2;
 }
 
+/** True when the event's d-tag equals the normalized query slug (or a variant). */
+export function eventMatchesSearchD(event: Event, exactD: string): boolean {
+  const want = normalizeDTag(exactD);
+  if (!want) return false;
+  const d = firstTag(event, 'd') ?? '';
+  if (!d) return false;
+  return normalizeDTag(d) === want;
+}
+
+export type SearchSortOpts = {
+  /** Prefer events whose d-tag equals this slug (wikilink / ?d= searches). */
+  exactD?: string;
+};
+
 export function sortSearchResults(
   events: Event[],
   sectionCounts: Map<string, number>,
-  grapevine?: GrapevineTrustContext | null
+  grapevine?: GrapevineTrustContext | null,
+  opts?: SearchSortOpts
 ): Event[] {
+  const exactD = opts?.exactD ? normalizeDTag(opts.exactD) : '';
   return [...events].sort((a, b) => {
     const kindDiff = searchKindTier(a.kind) - searchKindTier(b.kind);
     if (kindDiff !== 0) return kindDiff;
+    if (exactD) {
+      const aExact = eventMatchesSearchD(a, exactD) ? 1 : 0;
+      const bExact = eventMatchesSearchD(b, exactD) ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+    }
     const aSections = sectionCounts.get(a.id) ?? 0;
     const bSections = sectionCounts.get(b.id) ?? 0;
     const aBoost = aSections >= 2 ? 1 : 0;

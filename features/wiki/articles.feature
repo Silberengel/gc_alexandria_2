@@ -26,10 +26,12 @@ Feature: Wiki
       | Markdown | [[constantinople|Byzantium]] |
       | AsciiDoc | [[constantinople]]           |
       | AsciiDoc | [[constantinople|Byzantium]] |
+      | AsciiDoc | [[#Publications|label]]      |
     When I follow that link from a wiki article or a publication section
     Then I open /search?d=constantinople
     And the lookup is an explicit #d search for wiki, spec, publication, and directory events
     And the link is a real hyperlink, not raw [[…]] or Markdown left in AsciiDoc
+    And [[#Section|label]] becomes an in-page link that scrolls to that article's section heading without leaving the page (hash routes cannot use a bare #fragment)
 
   Scenario: Spec documents are readable
     Given a 30817 with d-tag "nip-54"

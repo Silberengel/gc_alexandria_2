@@ -28,6 +28,7 @@ Feature: Search
     Then I am on /search
     And I see the search term at the top
     And I see result cards as they arrive
+    And publication covers show the book-icon badge when that index has a/e tags (merges keep the richer tag set so thin search hits do not hide it)
     And each card has a more menu to copy its nevent or naddr and open it on njump.me or jumble.imwald.eu
     And unfamiliar kinds show a kind line, a title only when a title tag is present (≤100, plaintext), author, and plaintext body from content (≤250, markup stripped)
     And full, compact-grid, and table layout icon buttons switch density (persisted with home and profile)
@@ -95,7 +96,9 @@ Feature: Search
     When I open /search?d={slug} from a wikilink
     Then the lookup is #d equal to the normalized slug
     And kinds include 30040, 30041, 30818, 30817, and 30045
-    And I do not also run full-text or the other tag fans
+    And full-text mention hits may still appear
+    And publication cards with that d-tag appear first among publications
+    And the wiki card with that d-tag appears first among wiki and spec cards, ahead of mention-only hits
 
   Scenario: A landing label is not a language search
     When I open /search from a landing label button
@@ -133,6 +136,7 @@ Feature: Search
     When a search has more matching cards than one page
     Then later-arriving cards fill remaining slots up to the paging caps
     And publication cards are ordered above wiki and spec cards
+    And within that, cards whose d-tag equals the query slug (for ?d= / wikilink search) are ordered above other matches
     And within that, publication cards with at least two sections are ordered above publications with fewer
     And within that, higher GrapeRank authors are ordered above lower or unknown when scores are available
     And within that, newest created_at first

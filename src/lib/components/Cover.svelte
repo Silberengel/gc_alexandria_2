@@ -2,8 +2,9 @@
   import type { Event } from 'nostr-tools';
   import { coverImageUrl } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
-  import { hasPublicationSection } from '$lib/metadata';
+  import { hasPublicationSection, preferRicherEvent } from '$lib/metadata';
   import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
+  import { memoryGetEvent } from '$lib/nostr/event-memory';
 
   interface Props {
     event: Event;
@@ -16,11 +17,16 @@
   let failedFor = $state<string | null>(null);
   let displaySrc = $state('');
 
-  const remote = $derived(coverImageUrl(event));
-  const placeholder = $derived(coverPlaceholderUrl(event));
+  /** Prefer a richer in-memory copy when search returned a thin tag set. */
+  const resolved = $derived.by(() => {
+    const mem = memoryGetEvent(event.id);
+    return mem ? preferRicherEvent(event, mem) : event;
+  });
+  const remote = $derived(coverImageUrl(resolved));
+  const placeholder = $derived(coverPlaceholderUrl(resolved));
   const broken = $derived(failedFor === event.id);
-  const label = $derived(alt ?? coverTitle(event));
-  const readable = $derived(hasPublicationSection(event));
+  const label = $derived(alt ?? coverTitle(resolved));
+  const readable = $derived(hasPublicationSection(resolved));
 
   $effect(() => {
     const id = event.id;

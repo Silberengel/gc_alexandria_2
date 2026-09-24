@@ -2,6 +2,7 @@ import type { Event, Filter } from 'nostr-tools';
 import { KIND } from '../constants';
 import { isEventDeleted } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
+import { preferRicherEvent } from '../metadata';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
@@ -13,7 +14,10 @@ import { documentStack, wikiStack } from './selector';
 export function mergeById(...lists: Event[][]): Event[] {
   const byId = new Map<string, Event>();
   for (const list of lists) {
-    for (const event of list) byId.set(event.id, event);
+    for (const event of list) {
+      const prev = byId.get(event.id);
+      byId.set(event.id, prev ? preferRicherEvent(prev, event) : event);
+    }
   }
   return [...byId.values()];
 }

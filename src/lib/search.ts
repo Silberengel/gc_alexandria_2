@@ -15,7 +15,7 @@ import {
   type GrapevineTrustContext
 } from './grapevine-rank';
 import { hasKnownRank } from './nip85-trusted-assertions';
-import { hexPubkey, npubFromInput, sortSearchResults } from './metadata';
+import { hexPubkey, npubFromInput, preferRicherEvent, publicationSectionCount, sortSearchResults } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
 import { isTopLevel30040 } from './nostr/verify';
@@ -49,7 +49,10 @@ export function normalizeSearchKey(input: string): string {
 
 function mergeById(events: Event[]): Event[] {
   const byId = new Map<string, Event>();
-  for (const event of events) byId.set(event.id, event);
+  for (const event of events) {
+    const prev = byId.get(event.id);
+    byId.set(event.id, prev ? preferRicherEvent(prev, event) : event);
+  }
   return [...byId.values()];
 }
 
@@ -70,7 +73,7 @@ export function identifierHints(query: string): string[] {
 }
 
 function sectionCount(event: Event): number {
-  return event.tags.filter((t) => (t[0] === 'a' || t[0] === 'e') && t[1]).length;
+  return publicationSectionCount(event);
 }
 
 export function preferTopLevelPublications(events: Event[]): Event[] {
@@ -94,9 +97,13 @@ function grapevineContext(): GrapevineTrustContext {
   };
 }
 
-function rankEvents(events: Event[], grapevine?: GrapevineTrustContext | null): Event[] {
+function rankEvents(
+  events: Event[],
+  grapevine?: GrapevineTrustContext | null,
+  opts?: { exactD?: string }
+): Event[] {
   const counts = new Map(events.map((e) => [e.id, sectionCount(e)]));
-  return sortSearchResults(preferTopLevelPublications(events), counts, grapevine);
+  return sortSearchResults(preferTopLevelPublications(events), counts, grapevine, opts);
 }
 
 function preferLive(live: Event[], cached: Event[]): Event[] {
@@ -107,7 +114,8 @@ async function finishWithGrapevine(
   key: string,
   live: Event[],
   cached: Event[],
-  onUpdate: (r: SearchResult) => void
+  onUpdate: (r: SearchResult) => void,
+  opts?: { exactD?: string }
 ): Promise<Event[]> {
   const merged = preferLive(live, cached);
   try {
@@ -130,7 +138,7 @@ async function finishWithGrapevine(
     /* FoF optional */
   }
   const ctx = grapevineContext();
-  let events = rankEvents(visible, ctx);
+  let events = rankEvents(visible, ctx, opts);
   // Deny-by-default only when at least one author score hydrated — otherwise a
   // dead scores relay would wipe Mercury / cache hits for anonymous visitors.
   const anyKnown = authors.some((pk) => hasKnownRank(trustedAssertions.getScore(pk)));
@@ -282,7 +290,8 @@ async function fanOutSearch(
 
   const merge = (batch: Event[]) => {
     for (const e of batch) {
-      if (!byId.has(e.id)) byId.set(e.id, e);
+      const prev = byId.get(e.id);
+      byId.set(e.id, prev ? preferRicherEvent(prev, e) : e);
     }
     const events = rankEvents(filterDeletedEvents([...byId.values()]), grapevineContext());
     onUpdate({ events: events.slice(0, 100), loading: true, done: false });
@@ -428,7 +437,8 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
     key,
     mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered, ...brainstorm]),
     cached,
-    onUpdate
+    onUpdate,
+    { exactD: slug }
   );
 }
 

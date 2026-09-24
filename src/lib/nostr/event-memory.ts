@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { dTagVariants, normalizeDTag } from '../dtag';
+import { preferRicherEvent } from '../metadata';
 import { isNewerReplaceable } from './replaceable';
 import { firstTag } from './verify';
 
@@ -18,7 +19,9 @@ export function rememberEvents(events: Event[]): void {
     if (!event?.id || !event.pubkey) continue;
     const id = event.id.toLowerCase();
     const prev = byId.get(id);
-    if (!prev || isNewerReplaceable(event, prev)) byId.set(id, event);
+    // Same id: keep the richer tag set (search sources often disagree on a/e completeness).
+    if (!prev) byId.set(id, event);
+    else byId.set(id, preferRicherEvent(prev, event));
 
     const pk = event.pubkey.toLowerCase();
     if (event.kind === 0) {
@@ -32,6 +35,7 @@ export function rememberEvents(events: Event[]): void {
       const key = addrKey(event.kind, pk, variant);
       const cur = byAddr.get(key);
       if (!cur || isNewerReplaceable(event, cur)) byAddr.set(key, event);
+      else if (cur.id.toLowerCase() === id) byAddr.set(key, preferRicherEvent(cur, event));
     }
   }
 }

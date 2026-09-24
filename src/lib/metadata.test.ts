@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { cardMeta, hasPublicationSection, sortSearchResults } from './metadata';
+import { cardMeta, hasPublicationSection, preferRicherEvent, sortSearchResults } from './metadata';
 
 function ev(kind: number, tags: string[][], content = '', id = 'a'.repeat(64)): Event {
   return {
@@ -26,6 +26,11 @@ describe('hasPublicationSection', () => {
     expect(hasPublicationSection(ev(30040, [['e', 'd'.repeat(64)]]))).toBe(true);
   });
 
+  it('is true for uppercase A/E child tags', () => {
+    expect(hasPublicationSection(ev(30040, [['A', `30041:${pk}:ch1`]]))).toBe(true);
+    expect(hasPublicationSection(ev(30040, [['E', 'd'.repeat(64)]]))).toBe(true);
+  });
+
   it('is true for nested 30040 indexes (walkable trees)', () => {
     expect(hasPublicationSection(ev(30040, [['a', `30040:${pk}:nested`]]))).toBe(true);
   });
@@ -33,6 +38,16 @@ describe('hasPublicationSection', () => {
   it('is false for empty catalog stubs and non-publications', () => {
     expect(hasPublicationSection(ev(30040, [['title', 'Stub'], ['d', 'stub']]))).toBe(false);
     expect(hasPublicationSection(ev(30818, [['a', `30041:${pk}:ch1`]]))).toBe(false);
+  });
+});
+
+describe('preferRicherEvent', () => {
+  it('keeps the copy with more section a-tags for the same id', () => {
+    const id = 'c'.repeat(64);
+    const thin = ev(30040, [['title', 'Book'], ['d', 'book']], '', id);
+    const rich = ev(30040, [['title', 'Book'], ['d', 'book'], ['a', `30041:${pk}:ch1`]], '', id);
+    expect(preferRicherEvent(thin, rich)).toBe(rich);
+    expect(preferRicherEvent(rich, thin)).toBe(rich);
   });
 });
 
@@ -78,5 +93,16 @@ describe('sortSearchResults', () => {
     const counts = new Map<string, number>();
     const sorted = sortSearchResults([wiki, spec, pub], counts);
     expect(sorted.map((e) => e.kind)).toEqual([30040, 30818, 30817]);
+  });
+
+  it('within a kind, prefers an exact d-tag match over other hits', () => {
+    const slug = 'the-tale-of-jemima-puddle-duck';
+    const exact = ev(30818, [['d', slug], ['title', 'Jemima']], '', '1'.repeat(64));
+    exact.created_at = 1;
+    const other = ev(30818, [['d', 'beatrix-potter'], ['title', 'Beatrix']], '', '2'.repeat(64));
+    other.created_at = 9_999;
+    const counts = new Map<string, number>();
+    const sorted = sortSearchResults([other, exact], counts, null, { exactD: slug });
+    expect(sorted[0]?.id).toBe(exact.id);
   });
 });

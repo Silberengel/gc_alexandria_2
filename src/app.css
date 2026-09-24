@@ -1525,7 +1525,7 @@ a.listing-row:hover {
   position: absolute;
   bottom: 0.22rem;
   right: 0.22rem;
-  z-index: 1;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1534,6 +1534,7 @@ a.listing-row:hover {
   line-height: 0;
   background: var(--accent);
   color: var(--brand-primary-0);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand-primary-0) 55%, transparent);
   pointer-events: none;
 }
 :root.dark .book-badge { color: var(--brand-primary-1000); }
@@ -1554,6 +1555,12 @@ a.listing-row:hover {
   min-width: 0;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* Clear the sticky top bar when jumping to in-page section wikilinks. */
+.reading-body :is(h1, h2, h3, h4, h5, h6)[id],
+.event-body :is(h1, h2, h3, h4, h5, h6)[id] {
+  scroll-margin-top: 6.5rem;
 }
 
 .reading-body img,
