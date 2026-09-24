@@ -135,6 +135,8 @@
   let sectionComments = $state<Record<string, Event[]>>({});
   let sectionCommentsOpen = $state<Record<string, boolean>>({});
   let treeAbort: AbortController | null = null;
+  /** Info-page ToC prefetch — separate from the reader stream abort. */
+  let prefetchAbort: AbortController | null = null;
   /** Avoid tearing down a warm paint when the route effect re-fires for the same edition. */
   let paintedRouteKey = '';
   let pageFilter = $state('');
@@ -208,6 +210,11 @@
     treeAbort?.abort();
     treeAbort = null;
     clearAdoptFlush();
+  }
+
+  function cancelPrefetch(): void {
+    prefetchAbort?.abort();
+    prefetchAbort = null;
   }
 
   let adoptFlushTimer = 0;
@@ -491,9 +498,9 @@
 
   /** After header is on screen, warm social + Mercury ToC in parallel (do not block Read). */
   async function afterSocialPrefetchTree(target: Event): Promise<void> {
-    cancelTree();
-    treeAbort = new AbortController();
-    const signal = treeAbort.signal;
+    cancelPrefetch();
+    prefetchAbort = new AbortController();
+    const signal = prefetchAbort.signal;
     // Social is best-effort and slow when relays are down — never gate the tree on it.
     void fetchSocial(target).catch(() => {});
     if (signal.aborted || event?.id !== target.id) return;
@@ -768,17 +775,25 @@
     const signal = treeAbort.signal;
     try {
       await ensureToc(edition);
-      if (signal.aborted || event?.id !== edition.id) return false;
-      // First viewport: edition heading + ToC shell (readable without the entire book).
+      if (event?.id !== edition.id) return false;
+      // Always paint the edition shell even if a concurrent abort fired during ensureToc —
+      // otherwise read=1 can stick on "Publication is loading..." with an empty pane.
       adoptSections([edition], edition);
       readingBusy = false;
 
+      if (signal.aborted) {
+        // Route-effect re-entry aborted the first controller; start a fresh stream.
+        treeAbort = new AbortController();
+      }
+      const streamSignal = treeAbort?.signal;
+      if (!streamSignal) return true;
+
       // Do not await the full Mercury/relay pull — large pubs can stream for a long time.
-      void loadSectionEvents(edition, signal, (batch) => {
-        if (signal.aborted || event?.id !== edition.id || !reading) return;
+      void loadSectionEvents(edition, streamSignal, (batch) => {
+        if (streamSignal.aborted || event?.id !== edition.id || !reading) return;
         scheduleAdopt(batch, edition);
       }).then(() => {
-        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        if (streamSignal.aborted || event?.id !== edition.id || !reading) return;
         scheduleAdopt([], edition, true);
         if (!sectionCorpus.length) {
           unreadable = true;
@@ -949,8 +964,11 @@
       return;
     }
     if (focus.read) {
-      if (!reading && canRead && !unreadable && !textUnavailable) {
-        void startReading({ fromUrl: true });
+      // Recover if a prior fill was aborted (route effect cleanup) leaving reading stuck empty.
+      if (canRead && !unreadable && !textUnavailable) {
+        if (!reading || (!sections.length && !readingBusy)) {
+          void startReading({ fromUrl: true });
+        }
       }
       return;
     }
@@ -1004,7 +1022,8 @@
     unreadable = false;
     textUnavailable = !hasPublicationSection(target);
     loading = false;
-    cancelTree();
+    // Do not cancelTree here — Read may already be streaming for ?read=1.
+    cancelPrefetch();
     // Catalog stubs (no section a/e tags) are library cards only — no tree to fetch.
     // Readable editions: social first, then Mercury tree in the background (no a-tag walk).
     void afterSocialPrefetchTree(target);
@@ -1046,6 +1065,7 @@
       commentFocusApplied = '';
       replyOpenId = null;
       cancelTree();
+      cancelPrefetch();
       error = false;
       unreadable = false;
     }
@@ -1175,12 +1195,14 @@
 
     return () => {
       cancelled = true;
-      cancelTree();
+      // Do not cancelTree here — this effect re-fires when paintedRouteKey / params
+      // settle for the same edition and would abort fillReadingSections mid-flight.
     };
   });
 
   onDestroy(() => {
     cancelTree();
+    cancelPrefetch();
     void flushReadingProgress();
   });
 

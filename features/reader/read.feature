@@ -86,6 +86,7 @@ Feature: In-browser reader
     And if that section is not in the pane yet, it is fetched and shown before waiting for the rest of the publication
     And the reader shows a short opening state for that section so the jump does not look inert
     And the first viewport is readable without the entire book
+    And opening with read=1 paints the edition shell even if a background ToC prefetch is aborted
     When I scroll later
     Then subsequent sections appear in order
     And missing sections show a placeholder
