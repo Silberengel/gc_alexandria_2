@@ -39,7 +39,76 @@ export const SHELF_TITLES: Record<ShelfId, string> = {
   network: 'From the network'
 };
 
-const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'gitcitadel', 'network'];
+/** Core bucket order for assignShelves (folders are interleaved separately). */
+const SHELF_ORDER: ShelfId[] = ['mine', 'gitcitadel', 'follows', 'network'];
+
+/**
+ * Home / landing row order:
+ * 1. My shelf
+ * 2. Viewer's nested folder shelves (A–Z by title)
+ * 3. GitCitadel
+ * 4. From follows, then From the network
+ * Unknown ids stay at the end in input order.
+ */
+export function orderLandingShelves<T extends { id: string; title?: string }>(shelves: T[]): T[] {
+  const mine: T[] = [];
+  const folders: T[] = [];
+  const gitcitadel: T[] = [];
+  const follows: T[] = [];
+  const network: T[] = [];
+  const other: T[] = [];
+  for (const shelf of shelves) {
+    if (shelf.id === 'mine') mine.push(shelf);
+    else if (shelf.id.startsWith('folder:')) folders.push(shelf);
+    else if (shelf.id === 'gitcitadel') gitcitadel.push(shelf);
+    else if (shelf.id === 'follows') follows.push(shelf);
+    else if (shelf.id === 'network') network.push(shelf);
+    else other.push(shelf);
+  }
+  folders.sort((a, b) => {
+    const ta = (a.title ?? a.id).trim();
+    const tb = (b.title ?? b.id).trim();
+    return ta.localeCompare(tb, undefined, { sensitivity: 'base' });
+  });
+  return [...mine, ...folders, ...gitcitadel, ...follows, ...network, ...other];
+}
+
+/**
+ * Drop covers on GitCitadel / follows / network that already appear on a higher row.
+ * Viewer-owned shelves (My shelf + nested folders) keep every cover — intentional duplicates stay.
+ * Empty curated shelves after dedupe are omitted.
+ */
+export function dedupeLandingShelfEvents<
+  T extends { id: string; title?: string; events: Event[] }
+>(shelves: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const shelf of orderLandingShelves(shelves)) {
+    const owned = isViewerOwnedShelfId(shelf.id);
+    if (owned) {
+      for (const event of shelf.events) {
+        seen.add(eventAddress(event) || event.id.toLowerCase());
+      }
+      if (!shelf.events.length) continue;
+      out.push(shelf);
+      continue;
+    }
+    const events = shelf.events.filter((event) => {
+      const key = eventAddress(event) || event.id.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (!events.length) continue;
+    out.push(events === shelf.events ? shelf : { ...shelf, events });
+  }
+  return out;
+}
+
+/** My shelf and nested 30045 folders — not follows/GitCitadel/network. */
+export function isViewerOwnedShelfId(id: string): boolean {
+  return id === 'mine' || id.startsWith('folder:');
+}
 
 function targetsFromMembershipEvent(event: Event): {
   addresses: string[];
@@ -94,10 +163,11 @@ function shelfForAuthor(
   return 'network';
 }
 
+/** Membership win priority when a pub appears on multiple lists (lower wins). Matches Home row order. */
 const PRIORITY: Record<ShelfId, number> = {
   mine: 0,
-  follows: 1,
-  gitcitadel: 2,
+  gitcitadel: 1,
+  follows: 2,
   network: 3
 };
 
@@ -275,7 +345,7 @@ export function nestedShelvesForViewer(
       events
     });
   }
-  return out;
+  return out.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
 
 /** Mine, follows, and nested 30045 folder rows — must not carry across identities. */

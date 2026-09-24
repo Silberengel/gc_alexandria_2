@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { preferLive, subjectsFromPublications, orderShelfCovers, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
+import { preferLive, subjectsFromPublications, orderShelfCovers, landingCoverSeed, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
+import { orderLandingShelves, dedupeLandingShelfEvents } from './shelves';
 import type { Event } from 'nostr-tools';
 import type { LandingShelfSnap } from './nostr/cache';
 
@@ -43,10 +44,75 @@ describe('mergeLandingShelves', () => {
     ];
     const next: LandingShelfSnap[] = [{ id: 'mine', title: 'My shelf', events: [c] }];
     const merged = mergeLandingShelves(prev, next);
-    expect(merged.map((s) => s.id).sort()).toEqual(['mine', 'network']);
+    expect(merged.map((s) => s.id)).toEqual(['mine', 'network']);
     const mine = merged.find((s) => s.id === 'mine')!;
     expect(mine.events.map((e) => e.id).sort()).toEqual([a.id, c.id].sort());
-    expect(merged.find((s) => s.id === 'network')?.events).toHaveLength(2);
+    // a stays on mine — network only keeps b
+    expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([b.id]);
+  });
+});
+
+describe('orderLandingShelves', () => {
+  it('puts My shelf first, nested folders alphabetically, then GitCitadel, then network rows', () => {
+    const ordered = orderLandingShelves([
+      { id: 'network', title: 'From the network' },
+      { id: 'folder:Mystery', title: 'Mystery' },
+      { id: 'follows', title: 'From follows' },
+      { id: 'folder:adventure', title: 'adventure' },
+      { id: 'gitcitadel', title: 'GitCitadel' },
+      { id: 'mine', title: 'My shelf' }
+    ]);
+    expect(ordered.map((s) => s.id)).toEqual([
+      'mine',
+      'folder:adventure',
+      'folder:Mystery',
+      'gitcitadel',
+      'follows',
+      'network'
+    ]);
+  });
+});
+
+describe('dedupeLandingShelfEvents', () => {
+  function pub(d: string, idNibble: string): Event {
+    return {
+      id: idNibble.repeat(64).slice(0, 64),
+      pubkey: 'b'.repeat(64),
+      created_at: 1,
+      kind: 30040,
+      tags: [['d', d]],
+      content: '',
+      sig: 'c'.repeat(128)
+    };
+  }
+
+  it('keeps a cover only on the highest-priority curated shelf that has it', () => {
+    const shared = pub('shared', '1');
+    const onlyGc = pub('gc-only', '2');
+    const onlyNet = pub('net-only', '3');
+    const deduped = dedupeLandingShelfEvents([
+      { id: 'network', title: 'From the network', events: [shared, onlyNet] },
+      { id: 'gitcitadel', title: 'GitCitadel', events: [shared, onlyGc] },
+      { id: 'mine', title: 'My shelf', events: [shared] }
+    ]);
+    expect(deduped.map((s) => s.id)).toEqual(['mine', 'gitcitadel', 'network']);
+    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
+    expect(deduped.find((s) => s.id === 'gitcitadel')?.events.map((e) => e.id)).toEqual([onlyGc.id]);
+    expect(deduped.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([onlyNet.id]);
+  });
+
+  it('allows the same cover on My shelf and a nested folder', () => {
+    const shared = pub('shared', '1');
+    const deduped = dedupeLandingShelfEvents([
+      { id: 'folder:summer', title: 'Summer', events: [shared] },
+      { id: 'mine', title: 'My shelf', events: [shared] },
+      { id: 'gitcitadel', title: 'GitCitadel', events: [shared] }
+    ]);
+    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
+    expect(deduped.find((s) => s.id === 'folder:summer')?.events.map((e) => e.id)).toEqual([
+      shared.id
+    ]);
+    expect(deduped.find((s) => s.id === 'gitcitadel')).toBeUndefined();
   });
 });
 
@@ -78,6 +144,13 @@ describe('orderShelfCovers', () => {
     expect(a.map((e) => e.id)).toEqual(again.map((e) => e.id));
     expect(a.slice(3).map((e) => e.id)).not.toEqual(b.slice(3).map((e) => e.id));
     expect(new Set(a.map((e) => e.id)).size).toBe(10);
+  });
+
+  it('reuses one landingCoverSeed for the session', () => {
+    const a = landingCoverSeed();
+    const b = landingCoverSeed();
+    expect(a).toBe(b);
+    expect(Number.isInteger(a)).toBe(true);
   });
 });
 

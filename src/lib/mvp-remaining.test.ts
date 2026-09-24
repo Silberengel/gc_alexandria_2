@@ -475,10 +475,10 @@ describe('booklist and shelves', () => {
       [addr(pubE), pubE]
     ]);
     const shelves = assignShelves(memberships, pubs, me, new Set([follow]));
-    expect(shelves.map((s) => s.id)).toEqual(['mine', 'follows', 'gitcitadel', 'network']);
+    expect(shelves.map((s) => s.id)).toEqual(['mine', 'gitcitadel', 'follows', 'network']);
     expect(shelves[0]?.events.map((e) => e.id)).toEqual([pubA.id, pubE.id]);
-    expect(shelves[1]?.events.map((e) => e.id)).toEqual([pubB.id]);
-    expect(shelves[2]?.events.map((e) => e.id)).toEqual([pubC.id]);
+    expect(shelves[1]?.events.map((e) => e.id)).toEqual([pubC.id]);
+    expect(shelves[2]?.events.map((e) => e.id)).toEqual([pubB.id]);
     expect(shelves[3]?.events.map((e) => e.id)).toEqual([pubD.id]);
   });
 

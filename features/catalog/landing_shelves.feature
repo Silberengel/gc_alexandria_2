@@ -11,8 +11,10 @@ Feature: Landing bookshelves
     And shelved means a kind 30045 directory a-tag or e-tag targeting a publication
     And all of those count as shelf membership for the priority rows
     And the GitCitadel curator is npub18cddpua960qjy3wmw7y9gmzr4h3ajlrwq3k9jnmqzlxke4qkg6gqeyaztw
-    And shelf order after dedup is mine, then follows, then GitCitadel, then the rest of the social read stack
-    And signed-in nested 30045 folders (not my-book-collection) appear as extra horizontal rows after those
+    And shelf order after dedup is My shelf, then the viewer's nested folders A–Z by title, then GitCitadel, then From follows, then From the network
+    And a publication appears on at most one curated row (GitCitadel, follows, network) — those omit covers already on My shelf, nested folders, or a higher curated shelf
+    And the same publication may appear on both My shelf and nested folders
+    And signed-in nested 30045 folders (not my-book-collection) appear as those alphabetical rows after My shelf
     And 1985 and 10003 membership uses the social/interaction stack
     And 30045 membership uses the document/search stack
     And each shelf is a horizontal row of covers or cover placeholders in full view, or a compact publication grid in compact view
@@ -26,7 +28,7 @@ Feature: Landing bookshelves
     And covers load when they enter view
     And publications on a shelf are ranked newest first
     And when a shelf has fewer than 10 publications I see all of them
-    And when a shelf has at least 10 publications I see the 3 newest first and the remaining covers shuffled from the current UNIX timestamp
+    And when a shelf has at least 10 publications I see the 3 newest first and the remaining covers shuffled from a UNIX seed frozen for this page load (new order on full reload)
     And empty shelves are omitted
     And a home with no shelves or only one shelf is still the landing page
     And clicking a cover opens that edition's interactive /publication/d/{d}/p/{npub} page (header and social lists), not the in-browser reader

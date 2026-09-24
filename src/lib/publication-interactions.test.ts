@@ -273,6 +273,30 @@ describe('bookshelf 30045', () => {
     expect(isViewerBoundShelfId('folder:adventure')).toBe(true);
     expect(isViewerBoundShelfId('nested:adventure')).toBe(false);
   });
+
+  it('sorts nested viewer shelves alphabetically by title', () => {
+    const zeta = ev({
+      id: '8'.repeat(64),
+      pubkey: pk,
+      kind: KIND.DIRECTORY,
+      tags: [
+        ['d', 'zeta'],
+        ['a', `30040:${pk}:mansfield-park`, '', pub.id]
+      ]
+    });
+    const alpha = ev({
+      id: '9'.repeat(64),
+      pubkey: pk,
+      kind: KIND.DIRECTORY,
+      tags: [
+        ['d', 'alpha'],
+        ['a', `30040:${pk}:mansfield-park`, '', pub.id]
+      ]
+    });
+    const pubs = new Map([[`30040:${pk}:mansfield-park`, pub]]);
+    const shelves = nestedShelvesForViewer([zeta, alpha], pubs, pk);
+    expect(shelves.map((s) => s.title)).toEqual(['alpha', 'zeta']);
+  });
 });
 
 describe('interaction marks', () => {

@@ -38,7 +38,7 @@ import {
 import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
-import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, SHELF_TITLES, topLevelShelfEvents, type Membership, type Shelf } from './shelves';
+import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, dedupeLandingShelfEvents, SHELF_TITLES, topLevelShelfEvents, type Membership, type Shelf } from './shelves';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -163,13 +163,14 @@ function mergeEvents(...lists: Event[][]): Event[] {
  * Progressive landing paints often replace a full shelf set with a thinner intermediate
  * (e.g. My shelf only). Union shelves/events so the UI does not flicker fewer→more→fewer.
  * Callers should still replace wholesale on identity change or final snapshot.
+ * Always re-orders and cross-shelf dedupes via {@link dedupeLandingShelfEvents}.
  */
 export function mergeLandingShelves(
   prev: LandingShelfSnap[],
   next: LandingShelfSnap[]
 ): LandingShelfSnap[] {
-  if (!prev.length) return next;
-  if (!next.length) return prev;
+  if (!prev.length) return dedupeLandingShelfEvents(next);
+  if (!next.length) return dedupeLandingShelfEvents(prev);
   const prevById = new Map(prev.map((s) => [s.id, s]));
   const seen = new Set<string>();
   const out: LandingShelfSnap[] = [];
@@ -186,7 +187,7 @@ export function mergeLandingShelves(
   for (const shelf of prev) {
     if (!seen.has(shelf.id)) out.push(shelf);
   }
-  return out;
+  return dedupeLandingShelfEvents(out);
 }
 
 function settled<T>(result: PromiseSettledResult<T>, fallback: T): T {
@@ -227,6 +228,15 @@ export function orderShelfCovers(events: Event[], unixSeconds: number): Event[] 
   const newest = [...events].sort(byNewest);
   if (newest.length < 10) return newest;
   return [...newest.slice(0, 3), ...shuffle(newest.slice(3), unixSeconds)];
+}
+
+/** Frozen for this SPA page load so Home cover order stays stable until a full reload. */
+let coverShuffleSeed: number | null = null;
+
+/** Session UNIX seed for {@link orderShelfCovers} (same value until the document reloads). */
+export function landingCoverSeed(): number {
+  if (coverShuffleSeed == null) coverShuffleSeed = Math.floor(Date.now() / 1000);
+  return coverShuffleSeed;
 }
 
 export function withSubjects(snap: LandingSnapshot): LandingView {
@@ -852,7 +862,7 @@ async function loadShelvesAndLabels(
       viewerNpub = '';
     }
   }
-  const shelfSnaps: LandingShelfSnap[] = [
+  const shelfSnaps: LandingShelfSnap[] = dedupeLandingShelfEvents([
     ...shelves.map((s) => ({ id: s.id, title: s.title, events: s.events })),
     ...nested.map((s) => ({
       id: s.id,
@@ -860,7 +870,7 @@ async function loadShelvesAndLabels(
       events: s.events,
       href: `/search?bookshelf=${encodeURIComponent(s.d)}${viewerNpub ? `&npub=${viewerNpub}` : ''}`
     }))
-  ];
+  ]);
   return {
     shelves: shelfSnaps,
     labels

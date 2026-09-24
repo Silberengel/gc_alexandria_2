@@ -9,6 +9,7 @@
   import EventsTable from '$lib/components/EventsTable.svelte';
   import {
     LANDING_FEED_LIMIT,
+    landingCoverSeed,
     loadCachedLanding,
     loadViewerShelves,
     mergeLandingShelves,
@@ -23,7 +24,7 @@
   import { get } from 'svelte/store';
   import { muteState, filterMuted } from '$lib/mute';
   import { rememberEvents } from '$lib/nostr/event-memory';
-  import { isViewerBoundShelfId } from '$lib/shelves';
+  import { isViewerBoundShelfId, orderLandingShelves, dedupeLandingShelfEvents } from '$lib/shelves';
   import { coverImageUrl } from '$lib/cover';
   import { prefetchImages } from '$lib/image-cache';
   import { link } from 'svelte-spa-router';
@@ -44,18 +45,23 @@
   let landingBusy = $state(true);
   let landingStatus = $state('Starting…');
   let shelfBusy = $state(false);
-  const shelfSeed = Math.floor(Date.now() / 1000);
+  /** Stable for this SPA session (module seed) so covers reshuffle only on full reload. */
+  const shelfSeed = landingCoverSeed();
 
   const visibleShelves = $derived(
-    shelves
-      .map((s) => {
-        // Curated shelves keep their covers; mute only drops authors on open network rows.
-        if (s.id === 'network') {
-          return { ...s, events: filterMuted(s.events, $muteState) };
-        }
-        return s;
-      })
-      .filter((s) => s.events.length)
+    dedupeLandingShelfEvents(
+      orderLandingShelves(
+        shelves
+          .map((s) => {
+            // Curated shelves keep their covers; mute only drops authors on open network rows.
+            if (s.id === 'network') {
+              return { ...s, events: filterMuted(s.events, $muteState) };
+            }
+            return s;
+          })
+          .filter((s) => s.events.length)
+      )
+    )
   );
   const hasViewerShelves = $derived(
     visibleShelves.some((s) => isViewerBoundShelfId(s.id))
@@ -72,7 +78,7 @@
     const seen = new Set<string>();
     const out: Event[] = [];
     for (const shelf of visibleShelves) {
-      for (const event of shelf.events) {
+      for (const event of orderShelfCovers(shelf.events, shelfSeed)) {
         if (seen.has(event.id)) continue;
         seen.add(event.id);
         out.push(event);
@@ -95,10 +101,7 @@
     // snapshot cannot erase them after mergeViewerShelves painted them.
     if (replaceShelves && nextHasCovers) {
       const prevBound = shelves.filter((s) => isViewerBoundShelfId(s.id));
-      const merged = mergeLandingShelves(prevBound, nextShelves);
-      const bound = merged.filter((s) => isViewerBoundShelfId(s.id));
-      const rest = merged.filter((s) => !isViewerBoundShelfId(s.id));
-      shelves = [...bound, ...rest];
+      shelves = mergeLandingShelves(prevBound, nextShelves);
     } else {
       shelves = mergeLandingShelves(shelves, nextShelves);
     }
