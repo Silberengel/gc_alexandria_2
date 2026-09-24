@@ -97,12 +97,9 @@
     const nextShelves = view.shelves ?? [];
     const nextHasCovers = nextShelves.some((s) => s.events.length);
     // Never wipe painted covers with an empty final pack (relay starvation used to do that).
-    // Always union viewer-bound shelves (My shelf / follows / folders) so a late network-only
-    // snapshot cannot erase them after mergeViewerShelves painted them.
-    if (replaceShelves && nextHasCovers) {
-      const prevBound = shelves.filter((s) => isViewerBoundShelfId(s.id));
-      shelves = mergeLandingShelves(prevBound, nextShelves);
-    } else {
+    // Union into whatever is already painted — including GitCitadel/network. Filtering to
+    // viewer-bound rows only used to drop curated shelves when the live pack timed out thin.
+    if (nextHasCovers || !shelves.some((s) => s.events.length)) {
       shelves = mergeLandingShelves(shelves, nextShelves);
     }
     if (view.labels?.length || replaceShelves) labels = view.labels ?? [];
