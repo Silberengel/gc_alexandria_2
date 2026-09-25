@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { pagerItems } from '$lib/pager';
+
   interface Props {
     page: number;
     pageSize?: number;
@@ -8,12 +10,63 @@
 
   let { page, pageSize = 24, total, onPage }: Props = $props();
   const pages = $derived(Math.max(1, Math.ceil(total / pageSize)));
+  const items = $derived(pagerItems(page, pages));
+
+  function go(next: number): void {
+    const clamped = Math.min(pages, Math.max(1, next));
+    if (clamped !== page) onPage(clamped);
+  }
 </script>
 
 {#if total > pageSize}
-  <div class="pager">
-    <button class="btn" type="button" disabled={page <= 1} onclick={() => onPage(page - 1)}>Previous</button>
-    <span class="muted">Page {page} of {pages}</span>
-    <button class="btn" type="button" disabled={page >= pages} onclick={() => onPage(page + 1)}>Next</button>
-  </div>
+  <nav class="pager" aria-label="Pagination">
+    <button
+      class="pager-nav"
+      type="button"
+      aria-label="First page"
+      disabled={page <= 1}
+      onclick={() => go(1)}
+    >&lt;&lt;</button>
+    <button
+      class="pager-nav"
+      type="button"
+      aria-label="Previous page"
+      disabled={page <= 1}
+      onclick={() => go(page - 1)}
+    >&lt;</button>
+    <div class="pager-pages" role="list">
+      {#each items as item, i (typeof item === 'number' ? item : `e-${i}`)}
+        {#if item === 'ellipsis'}
+          <span class="pager-ellipsis muted" aria-hidden="true">…</span>
+        {:else}
+          <button
+            class="pager-page"
+            class:pager-page-current={item === page}
+            type="button"
+            role="listitem"
+            aria-current={item === page ? 'page' : undefined}
+            aria-label={`Page ${item}`}
+            disabled={item === page}
+            onclick={() => go(item)}
+          >
+            {item}
+          </button>
+        {/if}
+      {/each}
+    </div>
+    <button
+      class="pager-nav"
+      type="button"
+      aria-label="Next page"
+      disabled={page >= pages}
+      onclick={() => go(page + 1)}
+    >&gt;</button>
+    <button
+      class="pager-nav"
+      type="button"
+      aria-label="Last page"
+      disabled={page >= pages}
+      onclick={() => go(pages)}
+    >&gt;&gt;</button>
+  </nav>
 {/if}

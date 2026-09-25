@@ -534,9 +534,70 @@ select:focus-visible,
 
 .pager {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.35rem;
   align-items: center;
-  margin: 1rem 0;
+  justify-content: center;
+  margin: 1.15rem 0;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--surface) 88%, #fff);
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+}
+.pager-pages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+  align-items: center;
+}
+.pager-nav,
+.pager-page {
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  min-width: 1.85rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0;
+  line-height: 1.2;
+  transition: color 0.15s ease;
+}
+.pager-nav {
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--text) 55%, var(--muted));
+}
+.pager-nav:hover:not(:disabled),
+.pager-page:hover:not(:disabled) {
+  color: var(--text);
+}
+.pager-page-current,
+.pager-page[aria-current='page'] {
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.pager-nav:disabled,
+.pager-page:disabled:not(.pager-page-current):not([aria-current='page']) {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.pager-page:disabled.pager-page-current,
+.pager-page:disabled[aria-current='page'] {
+  opacity: 1;
+  cursor: default;
+}
+.pager-ellipsis {
+  min-width: 1.25rem;
+  text-align: center;
+  user-select: none;
+  padding: 0.2rem 0.15rem;
 }
 
 input[type='search'],
