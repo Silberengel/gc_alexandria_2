@@ -22,7 +22,8 @@ Feature: Landing bookshelves
     And each shelf has its own horizontal shelf-bar and scrolls by itself in full view
     And full, compact-grid, and table layout icon buttons switch density (persisted), as on search and profile listings
     And the compact grid is one column on a phone, two from tablet width, and up to three on a wide screen
-    And table view shows one sortable Title/Author table for all shelf entries (no per-shelf split), paging at 250
+    And full cards page at 48, compact at 96, table at 240
+    And table view shows one sortable Title/Author table for all shelf entries (no per-shelf split), paging at 240
     And covers use the publication's image tag when present, else a cover placeholder
     And a cover placeholder shows Title (else human T, else human d) and Author (else human N)
     And Untitled or deleted publications are never shown as shelf covers or list/bookshelf result cards

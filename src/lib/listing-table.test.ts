@@ -23,10 +23,10 @@ describe('cropText', () => {
 });
 
 describe('listingPageSize', () => {
-  it('uses 250 for table and 25 otherwise', () => {
-    expect(listingPageSize('table')).toBe(250);
-    expect(listingPageSize('full')).toBe(25);
-    expect(listingPageSize('list')).toBe(25);
+  it('uses 48 full, 96 compact, 240 table (multiples of 3)', () => {
+    expect(listingPageSize('full')).toBe(48);
+    expect(listingPageSize('list')).toBe(96);
+    expect(listingPageSize('table')).toBe(240);
   });
 });
 

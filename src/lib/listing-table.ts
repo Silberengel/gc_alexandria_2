@@ -3,13 +3,19 @@ import { KIND } from './constants';
 import { cardMeta, displayTitle, publicationPath, wikiPath } from './metadata';
 import type { ListingDensity } from './stores/listing-density';
 
-/** Full/compact card grids use 3 columns — 24 fills complete rows (no orphan). */
-export const LISTING_PAGE_SIZE_DEFAULT = 24;
-export const LISTING_PAGE_SIZE_TABLE = 250;
+/** Full detailed cards (multiple of 3 columns). */
+export const LISTING_PAGE_SIZE_FULL = 48;
+/** Compact mini-card grids (multiple of 3 columns). */
+export const LISTING_PAGE_SIZE_COMPACT = 96;
+/** Table rows (multiple of 3 for layout parity with card grids). */
+export const LISTING_PAGE_SIZE_TABLE = 240;
+export const LISTING_PAGE_SIZE_DEFAULT = LISTING_PAGE_SIZE_FULL;
 export const LISTING_TABLE_CELL_MAX = 100;
 
 export function listingPageSize(density: ListingDensity): number {
-  return density === 'table' ? LISTING_PAGE_SIZE_TABLE : LISTING_PAGE_SIZE_DEFAULT;
+  if (density === 'table') return LISTING_PAGE_SIZE_TABLE;
+  if (density === 'list') return LISTING_PAGE_SIZE_COMPACT;
+  return LISTING_PAGE_SIZE_FULL;
 }
 
 /** Truncate display text; append … when the source was longer. Collapses whitespace. */

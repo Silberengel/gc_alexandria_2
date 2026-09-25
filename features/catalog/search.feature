@@ -35,7 +35,8 @@ Feature: Search
     And in full view those cards are horizontal, with the full cover on the left, summary when present, and up to three per row on a wide screen
     And result cards are cropped to at most 500px tall
     And in compact grid view results are compact cells in that same responsive column count
-    And in table view results are a sortable text table with no pictures, paging at 250
+    And full cards page at 48, compact at 96, table at 240
+    And in table view results are a sortable text table with no pictures, paging at 240
     And I do not see bookshelves, landing highlights, What we are discussing, subject buttons, or label buttons
 
   Scenario: Typeahead uses Mercury suggest

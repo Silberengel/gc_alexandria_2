@@ -7,6 +7,7 @@
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
+  import { LISTING_PAGE_SIZE_COMPACT, LISTING_PAGE_SIZE_FULL } from '$lib/listing-table';
   import {
     LANDING_FEED_LIMIT,
     landingCoverSeed,
@@ -462,13 +463,13 @@
         </h2>
         {#if $listingDensity === 'list'}
           <div class="listing-list">
-            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
+            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
               <PublicationCard event={pub} variant="row" />
             {/each}
           </div>
         {:else}
           <div class="shelf-bar">
-            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, 50) as pub (pub.id)}
+            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
               <a
                 class="cover"
                 href={`#${publicationPath(pub)}`}
