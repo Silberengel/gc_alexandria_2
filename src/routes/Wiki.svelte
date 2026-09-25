@@ -301,7 +301,9 @@
     const hashPath = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '').split('?')[0] : '';
     const hashDnpub = hashPath.match(/^\/wiki\/d\/([^/]+)\/p\/([^/]+)\/?$/);
     const hashDonly = hashPath.match(/^\/wiki\/d\/([^/]+)\/?$/);
-    const hashPointer = hashPath.match(/^\/wiki\/((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i);
+    const hashPointer = hashPath.match(
+      /^\/wiki\/(?:(?:naddr|nevent|note)\/)?((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i
+    );
 
     const dTag = decodeParam(
       params.d || (hashDnpub?.[1] ?? hashDonly?.[1] ?? '')

@@ -1161,7 +1161,7 @@
     const hashDnpub = hashPath.match(/^\/publication\/d\/([^/]+)\/p\/([^/]+)\/?$/);
     const hashDonly = hashPath.match(/^\/publication\/d\/([^/]+)\/?$/);
     const hashPointer = hashPath.match(
-      /^\/publication\/((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i
+      /^\/publication\/(?:(?:naddr|nevent|note)\/)?((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i
     );
 
     const dTag = decodeParam(params.d || (hashDnpub?.[1] ?? hashDonly?.[1] ?? ''));

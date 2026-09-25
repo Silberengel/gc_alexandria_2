@@ -24,9 +24,15 @@
     '/p/:id': Profile,
     '/publication/d/:d/p/:npub': Publication,
     '/publication/d/:d': Publication,
+    '/publication/naddr/:naddr': Publication,
+    '/publication/nevent/:naddr': Publication,
+    '/publication/note/:naddr': Publication,
     '/publication/:naddr': Publication,
     '/wiki/d/:d/p/:npub': Wiki,
     '/wiki/d/:d': Wiki,
+    '/wiki/naddr/:naddr': Wiki,
+    '/wiki/nevent/:naddr': Wiki,
+    '/wiki/note/:naddr': Wiki,
     '/wiki/:naddr': Wiki,
     '*': NotFound
   };

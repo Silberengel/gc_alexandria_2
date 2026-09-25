@@ -49,6 +49,20 @@
           if (data.customPrimary) root.style.setProperty('--brand-primary-500', data.customPrimary);
         } catch (_) {}
       })();
+      // Path deep-links → hash routes before the SPA mounts (matches src/lib/path-to-hash.ts).
+      (function () {
+        try {
+          var path = location.pathname || '/';
+          if (path === '/' || /\.[a-z0-9]{1,8}$/i.test(path)) return;
+          if (!/^\/(search|settings|about|start|contact|p\/|publication\/|wiki\/)/i.test(path)) return;
+          path = path.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/';
+          path = path.replace(
+            /^\/(publication|wiki)\/(?:naddr|nevent|note)\/((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)$/i,
+            '/$1/$2'
+          );
+          history.replaceState(null, '', '/' + '#' + path + (location.search || ''));
+        } catch (_) {}
+      })();
     </script>
   </head>
   <body>
