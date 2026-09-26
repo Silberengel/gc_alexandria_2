@@ -18,7 +18,7 @@
   import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
-  import { cachePutEvent } from '$lib/nostr/cache';
+  import { cachePutEvent, cacheGetProfilePageSnapshot, cachePutProfilePageSnapshot, peekProfilePageSnapshot, profilePageSnapshotFresh, type ProfilePageSnapshot } from '$lib/nostr/cache';
   import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
   import { peekProfileThumb, rememberProfileFromKind0 } from '$lib/profile-cache';
   import { pickLatestReplaceable, isNewerReplaceable } from '$lib/nostr/replaceable';
@@ -257,6 +257,45 @@
     pageFilter = '';
   }
 
+  const MARK_SET = new Set<string>(Object.keys(INTERACTION_MARK_LABELS));
+
+  function applyPageSnapshot(snap: ProfilePageSnapshot): void {
+    if (snap.profile) applyProfileMeta(snap.profile);
+    produced = omitNested(snap.produced);
+    interacted = snap.interacted;
+    rememberEvents([...snap.produced, ...snap.interacted, ...snap.readingEditions]);
+    const byWork = new Map<string, InteractionMark[]>();
+    for (const [id, marks] of Object.entries(snap.marksByWork)) {
+      byWork.set(
+        id,
+        marks.filter((m): m is InteractionMark => MARK_SET.has(m))
+      );
+    }
+    marksByWork = byWork;
+    const statuses = selectUserStatuses(snap.statusEvents);
+    statusGeneral = statuses.general;
+    statusMusic = statuses.music;
+    const metaEv = snap.profile ?? untrack(() => profile);
+    payments = paymentRows(parseKind0(metaEv), snap.paymentEvents, metaEv);
+    readCount = snap.readCount;
+    const ownLocal =
+      !!get(session).pubkey &&
+      get(session).pubkey!.toLowerCase() === snap.pubkey &&
+      get(readingPrefs).localOnly;
+    if (!ownLocal) {
+      readingEntries = snap.readingEntries.map((e) => ({ ...e }));
+      const titleMap = new Map<string, string>();
+      const editionMap = new Map<string, Event>();
+      for (const ed of snap.readingEditions) {
+        const addr = eventAddress(ed);
+        editionMap.set(addr, ed);
+        titleMap.set(addr, editionMetadata(ed).titles[0] || 'Untitled');
+      }
+      readingTitles = titleMap;
+      readingEditions = editionMap;
+    }
+  }
+
   /** Reload when the hash `/p/:id` changes — spa-router reuses this component. */
   $effect(() => {
     const raw = params.id ?? '';
@@ -290,7 +329,6 @@
     profile = null;
     warmName = '';
     warmPicture = '';
-    resetProfileListings();
 
     // 1) Instant header from event-memory / badge thumb / session metadata.
     const warmMeta =
@@ -305,6 +343,11 @@
         warmPicture = thumb.picture;
       }
     }
+
+    // 2) Medium-term page snapshot — paint listings before relays answer.
+    const memSnap = peekProfilePageSnapshot(nextPk);
+    if (memSnap) applyPageSnapshot(memSnap);
+    else resetProfileListings();
 
     const authoredFilter = {
       kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
@@ -325,7 +368,14 @@
     };
 
     void (async () => {
-      // 2) Kind-0 first, priority slot — do not wait on social/document fan-out.
+      let snap = memSnap;
+      if (!snap) {
+        snap = await cacheGetProfilePageSnapshot(nextPk);
+        if (cancelled) return;
+        if (snap) applyPageSnapshot(snap);
+      }
+
+      // 3) Kind-0 first, priority slot — do not wait on social/document fan-out.
       const kind0Hits = await relayPool.query(
         profileStack(),
         [{ kinds: [KIND.METADATA], authors: [nextPk], limit: 1 }],
@@ -339,7 +389,13 @@
         pickLatestReplaceable(kind0Hits, KIND.METADATA, nextPk) ?? kind0Hits[0] ?? null;
       if (fresh) applyProfileMeta(fresh);
 
-      // 3) Everything else in parallel; paint as each group finishes.
+      // Within TTL: keep the cached page; only kind-0 was refreshed above.
+      if (profilePageSnapshotFresh(snap)) return;
+
+      let statusEventsAcc: Event[] = snap?.statusEvents ?? [];
+      let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
+
+      // 4) Everything else in parallel; paint as each group finishes.
       const docsP = Promise.all([
         relayPool.query(documentStack(), [authoredFilter], 8000, 5, undefined, { priority: true }),
         mercuryFilter(creditedFilter).then(async (m) =>
@@ -360,7 +416,8 @@
         if (cancelled) return;
         const statusById = new Map<string, Event>();
         for (const e of [...statusSocial, ...statusProfile]) statusById.set(e.id, e);
-        const statuses = selectUserStatuses([...statusById.values()]);
+        statusEventsAcc = [...statusById.values()];
+        const statuses = selectUserStatuses(statusEventsAcc);
         statusGeneral = statuses.general;
         statusMusic = statuses.music;
       });
@@ -372,7 +429,8 @@
         if (cancelled) return;
         const payById = new Map<string, Event>();
         for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
-        payments = paymentRows(parseKind0(profile), [...payById.values()], profile);
+        paymentEventsAcc = [...payById.values()];
+        payments = paymentRows(parseKind0(profile), paymentEventsAcc, profile);
       });
 
       const readsP = countReadsByAuthor(nextPk).then((n) => {
@@ -435,6 +493,23 @@
       });
 
       await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP]);
+      if (cancelled) return;
+
+      const marksObj: Record<string, string[]> = {};
+      for (const [id, marks] of marksByWork) marksObj[id] = [...marks];
+      void cachePutProfilePageSnapshot({
+        pubkey: nextPk,
+        savedAt: Date.now(),
+        profile: untrack(() => profile),
+        produced: untrack(() => produced),
+        interacted: untrack(() => interacted),
+        marksByWork: marksObj,
+        statusEvents: statusEventsAcc,
+        paymentEvents: paymentEventsAcc,
+        readingEntries: untrack(() => readingEntries),
+        readingEditions: [...untrack(() => readingEditions).values()],
+        readCount: untrack(() => readCount)
+      });
     })();
 
     return () => {

@@ -299,6 +299,156 @@ export async function cachePutSearchSnapshot(key: string, events: Event[]): Prom
   await Promise.all(dropped.map((k) => cache.delete(searchSnapshotUrl(k))));
 }
 
+/** Medium-term profile page paint (produced / interacted / queue). */
+export const PROFILE_PAGE_SNAPSHOT_TTL_MS = 30 * 60 * 1000;
+
+export type ProfilePageSnapshot = {
+  pubkey: string;
+  savedAt: number;
+  profile: Event | null;
+  produced: Event[];
+  interacted: Event[];
+  /** publication id → interaction marks */
+  marksByWork: Record<string, string[]>;
+  statusEvents: Event[];
+  paymentEvents: Event[];
+  readingEntries: Array<{
+    a: string;
+    pos: number;
+    total: number;
+    sectionId?: string;
+    updated?: number;
+  }>;
+  readingEditions: Event[];
+  readCount: number;
+};
+
+const PROFILE_PAGE_PREFIX = '/snapshot/profile-page/';
+const profilePageMemory = new Map<string, ProfilePageSnapshot>();
+
+function profilePageKey(pubkey: string): string {
+  return `${PROFILE_PAGE_PREFIX}${pubkey.trim().toLowerCase()}`;
+}
+
+function cloneProfilePageSnapshot(snap: ProfilePageSnapshot): ProfilePageSnapshot {
+  return {
+    ...snap,
+    produced: [...snap.produced],
+    interacted: [...snap.interacted],
+    marksByWork: { ...snap.marksByWork },
+    statusEvents: [...snap.statusEvents],
+    paymentEvents: [...snap.paymentEvents],
+    readingEntries: snap.readingEntries.map((e) => ({ ...e })),
+    readingEditions: [...snap.readingEditions]
+  };
+}
+
+export function profilePageSnapshotFresh(
+  snap: ProfilePageSnapshot | null | undefined,
+  ttlMs = PROFILE_PAGE_SNAPSHOT_TTL_MS
+): boolean {
+  if (!snap?.savedAt) return false;
+  return Date.now() - snap.savedAt < ttlMs;
+}
+
+/** Sync session peek — same-tab revisit without waiting on Cache Storage. */
+export function peekProfilePageSnapshot(pubkey: string): ProfilePageSnapshot | null {
+  const pk = pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return null;
+  return profilePageMemory.get(pk) ?? null;
+}
+
+export async function cacheGetProfilePageSnapshot(
+  pubkey: string
+): Promise<ProfilePageSnapshot | null> {
+  const pk = pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return null;
+  const mem = profilePageMemory.get(pk);
+  if (mem) return cloneProfilePageSnapshot(mem);
+  try {
+    const cache = await openCache();
+    const key = profilePageKey(pk);
+    const absolute =
+      typeof location !== 'undefined' ? new URL(key, location.origin).href : key;
+    const res = (await cache.match(absolute)) ?? (await cache.match(key));
+    if (!res) return null;
+    const raw = (await res.json()) as Partial<ProfilePageSnapshot>;
+    if ((raw.pubkey ?? '').toLowerCase() !== pk) return null;
+    const snap: ProfilePageSnapshot = {
+      pubkey: pk,
+      savedAt: typeof raw.savedAt === 'number' ? raw.savedAt : 0,
+      profile: raw.profile ? ingestTrustedEvent(raw.profile) : null,
+      produced: ingestList(raw.produced, true),
+      interacted: ingestList(raw.interacted, true),
+      marksByWork:
+        raw.marksByWork && typeof raw.marksByWork === 'object'
+          ? (raw.marksByWork as Record<string, string[]>)
+          : {},
+      statusEvents: ingestList(raw.statusEvents, true),
+      paymentEvents: ingestList(raw.paymentEvents, true),
+      readingEntries: Array.isArray(raw.readingEntries)
+        ? raw.readingEntries.filter(
+            (e): e is ProfilePageSnapshot['readingEntries'][number] =>
+              !!e && typeof e === 'object' && typeof (e as { a?: string }).a === 'string'
+          )
+        : [],
+      readingEditions: ingestList(raw.readingEditions, true),
+      readCount: typeof raw.readCount === 'number' ? raw.readCount : 0
+    };
+    profilePageMemory.set(pk, snap);
+    rememberEvents([
+      ...(snap.profile ? [snap.profile] : []),
+      ...snap.produced,
+      ...snap.interacted,
+      ...snap.statusEvents,
+      ...snap.paymentEvents,
+      ...snap.readingEditions
+    ]);
+    return cloneProfilePageSnapshot(snap);
+  } catch {
+    return null;
+  }
+}
+
+export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Promise<void> {
+  const pk = snap.pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return;
+  const body: ProfilePageSnapshot = {
+    pubkey: pk,
+    savedAt: snap.savedAt || Date.now(),
+    profile: snap.profile,
+    produced: snap.produced.slice(0, 120),
+    interacted: snap.interacted.slice(0, 120),
+    marksByWork: snap.marksByWork,
+    statusEvents: snap.statusEvents.slice(0, 10),
+    paymentEvents: snap.paymentEvents.slice(0, 20),
+    readingEntries: snap.readingEntries.slice(0, 40),
+    readingEditions: snap.readingEditions.slice(0, 40),
+    readCount: snap.readCount
+  };
+  profilePageMemory.set(pk, body);
+  try {
+    const cache = await openCache();
+    const key = profilePageKey(pk);
+    const req =
+      typeof location !== 'undefined' ? new Request(new URL(key, location.origin).href) : key;
+    await cache.put(
+      req,
+      new Response(JSON.stringify(body), {
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    void cachePutMany([
+      ...(body.profile ? [body.profile] : []),
+      ...body.produced,
+      ...body.interacted,
+      ...body.readingEditions
+    ]);
+  } catch {
+    /* quota / private mode — memory still helps this session */
+  }
+}
+
 export async function cacheGetEvent(id: string): Promise<Event | null> {
   const cache = await openCache();
   const res = await cache.match(`/event/${id.toLowerCase()}`);
