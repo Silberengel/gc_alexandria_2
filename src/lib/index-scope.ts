@@ -214,8 +214,12 @@ export function listLeafIndexes(edition: Event, toc: TocEntry[]): Event[] {
 
 /** First chapter/day under an index, or the index itself when it is a leaf. */
 export function resolvePaintIndex(target: Event, edition: Event, toc: TocEntry[]): Event | null {
-  if (target.id === edition.id) {
-    return listLeafIndexes(edition, toc)[0] ?? null;
+  // Edition root is the cover — not the first day/chapter.
+  if (
+    target.id === edition.id ||
+    eventAddress(target).toLowerCase() === eventAddress(edition).toLowerCase()
+  ) {
+    return null;
   }
   if (isReadingPlanEdition(edition)) {
     const d = firstTag(target, 'd') ?? '';

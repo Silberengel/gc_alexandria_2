@@ -215,13 +215,17 @@
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
-  const activeToc = $derived(
-    activeTocEntry(readerToc, {
+  const activeToc = $derived.by(() => {
+    // Cover / go-to-top: never let pos-matching highlight a day (plan day pos values are < 0).
+    if (scopedAtEditionTop && readerToc.length) {
+      return readerToc.find((e) => e.root) ?? readerToc[0] ?? null;
+    }
+    return activeTocEntry(readerToc, {
       pos: readerPos,
       sectionId: readerSectionId,
       corpus: sectionCorpus
-    })
-  );
+    });
+  });
   const activeTocKey = $derived(activeToc ? tocEntryKey(activeToc) : '');
 
   $effect(() => {

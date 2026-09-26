@@ -127,6 +127,39 @@ function snapshotReady(
   return snap.events.some((event) => event.kind !== KIND.PUBLICATION);
 }
 
+/** Plan day indexes present in a snapshot (excludes reading headings `…-rN`). */
+function countPlanDayEvents(events: Event[]): number {
+  let n = 0;
+  for (const event of events) {
+    if (event.kind !== KIND.PUBLICATION) continue;
+    const d = firstTag(event, 'd') ?? '';
+    if (/(?:^|-)day-\d+$/i.test(d) && !/-day-\d+-r\d+$/i.test(d)) n += 1;
+  }
+  return n;
+}
+
+/** Root a-tag day count — used to reject truncated plan snapshots (e.g. days 91–365 only). */
+function expectedPlanDaysFromRoot(events: Event[], planD: string): number {
+  const root = events.find((e) => (firstTag(e, 'd') ?? '') === planD);
+  if (!root) return 0;
+  let n = 0;
+  for (const tag of root.tags) {
+    if (tag[0] !== 'a' || !tag[1]) continue;
+    const d = tag[1].split(':').slice(2).join(':');
+    if (/(?:^|-)day-\d+$/i.test(d) && !/-day-\d+-r\d+$/i.test(d)) n += 1;
+  }
+  return n;
+}
+
+function planSnapshotCoversAllDays(
+  snap: { events: Event[] },
+  planD: string
+): boolean {
+  const expected = expectedPlanDaysFromRoot(snap.events, planD);
+  if (expected < 30) return true; // can't judge — keep cache
+  return countPlanDayEvents(snap.events) >= expected;
+}
+
 /**
  * Read a seed response as it arrives. Verse text starts well before a shard
  * ends, so the reader can paint while the rest of the file is still downloading
@@ -256,6 +289,17 @@ async function ensurePlanDependencies(
     const editionRow = manifest.editions?.[dep];
     if (!editionRow?.shards?.length || !editionRow.address) continue;
 
+    const depKey = editionRow.address.toLowerCase();
+    // Same-tab Douay open (or a prior plan) already ingested verses — do not re-stream.
+    if (loaded.get(depKey) === manifest.version) {
+      console.info(LOG, 'dependency already loaded', {
+        title,
+        dep,
+        ms: Math.round(performance.now() - t0)
+      });
+      continue;
+    }
+
     const depSnap = await cacheGetPublicationStreamSnapshot(editionRow.address);
     if (snapshotReady(depSnap)) {
       console.info(LOG, 'dependency cache hit', {
@@ -266,6 +310,7 @@ async function ensurePlanDependencies(
       });
       rememberEvents(depSnap.events);
       onBatch?.(depSnap.events);
+      loaded.set(depKey, manifest.version);
       continue;
     }
 
@@ -287,6 +332,7 @@ async function ensurePlanDependencies(
         complete: true,
         trusted: true
       });
+      loaded.set(depKey, manifest.version);
     }
   }
 }
@@ -318,7 +364,17 @@ export async function loadSeedsForEdition(
   // tab already streamed shards (the in-memory `loaded` map dies on refresh).
   {
     const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
-    if (snapshotReady(snap, { allowIndexOnly: target.kind === 'plan' })) {
+    const planOk =
+      target.kind !== 'plan' || planSnapshotCoversAllDays(snap, firstTag(edition, 'd') ?? target.id);
+    if (snapshotReady(snap, { allowIndexOnly: target.kind === 'plan' }) && planOk) {
+      // Plans: Douay verses first — otherwise a cold day open paints headings with no text.
+      if (target.kind === 'plan') {
+        const row = manifest.plans?.[target.id];
+        if (row?.depends_on?.length) {
+          await ensurePlanDependencies(row.depends_on, manifest, signal, onBatch, title, t0);
+        }
+      }
+      if (signal?.aborted) return null;
       loaded.set(key, manifest.version);
       console.info(LOG, 'cache hit', {
         title,
@@ -329,14 +385,14 @@ export async function loadSeedsForEdition(
       });
       rememberEvents(snap.events);
       onBatch?.(snap.events);
-      // Plan snapshot is indexes only — verses live in Douay; always hydrate deps.
-      if (target.kind === 'plan') {
-        const row = manifest.plans?.[target.id];
-        if (row?.depends_on?.length) {
-          await ensurePlanDependencies(row.depends_on, manifest, signal, onBatch, title, t0);
-        }
-      }
       return snap.events;
+    }
+    if (target.kind === 'plan' && snap.events.length && !planOk) {
+      console.info(LOG, 'plan snapshot incomplete — reloading shards', {
+        title,
+        daysInSnap: countPlanDayEvents(snap.events),
+        expectedDays: expectedPlanDaysFromRoot(snap.events, firstTag(edition, 'd') ?? target.id)
+      });
     }
     if (loaded.get(key) === manifest.version) {
       loaded.delete(key);
@@ -381,7 +437,7 @@ export async function loadSeedsForEdition(
     return events;
   }
 
-  // Reading plan: plan shard is small; Douay verses come from a dependency snapshot or shards.
+  // Reading plan: Douay (depends_on) first, then the small plan index shard.
   const row = manifest.plans?.[target.id];
   if (!row?.shards?.length) return null;
 
@@ -392,6 +448,9 @@ export async function loadSeedsForEdition(
     shards: row.shards.length,
     dependsOn: row.depends_on ?? []
   });
+
+  await ensurePlanDependencies(row.depends_on ?? [], manifest, signal, onBatch, title, t0);
+  if (signal?.aborted) return null;
 
   const { events: planEvents, missingShard: planMissing } = await streamShardPaths(
     row.shards,
@@ -412,8 +471,6 @@ export async function loadSeedsForEdition(
 
   rememberEvents(planEvents);
   onBatch?.(planEvents);
-
-  await ensurePlanDependencies(row.depends_on ?? [], manifest, signal, onBatch, title, t0);
 
   // Plan snapshot is day indexes; verses live in the Douay dependency snapshot.
   await cachePutPublicationStream(editionAddr, planEvents, {
