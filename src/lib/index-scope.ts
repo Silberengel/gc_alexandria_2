@@ -324,18 +324,34 @@ export function pickScopedOpenIndex(
     (opts?.pos != null && opts.pos >= STALE_VERSE_TOTAL);
 
   if (!stale && opts?.sectionId) {
-    const byId = memoryGetEvent(opts.sectionId);
-    if (byId) {
-      const resolved = resolvePaintIndex(byId, edition, toc);
-      if (resolved && leaves.some((l) => l.id === resolved.id)) return resolved;
+    const sid = opts.sectionId.toLowerCase();
+    const editionRoot =
+      sid === edition.id.toLowerCase() || sid === eventAddress(edition).toLowerCase();
+    // Resume after "Go to top" stores the edition id — that is not a leaf pick.
+    if (!editionRoot) {
+      const byId = memoryGetEvent(opts.sectionId);
+      if (byId) {
+        const resolved = resolvePaintIndex(byId, edition, toc);
+        if (resolved && leaves.some((l) => l.id === resolved.id)) return resolved;
+      }
+      const byLeaf = leaves.find((l) => l.id.toLowerCase() === sid);
+      if (byLeaf) return byLeaf;
     }
-    const byLeaf = leaves.find((l) => l.id.toLowerCase() === opts.sectionId!.toLowerCase());
-    if (byLeaf) return byLeaf;
   }
 
   if (!stale && opts?.pos != null && Number.isFinite(opts.pos)) {
-    const i = Math.max(0, Math.min(leaves.length - 1, Math.floor(opts.pos)));
-    if (opts.pos < leaves.length) return leaves[i] ?? leaves[0] ?? null;
+    const i = Math.floor(opts.pos);
+    if (i >= 0 && i < leaves.length) return leaves[i] ?? leaves[0] ?? null;
+    // Past the end: clamp only when the leaf list looks complete (matches queue total).
+    // Mid-warm (10 of 334 days) must not snap to the last loaded day.
+    if (
+      opts.queueTotal != null &&
+      opts.queueTotal > 0 &&
+      opts.queueTotal < STALE_VERSE_TOTAL &&
+      leaves.length >= opts.queueTotal
+    ) {
+      return leaves[leaves.length - 1] ?? leaves[0] ?? null;
+    }
   }
 
   return leaves[0] ?? null;
@@ -362,6 +378,9 @@ export async function warmIndexTree(
   const seen = new Set<string>();
   const queue: string[] = [];
   let loaded = 0;
+  const title = firstTag(edition, 'title') ?? firstTag(edition, 'd') ?? edition.id.slice(0, 8);
+  const t0 = performance.now();
+  console.info('[alexandria:index-warm] start', { title, max });
 
   const enqueue = (coord: string): void => {
     const key = coord.toLowerCase();
@@ -384,6 +403,14 @@ export async function warmIndexTree(
     }
     if (!hit || hit.kind !== KIND.PUBLICATION) continue;
     loaded += 1;
+    if (loaded === 1 || loaded % 25 === 0) {
+      console.info('[alexandria:index-warm] progress', {
+        title,
+        loaded,
+        queued: queue.length,
+        ms: Math.round(performance.now() - t0)
+      });
+    }
     opts?.onIndex?.();
     // Plans: do not walk into reading headings under days.
     if (isReadingPlanEdition(edition)) {
@@ -393,5 +420,11 @@ export async function warmIndexTree(
     for (const child of childAddresses(hit)) enqueue(child);
   }
 
+  console.info('[alexandria:index-warm] done', {
+    title,
+    loaded,
+    aborted: Boolean(signal?.aborted),
+    ms: Math.round(performance.now() - t0)
+  });
   return loaded;
 }

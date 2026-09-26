@@ -39,7 +39,7 @@
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
   import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
-  import { loadSeedsForEdition } from '$lib/nostr/seed-load';
+  import { loadSeedsForEdition, editionHasLocalSeeds } from '$lib/nostr/seed-load';
   import {
     buildIndexScopedToc,
     collectIndexPaintEvents,
@@ -152,6 +152,10 @@
   let paintPinId = $state('');
   /** Douay / reading-plan: the one leaf index currently in the pane. */
   let scopedPaintIndex = $state<Event | null>(null);
+  /** User chose edition root via Go to top — ignore background resume reopen. */
+  let scopedAtEditionTop = false;
+  /** Bumps when the scoped pane target changes; drops stale in-flight paints. */
+  let scopedPaintGen = 0;
   let error = $state(false);
   /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
@@ -917,12 +921,23 @@
   }
 
   /** Replace the pane with one plan day or Douay chapter (and its verses only). */
-  async function paintScopedIndex(edition: Event, index: Event): Promise<void> {
+  async function paintScopedIndex(
+    edition: Event,
+    index: Event,
+    opts?: { network?: boolean }
+  ): Promise<void> {
+    const gen = ++scopedPaintGen;
+    scopedAtEditionTop = false;
     const missing = missingPaintAddresses(index);
     if (missing.length) {
-      await Promise.all(missing.slice(0, 120).map((coord) => fetchByAddress(coord)));
+      // Seeded bibles: never stampede relays for verses — shards fill memory.
+      // Quran / non-seeded: allow a small concurrent network fill.
+      const localOnly = opts?.network !== true;
+      await poolMap(missing.slice(0, 120), localOnly ? 8 : 3, (coord) =>
+        fetchByAddress(coord, localOnly ? { localOnly: true } : undefined)
+      );
     }
-    if (event?.id !== edition.id) return;
+    if (event?.id !== edition.id || scopedAtEditionTop || gen !== scopedPaintGen) return;
     const painted = collectIndexPaintEvents(index);
     if (!painted.length) return;
     clearAdoptFlush();
@@ -946,10 +961,13 @@
       });
     }
     void enrichHighlightsFromSections(painted);
+    sectionsLoading = false;
   }
 
   /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
   function paintScopedEditionTop(edition: Event): void {
+    scopedAtEditionTop = true;
+    scopedPaintGen += 1;
     clearAdoptFlush();
     sectionCorpus = [edition];
     corpusCount = 1;
@@ -970,6 +988,7 @@
         sectionId: edition.id
       });
     }
+    sectionsLoading = false;
   }
 
   function scopedOpenOpts(edition: Event): {
@@ -1003,6 +1022,8 @@
     readingBusy = true;
     sectionsLoading = true;
     scopedPaintIndex = null;
+    scopedAtEditionTop = false;
+    scopedPaintGen += 1;
     cancelTree();
     treeAbort = new AbortController();
     const signal = treeAbort.signal;
@@ -1029,11 +1050,21 @@
         /* ignore */
       }
 
-      const afterTreeReady = async (): Promise<void> => {
+      const afterTreeReady = async (allowNetwork: boolean): Promise<void> => {
         if (signal.aborted || event?.id !== edition.id || !reading) return;
         refreshToc();
-        if (scopedPaintIndex) await paintScopedIndex(edition, scopedPaintIndex);
-        else await openScopedFromResume(edition);
+        if (scopedAtEditionTop) {
+          if (event?.id === edition.id) sectionsLoading = false;
+          return;
+        }
+        if (scopedPaintIndex) {
+          await paintScopedIndex(edition, scopedPaintIndex, { network: allowNetwork });
+        } else {
+          await openScopedFromResume(edition);
+          if (allowNetwork && scopedPaintIndex && !scopedAtEditionTop) {
+            await paintScopedIndex(edition, scopedPaintIndex, { network: true });
+          }
+        }
         if (event?.id === edition.id) sectionsLoading = false;
         if (
           event?.id === edition.id &&
@@ -1052,29 +1083,34 @@
           signal,
           onBatch: (batch) => {
             if (signal.aborted || event?.id !== edition.id || !reading) return;
-            if (!batch.some((e) => e.kind === KIND.PUBLICATION)) return;
-            refreshToc();
+            if (batch.some((e) => e.kind === KIND.PUBLICATION)) refreshToc();
+            // Verses arrive from Douay deps after the plan indexes — repaint the open day.
+            if (scopedPaintIndex && !scopedAtEditionTop && batch.some((e) => e.kind === KIND.SECTION)) {
+              void paintScopedIndex(edition, scopedPaintIndex);
+            }
           }
         });
         if (signal.aborted || event?.id !== edition.id) return;
-        // No local seeds (Quran, etc.): fetch nested indexes only for the contents tree.
-        if (!seeded?.length) {
+        // Seeded editions: never fan out 300+ relay index fetches if shards failed.
+        const hasSeeds = await editionHasLocalSeeds(edition, signal);
+        if (!seeded?.length && !hasSeeds) {
           await warmIndexTree(edition, (coord) => fetchByAddress(coord), {
             signal,
             onIndex: refreshToc
           });
         }
-        await afterTreeReady();
+        await afterTreeReady(!seeded?.length && !hasSeeds);
       })().catch(() => {
         if (event?.id === edition.id) sectionsLoading = false;
       });
 
       // Open the first available day/chapter while later shards or index fetches arrive.
       for (let i = 0; i < 50 && !signal.aborted && event?.id === edition.id; i += 1) {
+        if (scopedAtEditionTop) break;
         refreshToc();
         if (listLeafIndexes(edition, toc).length) {
           await openScopedFromResume(edition);
-          if (sections.some((s) => s.kind === KIND.SECTION)) break;
+          if (sections.some((s) => s.kind === KIND.SECTION) || scopedAtEditionTop) break;
         }
         await new Promise<void>((resolve) => setTimeout(resolve, 100));
       }
@@ -1796,20 +1832,30 @@
   }
 
   async function resolveTocSection(entry: TocEntry): Promise<Event | null> {
+    if (entry.event && !isPlaceholderIndex(entry.event)) return entry.event;
     const loaded = findLoadedSection(entry);
     if (loaded && !isPlaceholderIndex(loaded)) return loaded;
     if (entry.address) {
       const parsed = parseAddress(entry.address);
       if (parsed) {
-        const hit =
-          memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
-          (await fetchByAddress(entry.address));
+        const mem = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+        if (mem && !isPlaceholderIndex(mem)) return mem;
+        // Scoped ToC rows are already in the seed snapshot — do not block on relays.
+        if (event && isIndexScopedEdition(event)) {
+          return mem ?? placeholderIndexEvent(entry);
+        }
+        const hit = await fetchByAddress(entry.address);
         if (hit) return hit;
       }
     }
     if (entry.id) {
-      const byId = memoryGetEvent(entry.id) ?? (await fetchById(entry.id));
+      const byId = memoryGetEvent(entry.id);
       if (byId) return byId;
+      if (event && isIndexScopedEdition(event)) {
+        return placeholderIndexEvent(entry);
+      }
+      const fetched = await fetchById(entry.id);
+      if (fetched) return fetched;
     }
     // Keep an existing placeholder, or synthesize one for true ghost Mercury rows.
     if (loaded) return loaded;
@@ -2751,7 +2797,7 @@
               </p>
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
             </div>
-          {:else if sectionsLoading}
+          {:else if sectionsLoading && !(event && isIndexScopedEdition(event) && !readingShellOnly)}
             <p class="loading-hint" aria-live="polite">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               {readingShellOnly ? 'Loading sections…' : 'Loading more sections…'}

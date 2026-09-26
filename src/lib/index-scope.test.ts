@@ -186,5 +186,9 @@ describe('buildIndexScopedToc', () => {
 
     expect(pickScopedOpenIndex(root, toc, { pos: 5000, queueTotal: 38000 })?.id).toBe(ch1.id);
     expect(pickScopedOpenIndex(root, toc, { pos: 1, sectionId: ch2.id })?.id).toBe(ch2.id);
+    // pos past leaf count with incomplete list → first leaf (do not snap to end)
+    expect(pickScopedOpenIndex(root, toc, { pos: 50 })?.id).toBe(ch1.id);
+    // complete queue total → clamp to last leaf
+    expect(pickScopedOpenIndex(root, toc, { pos: 50, queueTotal: 2 })?.id).toBe(ch2.id);
   });
 });

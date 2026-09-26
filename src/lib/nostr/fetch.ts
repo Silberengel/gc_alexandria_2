@@ -14,6 +14,8 @@ import { documentStack, wikiStack } from './selector';
 export type FetchByAddressOpts = {
   /** Skip Mercury HTTP — use document/wiki relays only (citadel-only trees). */
   relaysOnly?: boolean;
+  /** Memory + Cache Storage only — never open Mercury or relay REQs. */
+  localOnly?: boolean;
 };
 
 export function mergeById(...lists: Event[][]): Event[] {
@@ -181,6 +183,7 @@ export async function fetchByAddress(
     // Rich indexes / leaves: trust cache. Thin 30040 catalog cards must still hit the network
     // or nested Surahs/Preamble walks stop at empty headings.
     if (cached && !isThinPublicationIndex(cached)) return hideIfDeleted(cached);
+    if (opts?.localOnly) return cached ? hideIfDeleted(cached) : null;
 
     const dValues = dTagVariants(parsed.d);
     const slug = normalizeDTag(parsed.d);

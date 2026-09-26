@@ -3,7 +3,7 @@ import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryFindByAddress, rememberEvents } from './event-memory';
 import { isNewerReplaceable } from './replaceable';
-import { firstTag, ingestEvent } from './verify';
+import { firstTag, ingestEvent, ingestTrustedEvent } from './verify';
 
 const CACHE_NAME = 'alexandria-events-v1';
 const META_KEY = 'alexandria-cache-meta';
@@ -53,11 +53,12 @@ export type LandingSnapshot = {
   labels?: string[];
 };
 
-function ingestList(rows: unknown): Event[] {
+function ingestList(rows: unknown, trusted = false): Event[] {
   if (!Array.isArray(rows)) return [];
+  const ingest = trusted ? ingestTrustedEvent : ingestEvent;
   const out: Event[] = [];
   for (const row of rows) {
-    const e = ingestEvent(row);
+    const e = ingest(row);
     if (e) out.push(e);
   }
   return out;
@@ -147,14 +148,13 @@ function publicationStreamKey(editionAddress: string): string {
 export async function cachePutPublicationStream(
   editionAddress: string,
   events: Event[],
-  opts?: { complete?: boolean }
+  opts?: { complete?: boolean; trusted?: boolean; forceComplete?: boolean }
 ): Promise<void> {
   const addr = editionAddress.trim();
   if (!addr || !events.length) return;
   try {
-    const incoming = events
-      .map((e) => ingestEvent(e))
-      .filter((e): e is Event => !!e);
+    const ingest = opts?.trusted ? ingestTrustedEvent : ingestEvent;
+    const incoming = events.map((e) => ingest(e)).filter((e): e is Event => !!e);
     if (!incoming.length) return;
 
     const existing = await cacheGetPublicationStreamSnapshot(addr);
@@ -164,10 +164,13 @@ export async function cachePutPublicationStream(
     const verified = [...byId.values()].slice(0, MAX_PUBLICATION_STREAM_EVENTS);
     const hasLeaves = verified.some((e) => e.kind !== KIND.PUBLICATION);
     // Never sticky-complete an indexes-only miss — that freezes the reader on empty headings.
+    // Reading-plan snapshots are indexes-only by design (`forceComplete`).
     const complete =
       opts?.complete === false
         ? false
-        : hasLeaves && (Boolean(opts?.complete) || existing.complete);
+        : opts?.forceComplete === true
+          ? true
+          : hasLeaves && (Boolean(opts?.complete) || existing.complete);
 
     const cache = await openCache();
     const key = publicationStreamKey(addr);
@@ -179,8 +182,10 @@ export async function cachePutPublicationStream(
         headers: { 'Content-Type': 'application/json' }
       })
     );
-    // Keep individual events addressable for Continue / fetchById.
-    void cachePutMany(verified);
+    // Seeded bibles are huge — skip per-event Cache Storage writes (snapshot is enough).
+    if (!opts?.trusted) {
+      void cachePutMany(verified);
+    }
   } catch {
     /* quota / private mode */
   }
@@ -206,7 +211,8 @@ export async function cacheGetPublicationStreamSnapshot(
     const res = (await cache.match(absolute)) ?? (await cache.match(key));
     if (!res) return { events: [], complete: false };
     const raw = (await res.json()) as { events?: unknown; complete?: unknown };
-    const list = ingestList(raw.events);
+    // Snapshots we wrote ourselves — trusted ingest avoids re-verifying ~38k sigs.
+    const list = ingestList(raw.events, true);
     if (list.length) rememberEvents(list);
     return { events: list, complete: raw.complete === true };
   } catch {

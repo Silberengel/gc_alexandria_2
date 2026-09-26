@@ -6,15 +6,16 @@ import type { Event } from 'nostr-tools';
 import { KIND } from '../constants';
 import {
   cacheGetPublicationStreamSnapshot,
-  cachePutMany,
   cachePutPublicationStream
 } from './cache';
 import { rememberEvents } from './event-memory';
-import { eventAddress, firstTag, ingestEvent } from './verify';
+import { eventAddress, firstTag, ingestTrustedEvent } from './verify';
 
 const MANIFEST_URL = '/seeds/manifest.json';
-const BATCH = 400;
-const YIELD_MS = 0;
+const BATCH = 250;
+/** Let the UI breathe — 0ms still pegs a core verifying/parsing JSONL. */
+const YIELD_MS = 16;
+const LOG = '[alexandria:seeds]';
 
 export type SeedManifest = {
   version: number;
@@ -87,6 +88,16 @@ function matchSeedTarget(
   return null;
 }
 
+/** True when this edition is covered by /seeds (caller must not relay-warm it). */
+export async function editionHasLocalSeeds(
+  edition: Event,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const manifest = await loadManifest(signal);
+  if (!manifest) return false;
+  return matchSeedTarget(edition, manifest) != null;
+}
+
 function seedUrl(path: string, manifest: SeedManifest): string {
   const base = path.startsWith('/') ? path : `/seeds/${path}`;
   const stamp = manifest.generated_at ?? manifest.version;
@@ -97,10 +108,20 @@ function eventFromLine(line: string): Event | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   try {
-    return ingestEvent(JSON.parse(trimmed));
+    // Bundled seeds are trusted — skip secp verify (that was melting the CPU).
+    return ingestTrustedEvent(JSON.parse(trimmed));
   } catch {
     return null;
   }
+}
+
+function snapshotReady(
+  snap: { complete: boolean; events: Event[] },
+  opts?: { allowIndexOnly?: boolean }
+): boolean {
+  if (!snap.complete || !snap.events.length) return false;
+  if (opts?.allowIndexOnly) return true;
+  return snap.events.some((event) => event.kind !== KIND.PUBLICATION);
 }
 
 /**
@@ -120,7 +141,8 @@ async function streamJsonl(
     if (!batch.length) return;
     const chunk = batch.splice(0, batch.length);
     rememberEvents(chunk);
-    void cachePutMany(chunk);
+    // Do not cachePutMany each batch — that is O(n) Cache Storage writes and
+    // pegs the disk. The publication-stream snapshot at the end is enough.
     onBatch?.(chunk);
     accepted.push(...chunk);
     await yieldToUi();
@@ -175,6 +197,97 @@ function openSeed(path: string, manifest: SeedManifest, signal?: AbortSignal): P
     .catch(() => null);
 }
 
+async function streamShardPaths(
+  paths: string[],
+  manifest: SeedManifest,
+  signal: AbortSignal | undefined,
+  onBatch: ((batch: Event[]) => void) | undefined,
+  label: string
+): Promise<{ events: Event[]; missingShard: boolean }> {
+  const inflight: Promise<Response | null>[] = [];
+  const start = (index: number): void => {
+    const path = paths[index];
+    if (path) inflight[index] = openSeed(path, manifest, signal);
+  };
+  // Prefetch at most one shard ahead — two parallel parse pipes fought the fan.
+  start(0);
+
+  const all: Event[] = [];
+  let missingShard = false;
+  const t0 = performance.now();
+  for (let i = 0; i < paths.length; i += 1) {
+    if (signal?.aborted) break;
+    start(i + 1);
+    const path = paths[i]!;
+    const res = await inflight[i];
+    if (!res) {
+      console.info(LOG, 'shard missing', { label, shard: i + 1, of: paths.length, path });
+      missingShard = true;
+      continue;
+    }
+    const events = await streamJsonl(res, signal, onBatch);
+    all.push(...events);
+    console.info(LOG, 'shard cached', {
+      label,
+      shard: i + 1,
+      of: paths.length,
+      path,
+      events: events.length,
+      total: all.length,
+      ms: Math.round(performance.now() - t0)
+    });
+  }
+  return { events: all, missingShard };
+}
+
+async function ensurePlanDependencies(
+  dependsOn: string[],
+  manifest: SeedManifest,
+  signal: AbortSignal | undefined,
+  onBatch: ((batch: Event[]) => void) | undefined,
+  title: string,
+  t0: number
+): Promise<void> {
+  for (const dep of dependsOn) {
+    if (signal?.aborted) break;
+    const editionRow = manifest.editions?.[dep];
+    if (!editionRow?.shards?.length || !editionRow.address) continue;
+
+    const depSnap = await cacheGetPublicationStreamSnapshot(editionRow.address);
+    if (snapshotReady(depSnap)) {
+      console.info(LOG, 'dependency cache hit', {
+        title,
+        dep,
+        events: depSnap.events.length,
+        ms: Math.round(performance.now() - t0)
+      });
+      rememberEvents(depSnap.events);
+      onBatch?.(depSnap.events);
+      continue;
+    }
+
+    console.info(LOG, 'dependency load start', {
+      title,
+      dep,
+      shards: editionRow.shards.length
+    });
+    const { events: depEvents, missingShard } = await streamShardPaths(
+      editionRow.shards,
+      manifest,
+      signal,
+      onBatch,
+      `${title} → ${dep}`
+    );
+    if (signal?.aborted) break;
+    if (!missingShard && depEvents.length) {
+      await cachePutPublicationStream(editionRow.address, depEvents, {
+        complete: true,
+        trusted: true
+      });
+    }
+  }
+}
+
 /**
  * If this edition is Douay or a known reading plan, fetch the scoped seed shards,
  * ingest them, and persist a complete publication-stream snapshot for the opened edition.
@@ -187,6 +300,8 @@ export async function loadSeedsForEdition(
 ): Promise<Event[] | null> {
   const signal = opts?.signal;
   const onBatch = opts?.onBatch;
+  const title = firstTag(edition, 'title') ?? firstTag(edition, 'd') ?? edition.id.slice(0, 8);
+  const t0 = performance.now();
   const manifest = await loadManifest(signal);
   if (!manifest || signal?.aborted) return null;
 
@@ -195,79 +310,119 @@ export async function loadSeedsForEdition(
 
   const key = editionKey(edition);
   const editionAddr = eventAddress(edition);
-  if (loaded.get(key) === manifest.version) {
+
+  // Prefer the parsed Cache Storage snapshot on every open — not only when this
+  // tab already streamed shards (the in-memory `loaded` map dies on refresh).
+  {
     const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
-    const ready =
-      snap.complete && snap.events.some((event) => event.kind !== KIND.PUBLICATION);
-    if (ready) {
+    if (snapshotReady(snap, { allowIndexOnly: target.kind === 'plan' })) {
+      loaded.set(key, manifest.version);
+      console.info(LOG, 'cache hit', {
+        title,
+        kind: target.kind,
+        id: target.id,
+        events: snap.events.length,
+        ms: Math.round(performance.now() - t0)
+      });
       rememberEvents(snap.events);
       onBatch?.(snap.events);
+      // Plan snapshot is indexes only — verses live in Douay; always hydrate deps.
+      if (target.kind === 'plan') {
+        const row = manifest.plans?.[target.id];
+        if (row?.depends_on?.length) {
+          await ensurePlanDependencies(row.depends_on, manifest, signal, onBatch, title, t0);
+        }
+      }
       return snap.events;
     }
-    // The file cache can still serve a retry when the parsed snapshot missed.
-    loaded.delete(key);
+    if (loaded.get(key) === manifest.version) {
+      loaded.delete(key);
+    }
   }
 
-  const openedPaths: string[] = [];
-  /** Verse shards that also belong in the Douay snapshot, not only this plan. */
-  const dependencyByAddress = new Map<string, string[]>();
   if (target.kind === 'edition') {
     const row = manifest.editions?.[target.id];
     if (!row?.shards?.length) return null;
-    openedPaths.push(...row.shards);
-  } else {
-    const row = manifest.plans?.[target.id];
-    if (!row?.shards?.length) return null;
-    openedPaths.push(...row.shards);
-    for (const dep of row.depends_on ?? []) {
-      const editionRow = manifest.editions?.[dep];
-      if (!editionRow?.shards?.length || !editionRow.address) continue;
-      dependencyByAddress.set(editionRow.address, editionRow.shards);
-      openedPaths.push(...editionRow.shards);
+
+    console.info(LOG, 'background load start', {
+      title,
+      kind: target.kind,
+      id: target.id,
+      shards: row.shards.length
+    });
+
+    const { events, missingShard } = await streamShardPaths(
+      row.shards,
+      manifest,
+      signal,
+      onBatch,
+      title
+    );
+    if (signal?.aborted) return events.length ? events : null;
+    if (missingShard || !events.length) {
+      console.info(LOG, 'incomplete — keeping partial memory, no relay warm', {
+        title,
+        missingShard,
+        events: events.length,
+        ms: Math.round(performance.now() - t0)
+      });
+      return events.length ? events : null;
     }
+    await cachePutPublicationStream(editionAddr, events, { complete: true, trusted: true });
+    loaded.set(key, manifest.version);
+    console.info(LOG, 'background load done — snapshot in Cache Storage', {
+      title,
+      events: events.length,
+      ms: Math.round(performance.now() - t0)
+    });
+    return events;
   }
 
-  // One shard ahead, so the next file is already downloading while this one is parsed.
-  const inflight: Promise<Response | null>[] = [];
-  const start = (index: number): void => {
-    const path = openedPaths[index];
-    if (path) inflight[index] = openSeed(path, manifest, signal);
-  };
-  start(0);
-  start(1);
+  // Reading plan: plan shard is small; Douay verses come from a dependency snapshot or shards.
+  const row = manifest.plans?.[target.id];
+  if (!row?.shards?.length) return null;
 
-  const all: Event[] = [];
-  const dependencyEvents = new Map<string, Event[]>();
-  let missingShard = false;
-  for (let i = 0; i < openedPaths.length; i += 1) {
-    if (signal?.aborted) return all.length ? all : null;
-    start(i + 2);
-    const res = await inflight[i];
-    if (!res) {
-      missingShard = true;
-      continue;
-    }
-    const events = await streamJsonl(res, signal, onBatch);
-    all.push(...events);
-    for (const [address, shards] of dependencyByAddress) {
-      if (!shards.includes(openedPaths[i]!)) continue;
-      const bucket = dependencyEvents.get(address) ?? [];
-      bucket.push(...events);
-      dependencyEvents.set(address, bucket);
-    }
+  console.info(LOG, 'background load start', {
+    title,
+    kind: target.kind,
+    id: target.id,
+    shards: row.shards.length,
+    dependsOn: row.depends_on ?? []
+  });
+
+  const { events: planEvents, missingShard: planMissing } = await streamShardPaths(
+    row.shards,
+    manifest,
+    signal,
+    onBatch,
+    title
+  );
+  if (signal?.aborted) return planEvents.length ? planEvents : null;
+  if (planMissing || !planEvents.length) {
+    console.info(LOG, 'plan shard incomplete', {
+      title,
+      events: planEvents.length,
+      ms: Math.round(performance.now() - t0)
+    });
+    return planEvents.length ? planEvents : null;
   }
 
-  if (signal?.aborted) return all.length ? all : null;
-  // A hole in the image should fall through to Mercury instead of a partial book.
-  if (missingShard || !all.length) return null;
+  rememberEvents(planEvents);
+  onBatch?.(planEvents);
 
-  // Parsed copy for the next open. The raw files stay in the HTTP / SW cache.
-  await cachePutPublicationStream(editionAddr, all, { complete: true });
-  for (const [address, events] of dependencyEvents) {
-    if (events.some((event) => event.kind !== KIND.PUBLICATION)) {
-      void cachePutPublicationStream(address, events, { complete: true });
-    }
-  }
+  await ensurePlanDependencies(row.depends_on ?? [], manifest, signal, onBatch, title, t0);
+
+  // Plan snapshot is day indexes; verses live in the Douay dependency snapshot.
+  await cachePutPublicationStream(editionAddr, planEvents, {
+    complete: true,
+    trusted: true,
+    forceComplete: true
+  });
   loaded.set(key, manifest.version);
-  return all;
+  console.info(LOG, 'background load done — plan snapshot ready', {
+    title,
+    events: planEvents.length,
+    ms: Math.round(performance.now() - t0)
+  });
+  return planEvents;
 }
