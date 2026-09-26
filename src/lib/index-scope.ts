@@ -89,6 +89,19 @@ function lookupAddress(coord: string): Event | null {
   return memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
 }
 
+/** Plan day a-tags still missing from session memory (seed holes / cold cache). */
+export function missingPlanDayAddresses(edition: Event): string[] {
+  if (!isReadingPlanEdition(edition)) return [];
+  const out: string[] = [];
+  for (const coord of childAddresses(edition)) {
+    const parsed = parseAddress(coord);
+    if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+    if (!isPlanDayD(parsed.d)) continue;
+    if (!lookupAddress(coord)) out.push(coord);
+  }
+  return out;
+}
+
 function titleForAddress(coord: string, hit: Event | null): string {
   if (hit) return sectionHeading(hit);
   const d = parseAddress(coord)?.d ?? '';

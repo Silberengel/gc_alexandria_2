@@ -35,7 +35,7 @@
   } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { documentStack, socialStack } from '$lib/nostr/selector';
-  import { eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
+  import { eventAddress, firstTag, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
   import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
@@ -44,8 +44,10 @@
     buildIndexScopedToc,
     collectIndexPaintEvents,
     isIndexScopedEdition,
+    isReadingPlanEdition,
     listLeafIndexes,
     missingPaintAddresses,
+    missingPlanDayAddresses,
     pickScopedOpenIndex,
     resolvePaintIndex,
     scopedProgressForIndex,
@@ -919,6 +921,20 @@
     return fillReadingSections(event);
   }
 
+  /** Prefer a real in-memory index over a ToC placeholder with the same address. */
+  function liveScopedIndex(index: Event): Event {
+    if (!isPlaceholderIndex(index)) {
+      const addr = eventAddress(index);
+      const parsed = parseAddress(addr);
+      if (!parsed) return index;
+      return memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ?? index;
+    }
+    const addr = eventAddress(index);
+    const parsed = parseAddress(addr);
+    if (!parsed) return index;
+    return memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ?? index;
+  }
+
   /** Replace the pane with one plan day or Douay chapter (and its verses only). */
   async function paintScopedIndex(
     edition: Event,
@@ -927,17 +943,30 @@
   ): Promise<void> {
     const gen = ++scopedPaintGen;
     scopedAtEditionTop = false;
-    const missing = missingPaintAddresses(index);
+    let leaf = liveScopedIndex(index);
+    // Incomplete plan seeds leave early days as placeholders — resolve via relays.
+    if (isPlaceholderIndex(leaf) && opts?.network === true) {
+      const addr = eventAddress(leaf);
+      if (addr) {
+        const hit = await fetchByAddress(addr);
+        if (hit) {
+          rememberEvents([hit]);
+          leaf = hit;
+        }
+      }
+    }
+    const missing = missingPaintAddresses(leaf);
     if (missing.length) {
       // Seeded bibles: never stampede relays for verses — shards fill memory.
-      // Quran / non-seeded: allow a small concurrent network fill.
+      // Reading plans: allow network for seed holes (e.g. days 1–90 missing locally).
       const localOnly = opts?.network !== true;
       await poolMap(missing.slice(0, 120), localOnly ? 8 : 3, (coord) =>
         fetchByAddress(coord, localOnly ? { localOnly: true } : undefined)
       );
     }
     if (event?.id !== edition.id || scopedAtEditionTop || gen !== scopedPaintGen) return;
-    const painted = collectIndexPaintEvents(index);
+    leaf = liveScopedIndex(leaf);
+    const painted = collectIndexPaintEvents(leaf);
     if (!painted.length) return;
     clearAdoptFlush();
     sectionCorpus = painted;
@@ -945,9 +974,9 @@
     paintOrigin = 0;
     paintEnd = painted.length;
     sections = painted;
-    scopedPaintIndex = index;
-    paintPinId = index.id;
-    const prog = scopedProgressForIndex(edition, toc, index);
+    scopedPaintIndex = leaf;
+    paintPinId = leaf.id;
+    const prog = scopedProgressForIndex(edition, toc, leaf);
     if (prog) {
       readerPos = prog.pos;
       readerSectionId = prog.sectionId;
@@ -961,6 +990,10 @@
     }
     void enrichHighlightsFromSections(painted);
     sectionsLoading = false;
+    // Day indexes often arrive during paint (seed holes) — refresh ToC titles without a click.
+    if (isReadingPlanEdition(edition) && !isPlaceholderIndex(leaf)) {
+      toc = buildIndexScopedToc(edition);
+    }
   }
 
   /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
@@ -1053,20 +1086,59 @@
             if (batch.some((e) => e.kind === KIND.PUBLICATION)) refreshToc();
             // Verses arrive from Douay deps after the plan indexes — repaint the open day.
             if (scopedPaintIndex && !scopedAtEditionTop && batch.some((e) => e.kind === KIND.SECTION)) {
-              void paintScopedIndex(edition, scopedPaintIndex);
+              void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
+                network: isReadingPlanEdition(edition)
+              });
             }
           }
         });
         if (signal.aborted || event?.id !== edition.id) return;
-        // Seeded editions: never fan out 300+ relay index fetches if shards failed.
-        const hasSeeds = await editionHasLocalSeeds(edition, signal);
-        if (!seeded?.length && !hasSeeds) {
+        // Seeded editions / reading plans: never fan out hundreds of relay index
+        // fetches (that only loads day headings — verses stay blank).
+        const hasSeeds = await editionHasLocalSeeds(edition);
+        if (!seeded?.length && !hasSeeds && !isReadingPlanEdition(edition)) {
           await warmIndexTree(edition, (coord) => fetchByAddress(coord), {
             signal,
             onIndex: refreshToc
           });
+        } else if (!seeded?.length && (hasSeeds || isReadingPlanEdition(edition))) {
+          console.info('[alexandria:seeds] skipping relay index-warm; retrying local seeds', {
+            title: firstTag(edition, 'title') ?? firstTag(edition, 'd'),
+            hasSeeds,
+            plan: isReadingPlanEdition(edition)
+          });
+          const retry = await loadSeedsForEdition(edition, {
+            signal,
+            onBatch: (batch) => {
+              if (signal.aborted || event?.id !== edition.id || !reading) return;
+              if (batch.some((e) => e.kind === KIND.PUBLICATION)) refreshToc();
+              if (scopedPaintIndex && !scopedAtEditionTop && batch.some((e) => e.kind === KIND.SECTION)) {
+                void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
+                  network: isReadingPlanEdition(edition)
+                });
+              }
+            }
+          });
+          if (retry?.length) {
+            refreshToc();
+          }
         }
-        await afterTreeReady(!seeded?.length && !hasSeeds);
+        // Plans may still need relays for seed holes (bible-in-a-year lacks days 1–90).
+        await afterTreeReady(!hasSeeds || isReadingPlanEdition(edition));
+        // Fill missing day titles in the background so ToC isn't stuck on "Day 004" stubs.
+        if (!signal.aborted && isReadingPlanEdition(edition)) {
+          const holes = missingPlanDayAddresses(edition);
+          if (holes.length) {
+            let filled = 0;
+            await poolMap(holes, 3, async (coord) => {
+              if (signal.aborted || event?.id !== edition.id) return;
+              await fetchByAddress(coord);
+              filled += 1;
+              if (filled % 12 === 0) refreshToc();
+            });
+            if (!signal.aborted && event?.id === edition.id) refreshToc();
+          }
+        }
       })().catch(() => {
         if (event?.id === edition.id) sectionsLoading = false;
       });
@@ -1181,7 +1253,7 @@
               sectionId: focusAddr,
               queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(edition))?.total
             });
-        if (leaf) await paintScopedIndex(edition, leaf);
+        if (leaf) await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
         if (focusQuote) scrollToHighlightQuote(focusQuote);
       } finally {
         if (event?.id === edition.id) {
@@ -1625,7 +1697,7 @@
           sectionId: opts?.sectionId ?? (focus.section || undefined),
           queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(event))?.total
         });
-        if (open) await paintScopedIndex(event, open);
+        if (open) await paintScopedIndex(event, open, { network: isReadingPlanEdition(event) });
       }
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       return;
@@ -1804,22 +1876,22 @@
       if (parsed) {
         const mem = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
         if (mem && !isPlaceholderIndex(mem)) return mem;
-        // Scoped ToC rows are already in the seed snapshot — do not block on relays.
-        if (event && isIndexScopedEdition(event)) {
-          return mem ?? placeholderIndexEvent(entry);
-        }
+        // Plan seeds can omit early days — fetch the real index before stubbing.
         const hit = await fetchByAddress(entry.address);
         if (hit) return hit;
+        if (event && isIndexScopedEdition(event)) {
+          return placeholderIndexEvent(entry);
+        }
       }
     }
     if (entry.id) {
       const byId = memoryGetEvent(entry.id);
       if (byId) return byId;
+      const fetched = await fetchById(entry.id);
+      if (fetched) return fetched;
       if (event && isIndexScopedEdition(event)) {
         return placeholderIndexEvent(entry);
       }
-      const fetched = await fetchById(entry.id);
-      if (fetched) return fetched;
     }
     // Keep an existing placeholder, or synthesize one for true ghost Mercury rows.
     if (loaded) return loaded;
@@ -1970,7 +2042,7 @@
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
         if (!leaf) return;
-        await paintScopedIndex(edition, leaf);
+        await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
         if (focusKey === key) {

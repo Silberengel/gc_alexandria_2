@@ -39,11 +39,14 @@ function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, YIELD_MS));
 }
 
-async function loadManifest(signal?: AbortSignal): Promise<SeedManifest | null> {
+async function loadManifest(_signal?: AbortSignal): Promise<SeedManifest | null> {
   if (!manifestPromise) {
     manifestPromise = (async () => {
       try {
-        const res = await fetch(MANIFEST_URL, { signal });
+        // Do not tie the shared manifest fetch to a Read AbortSignal — one cancelled
+        // navigation would permanently cache null and force every later plan/bible
+        // open onto the slow relay index-warm path.
+        const res = await fetch(MANIFEST_URL);
         if (!res.ok) return null;
         return (await res.json()) as SeedManifest;
       } catch {
@@ -52,8 +55,11 @@ async function loadManifest(signal?: AbortSignal): Promise<SeedManifest | null> 
     })();
   }
   try {
-    return await manifestPromise;
+    const manifest = await manifestPromise;
+    if (!manifest) manifestPromise = null; // allow retry after a failed first attempt
+    return manifest;
   } catch {
+    manifestPromise = null;
     return null;
   }
 }
@@ -89,11 +95,8 @@ function matchSeedTarget(
 }
 
 /** True when this edition is covered by /seeds (caller must not relay-warm it). */
-export async function editionHasLocalSeeds(
-  edition: Event,
-  signal?: AbortSignal
-): Promise<boolean> {
-  const manifest = await loadManifest(signal);
+export async function editionHasLocalSeeds(edition: Event): Promise<boolean> {
+  const manifest = await loadManifest();
   if (!manifest) return false;
   return matchSeedTarget(edition, manifest) != null;
 }
@@ -302,7 +305,7 @@ export async function loadSeedsForEdition(
   const onBatch = opts?.onBatch;
   const title = firstTag(edition, 'title') ?? firstTag(edition, 'd') ?? edition.id.slice(0, 8);
   const t0 = performance.now();
-  const manifest = await loadManifest(signal);
+  const manifest = await loadManifest();
   if (!manifest || signal?.aborted) return null;
 
   const target = matchSeedTarget(edition, manifest);
