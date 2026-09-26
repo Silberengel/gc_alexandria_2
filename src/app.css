@@ -3372,6 +3372,11 @@ mark.text-highlight.highlight-flash,
   padding-bottom: 0.35rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
+/* Nested day/chapter indexes: clear air above after packed verse text. */
+.reader-section.reader-index:not(.reader-edition):not(:first-child) {
+  margin-top: 2rem;
+  padding-top: 0.35rem;
+}
 .reader-section.reader-index .section-heading {
   font-size: 1.55rem;
   font-weight: 700;
