@@ -46,7 +46,6 @@
     isIndexScopedEdition,
     listLeafIndexes,
     missingPaintAddresses,
-    nextLeafIndex,
     pickScopedOpenIndex,
     resolvePaintIndex,
     scopedProgressForIndex,
@@ -2109,26 +2108,23 @@
     if (isIndexScopedEdition(event) && scopedPaintIndex) {
       const prog = scopedProgressForIndex(event, toc, scopedPaintIndex);
       if (!prog) return;
-      const atEnd =
-        sections.length > 0 && section.id.toLowerCase() === sections[sections.length - 1]!.id.toLowerCase();
-      const next = atEnd ? nextLeafIndex(event, toc, scopedPaintIndex) : null;
-      const save = next ? scopedProgressForIndex(event, toc, next) : prog;
-      if (!save) return;
+      // Always persist the painted leaf — do not advance resume/queue to the next
+      // day/chapter just because the user scrolled to the last section on screen.
       const prev = readerPos;
       const prevId = readerSectionId;
       readerPos = prog.pos;
       readerSectionId = prog.sectionId;
-      saveResume(eventAddress(event), { pos: save.pos, sectionId: save.sectionId });
-      if (save.pos !== prev || save.sectionId !== prevId) {
+      saveResume(eventAddress(event), { pos: prog.pos, sectionId: prog.sectionId });
+      if (prog.pos !== prev || prog.sectionId !== prevId) {
         sectionTick = true;
         window.setTimeout(() => {
           sectionTick = false;
         }, 600);
         void syncReadingProgress({
           publication: event,
-          pos: save.pos,
-          total: save.total,
-          sectionId: save.sectionId
+          pos: prog.pos,
+          total: prog.total,
+          sectionId: prog.sectionId
         });
       }
       return;
