@@ -301,7 +301,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   );
   pointer-events: none;
 }
-.landing-hero img {
+.landing-hero-media img {
   display: block;
   width: 100%;
   max-height: 15.5rem;
@@ -339,8 +339,21 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   letter-spacing: 0.02em;
 }
 .landing-hero-crosslink a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
   color: color-mix(in srgb, var(--text-muted) 78%, transparent);
   text-decoration: none;
+}
+.landing-hero-crosslink-icon {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+  max-width: 1.15rem;
+  max-height: 1.15rem;
+  border-radius: 0.22rem;
+  object-fit: cover;
+  flex: 0 0 auto;
 }
 .landing-hero-crosslink a:hover,
 .landing-hero-crosslink a:focus-visible {

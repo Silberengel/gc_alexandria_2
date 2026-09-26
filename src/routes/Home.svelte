@@ -407,7 +407,10 @@
         A calm shelf of publications, reviews, and quotes from the Nostr library.
       </p>
       <p class="landing-hero-crosslink">
-        <a href="https://biblestr.imwald.eu/" target="_blank" rel="noopener noreferrer">Biblestr</a>
+        <a href="https://biblestr.imwald.eu/" target="_blank" rel="noopener noreferrer">
+          <img class="landing-hero-crosslink-icon" src="/biblestr-icon.png" alt="" width="18" height="18" />
+          Biblestr
+        </a>
       </p>
     </div>
   </header>
