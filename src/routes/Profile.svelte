@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import Pager from '$lib/components/Pager.svelte';
@@ -21,7 +20,8 @@
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent } from '$lib/nostr/cache';
   import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
-  import { rememberProfileFromKind0 } from '$lib/profile-cache';
+  import { peekProfileThumb, rememberProfileFromKind0 } from '$lib/profile-cache';
+  import { pickLatestReplaceable, isNewerReplaceable } from '$lib/nostr/replaceable';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
   import { publicationTargets, isListPublicationLabelEvent } from '$lib/nip32';
   import { publicationTargetsFromDirectory } from '$lib/bookshelf';
@@ -34,6 +34,7 @@
     type InteractionMark
   } from '$lib/interaction-marks';
   import { nip19, type Event } from 'nostr-tools';
+  import { untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { isAllowedHref } from '$lib/markup';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
@@ -63,6 +64,9 @@
   let pubkey = $state('');
   let npub = $state('');
   let profile = $state<Event | null>(null);
+  /** Immediate paint from badge thumb cache when kind-0 is not yet in event-memory. */
+  let warmName = $state('');
+  let warmPicture = $state('');
   let produced = $state<Event[]>([]);
   let interacted = $state<Event[]>([]);
   let marksByWork = $state<Map<string, InteractionMark[]>>(new Map());
@@ -80,6 +84,8 @@
   let readingEditions = $state<Map<string, Event>>(new Map());
 
   const fields = $derived(parseKind0(profile));
+  const displayTitle = $derived(fields.title || warmName || 'Unknown');
+  const displayPicture = $derived(fields.picture || warmPicture);
   const pageSize = $derived(listingPageSize($listingDensity));
   /** Own profile uses Settings N; others use the client default (their N is not on relays). */
   const isOwnProfile = $derived(
@@ -211,130 +217,229 @@
     return [...out.values()];
   }
 
-  onMount(async () => {
+  function applyProfileMeta(meta: Event | null): void {
+    if (!meta) return;
+    // untrack: this runs inside the profile $effect, which also writes these fields.
+    // A tracked read would reschedule the effect until Svelte aborts it.
+    const cur = untrack(() => profile);
+    if (
+      cur &&
+      cur.id.toLowerCase() !== meta.id.toLowerCase() &&
+      !isNewerReplaceable(meta, cur)
+    ) {
+      return;
+    }
+    profile = meta;
+    rememberEvents([meta]);
+    rememberProfileFromKind0(meta);
+    void cachePutEvent(meta);
+    const parsed = parseKind0(meta);
+    const prevName = untrack(() => warmName);
+    const prevPicture = untrack(() => warmPicture);
+    warmName = parsed.title || prevName;
+    warmPicture = parsed.picture || prevPicture;
+    payments = paymentRows(parsed, [], meta);
+  }
+
+  function resetProfileListings(): void {
+    produced = [];
+    interacted = [];
+    marksByWork = new Map();
+    statusGeneral = null;
+    statusMusic = null;
+    payments = [];
+    readCount = 0;
+    readingEntries = [];
+    readingTitles = new Map();
+    readingEditions = new Map();
+    producedPage = 1;
+    interactedPage = 1;
+    pageFilter = '';
+  }
+
+  /** Reload when the hash `/p/:id` changes — spa-router reuses this component. */
+  $effect(() => {
     const raw = params.id ?? '';
+    let cancelled = false;
+
+    let nextPk = '';
     try {
       const decoded = nip19.decode(raw);
-      if (decoded.type === 'npub') pubkey = decoded.data;
-      else if (decoded.type === 'nprofile') pubkey = decoded.data.pubkey;
+      if (decoded.type === 'npub') nextPk = decoded.data;
+      else if (decoded.type === 'nprofile') nextPk = decoded.data.pubkey;
     } catch {
-      pubkey = hexPubkey(raw) ?? raw;
+      nextPk = hexPubkey(raw) ?? raw;
     }
-    if (!pubkey) return;
-    try {
-      npub = nip19.npubEncode(pubkey);
-    } catch {
-      npub = pubkey;
+    nextPk = nextPk.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(nextPk)) {
+      pubkey = '';
+      npub = '';
+      profile = null;
+      warmName = '';
+      warmPicture = '';
+      resetProfileListings();
+      return;
     }
-    readCount = 0;
 
-    // Badge / prior page already had kind-0 — paint header before relay round-trips.
-    const warmMeta = memoryFindMetadata(pubkey);
+    pubkey = nextPk;
+    try {
+      npub = nip19.npubEncode(nextPk);
+    } catch {
+      npub = nextPk;
+    }
+    profile = null;
+    warmName = '';
+    warmPicture = '';
+    resetProfileListings();
+
+    // 1) Instant header from event-memory / badge thumb / session metadata.
+    const warmMeta =
+      memoryFindMetadata(nextPk) ??
+      pickLatestReplaceable(session.getMetadata(), KIND.METADATA, nextPk);
     if (warmMeta) {
-      profile = warmMeta;
-      rememberProfileFromKind0(warmMeta);
+      applyProfileMeta(warmMeta);
+    } else {
+      const thumb = peekProfileThumb(nextPk);
+      if (thumb) {
+        warmName = thumb.name;
+        warmPicture = thumb.picture;
+      }
     }
 
     const authoredFilter = {
       kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
-      authors: [pubkey],
+      authors: [nextPk],
       limit: 80
     };
     const creditedFilter = {
       kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
-      '#p': [pubkey],
+      '#p': [nextPk],
       limit: 40
     };
-    const paymentFilter = { kinds: [KIND.PAYMENT], authors: [pubkey], limit: 10 };
+    const paymentFilter = { kinds: [KIND.PAYMENT], authors: [nextPk], limit: 10 };
     const statusFilter = {
       kinds: [KIND.STATUS],
-      authors: [pubkey],
+      authors: [nextPk],
       '#d': ['general', 'music'],
       limit: 10
     };
-    const [p, authored, credited, statusSocial, statusProfile, paySocial, payProfile, labels, bookmarks, dirs, highs, comms, rates, reads, queueHits] =
-      await Promise.all([
-        relayPool.query(profileStack(), [{ kinds: [0], authors: [pubkey], limit: 1 }]),
-        relayPool.query(documentStack(), [authoredFilter]),
+
+    void (async () => {
+      // 2) Kind-0 first, priority slot — do not wait on social/document fan-out.
+      const kind0Hits = await relayPool.query(
+        profileStack(),
+        [{ kinds: [KIND.METADATA], authors: [nextPk], limit: 1 }],
+        4000,
+        5,
+        undefined,
+        { priority: true }
+      );
+      if (cancelled) return;
+      const fresh =
+        pickLatestReplaceable(kind0Hits, KIND.METADATA, nextPk) ?? kind0Hits[0] ?? null;
+      if (fresh) applyProfileMeta(fresh);
+
+      // 3) Everything else in parallel; paint as each group finishes.
+      const docsP = Promise.all([
+        relayPool.query(documentStack(), [authoredFilter], 8000, 5, undefined, { priority: true }),
         mercuryFilter(creditedFilter).then(async (m) =>
-          m.length ? m : relayPool.query(documentStack(), [creditedFilter])
-        ),
-        relayPool.query(socialStack(), [statusFilter]),
-        relayPool.query(profileStack(), [statusFilter]),
-        relayPool.query(socialStack(), [paymentFilter]),
-        relayPool.query(profileStack(), [paymentFilter]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [pubkey], limit: 50 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [pubkey], limit: 5 }]),
-        relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [pubkey], limit: 40 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [pubkey], limit: 40 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [pubkey], limit: 40 }]),
-        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [pubkey], limit: 40 }]),
-        countReadsByAuthor(pubkey),
-        relayPool.query(
-          socialStack(),
-          [{ kinds: [KIND.READING_QUEUE], authors: [pubkey], limit: 5 }],
-          4000,
-          2
+          m.length ? m : relayPool.query(documentStack(), [creditedFilter], 8000, 5, undefined, { priority: true })
         )
-      ]);
-    profile = p[0] ?? profile;
-    if (profile) {
-      rememberEvents([profile]);
-      rememberProfileFromKind0(profile);
-      void cachePutEvent(profile);
-    }
-    const parsed = parseKind0(profile);
-    const payById = new Map<string, Event>();
-    for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
-    payments = paymentRows(parsed, [...payById.values()], profile);
-    const statusById = new Map<string, Event>();
-    for (const e of [...statusSocial, ...statusProfile]) statusById.set(e.id, e);
-    const statuses = selectUserStatuses([...statusById.values()]);
-    statusGeneral = statuses.general;
-    statusMusic = statuses.music;
-    const byId = new Map<string, Event>();
-    for (const e of [...authored, ...credited]) byId.set(e.id, e);
-    produced = omitNested([...byId.values()]);
-    rememberEvents(produced);
-    readCount = reads;
-    const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
-    const own = !!get(session).pubkey && get(session).pubkey!.toLowerCase() === pubkey.toLowerCase();
-    readingEntries =
-      own && get(readingPrefs).localOnly
-        ? get(localReadingQueue)
-        : parseReadingQueue(queueEv);
-    const titleMap = new Map<string, string>();
-    const editionMap = new Map<string, Event>();
-    const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
-    await Promise.all(
-      activeReadingEntries(readingEntries, n).map(async (entry) => {
-        const pub = await fetchByAddress(entry.a);
-        if (pub) {
-          rememberEvents([pub]);
-          editionMap.set(entry.a, pub);
-          titleMap.set(entry.a, editionMetadata(pub).titles[0] || 'Untitled');
+      ]).then(([authored, credited]) => {
+        if (cancelled) return;
+        const byId = new Map<string, Event>();
+        for (const e of [...authored, ...credited]) byId.set(e.id, e);
+        produced = omitNested([...byId.values()]);
+        rememberEvents(produced);
+      });
+
+      const statusP = Promise.all([
+        relayPool.query(socialStack(), [statusFilter], 5000, 4),
+        relayPool.query(profileStack(), [statusFilter], 5000, 4)
+      ]).then(([statusSocial, statusProfile]) => {
+        if (cancelled) return;
+        const statusById = new Map<string, Event>();
+        for (const e of [...statusSocial, ...statusProfile]) statusById.set(e.id, e);
+        const statuses = selectUserStatuses([...statusById.values()]);
+        statusGeneral = statuses.general;
+        statusMusic = statuses.music;
+      });
+
+      const payP = Promise.all([
+        relayPool.query(socialStack(), [paymentFilter], 5000, 4),
+        relayPool.query(profileStack(), [paymentFilter], 5000, 4)
+      ]).then(([paySocial, payProfile]) => {
+        if (cancelled) return;
+        const payById = new Map<string, Event>();
+        for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
+        payments = paymentRows(parseKind0(profile), [...payById.values()], profile);
+      });
+
+      const readsP = countReadsByAuthor(nextPk).then((n) => {
+        if (!cancelled) readCount = n;
+      });
+
+      const queueP = relayPool
+        .query(socialStack(), [{ kinds: [KIND.READING_QUEUE], authors: [nextPk], limit: 5 }], 4000, 2)
+        .then(async (queueHits) => {
+          if (cancelled) return;
+          const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
+          const own =
+            !!get(session).pubkey && get(session).pubkey!.toLowerCase() === nextPk.toLowerCase();
+          readingEntries =
+            own && get(readingPrefs).localOnly ? get(localReadingQueue) : parseReadingQueue(queueEv);
+          const titleMap = new Map<string, string>();
+          const editionMap = new Map<string, Event>();
+          const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
+          await Promise.all(
+            activeReadingEntries(readingEntries, n).map(async (entry) => {
+              const pub = await fetchByAddress(entry.a);
+              if (cancelled || !pub) return;
+              rememberEvents([pub]);
+              editionMap.set(entry.a, pub);
+              titleMap.set(entry.a, editionMetadata(pub).titles[0] || 'Untitled');
+            })
+          );
+          if (cancelled) return;
+          readingTitles = titleMap;
+          readingEditions = editionMap;
+        });
+
+      const interactP = Promise.all([
+        relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }], 8000, 4),
+        relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 5 }], 5000, 4),
+        relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [nextPk], limit: 40 }], 8000, 4),
+        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [nextPk], limit: 40 }], 8000, 4),
+        relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [nextPk], limit: 40 }], 8000, 4),
+        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [nextPk], limit: 40 }], 8000, 4)
+      ]).then(async ([labels, bookmarks, dirs, highs, comms, rates]) => {
+        if (cancelled) return;
+        const interactionEvents = [
+          ...labels.filter(isListPublicationLabelEvent),
+          ...bookmarks,
+          ...dirs,
+          ...highs,
+          ...comms,
+          ...rates
+        ];
+        const works = await resolveInteracted(interactionEvents);
+        if (cancelled) return;
+        interacted = works;
+        rememberEvents(works);
+        const markMap = interactionMarksFromEvents(interactionEvents);
+        const byWork = new Map<string, InteractionMark[]>();
+        for (const work of works) {
+          byWork.set(work.id, marksForPublication(markMap, work));
         }
-      })
-    );
-    readingTitles = titleMap;
-    readingEditions = editionMap;
-    const interactionEvents = [
-      ...labels.filter(isListPublicationLabelEvent),
-      ...bookmarks,
-      ...dirs,
-      ...highs,
-      ...comms,
-      ...rates
-    ];
-    const works = await resolveInteracted(interactionEvents);
-    interacted = works;
-    rememberEvents(works);
-    const markMap = interactionMarksFromEvents(interactionEvents);
-    const byWork = new Map<string, InteractionMark[]>();
-    for (const work of works) {
-      byWork.set(work.id, marksForPublication(markMap, work));
-    }
-    marksByWork = byWork;
+        marksByWork = byWork;
+      });
+
+      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   });
 </script>
 
@@ -354,14 +459,14 @@
             aria-hidden="true"
           ></div>
         {/if}
-        {#if fields.picture && isAllowedHref(fields.picture)}
-          <img class="profile-avatar" src={toNostrBuildThumbUrl(fields.picture)} alt="" />
+        {#if displayPicture && isAllowedHref(displayPicture)}
+          <img class="profile-avatar" src={toNostrBuildThumbUrl(displayPicture)} alt="" />
         {/if}
       </div>
       <div class="profile-header">
         <div class="profile-header-text">
           <div class="profile-title-row">
-            <h2>{fields.title || 'Unknown'}</h2>
+            <h2>{displayTitle}</h2>
             {#if grapevineRank != null || viewerFollows || readCount > 0}
               <div class="profile-badges">
                 {#if grapevineRank != null}

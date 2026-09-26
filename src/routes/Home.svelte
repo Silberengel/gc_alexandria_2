@@ -27,6 +27,7 @@
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { isViewerBoundShelfId, orderLandingShelves, dedupeLandingShelfEvents } from '$lib/shelves';
   import { coverImageUrl } from '$lib/cover';
+  import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { prefetchImages } from '$lib/image-cache';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
@@ -470,14 +471,19 @@
         {:else}
           <div class="shelf-bar">
             {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+              {@const tipTitle = coverTitle(pub)}
+              {@const tipAuthor = coverAuthor(pub)}
+              {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
               <a
                 class="cover"
                 href={`#${publicationPath(pub)}`}
                 use:link
+                title={tip}
+                aria-label={tip}
                 onpointerdown={() => warmNavEvent(pub)}
                 onclick={() => warmNavEvent(pub)}
               >
-                <Cover event={pub} />
+                <Cover event={pub} captionOnHover />
               </a>
             {/each}
           </div>

@@ -8,3 +8,7 @@ dist/
 __pycache__/
 .env
 .env.*
+# Douay verse shards are large and generated. They are not committed, but a
+# production image build requires them in this directory (see Dockerfile).
+# Regenerate with: npm run seeds:export-douay
+public/seeds/douay/*.jsonl

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "generated_at": 1790413197,
+  "author": "3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690",
+  "editions": {
+    "bible-the-bible-douay-rheims-version": {
+      "address": "30040:3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690:bible-the-bible-douay-rheims-version",
+      "d": "bible-the-bible-douay-rheims-version",
+      "shards": [
+        "douay/shard-000.jsonl",
+        "douay/shard-001.jsonl",
+        "douay/shard-002.jsonl",
+        "douay/shard-003.jsonl",
+        "douay/shard-004.jsonl",
+        "douay/shard-005.jsonl",
+        "douay/shard-006.jsonl",
+        "douay/shard-007.jsonl",
+        "douay/shard-008.jsonl",
+        "douay/shard-009.jsonl",
+        "douay/shard-010.jsonl",
+        "douay/shard-011.jsonl",
+        "douay/shard-012.jsonl",
+        "douay/shard-013.jsonl",
+        "douay/shard-014.jsonl",
+        "douay/shard-015.jsonl",
+        "douay/shard-016.jsonl",
+        "douay/shard-017.jsonl",
+        "douay/shard-018.jsonl",
+        "douay/shard-019.jsonl"
+      ],
+      "event_count": 38557
+    }
+  },
+  "plans": {
+    "biblestr-plan-bible-in-a-year": {
+      "address": "30040:3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690:biblestr-plan-bible-in-a-year",
+      "d": "biblestr-plan-bible-in-a-year",
+      "shards": [
+        "plans/bible-in-a-year.jsonl"
+      ],
+      "depends_on": [
+        "bible-the-bible-douay-rheims-version"
+      ]
+    },
+    "biblestr-plan-chronological": {
+      "address": "30040:3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690:biblestr-plan-chronological",
+      "d": "biblestr-plan-chronological",
+      "shards": [
+        "plans/chronological.jsonl"
+      ],
+      "depends_on": [
+        "bible-the-bible-douay-rheims-version"
+      ]
+    }
+  }
+}

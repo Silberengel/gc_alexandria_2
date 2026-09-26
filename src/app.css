@@ -1607,6 +1607,54 @@ a.listing-row:hover {
   height: 100%;
 }
 .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-hover-label {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 1.1rem 1.35rem 0.35rem 0.35rem;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, #0c0a08 92%, transparent) 0%,
+    color-mix(in srgb, #0c0a08 72%, transparent) 55%,
+    transparent 100%
+  );
+  color: #f4efe6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.cover-hover-title {
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cover-hover-author {
+  font-size: 0.6rem;
+  line-height: 1.2;
+  opacity: 0.88;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cover:hover .cover-hover-label,
+.cover:focus-visible .cover-hover-label,
+.cover-frame-caption:hover .cover-hover-label {
+  opacity: 1;
+}
+/* Shelf tiles have no other title. A phone cannot hover, so keep the caption up. */
+@media (hover: none) {
+  .cover-hover-label {
+    opacity: 1;
+  }
+}
 .card-cover {
   position: relative;
   display: block;
@@ -1625,7 +1673,7 @@ a.listing-row:hover {
   position: absolute;
   bottom: 0.22rem;
   right: 0.22rem;
-  z-index: 2;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
   justify-content: center;

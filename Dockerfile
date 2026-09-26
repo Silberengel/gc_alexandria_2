@@ -6,6 +6,13 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+# The image must ship the Douay verses and both reading plans. Shards are
+# generated (gitignored); a build without them would silently fall back to Mercury.
+RUN test -s public/seeds/manifest.json \
+ && test -s public/seeds/plans/bible-in-a-year.jsonl \
+ && test -s public/seeds/plans/chronological.jsonl \
+ && test -s public/seeds/douay/shard-000.jsonl \
+ && test -s public/seeds/douay/shard-019.jsonl
 RUN npm run build
 
 FROM nginx:alpine

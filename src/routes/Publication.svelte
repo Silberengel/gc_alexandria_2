@@ -39,6 +39,7 @@
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
   import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
+  import { loadSeedsForEdition } from '$lib/nostr/seed-load';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
@@ -555,7 +556,7 @@
     void prefetchTree(target, signal);
   }
 
-  /** Prefer a cached stream snapshot, then Mercury /stream, then a-tag walk. */
+  /** Prefer a cached stream snapshot, then local seeds, then Mercury /stream, then a-tag walk. */
   async function loadSectionEvents(
     edition: Event,
     signal?: AbortSignal,
@@ -606,6 +607,19 @@
       }
     } catch {
       /* ignore cache errors — fall through to live load */
+    }
+
+    // Douay / reading-plan seeds: scoped JSONL before Mercury (on-demand only).
+    try {
+      const seeded = await loadSeedsForEdition(edition, { signal, onBatch });
+      if (signal?.aborted) return seeded ?? [];
+      if (seeded && seeded.some((e) => e.kind !== KIND.PUBLICATION)) {
+        return seeded;
+      }
+      // Plan indexes + verses: seeded may be all PUBLICATION plan nodes plus verse leaves.
+      if (seeded && seeded.length) return seeded;
+    } catch {
+      /* seed miss — fall through */
     }
 
     // Citadel-only trees 404 on Mercury — probe /meta first so we walk relays

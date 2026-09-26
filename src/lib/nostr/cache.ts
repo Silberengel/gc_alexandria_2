@@ -35,8 +35,8 @@ const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
 const PUBLICATION_STREAM_PREFIX = '/snapshot/publication-stream/';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
 const MAX_SEARCH_SNAPSHOTS = 20;
-/** Cap stored stream leaves so a Bible does not blow Cache Storage quota. */
-const MAX_PUBLICATION_STREAM_EVENTS = 4_000;
+/** Soft cap for publication stream snapshots (Douay seed is ~38k). */
+const MAX_PUBLICATION_STREAM_EVENTS = 50_000;
 
 export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
 

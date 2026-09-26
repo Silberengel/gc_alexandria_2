@@ -113,9 +113,10 @@
       applyLocal(events);
     });
 
-    // Already have a real picture from cache — skip a redundant profile REQ.
-    const hasPicture = Boolean(peekProfileThumb(pk)?.picture || memoryFindMetadata(pk));
-    if (hasPicture) {
+    // Already have kind-0 in memory — skip a redundant profile REQ.
+    // Thumb-only cache still refreshes once so Profile can warm from a real event.
+    const hasKind0 = Boolean(memoryFindMetadata(pk));
+    if (hasKind0) {
       return () => {
         cancelled = true;
         unsubMeta();

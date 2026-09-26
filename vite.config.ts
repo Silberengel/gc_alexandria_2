@@ -23,8 +23,29 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/],
+        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/, /^\/seeds\//],
         runtimeCaching: [
+          {
+            // Manifest must follow a new export. Shard URLs are versioned (?v=) and stay CacheFirst.
+            urlPattern: /\/seeds\/manifest\.json$/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'alexandria-seeds-manifest',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          {
+            // Local Douay / reading-plan seeds — CacheFirst after first fetch (no precache).
+            urlPattern: /\/seeds\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'alexandria-seeds',
+              expiration: { maxEntries: 64, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
           {
             // Google Fonts CSS
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

@@ -10,7 +10,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "starter-guides:dry-run": "node scripts/publish-starter-guides.mjs",
-    "starter-guides:publish": "node scripts/publish-starter-guides.mjs --publish"
+    "starter-guides:publish": "node scripts/publish-starter-guides.mjs --publish",
+    "seeds:export-douay": "node scripts/export-douay-seeds.mjs"
   },
   "dependencies": {
     "@asciidoctor/core": "^3.0.4",
