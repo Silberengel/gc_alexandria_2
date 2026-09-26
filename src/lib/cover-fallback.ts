@@ -102,12 +102,14 @@ function escapeXml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function paletteFor(event: Event): (typeof BOOK_PALETTE)[number] {
+type CoverPalette = { cloth: string; panel: string; ink: string; gold: string };
+
+function paletteFor(event: Event): CoverPalette {
   const key = firstTag(event, 'd') ?? event.id;
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 33 + key.charCodeAt(i)) >>> 0;
   const wiki = event.kind === KIND.WIKI || event.kind === KIND.SPEC;
-  const palette = wiki ? WIKI_PALETTE : BOOK_PALETTE;
+  const palette: readonly CoverPalette[] = wiki ? WIKI_PALETTE : BOOK_PALETTE;
   return palette[h % palette.length]!;
 }
 

@@ -37,20 +37,21 @@
     <div class="pager-pages" role="list">
       {#each items as item, i (typeof item === 'number' ? item : `e-${i}`)}
         {#if item === 'ellipsis'}
-          <span class="pager-ellipsis muted" aria-hidden="true">…</span>
+          <span class="pager-ellipsis muted" role="listitem" aria-hidden="true">…</span>
         {:else}
-          <button
-            class="pager-page"
-            class:pager-page-current={item === page}
-            type="button"
-            role="listitem"
-            aria-current={item === page ? 'page' : undefined}
-            aria-label={`Page ${item}`}
-            disabled={item === page}
-            onclick={() => go(item)}
-          >
-            {item}
-          </button>
+          <span role="listitem">
+            <button
+              class="pager-page"
+              class:pager-page-current={item === page}
+              type="button"
+              aria-current={item === page ? 'page' : undefined}
+              aria-label={`Page ${item}`}
+              disabled={item === page}
+              onclick={() => go(item)}
+            >
+              {item}
+            </button>
+          </span>
         {/if}
       {/each}
     </div>

@@ -40,6 +40,18 @@
   import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { loadSeedsForEdition } from '$lib/nostr/seed-load';
+  import {
+    buildIndexScopedToc,
+    collectIndexPaintEvents,
+    isIndexScopedEdition,
+    listLeafIndexes,
+    missingPaintAddresses,
+    nextLeafIndex,
+    pickScopedOpenIndex,
+    resolvePaintIndex,
+    scopedProgressForIndex,
+    warmIndexTree
+  } from '$lib/index-scope';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
@@ -138,6 +150,8 @@
   let paintEnd = $state(35);
   /** Keep this section id inside the painted window across corpus merges. */
   let paintPinId = $state('');
+  /** Douay / reading-plan: the one leaf index currently in the pane. */
+  let scopedPaintIndex = $state<Event | null>(null);
   let error = $state(false);
   /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
@@ -238,6 +252,18 @@
     if (!event || !canRead) return null;
     const entry = findQueueEntry($viewerReadingEntries, eventAddress(event));
     if (!entry) return null;
+    if (isIndexScopedEdition(event)) {
+      const scopedToc = toc.length ? toc : buildIndexScopedToc(event);
+      const open = pickScopedOpenIndex(event, scopedToc, {
+        pos: entry.pos,
+        sectionId: entry.sectionId,
+        queueTotal: entry.total
+      });
+      if (!open) return null;
+      const prog = scopedProgressForIndex(event, scopedToc, open);
+      if (!prog) return null;
+      return { pos: prog.pos, sectionId: prog.sectionId, tracked: true as const };
+    }
     return {
       pos: entry.pos,
       sectionId: entry.sectionId,
@@ -275,6 +301,10 @@
   }
 
   function refreshTocFromCorpus(): void {
+    if (event && isIndexScopedEdition(event)) {
+      toc = buildIndexScopedToc(event);
+      return;
+    }
     if (!toc.length || !sectionCorpus.length) return;
     // Indexes only — never walk tens of thousands of verse leaves into the ToC.
     const indexes: Event[] = [];
@@ -562,6 +592,16 @@
     signal?: AbortSignal,
     onBatch?: (batch: Event[]) => void
   ): Promise<Event[]> {
+    // Scoped editions use fillScopedReading — never paint the whole Bible here.
+    if (isIndexScopedEdition(edition)) {
+      const seeded = await loadSeedsForEdition(edition, {
+        signal,
+        onBatch: (batch) => {
+          if (batch.some((e) => e.kind === KIND.PUBLICATION)) onBatch?.(batch.filter((e) => e.kind === KIND.PUBLICATION));
+        }
+      });
+      return seeded ?? [];
+    }
     const editionAddr = eventAddress(edition);
     const naddr = naddrFor(edition);
 
@@ -841,6 +881,10 @@
 
   async function ensureToc(edition: Event): Promise<void> {
     if (toc.length) return;
+    if (isIndexScopedEdition(edition)) {
+      toc = buildIndexScopedToc(edition);
+      return;
+    }
     try {
       const rawToc = await mercuryPublicationToc(naddrFor(edition));
       toc = parseToc(rawToc, edition);
@@ -872,10 +916,183 @@
     return fillReadingSections(event);
   }
 
-  /** Load ToC + first heading immediately, then stream/walk sections into the pane. */
-  async function fillReadingSections(edition: Event): Promise<boolean> {
+  /** Replace the pane with one plan day or Douay chapter (and its verses only). */
+  async function paintScopedIndex(edition: Event, index: Event): Promise<void> {
+    const missing = missingPaintAddresses(index);
+    if (missing.length) {
+      await Promise.all(missing.slice(0, 120).map((coord) => fetchByAddress(coord)));
+    }
+    if (event?.id !== edition.id) return;
+    const painted = collectIndexPaintEvents(index);
+    if (!painted.length) return;
+    clearAdoptFlush();
+    sectionCorpus = painted;
+    corpusCount = painted.length;
+    paintOrigin = 0;
+    paintEnd = painted.length;
+    sections = painted;
+    scopedPaintIndex = index;
+    paintPinId = index.id;
+    const prog = scopedProgressForIndex(edition, toc, index);
+    if (prog) {
+      readerPos = prog.pos;
+      readerSectionId = prog.sectionId;
+      saveResume(eventAddress(edition), { pos: prog.pos, sectionId: prog.sectionId });
+      void syncReadingProgress({
+        publication: edition,
+        pos: prog.pos,
+        total: prog.total,
+        sectionId: prog.sectionId
+      });
+    }
+    void enrichHighlightsFromSections(painted);
+  }
+
+  /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
+  function paintScopedEditionTop(edition: Event): void {
+    clearAdoptFlush();
+    sectionCorpus = [edition];
+    corpusCount = 1;
+    paintOrigin = 0;
+    paintEnd = 1;
+    sections = [edition];
+    scopedPaintIndex = null;
+    paintPinId = edition.id;
+    readerPos = 0;
+    readerSectionId = edition.id;
+    const leaves = listLeafIndexes(edition, toc);
+    saveResume(eventAddress(edition), { pos: 0, sectionId: edition.id });
+    if (leaves.length) {
+      void syncReadingProgress({
+        publication: edition,
+        pos: 0,
+        total: leaves.length,
+        sectionId: edition.id
+      });
+    }
+  }
+
+  function scopedOpenOpts(edition: Event): {
+    pos?: number;
+    sectionId?: string;
+    queueTotal?: number;
+  } {
+    const resume = loadResume(eventAddress(edition));
+    const queue = findQueueEntry($viewerReadingEntries, eventAddress(edition));
+    const focus = focusFromUrl();
+    return {
+      pos: Number.isFinite(focus.pos) ? focus.pos : (resume?.pos ?? queue?.pos),
+      sectionId: focus.section || resume?.sectionId || queue?.sectionId,
+      queueTotal: queue?.total
+    };
+  }
+
+  async function openScopedFromResume(edition: Event): Promise<boolean> {
+    toc = buildIndexScopedToc(edition);
+    const open = pickScopedOpenIndex(edition, toc, scopedOpenOpts(edition));
+    if (!open) return false;
+    await paintScopedIndex(edition, open);
+    return sections.some((s) => s.kind === KIND.SECTION || s.id === open.id);
+  }
+
+  /**
+   * Bible-typed / large / reading-plan editions: keep indexes in memory, paint one leaf.
+   * Never adopt the whole tree into the reading pane.
+   */
+  async function fillScopedReading(edition: Event): Promise<boolean> {
     readingBusy = true;
     sectionsLoading = true;
+    scopedPaintIndex = null;
+    cancelTree();
+    treeAbort = new AbortController();
+    const signal = treeAbort.signal;
+    try {
+      toc = buildIndexScopedToc(edition);
+      sectionCorpus = [edition];
+      corpusCount = 1;
+      paintOrigin = 0;
+      paintEnd = 1;
+      sections = [edition];
+      readingBusy = false;
+
+      const refreshToc = (): void => {
+        toc = buildIndexScopedToc(edition);
+      };
+
+      try {
+        const snap = await cacheGetPublicationStreamSnapshot(eventAddress(edition));
+        if (!signal.aborted && snap.events.length) {
+          rememberEvents(snap.events);
+          refreshToc();
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const afterTreeReady = async (): Promise<void> => {
+        if (signal.aborted || event?.id !== edition.id || !reading) return;
+        refreshToc();
+        if (scopedPaintIndex) await paintScopedIndex(edition, scopedPaintIndex);
+        else await openScopedFromResume(edition);
+        if (event?.id === edition.id) sectionsLoading = false;
+        if (
+          event?.id === edition.id &&
+          reading &&
+          !sections.some((s) => s.kind === KIND.SECTION) &&
+          !listLeafIndexes(edition, toc).length
+        ) {
+          unreadable = true;
+          reading = false;
+          setReadQuery(false);
+        }
+      };
+
+      void (async () => {
+        const seeded = await loadSeedsForEdition(edition, {
+          signal,
+          onBatch: (batch) => {
+            if (signal.aborted || event?.id !== edition.id || !reading) return;
+            if (!batch.some((e) => e.kind === KIND.PUBLICATION)) return;
+            refreshToc();
+          }
+        });
+        if (signal.aborted || event?.id !== edition.id) return;
+        // No local seeds (Quran, etc.): fetch nested indexes only for the contents tree.
+        if (!seeded?.length) {
+          await warmIndexTree(edition, (coord) => fetchByAddress(coord), {
+            signal,
+            onIndex: refreshToc
+          });
+        }
+        await afterTreeReady();
+      })().catch(() => {
+        if (event?.id === edition.id) sectionsLoading = false;
+      });
+
+      // Open the first available day/chapter while later shards or index fetches arrive.
+      for (let i = 0; i < 50 && !signal.aborted && event?.id === edition.id; i += 1) {
+        refreshToc();
+        if (listLeafIndexes(edition, toc).length) {
+          await openScopedFromResume(edition);
+          if (sections.some((s) => s.kind === KIND.SECTION)) break;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+      }
+      return true;
+    } catch {
+      if (event?.id === edition.id) sectionsLoading = false;
+      return false;
+    } finally {
+      if (event?.id === edition.id) readingBusy = false;
+    }
+  }
+
+  /** Load ToC + first heading immediately, then stream/walk sections into the pane. */
+  async function fillReadingSections(edition: Event): Promise<boolean> {
+    if (isIndexScopedEdition(edition)) return fillScopedReading(edition);
+    readingBusy = true;
+    sectionsLoading = true;
+    scopedPaintIndex = null;
     cancelTree();
     treeAbort = new AbortController();
     const signal = treeAbort.signal;
@@ -946,6 +1163,41 @@
     const focusAddr = sectionAddr;
     const focusQuote = quote;
     const edition = event;
+    if (isIndexScopedEdition(edition)) {
+      try {
+        setReadQuery(true);
+        await fillScopedReading(edition);
+        if (focusKey !== key || event !== edition) return;
+        let focused: Event | null = null;
+        if (/^[0-9a-f]{64}$/i.test(focusAddr)) {
+          focused = memoryGetEvent(focusAddr) ?? (await fetchById(focusAddr));
+        } else {
+          const parsed = parseAddress(focusAddr);
+          if (parsed) {
+            focused =
+              memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
+              (await fetchByAddress(focusAddr));
+          }
+        }
+        if (focusKey !== key || event !== edition) return;
+        toc = buildIndexScopedToc(edition);
+        const leaf = focused
+          ? resolvePaintIndex(focused, edition, toc)
+          : pickScopedOpenIndex(edition, toc, {
+              pos: resumePos,
+              sectionId: focusAddr,
+              queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(edition))?.total
+            });
+        if (leaf) await paintScopedIndex(edition, leaf);
+        if (focusQuote) scrollToHighlightQuote(focusQuote);
+      } finally {
+        if (event?.id === edition.id) {
+          readingBusy = false;
+          sectionsLoading = false;
+        }
+      }
+      return;
+    }
     try {
       // Resolve the focused leaf in parallel so a cache hit paints ASAP.
       const focusedPromise = (async (): Promise<Event | null> => {
@@ -1199,6 +1451,7 @@
       paintOrigin = 0;
       paintEnd = 35;
       paintPinId = '';
+      scopedPaintIndex = null;
       focusKey = '';
       commentFocusApplied = '';
       replyOpenId = null;
@@ -1362,6 +1615,21 @@
     if (reading && opts?.fromUrl && sections.length) return;
     reading = true;
     if (!opts?.fromUrl) setReadQuery(true);
+    if (isIndexScopedEdition(event)) {
+      if (!sections.some((e) => e.kind === KIND.SECTION) || !scopedPaintIndex) {
+        await fillReadingSections(event);
+      } else if (opts?.sectionId || opts?.pos != null) {
+        toc = buildIndexScopedToc(event);
+        const open = pickScopedOpenIndex(event, toc, {
+          pos: opts.pos,
+          sectionId: opts.sectionId,
+          queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(event))?.total
+        });
+        if (open) await paintScopedIndex(event, open);
+      }
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      return;
+    }
     if (!sections.length) {
       await fillReadingSections(event);
     } else if (!sections.some((e) => e.kind !== KIND.PUBLICATION)) {
@@ -1664,6 +1932,45 @@
     tocOpen = false;
     if (!event || unreadable || !canRead) return;
 
+    if (isIndexScopedEdition(event)) {
+      const edition = event;
+      const rootAddr = eventAddress(edition).toLowerCase();
+      const isRoot =
+        !!entry.root ||
+        entry.id?.toLowerCase() === edition.id.toLowerCase() ||
+        (entry.address ?? '').toLowerCase() === rootAddr;
+      if (isRoot) {
+        paintScopedEditionTop(edition);
+        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        return;
+      }
+      const key = `toc:${entry.address ?? entry.id ?? entry.pos}`;
+      focusKey = key;
+      jumpLabel = entry.title;
+      jumpBusy = true;
+      readingBusy = true;
+      try {
+        if (!reading) {
+          reading = true;
+          setReadQuery(true);
+        }
+        const focused = await resolveTocSection(entry);
+        if (focusKey !== key || event !== edition || !focused) return;
+        rememberEvents([focused]);
+        toc = buildIndexScopedToc(edition);
+        const leaf = resolvePaintIndex(focused, edition, toc);
+        if (!leaf) return;
+        await paintScopedIndex(edition, leaf);
+        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+      } finally {
+        if (focusKey === key) {
+          jumpBusy = false;
+          readingBusy = false;
+        }
+      }
+      return;
+    }
+
     const existing = findLoadedSection(entry);
     if (existing && !isPlaceholderSection(existing)) {
       scrollToSection(entry.pos, existing.id, eventAddress(existing));
@@ -1753,6 +2060,33 @@
 
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
+    if (isIndexScopedEdition(event) && scopedPaintIndex) {
+      const prog = scopedProgressForIndex(event, toc, scopedPaintIndex);
+      if (!prog) return;
+      const atEnd =
+        sections.length > 0 && section.id.toLowerCase() === sections[sections.length - 1]!.id.toLowerCase();
+      const next = atEnd ? nextLeafIndex(event, toc, scopedPaintIndex) : null;
+      const save = next ? scopedProgressForIndex(event, toc, next) : prog;
+      if (!save) return;
+      const prev = readerPos;
+      const prevId = readerSectionId;
+      readerPos = prog.pos;
+      readerSectionId = prog.sectionId;
+      saveResume(eventAddress(event), { pos: save.pos, sectionId: save.sectionId });
+      if (save.pos !== prev || save.sectionId !== prevId) {
+        sectionTick = true;
+        window.setTimeout(() => {
+          sectionTick = false;
+        }, 600);
+        void syncReadingProgress({
+          publication: event,
+          pos: save.pos,
+          total: save.total,
+          sectionId: save.sectionId
+        });
+      }
+      return;
+    }
     // Prefer corpus index for this section so progress uses document order, not a
     // painted-prefix / readerGroups fallback that may have drifted.
     const corpusPos = indexInCorpus(section.id);
@@ -1793,9 +2127,11 @@
    * Keep growing the painted window until the whole corpus is mounted.
    * First paint stays small for speed; idle ticks finish the book without requiring
    * the reader to reach the bottom / mash "Show more".
+   * Douay / reading plans paint one index only — never grow into the full Bible.
    */
   $effect(() => {
     if (!reading || !event) return;
+    if (isIndexScopedEdition(event)) return;
     void corpusCount;
     void paintEnd;
     if (paintEnd >= corpusCount || corpusCount <= 0) return;

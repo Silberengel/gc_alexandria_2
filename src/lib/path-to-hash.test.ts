@@ -40,7 +40,7 @@ describe('rewritePathDeepLinkToHash', () => {
       'history',
       { replaceState } as Pick<History, 'replaceState'> as History
     );
-    vi.stubGlobal('window', { history: { replaceState } } as Window & typeof globalThis);
+    vi.stubGlobal('window', { history: { replaceState } } as unknown as Window & typeof globalThis);
   });
 
   afterEach(() => {
