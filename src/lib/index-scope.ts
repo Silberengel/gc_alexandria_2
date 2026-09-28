@@ -212,7 +212,11 @@ export function listLeafIndexes(edition: Event, toc: TocEntry[]): Event[] {
   return out;
 }
 
-/** First chapter/day under an index, or the index itself when it is a leaf. */
+/**
+ * Index to paint for a ToC / deep-link target.
+ * Non-leaf bible indexes (testament, book) open themselves — prefaces stay visible —
+ * instead of drilling to the first chapter leaf.
+ */
 export function resolvePaintIndex(target: Event, edition: Event, toc: TocEntry[]): Event | null {
   // Edition root is the cover — not the first day/chapter.
   if (
@@ -234,31 +238,33 @@ export function resolvePaintIndex(target: Event, edition: Event, toc: TocEntry[]
     }
     return target;
   }
-  if (isLeafIndex(target)) return target;
-  // Book / testament: first leaf descendant in TOC order.
+  if (target.kind === KIND.PUBLICATION) return target;
+  // Verse / section under a chapter: paint the enclosing leaf index.
   const targetAddr = eventAddress(target).toLowerCase();
-  const under: Event[] = [];
-  let capturing = false;
-  let targetDepth = -1;
-  for (const entry of toc) {
-    if ((entry.address ?? '').toLowerCase() === targetAddr) {
-      capturing = true;
-      targetDepth = entry.depth;
-      const hit = entry.event ?? lookupAddress(entry.address!);
-      if (hit && isLeafIndex(hit)) return hit;
-      continue;
+  const targetId = target.id.toLowerCase();
+  for (const leaf of listLeafIndexes(edition, toc)) {
+    if (childAddresses(leaf).some((a) => a.toLowerCase() === targetAddr)) return leaf;
+    for (const childAddr of childAddresses(leaf)) {
+      const hit = lookupAddress(childAddr);
+      if (!hit) continue;
+      if (hit.id.toLowerCase() === targetId) return leaf;
+      if (
+        hit.kind === KIND.PUBLICATION &&
+        childAddresses(hit).some((a) => a.toLowerCase() === targetAddr)
+      ) {
+        return leaf;
+      }
     }
-    if (!capturing) continue;
-    if (entry.depth <= targetDepth) break;
-    const hit = entry.event ?? (entry.address ? lookupAddress(entry.address) : null);
-    if (hit && isLeafIndex(hit)) under.push(hit);
   }
-  return under[0] ?? null;
+  return null;
 }
 
 /**
- * Heading + nested reading indexes + verse sections for one leaf index.
- * Missing children are skipped (caller may fetch and retry).
+ * Pane contents for one paint target.
+ * Leaf indexes: heading + nested reading indexes + verse sections.
+ * Intermediate bible indexes (testament / book): the index itself + direct 30041
+ * children (preface / preamble), without descending into nested book/chapter trees.
+ * Plan days keep the nested reading → verse fan-out.
  */
 export function collectIndexPaintEvents(index: Event): Event[] {
   const out: Event[] = [];
@@ -272,6 +278,14 @@ export function collectIndexPaintEvents(index: Event): Event[] {
   }
 
   push(index);
+  const planDay = isPlanDayD(firstTag(index, 'd') ?? '');
+  if (!isLeafIndex(index) && !planDay) {
+    for (const childAddr of childAddresses(index)) {
+      const hit = lookupAddress(childAddr);
+      if (hit?.kind === KIND.SECTION) push(hit);
+    }
+    return out;
+  }
   for (const childAddr of childAddresses(index)) {
     const hit = lookupAddress(childAddr);
     if (!hit) continue;
@@ -289,6 +303,15 @@ export function collectIndexPaintEvents(index: Event): Event[] {
 /** Addresses still missing from memory for a full paint of this index. */
 export function missingPaintAddresses(index: Event): string[] {
   const missing: string[] = [];
+  const planDay = isPlanDayD(firstTag(index, 'd') ?? '');
+  if (!isLeafIndex(index) && !planDay) {
+    for (const childAddr of childAddresses(index)) {
+      const parsed = parseAddress(childAddr);
+      if (!parsed || parsed.kind !== KIND.SECTION) continue;
+      if (!lookupAddress(childAddr)) missing.push(childAddr);
+    }
+    return missing;
+  }
   for (const childAddr of childAddresses(index)) {
     const hit = lookupAddress(childAddr);
     if (!hit) {
@@ -325,7 +348,7 @@ export function scopedProgressForIndex(
 }
 
 /**
- * Pick the leaf to open: saved day/chapter when valid, else the first.
+ * Pick the index to open: saved day/chapter/testament when valid, else the first leaf.
  * Ignores old whole-Bible verse positions.
  */
 export function pickScopedOpenIndex(
@@ -346,13 +369,23 @@ export function pickScopedOpenIndex(
       sid === edition.id.toLowerCase() || sid === eventAddress(edition).toLowerCase();
     // Resume after "Go to top" stores the edition id — that is not a leaf pick.
     if (!editionRoot) {
-      const byId = memoryGetEvent(opts.sectionId);
+      const byId =
+        memoryGetEvent(opts.sectionId) ??
+        (/^\d+:[0-9a-f]{64}:/i.test(opts.sectionId) ? lookupAddress(opts.sectionId) : null);
       if (byId) {
         const resolved = resolvePaintIndex(byId, edition, toc);
-        if (resolved && leaves.some((l) => l.id === resolved.id)) return resolved;
+        if (resolved) return resolved;
       }
       const byLeaf = leaves.find((l) => l.id.toLowerCase() === sid);
       if (byLeaf) return byLeaf;
+      const byToc = toc.find(
+        (e) =>
+          (e.id ?? '').toLowerCase() === sid || (e.address ?? '').toLowerCase() === sid
+      );
+      if (byToc?.event) {
+        const resolved = resolvePaintIndex(byToc.event, edition, toc);
+        if (resolved) return resolved;
+      }
     }
   }
 

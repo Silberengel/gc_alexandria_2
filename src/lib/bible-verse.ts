@@ -27,14 +27,56 @@ export type BibleDisplay =
   | { kind: 'verse'; chapter: string; verse: string; label: string }
   | { kind: 'heading'; title: string };
 
+/**
+ * Verse/preface body, then an optional Challoner note after the first blank line
+ * (same convention as biblestr `splitVerse`).
+ */
+export function splitChallonerNote(content: string): { text: string; note: string } {
+  const parts = (content ?? '').split(/\n\s*\n/);
+  const text = (parts.shift() ?? '').trim();
+  const note = parts.join('\n\n').trim();
+  return { text, note };
+}
+
+/** Verses and preface/preamble sections host Challoner notes; indexes/contents do not. */
+export function hostsChallonerNote(display: BibleDisplay): boolean {
+  if (display.kind === 'verse') return true;
+  return /^(preface|preamble)\b/i.test(display.title.trim());
+}
+
+/** Chapter/book preamble body is italic in the Challoner edition (see biblestr). */
+export function isPreambleHeading(display: BibleDisplay): boolean {
+  return display.kind === 'heading' && /^preamble\b/i.test(display.title.trim());
+}
+
+/**
+ * Body text plus optional italic Challoner note. Index/contents headings keep
+ * multi-paragraph content as normal text (blank lines are not notes).
+ */
+export function bibleContentParts(
+  content: string,
+  display: BibleDisplay
+): { text: string; note: string } {
+  if (!hostsChallonerNote(display)) {
+    return { text: (content ?? '').trim(), note: '' };
+  }
+  return splitChallonerNote(content);
+}
+
 /** How to show a bible-typed section in the reading pane. */
 export function bibleDisplay(event: Event): BibleDisplay {
   const title = (firstTag(event, 'title') ?? '').trim();
   const c = (firstTag(event, 'c') ?? '').trim();
   const s = (firstTag(event, 's') ?? '').trim();
-  if (c && s) return { kind: 'verse', chapter: c, verse: s, label: `${c}:${s}` };
+  // Douay chapter arguments use c=N with s=preamble (not a verse number).
+  if (c && s && !/^preamble$/i.test(s) && /^\d+$/.test(s)) {
+    return { kind: 'verse', chapter: c, verse: s, label: `${c}:${s}` };
+  }
   const m = title.match(/^(\d+)\s*:\s*(\d+)\s*$/);
   if (m) return { kind: 'verse', chapter: m[1]!, verse: m[2]!, label: `${m[1]}:${m[2]}` };
+  if (/^preamble$/i.test(s) || /^preamble$/i.test(title)) {
+    return { kind: 'heading', title: title || 'Preamble' };
+  }
   return { kind: 'heading', title: title || 'Section' };
 }
 

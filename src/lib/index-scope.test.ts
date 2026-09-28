@@ -181,14 +181,85 @@ describe('buildIndexScopedToc', () => {
     const leaves = listLeafIndexes(root, toc);
     expect(leaves.map((e) => e.id)).toEqual([ch1.id, ch2.id]);
 
-    expect(resolvePaintIndex(book, root, toc)?.id).toBe(ch1.id);
+    // Book / testament indexes open themselves (prefaces), not the first chapter.
+    expect(resolvePaintIndex(book, root, toc)?.id).toBe(book.id);
+    expect(collectIndexPaintEvents(book).map((e) => e.id)).toEqual([book.id]);
     expect(collectIndexPaintEvents(ch1).map((e) => e.id)).toEqual([ch1.id, v1.id, v2.id]);
+    expect(resolvePaintIndex(v1, root, toc)?.id).toBe(ch1.id);
 
     expect(pickScopedOpenIndex(root, toc, { pos: 5000, queueTotal: 38000 })?.id).toBe(ch1.id);
     expect(pickScopedOpenIndex(root, toc, { pos: 1, sectionId: ch2.id })?.id).toBe(ch2.id);
+    expect(pickScopedOpenIndex(root, toc, { sectionId: a(30040, 'bk-genesis') })?.id).toBe(book.id);
     // pos past leaf count with incomplete list → first leaf (do not snap to end)
     expect(pickScopedOpenIndex(root, toc, { pos: 50 })?.id).toBe(ch1.id);
     // complete queue total → clamp to last leaf
     expect(pickScopedOpenIndex(root, toc, { pos: 50, queueTotal: 2 })?.id).toBe(ch2.id);
+  });
+
+  it('paints testament index with preface sections only', () => {
+    const preface = ev({
+      id: 'a'.repeat(64),
+      kind: 30041,
+      tags: [
+        ['d', 'ot-preface'],
+        ['type', 'bible'],
+        ['title', 'Preface'],
+        ['T', 'OT']
+      ],
+      content: 'Preface body.\n\nChalloner note on the OT.'
+    });
+    const ch = ev({
+      id: 'b'.repeat(64),
+      tags: [
+        ['d', 'ot-gen-ch1'],
+        ['title', 'Genesis Chapter 1'],
+        ['a', a(30041, 'v-ot')]
+      ]
+    });
+    const verse = ev({
+      id: 'c'.repeat(64),
+      kind: 30041,
+      tags: [
+        ['d', 'v-ot'],
+        ['type', 'bible'],
+        ['title', '1:1'],
+        ['c', '1'],
+        ['s', '1']
+      ],
+      content: 'In the beginning.'
+    });
+    const book = ev({
+      id: 'd'.repeat(64),
+      tags: [
+        ['d', 'ot-gen'],
+        ['title', 'Genesis'],
+        ['a', a(30040, 'ot-gen-ch1')]
+      ]
+    });
+    const ot = ev({
+      id: 'e'.repeat(64),
+      tags: [
+        ['d', 'bible-douay-rheims-version-the-ot'],
+        ['title', 'The Old Testament'],
+        ['a', a(30041, 'ot-preface')],
+        ['a', a(30040, 'ot-gen')]
+      ]
+    });
+    const root = ev({
+      id: 'f'.repeat(64),
+      tags: [
+        ['d', 'bible-the-bible-douay-rheims-version'],
+        ['type', 'bible'],
+        ['title', 'Douay-Rheims Bible'],
+        ['a', a(30040, 'bible-douay-rheims-version-the-ot')]
+      ]
+    });
+    rememberEvents([preface, verse, ch, book, ot, root]);
+    const toc = buildIndexScopedToc(root);
+    expect(resolvePaintIndex(ot, root, toc)?.id).toBe(ot.id);
+    expect(collectIndexPaintEvents(ot).map((e) => e.id)).toEqual([ot.id, preface.id]);
+    expect(pickScopedOpenIndex(root, toc, { sectionId: a(30040, 'bible-douay-rheims-version-the-ot') })?.id).toBe(
+      ot.id
+    );
   });
 });

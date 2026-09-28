@@ -4285,6 +4285,24 @@ mark.text-highlight.highlight-flash,
 }
 .bible-run-text {
   margin: 0 0 0.65rem;
+  white-space: pre-wrap;
+}
+.bible-preamble-text {
+  font-style: italic;
+}
+.bible-challoner-note {
+  display: block;
+  margin: 0.25rem 0 0.65rem;
+  font-style: italic;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted, #6b6b6b));
+  font-size: 0.95em;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.bible-verse .bible-challoner-note {
+  display: block;
+  margin: 0.2rem 0 0.55rem;
+  clear: both;
 }
 .bible-verse {
   position: relative;

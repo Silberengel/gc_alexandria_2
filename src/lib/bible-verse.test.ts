@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import {
+  bibleContentParts,
   bibleDisplay,
   groupReaderSections,
+  hostsChallonerNote,
   isBibleSection,
-  offersVerseStyling
+  isPreambleHeading,
+  offersVerseStyling,
+  splitChallonerNote
 } from './bible-verse';
 
 function section(over: Partial<Event> & { tags?: string[][] }): Event {
@@ -58,6 +62,68 @@ describe('bibleDisplay', () => {
       kind: 'heading',
       title: 'Preamble'
     });
+  });
+
+  it('treats c/s preamble tags as headings, not verses', () => {
+    expect(
+      bibleDisplay(
+        section({
+          tags: [
+            ['type', 'bible'],
+            ['title', 'Preamble'],
+            ['c', '1'],
+            ['s', 'preamble']
+          ],
+          content: 'God createth Heaven and Earth.'
+        })
+      )
+    ).toEqual({ kind: 'heading', title: 'Preamble' });
+  });
+});
+
+describe('splitChallonerNote', () => {
+  it('splits body and Challoner note on the first blank line', () => {
+    expect(splitChallonerNote('In the beginning.\n\n[1] Challoner: note.')).toEqual({
+      text: 'In the beginning.',
+      note: '[1] Challoner: note.'
+    });
+    expect(splitChallonerNote('Only verse text.')).toEqual({
+      text: 'Only verse text.',
+      note: ''
+    });
+    expect(splitChallonerNote('Body.\n\nNote one.\n\nNote two.')).toEqual({
+      text: 'Body.',
+      note: 'Note one.\n\nNote two.'
+    });
+  });
+});
+
+describe('bibleContentParts', () => {
+  it('keeps index/contents multi-paragraph text unsplit', () => {
+    const body = 'THE OLD TESTAMENT\n\nBook 01 Genesis\n\nBook 02 Exodus';
+    expect(bibleContentParts(body, { kind: 'heading', title: 'INDEX' })).toEqual({
+      text: body,
+      note: ''
+    });
+    expect(hostsChallonerNote({ kind: 'heading', title: 'INDEX' })).toBe(false);
+    expect(isPreambleHeading({ kind: 'heading', title: 'Preamble' })).toBe(true);
+    expect(isPreambleHeading({ kind: 'heading', title: 'Preface' })).toBe(false);
+  });
+
+  it('splits verses and preface/preamble headings', () => {
+    const body = 'Preface body.\n\nChalloner note.';
+    expect(bibleContentParts(body, { kind: 'heading', title: 'Preface' })).toEqual({
+      text: 'Preface body.',
+      note: 'Challoner note.'
+    });
+    expect(
+      bibleContentParts('In the beginning.\n\n[1] Note.', {
+        kind: 'verse',
+        chapter: '1',
+        verse: '1',
+        label: '1:1'
+      })
+    ).toEqual({ text: 'In the beginning.', note: '[1] Note.' });
   });
 });
 

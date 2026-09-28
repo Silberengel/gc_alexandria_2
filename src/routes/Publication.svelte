@@ -79,7 +79,13 @@
   import { coverPlaceholderUrl } from '$lib/cover-fallback';
   import { isRemoteImageMissing } from '$lib/image-reachable';
   import { openMediaViewer } from '$lib/stores/media-viewer';
-  import { bibleDisplay, groupReaderSections } from '$lib/bible-verse';
+  import {
+    bibleContentParts,
+    bibleDisplay,
+    groupReaderSections,
+    isBibleSection,
+    isPreambleHeading
+  } from '$lib/bible-verse';
   import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
   import {
@@ -1054,6 +1060,10 @@
         total: prog.total,
         sectionId: prog.sectionId
       });
+    } else {
+      // Intermediate index (testament / book): remember by id for deep-link reopen.
+      readerSectionId = leaf.id;
+      saveResume(eventAddress(edition), { pos: readerPos, sectionId: leaf.id });
     }
     void enrichHighlightsFromSections(painted);
     sectionsLoading = false;
@@ -2683,6 +2693,7 @@
                 {#each verses as verse (verse.id)}
                   {@const sectionKey = eventAddress(verse)}
                   {@const disp = bibleDisplay(verse)}
+                  {@const split = bibleContentParts(verse.content, disp)}
                   {@const pos = sectionReadPos.get(verse.id) ?? 0}
                   {#if disp.kind === 'heading'}
                     <h3
@@ -2694,7 +2705,15 @@
                     >
                       {disp.title}
                     </h3>
-                    <p class="bible-run-text">{verse.content}</p>
+                    {#if split.text}
+                      <p
+                        class="bible-run-text"
+                        class:bible-preamble-text={isPreambleHeading(disp)}
+                      >{split.text}</p>
+                    {/if}
+                    {#if split.note}
+                      <p class="bible-challoner-note">{split.note}</p>
+                    {/if}
                   {:else}
                     <span
                       class="bible-verse"
@@ -2751,7 +2770,10 @@
                           </li>
                         {/snippet}
                       </CopyPointerButton>
-                      <span class="bible-verse-text">{verse.content}</span>
+                      <span class="bible-verse-text">{split.text}</span>
+                      {#if split.note}
+                        <span class="bible-challoner-note">{split.note}</span>
+                      {/if}
                     </span>
                     {#if sectionCommentsOpen[sectionKey]}
                       <div class="section-comments bible-verse-comments">
@@ -2889,9 +2911,25 @@
                 {:else if missing}
                   <p class="muted missing-section-hint">This section is unavailable.</p>
                 {:else if isMarkupKind(section.kind)}
-                  <div>
-                    <EventBody event={section} quotes={quotesFor(section)} />
-                  </div>
+                  {#if isBibleSection(section)}
+                    {@const disp = bibleDisplay(section)}
+                    {@const parts = bibleContentParts(section.content, disp)}
+                    <div class:bible-preamble-text={isPreambleHeading(disp)}>
+                      {#if parts.text}
+                        <EventBody
+                          event={{ ...section, content: parts.text }}
+                          quotes={quotesFor(section)}
+                        />
+                      {/if}
+                      {#if parts.note}
+                        <p class="bible-challoner-note">{parts.note}</p>
+                      {/if}
+                    </div>
+                  {:else}
+                    <div>
+                      <EventBody event={section} quotes={quotesFor(section)} />
+                    </div>
+                  {/if}
                 {:else}
                   <EventCard event={section} />
                 {/if}
