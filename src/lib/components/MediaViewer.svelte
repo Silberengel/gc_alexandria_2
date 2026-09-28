@@ -22,7 +22,11 @@
   });
 
   $effect(() => {
-    if (!$mediaViewer.open) return;
+    const open = $mediaViewer.open;
+    if (!open) {
+      document.body.style.overflow = '';
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();

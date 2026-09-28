@@ -68,6 +68,43 @@ export function parsePublicationStreamNdjson(text: string, source = MERCURY_WSS)
   return out;
 }
 
+/**
+ * Like {@link parsePublicationStreamNdjson}, but keeps kind-30040 `content` for AsciiDoc export
+ * (normal ingest clears publication index bodies).
+ */
+export function parsePublicationExportNdjson(text: string, source = MERCURY_WSS): Event[] {
+  const out: Event[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let row: unknown;
+    try {
+      row = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!row || typeof row !== 'object') continue;
+    const wrapped = row as { event?: unknown };
+    const candidate = wrapped.event && typeof wrapped.event === 'object' ? wrapped.event : row;
+    const e = ingestEvent(candidate);
+    if (!e || seen.has(e.id)) continue;
+    if (e.kind === KIND.PUBLICATION && candidate && typeof candidate === 'object') {
+      const rawContent = (candidate as { content?: unknown }).content;
+      if (typeof rawContent === 'string' && rawContent) {
+        out.push({ ...e, content: rawContent });
+      } else {
+        out.push(e);
+      }
+    } else {
+      out.push(e);
+    }
+    seen.add(e.id);
+    noteEventSource(e.id, source);
+  }
+  return out;
+}
+
 const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/json' };
 
 const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const;
@@ -382,4 +419,36 @@ export async function mercuryPublicationStream(
     }
   }
   return out;
+}
+
+/** GET /api/publications/:naddr/export — full flattened tree for EPUB/PDF/AsciiDoc. */
+export async function mercuryPublicationExport(
+  naddr: string,
+  signal?: AbortSignal
+): Promise<Event[]> {
+  if (publicationTreeMissing(naddr)) return [];
+  const encoded = encodeURIComponent(naddr.trim());
+  const res = await mercuryRequest(`/api/publications/${encoded}/export`, {
+    signal,
+    timeoutMs: 120_000,
+    headers: { Accept: 'application/x-ndjson, application/json' }
+  });
+  if (res?.status === 404) {
+    markPublicationTreeMissing(naddr);
+    return [];
+  }
+  if (!res?.ok) return [];
+  try {
+    const text = await res.text();
+    const events = parsePublicationExportNdjson(text);
+    if (events.length) {
+      const CHUNK = 250;
+      for (let i = 0; i < events.length; i += CHUNK) {
+        void cachePutMany(events.slice(i, i + CHUNK)).catch(() => {});
+      }
+    }
+    return events;
+  } catch {
+    return [];
+  }
 }

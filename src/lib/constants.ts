@@ -4,6 +4,15 @@ export const MERCURY_HTTP = import.meta.env.DEV
   ? '/mercury'
   : 'https://mercury-relay.imwald.eu';
 
+/**
+ * Wikistr AsciiDoctor sidecar for EPUB/PDF export (`POST /convert/{epub|pdf}`).
+ * Same-origin `/api/asciidoctor` (Vite/Apache/nginx proxy) avoids CORS.
+ * Override with `VITE_ASCIIDOCTOR_SERVER_URL`.
+ */
+export const ASCIIDOCTOR_SERVER_URL =
+  (import.meta.env.VITE_ASCIIDOCTOR_SERVER_URL as string | undefined)?.trim() ||
+  '/api/asciidoctor';
+
 export const THIRD_PARTY_RELAYS = [
   'wss://nostr.land',
   'wss://nostr21.com',

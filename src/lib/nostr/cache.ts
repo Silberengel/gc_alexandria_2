@@ -322,11 +322,12 @@ export function searchSnapshotMatchesViewer(
 
 export function searchSnapshotFresh(
   snap: SearchSnapshot | null | undefined,
-  ttlMs = SEARCH_SNAPSHOT_TTL_MS,
+  ttlMs?: number,
   viewerPubkey?: string | null
 ): boolean {
   if (!searchSnapshotMatchesViewer(snap, viewerPubkey)) return false;
-  return Date.now() - snap!.savedAt < ttlMs;
+  const ttl = ttlMs ?? SEARCH_SNAPSHOT_TTL_MS;
+  return Date.now() - snap!.savedAt < ttl;
 }
 
 export async function cacheGetSearchSnapshot(key: string): Promise<SearchSnapshot | null> {

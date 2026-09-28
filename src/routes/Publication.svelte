@@ -12,6 +12,7 @@
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
   import ReadButton from '$lib/components/ReadButton.svelte';
+  import ExportMenu from '$lib/components/ExportMenu.svelte';
   import EditionPeople from '$lib/components/EditionPeople.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import EditionSuperindexes from '$lib/components/EditionSuperindexes.svelte';
@@ -2518,6 +2519,9 @@
       <PageFilter bind:value={pageFilter} />
       <header class="card edition-page-card" style="margin-bottom:1.5rem">
         <div class="edition-page-read">
+          {#if canRead}
+            <ExportMenu publication={event} getSeedEvents={() => sectionCorpus} />
+          {/if}
           <ReadButton publication={event} readEvents={editionReads} />
         </div>
         <EditionHeader {event} {sections} />

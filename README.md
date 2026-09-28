@@ -2,12 +2,13 @@
 
 A Nostr-native digital library — browse publications, read editions, and discuss works in the browser. Static Svelte 5 SPA (Vite); no app server or server-side event DB.
 
-Acceptance tests in [`features/`](features/) are the product contract. `@mvp` ships first; `@phase2` is deferred.
+Acceptance tests in [`features/`](features/) are the product contract.
 
 ## Features
 
 - **Catalog** — Cover shelves, nested bookshelves, subjects, labels, and search over Mercury + relays + Brainstorm
 - **Reader** — Edition pages with ToC; AsciiDoc, Djot, and Markdown (sanitized); in-reader highlights (kind 9802)
+- **Export** — EPUB, PDF, and AsciiDoc download (AsciiDoctor sidecar at `/api/asciidoctor`)
 - **Wiki** — Article versions, wikilinks, NIP-54 deference
 - **Discussion** — Comments (kind 1111) and ratings on publications
 - **Identity** — Anonymous browse; NIP-07 / Amber / bunker / Pomegranate sign-in; profiles and mute lists (kind 10000)

@@ -108,6 +108,20 @@ export default defineConfig({
             console.warn('[vite] mercury proxy error:', msg);
           });
         }
+      },
+      // Wikistr AsciiDoctor sidecar (EPUB/PDF) — same path layout as jumble prod.
+      '/api/asciidoctor': {
+        target: 'https://jumble.imwald.eu',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'asciidoctor unavailable', detail: msg }));
+            }
+          });
+        }
       }
     }
   }

@@ -3,11 +3,16 @@
 # Place inside the TLS vhost for that ServerName (after SSLEngine / certificates).
 # Container listens on 127.0.0.1:9071 (see docker-compose.prod.yml).
 #
-# Unlike Imwald/jumble, this SPA has no WebSocket app server and no /api/* sidecars;
-# the browser talks to Nostr relays and Mercury HTTPS directly.
+# The SPA talks to Nostr relays and Mercury HTTPS directly. `/api/asciidoctor` is
+# proxied for EPUB/PDF export (Wikistr sidecar — same layout as jumble).
 
 ProxyPreserveHost On
 ProxyRequests Off
+
+# EPUB/PDF export — Wikistr AsciiDoctor (same path as jumble).
+# Prefer jumble's public sidecar; swap to http://127.0.0.1:8091/ if you run Wikistr locally.
+ProxyPass        /api/asciidoctor/ https://jumble.imwald.eu/api/asciidoctor/
+ProxyPassReverse /api/asciidoctor/ https://jumble.imwald.eu/api/asciidoctor/
 
 ProxyPass        / http://127.0.0.1:9071/
 ProxyPassReverse / http://127.0.0.1:9071/

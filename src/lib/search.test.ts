@@ -25,6 +25,9 @@ describe('search snapshot viewer binding', () => {
     expect(searchSnapshotMatchesViewer(snap(undefined), null)).toBe(true);
     expect(searchSnapshotFresh(snap(a), 60_000, b)).toBe(false);
     expect(searchSnapshotFresh(snap(a), 60_000, a)).toBe(true);
+    // Explicit undefined must not skip the default TTL (callers pass viewer as 3rd arg).
+    expect(searchSnapshotFresh(snap(a, 0), undefined, a)).toBe(true);
+    expect(searchSnapshotFresh(snap(a, 21 * 60 * 1000), undefined, a)).toBe(false);
   });
 });
 describe('identifierHints', () => {
