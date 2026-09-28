@@ -1,8 +1,8 @@
 import { writable } from 'svelte/store';
 
-export type Scheme = 'antique' | 'ocean' | 'forrest' | 'gray';
+export type Scheme = 'antique' | 'gray';
 
-const SCHEMES: readonly Scheme[] = ['antique', 'ocean', 'forrest', 'gray'];
+const SCHEMES: readonly Scheme[] = ['antique', 'gray'];
 
 function isScheme(value: unknown): value is Scheme {
   return typeof value === 'string' && (SCHEMES as readonly string[]).includes(value);

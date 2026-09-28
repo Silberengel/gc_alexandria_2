@@ -44,32 +44,35 @@
     }
   }
 
-  const schemes: { id: Scheme; label: string; blurb: string; swatches: string[] }[] = [
+  const schemes: {
+    id: Scheme;
+    label: string;
+    blurb: string;
+    swatchesLight: string[];
+    swatchesDark: string[];
+  }[] = [
     {
       id: 'antique',
       label: 'Antique',
-      blurb: 'Warm leather and parchment',
-      swatches: ['#efe6dc', '#c6a885', '#795c39', '#2a241c']
-    },
-    {
-      id: 'ocean',
-      label: 'Ocean',
-      blurb: 'Cool coastal blues',
-      swatches: ['#ecf8ff', '#61b6fb', '#0284c7', '#0c4a6e']
-    },
-    {
-      id: 'forrest',
-      label: 'Forrest',
-      blurb: 'Deep library greens',
-      swatches: ['#eaf7ea', '#5fa65f', '#2e6b2e', '#0c230c']
+      blurb: 'Warm parchment with an oxblood seal',
+      swatchesLight: ['#f8f3ea', '#e7dac8', '#713b32', '#29241f'],
+      swatchesDark: ['#29241f', '#3c352c', '#c4897a', '#f3ece1']
     },
     {
       id: 'gray',
       label: 'Soft Gray',
-      blurb: 'Quiet cool neutrals',
-      swatches: ['#f4f4f5', '#c9c9cd', '#5c5c63', '#242428']
+      blurb: 'Quiet neutrals with the same oxblood accent',
+      swatchesLight: ['#f4f4f5', '#c9c9cd', '#713b32', '#242428'],
+      swatchesDark: ['#17171a', '#343439', '#c4897a', '#f4f4f5']
     }
   ];
+
+  const schemeCards = $derived(
+    schemes.map((s) => ({
+      ...s,
+      swatches: $appearance.dark ? s.swatchesDark : s.swatchesLight
+    }))
+  );
 
   const uiFontValue = $derived(fontSelectValue($appearance.uiFont, UI_FONT_CHOICES));
   const readingFontValue = $derived(fontSelectValue($appearance.readingFont, READING_FONT_CHOICES));
@@ -117,7 +120,7 @@
     <div class="settings-block">
       <h3 class="settings-label">Color scheme</h3>
       <div class="scheme-grid" role="group" aria-label="Color scheme">
-        {#each schemes as s}
+        {#each schemeCards as s}
           <button
             class="scheme-card"
             class:scheme-card-active={$appearance.scheme === s.id}

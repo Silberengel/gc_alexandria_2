@@ -263,7 +263,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   font-weight: 700;
   font-size: var(--text-site);
   letter-spacing: -0.02em;
-  line-height: 1.15;
+  line-height: 1.35;
   color: var(--ink);
   text-decoration: none;
   min-width: 0;
@@ -272,6 +272,9 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 .brand img { width: 1.85rem; height: 1.85rem; border-radius: 0.3rem; flex: 0 0 auto; }
 .brand span {
   min-width: 0;
+  /* Room for serif descenders (y/g/p) under overflow ellipsis. */
+  padding-block: 0.12em;
+  margin-block: -0.12em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1152,30 +1155,29 @@ select:hover {
 .listing-view-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0.05rem;
   margin-left: auto;
 }
 .listing-view-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
+  width: 1.65rem;
+  height: 1.65rem;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 0.35rem;
+  border: 0;
+  border-radius: 0.28rem;
   background: transparent;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--ink-soft) 48%, transparent);
   cursor: pointer;
 }
 .listing-view-btn:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--ink-soft);
+  background: transparent;
 }
 .listing-view-btn.active {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink-soft) 14%, transparent);
 }
 .listing-list {
   display: grid;
@@ -2494,7 +2496,35 @@ a.listing-row:hover,
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
-/* GitCitadel starter guides — distinct from community label chips. */
+/* Quiet text links for guides / labels (not app pills). */
+.guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.15rem;
+  margin: 0.35rem 0 0;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.guide-links a {
+  color: color-mix(in srgb, var(--ink-soft) 88%, var(--ink));
+  text-decoration: none;
+}
+.guide-links a:hover,
+.guide-links a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.guide-links-sep {
+  margin: 0 0.4rem;
+  color: color-mix(in srgb, var(--ink-soft) 45%, transparent);
+  user-select: none;
+}
+
+/* Community subject/label chips stay as light pills. */
 .chip-curated {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));

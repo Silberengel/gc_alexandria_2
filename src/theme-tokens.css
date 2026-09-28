@@ -6,7 +6,8 @@
   --ink: #29241f;
   --ink-soft: #62584d;
   --rule: #d8c9b5;
-  --accent-strong: #70513a;
+  /* Oxblood — links, hovers, stars; not large surfaces */
+  --accent-strong: #713b32;
 
   /* Brand ramp kept for components; aligned to the paper system */
   --brand-primary-0: #f8f3ea;
@@ -31,83 +32,9 @@
   --ink: #f3ece1;
   --ink-soft: #d8c9b5;
   --rule: #564a3e;
-  --accent-strong: #d4a574;
+  --accent-strong: #c4897a;
   --brand-primary-300: #d4a574;
   --brand-primary-200: #e0b890;
-}
-
-:root[data-theme='ocean'] {
-  --brand-primary-0: #ecf8ff;
-  --brand-primary-50: #e6f3ff;
-  --brand-primary-100: #d9ecff;
-  --brand-primary-200: #b9ddff;
-  --brand-primary-300: #90cbff;
-  --brand-primary-400: #61b6fb;
-  --brand-primary-500: #0ea5e9;
-  --brand-primary-600: #0284c7;
-  --brand-primary-700: #0369a1;
-  --brand-primary-800: #075985;
-  --brand-primary-900: #0c4a6e;
-  --brand-primary-950: #082f49;
-  --brand-primary-1000: #062233;
-  --paper: var(--brand-primary-50);
-  --paper-light: var(--brand-primary-0);
-  --paper-dark: var(--brand-primary-100);
-  --ink: var(--brand-primary-900);
-  --ink-soft: var(--brand-primary-700);
-  --rule: var(--brand-primary-200);
-  --accent-strong: var(--brand-primary-600);
-}
-
-:root.dark[data-theme='ocean'] {
-  --brand-primary-400: #7ccdfc;
-  --brand-primary-500: #38bdf8;
-  --brand-primary-300: #a5d8f5;
-  --brand-primary-200: #bae6fd;
-  --paper: var(--brand-primary-1000);
-  --paper-light: var(--brand-primary-950);
-  --paper-dark: var(--brand-primary-800);
-  --ink: var(--brand-primary-0);
-  --ink-soft: var(--brand-primary-200);
-  --rule: var(--brand-primary-800);
-  --accent-strong: var(--brand-primary-300);
-}
-
-:root[data-theme='forrest'] {
-  --brand-primary-0: #eaf7ea;
-  --brand-primary-50: #d6eed6;
-  --brand-primary-100: #bfe3bf;
-  --brand-primary-200: #9fd49f;
-  --brand-primary-300: #7fc57f;
-  --brand-primary-400: #5fa65f;
-  --brand-primary-500: #3f863f;
-  --brand-primary-600: #2e6b2e;
-  --brand-primary-700: #205120;
-  --brand-primary-800: #153a15;
-  --brand-primary-900: #0c230c;
-  --brand-primary-950: #071507;
-  --brand-primary-1000: #041004;
-  --paper: var(--brand-primary-50);
-  --paper-light: var(--brand-primary-0);
-  --paper-dark: var(--brand-primary-100);
-  --ink: var(--brand-primary-900);
-  --ink-soft: var(--brand-primary-700);
-  --rule: var(--brand-primary-200);
-  --accent-strong: var(--brand-primary-600);
-}
-
-:root.dark[data-theme='forrest'] {
-  --brand-primary-400: #7fc97f;
-  --brand-primary-500: #4caf50;
-  --brand-primary-300: #9fda9f;
-  --brand-primary-200: #b8e6b8;
-  --paper: var(--brand-primary-1000);
-  --paper-light: var(--brand-primary-950);
-  --paper-dark: var(--brand-primary-800);
-  --ink: var(--brand-primary-0);
-  --ink-soft: var(--brand-primary-200);
-  --rule: var(--brand-primary-800);
-  --accent-strong: var(--brand-primary-300);
 }
 
 :root[data-theme='gray'] {
@@ -130,7 +57,8 @@
   --ink: var(--brand-primary-900);
   --ink-soft: var(--brand-primary-700);
   --rule: var(--brand-primary-200);
-  --accent-strong: var(--brand-primary-600);
+  /* Shared oxblood seal on neutral paper */
+  --accent-strong: #713b32;
 }
 
 :root.dark[data-theme='gray'] {
@@ -144,5 +72,5 @@
   --ink: var(--brand-primary-0);
   --ink-soft: var(--brand-primary-200);
   --rule: var(--brand-primary-800);
-  --accent-strong: var(--brand-primary-300);
+  --accent-strong: #c4897a;
 }

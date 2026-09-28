@@ -511,17 +511,6 @@
     </div>
   </header>
 
-  {#if visibleGuides.length}
-    <section class="landing-section landing-guides">
-      <h2 class="section-title">Guides</h2>
-      <div class="chip-row">
-        {#each visibleGuides as guide (guide.d)}
-          <a class="chip chip-curated" href={guide.href} use:link>{guide.title}</a>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
   <ReadingNowPanel />
 
   {#if showLandingSpinner || landingStatus}
@@ -638,6 +627,18 @@
     </div>
   {/if}
 
+  {#if visibleGuides.length}
+    <section class="landing-section landing-guides">
+      <h2 class="section-title">Guides</h2>
+      <nav class="guide-links" aria-label="Starter guides">
+        {#each visibleGuides as guide, i (guide.d)}
+          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+          <a href={guide.href} use:link>{guide.title}</a>
+        {/each}
+      </nav>
+    </section>
+  {/if}
+
   {#if visibleSubjects.length}
     <section class="landing-section">
       <h2 class="section-title">Subjects</h2>
@@ -652,11 +653,12 @@
   {#if visibleLabels.length}
     <section class="landing-section">
       <h2 class="section-title">Labels</h2>
-      <div class="chip-row">
-        {#each visibleLabels as label}
-          <a class="chip" href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
+      <nav class="guide-links" aria-label="Labels">
+        {#each visibleLabels as label, i}
+          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+          <a href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
         {/each}
-      </div>
+      </nav>
     </section>
   {/if}
 </main>
