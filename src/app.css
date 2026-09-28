@@ -1839,9 +1839,13 @@ a.listing-row:hover,
   border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
 .edition-actions .shelf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   margin: 0;
   gap: 0.5rem;
-  flex: 1 1 100%;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .edition-actions .btn:not(.btn-primary) {
   min-height: 2.4rem;
@@ -1858,7 +1862,23 @@ a.listing-row:hover,
   min-height: 2.5rem;
   padding-inline: 1.15rem;
   font-weight: 650;
-  flex: 1 1 100%;
+  flex: 1 1 12rem;
+  white-space: nowrap;
+}
+/* One row when list + bookshelf + read labels fit without wrapping. */
+@media (min-width: 40rem) {
+  .edition-actions {
+    flex-wrap: nowrap;
+  }
+  .edition-actions .shelf-actions {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+  }
+  .edition-actions .shelf-actions .btn,
+  .edition-actions .btn-primary {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
 }
 
 .reader-info-actions {

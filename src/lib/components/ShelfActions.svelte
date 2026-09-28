@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { KIND, NIP32_BOOKLIST_LABEL } from '$lib/constants';
+  import { NIP32_BOOKLIST_LABEL } from '$lib/constants';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish } from '$lib/sign';
-  import { publicationLabelDraft, bookmarkDraft, deletionDraft } from '$lib/drafts';
+  import { publicationLabelDraft, deletionDraft } from '$lib/drafts';
   import {
     extractNip32LabelValues,
     isListPublicationLabelEvent,
@@ -12,8 +12,6 @@
     eventTargetsPublication
   } from '$lib/nip32';
   import { isReadLabelSlug } from '$lib/nip32';
-  import { bookmarkHasPublication } from '$lib/shelves';
-  import { latestReplaceable } from '$lib/mute';
   import {
     HOME_SHELF_SLUGS,
     displayTitleForPublicationLabel,
@@ -98,9 +96,6 @@
     ...extraSlugs.map((slug) => ({ slug, title: displayTitleForPublicationLabel(slug) }))
   ]);
 
-  const myBookmark = $derived(latestReplaceable(mine, KIND.BOOKMARK));
-  const onBookmark = $derived(bookmarkHasPublication(myBookmark, publication));
-
   async function needSignIn(): Promise<boolean> {
     if ($session.pubkey) return true;
     openLoginDialog();
@@ -137,19 +132,6 @@
       return;
     }
     await toggleLabel(slug);
-  }
-
-  async function toggleBookmark(): Promise<void> {
-    if (!(await needSignIn()) || busy) return;
-    busy = true;
-    try {
-      const signed = await signAndPublish(bookmarkDraft(myBookmark, publication, !onBookmark));
-      if (signed) {
-        mine = [...mine.filter((e) => e.kind !== KIND.BOOKMARK), signed];
-      }
-    } finally {
-      busy = false;
-    }
   }
 
   async function onToggleShelf(shelf: BookshelfShelfOption): Promise<void> {
@@ -301,13 +283,9 @@
         </ul>
       {/if}
     </div>
-
-    <button class="btn" type="button" disabled={busy} onclick={() => void toggleBookmark()}>
-      {onBookmark ? 'Remove bookmark' : 'Bookmark'}
-    </button>
   </div>
 {:else}
   <div class="shelf-actions">
-    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to list, shelf, or bookmark</button>
+    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to list or shelf</button>
   </div>
 {/if}
