@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
-  import { cardMeta } from '$lib/metadata';
+  import { KIND } from '$lib/constants';
+  import { cardMeta, hasPublicationSection, preferRicherEvent } from '$lib/metadata';
+  import { memoryGetEvent } from '$lib/nostr/event-memory';
   import UserBadge from './UserBadge.svelte';
   import { isAllowedHref } from '$lib/markup';
 
@@ -13,9 +15,29 @@
   }
 
   let { event, showIdentifier = false, showTitles = true, showSubjects = true }: Props = $props();
-  const meta = $derived(cardMeta(event));
+
+  const resolved = $derived.by(() => {
+    const mem = memoryGetEvent(event.id);
+    return mem ? preferRicherEvent(event, mem) : event;
+  });
+  const meta = $derived(cardMeta(resolved));
+  const isPublication = $derived(resolved.kind === KIND.PUBLICATION);
+  const readable = $derived(isPublication && hasPublicationSection(resolved));
 </script>
 
+{#if isPublication}
+  <p
+    class="pub-card-line pub-card-readable"
+    class:pub-card-readable-yes={readable}
+    class:pub-card-readable-no={!readable}
+  >
+    {#if readable}
+      Readable on Alexandria
+    {:else}
+      Not readable on Alexandria
+    {/if}
+  </p>
+{/if}
 <p class="muted pub-card-line">
   Published by <UserBadge pubkey={meta.publishedBy} />
 </p>

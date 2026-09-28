@@ -7,28 +7,37 @@
   --reading-size: 18px;
   /* Rem root; appearance store keeps this in sync with --reading-size (16px when size is 18). */
   --ui-size: 16px;
-  --surface: var(--brand-primary-0);
-  --surface-2: var(--brand-primary-50);
-  --text: var(--brand-primary-900);
-  --text-muted: var(--brand-primary-700);
-  --accent: var(--brand-primary-600);
-  --border: var(--brand-primary-200);
+  /* Type scale */
+  --text-site: 1.5rem; /* 24px — site name */
+  --text-section: 1.5rem; /* 24px — section headings */
+  --text-title: 1.0625rem; /* 17px — book titles */
+  --text-body: 0.96875rem; /* 15.5px */
+  --text-meta: 0.8125rem; /* 13px — metadata */
+  --leading-body: 1.62;
+  /* Paper stack: page = paper, raised surfaces = paper-light, wells = paper-dark */
+  --surface: var(--paper-light);
+  --surface-2: var(--paper-dark);
+  --text: var(--ink);
+  --text-muted: var(--ink-soft);
+  --accent: var(--accent-strong);
+  --border: var(--rule);
   /* Match .shell so the reading pane fills available width and shrinks with the viewport. */
   --max-read: 72rem;
   --radius: 0.65rem;
-  --shadow-soft: 0 0.05rem 0.15rem color-mix(in srgb, var(--text) 6%, transparent),
-    0 0.45rem 1.25rem color-mix(in srgb, var(--text) 5%, transparent);
+  /* Paper on paper — faint edge, whisper of lift */
+  --border-soft: color-mix(in srgb, #5a4128 18%, transparent);
+  --shadow-soft: 0 2px 10px color-mix(in srgb, #3c2814 6%, transparent);
 }
 
 :root.dark {
-  --surface: var(--brand-primary-1000);
-  --surface-2: var(--brand-primary-950);
-  --text: var(--brand-primary-0);
-  --text-muted: var(--brand-primary-200);
-  --accent: var(--brand-primary-300);
-  --border: var(--brand-primary-800);
-  --shadow-soft: 0 0.05rem 0.2rem color-mix(in srgb, #000 35%, transparent),
-    0 0.6rem 1.5rem color-mix(in srgb, #000 28%, transparent);
+  --surface: var(--paper-light);
+  --surface-2: var(--paper-dark);
+  --text: var(--ink);
+  --text-muted: var(--ink-soft);
+  --accent: var(--accent-strong);
+  --border: var(--rule);
+  --border-soft: color-mix(in srgb, var(--rule) 45%, transparent);
+  --shadow-soft: 0 2px 10px color-mix(in srgb, #000 22%, transparent);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -47,21 +56,11 @@ html, body {
 }
 
 body {
-  font-size: 1rem;
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   letter-spacing: 0.005em;
-  background:
-    radial-gradient(
-      ellipse 90% 55% at 50% -15%,
-      color-mix(in srgb, var(--accent) 14%, transparent),
-      transparent 58%
-    ),
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--surface-2) 70%, var(--surface)) 0%,
-      var(--surface) 42%,
-      var(--surface) 100%
-    );
+  /* Flat paper page — depth comes from paper-light surfaces, not gradients */
+  background: var(--paper);
   background-attachment: fixed;
 }
 
@@ -74,8 +73,8 @@ h1, h2, h3 {
 }
 
 h1 { font-size: clamp(1.65rem, 2.5vw, 2.1rem); margin: 0 0 0.65rem; }
-h2 { font-size: 1.2rem; margin: 0 0 0.4rem; }
-h3 { font-size: 1rem; margin: 0 0 0.35rem; }
+h2 { font-size: var(--text-section); margin: 0 0 0.4rem; font-weight: 700; }
+h3 { font-size: var(--text-title); margin: 0 0 0.35rem; font-weight: 700; }
 
 .muted { color: var(--text-muted); }
 
@@ -125,8 +124,8 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   column-gap: 0.65rem;
   row-gap: 0.45rem;
   padding: 0.65rem 0.85rem;
-  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  background: color-mix(in srgb, var(--paper-light) 88%, transparent);
+  border-bottom: 1px solid var(--rule);
   backdrop-filter: blur(14px) saturate(1.15);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   min-width: 0;
@@ -262,9 +261,10 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   gap: 0.55rem;
   font-family: var(--display-font);
   font-weight: 700;
-  font-size: 1.08rem;
-  letter-spacing: -0.01em;
-  color: var(--text);
+  font-size: var(--text-site);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
   text-decoration: none;
   min-width: 0;
 }
@@ -328,14 +328,17 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 }
 .landing-hero-lede {
   margin: 0;
-  font-size: 1.02rem;
-  line-height: 1.45;
+  font-family: var(--reading-font);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   max-width: 32rem;
+  color: var(--ink-soft);
 }
 .landing-hero-crosslink {
   margin: 0.15rem 0 0;
   justify-self: end;
-  font-size: 0.8rem;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
   letter-spacing: 0.02em;
 }
 .landing-hero-crosslink a {
@@ -362,25 +365,194 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   text-underline-offset: 0.15em;
 }
 .landing-page .landing-section {
-  margin-top: 0.35rem;
+  margin-top: 2.35rem;
+}
+.landing-page .landing-section:first-of-type {
+  margin-top: 1.25rem;
 }
 .landing-page .section-title {
-  margin: 1.85rem 0 0.85rem;
-  padding-bottom: 0.45rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin: 0 0 0.95rem;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-family: var(--display-font);
+  font-size: var(--text-section);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--ink) 88%, var(--accent));
 }
-.landing-page .section-title:first-child {
-  margin-top: 1.1rem;
+.landing-page .section-title a {
+  color: inherit;
+  text-decoration: none;
 }
-.landing-page .shelf-bar {
-  padding-top: 0.35rem;
+.landing-page .section-title a:hover,
+.landing-page .section-title a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
 }
-.landing-page .cover {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+/* Physical shelf rows */
+.landing-page .landing-shelf .shelf-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 0.65rem;
 }
-.landing-page .cover:hover {
-  transform: translateY(-0.12rem);
-  box-shadow: 0 0.35rem 0.9rem color-mix(in srgb, var(--text) 12%, transparent);
+.landing-page .landing-shelf .section-title {
+  margin: 0;
+}
+.landing-page .landing-shelf .section-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.landing-page .landing-shelf .section-title a:hover,
+.landing-page .landing-shelf .section-title a:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.landing-page .shelf-full-link {
+  flex: 0 0 auto;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.landing-page .shelf-full-link:hover,
+.landing-page .shelf-full-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+/*
+ * Track is the only scroller. Bar is fit-content with overflow:clip so Firefox
+ * does not inflate scrollWidth from cover shadows / 3D transforms (endless scroll).
+ */
+.landing-page .landing-shelf .shelf-track {
+  margin: 0 0 0.55rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-x;
+}
+.landing-page .landing-shelf .shelf-track.shelf-track-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.landing-page .landing-shelf .shelf-track.shelf-track-dragging a {
+  pointer-events: none;
+}
+.landing-page .landing-shelf .shelf-track::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.landing-page .landing-shelf .shelf-bar {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.95rem;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: none;
+  margin: 0;
+  padding: 0.85rem 1.45rem 0.62rem;
+  /* Clip paint that would otherwise expand the scrollport in Firefox */
+  overflow: clip;
+  scroll-snap-type: none;
+}
+.landing-page .landing-shelf .shelf-bar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.62rem;
+  border-radius: 0.12rem 0.12rem 0.4rem 0.4rem;
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--surface) 55%, var(--border)) 0%,
+      color-mix(in srgb, var(--border) 78%, var(--surface-2)) 42%,
+      color-mix(in srgb, var(--border) 92%, var(--text-muted)) 100%
+    );
+  box-shadow:
+    0 0.08rem 0 color-mix(in srgb, var(--surface) 65%, transparent),
+    0 0.35rem 0.55rem color-mix(in srgb, var(--text) 14%, transparent),
+    0 0.7rem 1.1rem color-mix(in srgb, var(--text) 6%, transparent);
+  pointer-events: none;
+}
+.landing-page .landing-shelf .cover {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 6.35rem;
+  width: 6.35rem;
+  scroll-snap-align: none;
+  border-radius: 0.22rem 0.22rem 0.1rem 0.1rem;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  /* Lean the artwork inside the cell — transforming the flex item itself
+     made Firefox grow scrollWidth without bound. */
+  transform: none;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--text) 18%, transparent),
+    0 2px 3px color-mix(in srgb, var(--text) 12%, transparent),
+    0 8px 14px -2px color-mix(in srgb, var(--text) 16%, transparent),
+    0 16px 28px -6px color-mix(in srgb, var(--text) 12%, transparent);
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.landing-page .landing-shelf .cover .cover-frame {
+  transform-origin: center bottom;
+  transform: perspective(820px) rotateX(-9deg);
+  transition: transform 0.22s ease;
+}
+.landing-page .landing-shelf .cover:hover,
+.landing-page .landing-shelf .cover:focus-visible {
+  transform: translateY(-4px);
+  box-shadow:
+    0 2px 0 color-mix(in srgb, var(--text) 14%, transparent),
+    0 4px 6px color-mix(in srgb, var(--text) 12%, transparent),
+    0 12px 18px -2px color-mix(in srgb, var(--text) 18%, transparent),
+    0 22px 34px -6px color-mix(in srgb, var(--text) 14%, transparent);
+  text-decoration: none;
+}
+.landing-page .landing-shelf .cover:hover .cover-frame,
+.landing-page .landing-shelf .cover:focus-visible .cover-frame {
+  transform: perspective(820px) rotateX(-3deg);
+}
+:root.dark .landing-page .landing-shelf .shelf-bar::after {
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--surface-2) 70%, var(--border)) 0%,
+      color-mix(in srgb, var(--border) 85%, var(--text-muted)) 100%
+    );
+  box-shadow:
+    0 0.08rem 0 color-mix(in srgb, #000 25%, transparent),
+    0 0.4rem 0.7rem color-mix(in srgb, #000 45%, transparent);
+}
+:root.dark .landing-page .landing-shelf .cover {
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #000 55%, transparent),
+    0 2px 4px color-mix(in srgb, #000 45%, transparent),
+    0 10px 18px -2px color-mix(in srgb, #000 50%, transparent),
+    0 18px 32px -6px color-mix(in srgb, #000 40%, transparent);
+}
+:root.dark .landing-page .landing-shelf .cover:hover,
+:root.dark .landing-page .landing-shelf .cover:focus-visible {
+  box-shadow:
+    0 2px 0 color-mix(in srgb, #000 50%, transparent),
+    0 5px 8px color-mix(in srgb, #000 45%, transparent),
+    0 14px 22px -2px color-mix(in srgb, #000 52%, transparent),
+    0 26px 40px -6px color-mix(in srgb, #000 42%, transparent);
 }
 
 .about-hero {
@@ -924,10 +1096,10 @@ select:hover {
 }
 
 .card {
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius);
   padding: 1rem 1.05rem;
-  background: color-mix(in srgb, var(--surface) 86%, var(--surface-2));
+  background: var(--paper-light);
   box-shadow: var(--shadow-soft);
   max-width: 100%;
   min-width: 0;
@@ -1060,9 +1232,11 @@ a.listing-row:hover,
 }
 .listing-row-title {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 500;
-  line-height: 1.35;
+  font-family: var(--display-font);
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1072,8 +1246,10 @@ a.listing-row:hover,
 }
 .listing-row-meta {
   margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.3;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.35;
+  color: var(--ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1516,16 +1692,21 @@ a.listing-row:hover,
 
 .pub-card-body h3 {
   margin: 0 0 0.35rem;
-  font-size: 1.05rem;
+  font-family: var(--display-font);
+  font-size: var(--text-title);
+  font-weight: 700;
   line-height: 1.3;
+  letter-spacing: -0.015em;
   overflow-wrap: anywhere;
 }
 
 .pub-card-kind {
   margin: 0 0 0.2rem;
-  font-size: 0.72rem;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  color: var(--ink-soft);
 }
 
 .pub-card-wiki .pub-card-cover {
@@ -1534,21 +1715,42 @@ a.listing-row:hover,
 
 .pub-card-line {
   margin: 0 0 0.3rem;
-  font-size: 0.9rem;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.4;
+  color: var(--ink-soft);
   overflow-wrap: anywhere;
+}
+
+.pub-card-readable {
+  margin: 0 0 0.45rem;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+.pub-card-readable-yes {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+}
+.pub-card-readable-no {
+  color: var(--ink-soft);
+  font-weight: 550;
 }
 
 .pub-card-source {
   margin-top: 0.65rem;
-  font-size: 0.78rem;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
   line-height: 1.35;
 }
 
 .pub-card-summary {
   margin: 0;
   width: 100%;
-  font-size: 0.88rem;
-  line-height: 1.45;
+  font-family: var(--reading-font);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1905,9 +2107,11 @@ a.listing-row:hover,
 
 .section-title {
   font-family: var(--display-font);
-  font-size: 1.25rem;
+  font-size: var(--text-section);
+  font-weight: 700;
   margin: 1.5rem 0 0.75rem;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
+  color: color-mix(in srgb, var(--ink) 88%, var(--accent));
 }
 .loading-hint {
   color: var(--text-muted);
@@ -1999,148 +2203,250 @@ a.listing-row:hover,
   display: grid;
   gap: 1.5rem;
   margin-top: 0.35rem;
-}
-.landing-ref-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.75rem;
-}
-.landing-ref {
-  margin-bottom: 0;
-}
-.landing-feed-card {
-  padding: 0.85rem 0.95rem;
-  border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  background:
-    linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--surface) 88%, var(--surface-2)),
-      color-mix(in srgb, var(--surface-2) 55%, var(--surface))
-    );
-  box-shadow: 0 0.08rem 0.2rem color-mix(in srgb, var(--text) 4%, transparent);
-}
-.landing-ref-work {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.55rem;
+  width: 100%;
   min-width: 0;
 }
-.landing-ref-note {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.28rem;
-  margin: 0.45rem 0 0;
+.landing-feeds > .landing-section {
   min-width: 0;
+  max-width: 100%;
 }
-.landing-ref-note .stars {
-  margin-top: 0.05rem;
-}
-.landing-ref-title {
-  font-family: var(--display-font);
-  font-weight: 600;
-  font-size: 1.02rem;
-  letter-spacing: -0.015em;
-  line-height: 1.3;
-}
-.landing-ref-excerpt {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-family: var(--reading-font);
-  font-size: 0.95rem;
-  line-height: 1.5;
-  text-decoration: none;
-}
-.landing-item-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-top: 0.15rem;
-  align-self: flex-start;
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: var(--accent);
-  text-decoration: none;
-}
-.landing-item-jump:hover {
-  text-decoration: underline;
-}
-.landing-item-jump svg {
-  display: block;
-  flex: 0 0 auto;
-}
+.landing-ref-list,
 .landing-review-grid {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: min(40rem, 100%);
+  min-width: 0;
 }
+.landing-ref,
 .landing-review-card {
   margin: 0;
   min-width: 0;
+  max-width: 100%;
+  padding: 1.05rem 0 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
-.landing-review-card-inner {
-  height: 100%;
+.landing-ref:first-child,
+.landing-review-card:first-child {
+  padding-top: 0.35rem;
+}
+.landing-ref:last-child,
+.landing-review-card:last-child {
+  border-bottom: 0;
+  padding-bottom: 0.25rem;
+}
+
+/* Shared column layout */
+.landing-ref-highlight,
+.landing-ref-discussion {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 1rem 1.05rem 0.95rem;
-  border-radius: calc(var(--radius) + 0.1rem);
-  border: 1px solid color-mix(in srgb, var(--border) 72%, var(--accent));
-  background:
-    linear-gradient(
-      155deg,
-      color-mix(in srgb, var(--surface) 92%, var(--accent)),
-      color-mix(in srgb, var(--surface-2) 40%, var(--surface)) 55%,
-      var(--surface)
-    );
-  box-shadow: var(--shadow-soft);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1.05rem 0 1.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
 }
-.landing-review-card:hover .landing-review-card-inner {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  box-shadow:
-    0 0.12rem 0.25rem color-mix(in srgb, var(--text) 6%, transparent),
-    0 0.65rem 1.4rem color-mix(in srgb, var(--text) 7%, transparent);
-  transform: translateY(-0.08rem);
+.landing-ref-highlight:first-child,
+.landing-ref-discussion:first-child {
+  padding-top: 0.35rem;
 }
-.landing-review-title {
+.landing-ref-highlight:last-child,
+.landing-ref-discussion:last-child {
+  border-bottom: 0;
+  padding-bottom: 0.25rem;
+}
+
+/* Highlights — title plain; quote as blockquote */
+.landing-ref-highlight .landing-ref-title {
+  font-family: var(--ui-font);
+  font-weight: 500;
+  font-size: var(--text-title);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.landing-ref-byline-italic {
+  font-style: italic;
+  color: var(--ink-soft);
+}
+.landing-ref-byline-italic .userbadge {
+  font-style: italic;
+}
+.landing-ref-quote {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0.15rem 0 0;
+  padding: 0.65rem clamp(0.55rem, 2.5vw, 0.9rem) 0.7rem;
+  background: var(--paper-light);
+  border-left: 3px solid color-mix(in srgb, var(--rule) 70%, var(--accent-strong));
+  border-radius: 0 3px 3px 0;
+  overflow-wrap: anywhere;
+  font-family: var(--reading-font);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink);
+  quotes: '“' '”';
+}
+
+/* Discussions — live community */
+.landing-ref-discussion {
+  padding-left: clamp(0.55rem, 2.5vw, 0.95rem);
+  border-left: 3px solid color-mix(in srgb, var(--rule) 85%, var(--paper-dark));
+}
+.landing-ref-discussion .landing-ref-title {
   font-family: var(--display-font);
-  font-size: 1.08rem;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  line-height: 1.3;
-  color: var(--text);
-  text-decoration: none;
+  font-weight: 700;
+  font-size: var(--text-title);
+  letter-spacing: -0.015em;
+  color: var(--ink);
 }
-.landing-review-title:hover {
-  color: var(--accent);
+.landing-ref-byline-live {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  color: var(--ink-soft);
+}
+.landing-ref-byline-live .userbadge {
+  min-width: 0;
+  max-width: 100%;
+}
+.landing-ref-byline-live .userbadge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.landing-ref-meta-sep {
+  color: color-mix(in srgb, var(--ink-soft) 65%, transparent);
+  user-select: none;
+}
+.landing-ref-when {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+.landing-ref-discussion .landing-ref-excerpt {
+  font-family: var(--reading-font);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-soft);
+}
+
+.landing-feed-card {
+  background: transparent;
+  box-shadow: none;
+}
+.landing-ref-work {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
 }
 .landing-review-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.45rem 0.65rem;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  color: var(--ink-soft);
 }
+.landing-review-meta-sep {
+  color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+  user-select: none;
+}
+.landing-review-meta .userbadge {
+  font-size: inherit;
+  min-width: 0;
+  max-width: 100%;
+}
+.landing-review-meta .userbadge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.landing-ref-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.landing-ref-byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  color: var(--ink-soft);
+}
+.landing-ref-title,
+.landing-review-title {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--display-font);
+  font-weight: 700;
+  font-size: var(--text-title);
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+}
+.landing-ref-title:hover,
+.landing-review-title:hover {
+  color: var(--accent);
+}
+.landing-ref-excerpt,
 .landing-review-excerpt {
   margin: 0;
-  flex: 1 1 auto;
-  font-family: var(--reading-font);
-  font-size: 0.98rem;
-  line-height: 1.55;
-  color: var(--text-muted);
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
+  font-family: var(--reading-font);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+.landing-review-excerpt {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 5;
-  line-clamp: 5;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
   overflow: hidden;
+}
+.landing-review-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .wiki-defer-banner,
 .reading-width {
@@ -3751,9 +4057,6 @@ a.user-status-line:hover {
   .listing-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .landing-review-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 @media (min-width: 900px) {
   .reader-layout {
@@ -3775,12 +4078,9 @@ a.user-status-line:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .landing-feeds {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
     gap: 2rem;
-  }
-  .landing-review-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (min-width: 1200px) {

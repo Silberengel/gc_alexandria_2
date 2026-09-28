@@ -2584,8 +2584,12 @@
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               Opening “{jumpLabel || 'section'}”…
             </p>
-          {:else if !paintedSections.length && (readingBusy || !sections.length)}
-            <p class="loading-hint">Publication is loading...</p>
+          {:else if !paintedSections.length && (readingBusy || sectionsLoading || !sections.length)}
+            <!-- event is already known here — publication header/chrome is up -->
+            <p class="loading-hint" aria-live="polite">
+              <span class="jump-busy-spinner" aria-hidden="true"></span>
+              Loading sections…
+            </p>
           {/if}
           {#each readerGroups as group (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
             {#if group.kind === 'bible'}
@@ -2847,7 +2851,7 @@
               </p>
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
             </div>
-          {:else if sectionsLoading && !(event && isIndexScopedEdition(event) && !readingShellOnly)}
+          {:else if sectionsLoading && paintedSections.length > 0 && !(event && isIndexScopedEdition(event) && !readingShellOnly)}
             <p class="loading-hint" aria-live="polite">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               {readingShellOnly ? 'Loading sections…' : 'Loading more sections…'}

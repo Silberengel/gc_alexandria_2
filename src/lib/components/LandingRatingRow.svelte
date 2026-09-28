@@ -16,6 +16,7 @@
 
   const pageHref = $derived(pathForRef(event, referenced));
   const itemHref = $derived(focusHrefForRef(event, referenced));
+  const titleHref = $derived(itemHref || pageHref);
   const title = $derived(displayRefTitle(event, referenced));
   const stars = $derived(ratingStarsFromEvent(event));
   const excerpt = $derived(cropText(event.content, 220));
@@ -27,12 +28,12 @@
 
 <li class="landing-review-card">
   <div class="landing-review-card-inner">
-    {#if pageHref}
+    {#if titleHref}
       <a
         class="landing-review-title"
-        href={`#${pageHref}`}
+        href={`#${titleHref}`}
         use:link
-        title="Open publication"
+        title="Open this review"
         onpointerdown={warmWork}
       >{title}</a>
     {:else}
@@ -41,28 +42,12 @@
     <div class="landing-review-meta">
       <UserBadge pubkey={event.pubkey} />
       {#if stars > 0}
+        <span class="landing-review-meta-sep" aria-hidden="true">·</span>
         <Stars value={stars} size={15} label={`${stars} out of 5 stars`} />
       {/if}
     </div>
     {#if excerpt}
       <p class="landing-review-excerpt">{excerpt}</p>
-    {/if}
-    {#if itemHref}
-      <a
-        class="landing-item-jump"
-        href={`#${itemHref}`}
-        use:link
-        title="Jump to this review on the edition page"
-        onpointerdown={warmWork}
-      >
-        View review
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zM5 5h6v2H7v10h10v-4h2v6H5V5z"
-          />
-        </svg>
-      </a>
     {/if}
   </div>
 </li>
