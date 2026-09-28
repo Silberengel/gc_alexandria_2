@@ -77,12 +77,20 @@ describe('publication metadata', () => {
     expect(wiki.summary).toBeUndefined();
     const withTag = editionMetadata({
       ...ev(
-        [['title', 'Encrypted Drive'], ['d', 'encrypted-drive'], ['summary', 'A private drive.']],
+        [
+          ['title', 'Encrypted Drive'],
+          ['d', 'encrypted-drive'],
+          ['summary', 'A private drive.'],
+          ['k', '30040'],
+          ['k', '30041'],
+          ['k', '30040']
+        ],
         '## Motivation\n\nPrivate drive.'
       ),
       kind: 30817
     });
     expect(withTag.summary).toBe('A private drive.');
+    expect(withTag.affectedKinds).toEqual([30040, 30041]);
   });
 
   it('builds isbn chips as searchable/copyable without external href', () => {

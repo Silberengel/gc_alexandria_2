@@ -1819,9 +1819,9 @@ a.listing-row:hover,
   color: var(--text-muted);
 }
 .edition-summary {
-  margin: 1.15rem 0 0;
-  padding: 0.85rem 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  margin: 0.85rem 0 0;
+  padding: 0 0 1.15rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
   font-size: 1.02rem;
   line-height: 1.55;
   color: var(--text-muted);

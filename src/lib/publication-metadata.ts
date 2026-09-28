@@ -58,6 +58,8 @@ export type EditionMetadata = {
   language?: string;
   /** Imprint string from `published_by` (not the Nostr signer). */
   publishedBy?: string;
+  /** Spec `k` tags — event kinds this specification affects. */
+  affectedKinds: number[];
   identifiers: PublicationIdentifier[];
   sectionCount: number;
   provenance: ProvenanceChip[];
@@ -331,6 +333,14 @@ export function editionMetadata(event: Event): EditionMetadata {
     return Number.isInteger(kind) && kind !== 30040;
   }).length;
 
+  const affectedKinds = [
+    ...new Set(
+      tagValue(event, 'k')
+        .map((v) => Number(v.trim()))
+        .filter((n) => Number.isInteger(n) && n >= 0)
+    )
+  ].sort((a, b) => a - b);
+
   return {
     titles: titles.length ? titles : tTitles.map(humanizeTag).filter(Boolean),
     authors: authors.length ? authors : authorsFromN,
@@ -343,6 +353,7 @@ export function editionMetadata(event: Event): EditionMetadata {
     releaseDate,
     language,
     publishedBy,
+    affectedKinds,
     identifiers,
     sectionCount,
     provenance: buildProvenanceChips(source, identifiers)

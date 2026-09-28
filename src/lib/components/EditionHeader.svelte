@@ -36,6 +36,12 @@
       });
     }
     if (meta.version) rows.push({ label: 'Version', value: `v${meta.version}` });
+    if (meta.affectedKinds.length) {
+      rows.push({
+        label: 'Kinds',
+        value: meta.affectedKinds.join(', ')
+      });
+    }
     if (meta.sectionCount > 0) {
       rows.push({
         label: 'Length',
