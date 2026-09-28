@@ -74,7 +74,7 @@
   import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
-  import { readerSectionHeroUrl, sectionHeroFullImageUrl } from '$lib/cover';
+  import { readerSectionHeroFullUrl, readerSectionHeroUrl } from '$lib/cover';
   import { coverPlaceholderUrl } from '$lib/cover-fallback';
   import { isRemoteImageMissing } from '$lib/image-reachable';
   import { openMediaViewer } from '$lib/stores/media-viewer';
@@ -2771,7 +2771,7 @@
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const missing = isPlaceholderSection(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
-              {@const heroFull = sectionHeroFullImageUrl(section)}
+              {@const heroFull = readerSectionHeroFullUrl(section, event)}
               {@const showHero = Boolean(
                 heroUrl && isAllowedMediaUrl(heroUrl) && !heroIsBroken(heroUrl) && heroIsConfirmed(heroUrl)
               )}

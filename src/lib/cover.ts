@@ -98,14 +98,37 @@ function heroUrlKey(url: string): string {
 /**
  * Hero for a reading-pane section. Nested indexes/sections that repeat the
  * top-level edition image are omitted — that double-hero is redundant.
+ * Edition root falls back to the same cover sources as {@link coverImageUrl}
+ * (image / imeta / Gutenberg) so Gutenberg plates match the info page.
  */
 export function readerSectionHeroUrl(section: Event, edition: Event | null | undefined): string | undefined {
   // Bible verse sections inherit the edition plate — never repeat it per verse.
   if (isBibleSection(section)) return undefined;
   const hero = sectionHeroImageUrl(section);
-  if (!hero) return undefined;
-  if (!edition || section.id === edition.id) return hero;
-  const top = sectionHeroImageUrl(edition);
-  if (top && heroUrlKey(top) === heroUrlKey(hero)) return undefined;
-  return hero;
+  if (hero) {
+    if (!edition || section.id === edition.id) return hero;
+    const top = sectionHeroImageUrl(edition) ?? coverImageUrl(edition);
+    if (top && heroUrlKey(top) === heroUrlKey(hero)) return undefined;
+    return hero;
+  }
+  // No explicit image tag — edition root still shows Gutenberg/imeta covers.
+  if (edition && section.id === edition.id) return coverImageUrl(section);
+  return undefined;
+}
+
+/** Full-size hero for media viewer — edition root includes Gutenberg/imeta sources. */
+export function readerSectionHeroFullUrl(
+  section: Event,
+  edition: Event | null | undefined
+): string | undefined {
+  if (isBibleSection(section)) return undefined;
+  const explicit = sectionHeroFullImageUrl(section);
+  if (explicit) {
+    if (!edition || section.id === edition.id) return explicit;
+    const top = sectionHeroFullImageUrl(edition) ?? coverFullImageUrl(edition);
+    if (top && heroUrlKey(top) === heroUrlKey(explicit)) return undefined;
+    return explicit;
+  }
+  if (edition && section.id === edition.id) return coverFullImageUrl(section);
+  return undefined;
 }

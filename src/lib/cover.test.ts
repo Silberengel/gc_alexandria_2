@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { coverFullImageUrl, coverImageUrl, gutenbergCoverUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
+import { coverFullImageUrl, coverImageUrl, gutenbergCoverUrl, readerSectionHeroFullUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
 
 function ev(tags: string[][], id = 'a'.repeat(64)): Event {
   return {
@@ -77,14 +77,20 @@ describe('readerSectionHeroUrl', () => {
     expect(readerSectionHeroUrl(nested, edition)).toBeUndefined();
   });
 
-  it('keeps a nested hero that differs from the edition', () => {
-    const nested = ev(
-      [
-        ['image', 'https://example.com/old-testament.jpg'],
-        ['title', 'OT']
-      ],
-      '3'.repeat(64)
+  it('uses Gutenberg / cover sources on the edition root when image is absent', () => {
+    const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave'], ['title', 'Twelve Years a Slave']]);
+    expect(readerSectionHeroUrl(gutenberg, gutenberg)).toBe(
+      'https://www.gutenberg.org/cache/epub/45631/pg45631.cover.medium.jpg'
     );
-    expect(readerSectionHeroUrl(nested, edition)).toBe('https://example.com/old-testament.jpg');
+    expect(readerSectionHeroUrl(gutenberg, null)).toBeUndefined();
+  });
+});
+
+describe('readerSectionHeroFullUrl', () => {
+  it('returns the full Gutenberg cover for the edition root', () => {
+    const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave']]);
+    expect(readerSectionHeroFullUrl(gutenberg, gutenberg)).toBe(
+      'https://www.gutenberg.org/cache/epub/45631/pg45631.cover.medium.jpg'
+    );
   });
 });
