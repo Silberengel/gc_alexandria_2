@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import {
+  celticEmblemUrl,
   coverAuthor,
   coverPlaceholderSvg,
   coverTitle,
@@ -73,19 +74,30 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).toContain('font-weight="700"');
   });
 
-  it('uses a dark wiki placeholder with a Wiki label and celtic medallion', () => {
-    const wiki = { ...ev([['title', 'Aristotle'], ['d', 'aristotle']]), kind: 30818 };
-    const svg = coverPlaceholderSvg(wiki);
-    expect(svg).toContain('WIKI');
-    expect(svg).toContain('Aristotle');
-    expect(svg).toContain('#713b32');
+  it('exports a standalone celtic emblem data URL', () => {
+    const url = celticEmblemUrl();
+    expect(url.startsWith('data:image/svg+xml')).toBe(true);
+    expect(decodeURIComponent(url)).toContain('#713b32');
+    expect(decodeURIComponent(url)).toContain('rotate(90)');
   });
 
-  it('keeps Spec labeled on the dark wiki cover', () => {
+  it('uses a bland parchment wiki placeholder with a Wiki label', () => {
+    const wiki = { ...ev([['title', 'Aristotle'], ['d', 'aristotle']]), kind: 30818 };
+    const svg = coverPlaceholderSvg(wiki);
+    expect(svg).toContain('Wiki');
+    expect(svg).toContain('Aristotle');
+    expect(svg).not.toContain('#713b32'); // no oxblood medallion
+    expect(svg).not.toContain('rotate(90)');
+    expect(svg).toContain('width="180" height="280"'); // parchment inset
+    expect(svg).toMatch(/y="274"[^>]*>Wiki</);
+  });
+
+  it('keeps Spec inside the parchment panel', () => {
     const spec = { ...ev([['title', 'Nkbip 04'], ['d', 'nkbip-04']]), kind: 30817 };
     const svg = coverPlaceholderSvg(spec);
-    expect(svg).toContain('>SPEC</text>');
-    expect(svg).toContain('y="272"');
+    expect(svg).toContain('>Spec</text>');
+    expect(svg).toContain('y="274"');
+    expect(svg).not.toContain('#713b32');
   });
 });
 

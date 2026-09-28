@@ -4295,10 +4295,111 @@ mark.text-highlight.highlight-flash,
   object-position: center;
 }
 .reader-section.reader-edition .section-hero {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
 }
 .reader-section.reader-edition .section-hero img {
   max-height: 28rem;
+}
+.reader-edition-hero {
+  position: relative;
+  margin: 0 0 1rem;
+  border-radius: 0.35rem;
+  overflow: hidden;
+  background: var(--surface-2);
+  scroll-margin-top: 6.5rem;
+}
+:root.top-bar-concealed .reader-edition-hero {
+  scroll-margin-top: 1rem;
+}
+.reader-edition-hero .section-hero {
+  margin: 0;
+}
+.reader-edition-hero-generated .section-hero img {
+  width: 100%;
+  max-height: 28rem;
+  object-fit: cover;
+  object-position: center top;
+}
+.reader-edition-hero-meta {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 2.5rem 1.1rem 0.95rem;
+  background: linear-gradient(
+    to top,
+    #0d100e 0%,
+    #0d100e 38%,
+    color-mix(in srgb, #0d100e 92%, transparent) 62%,
+    color-mix(in srgb, #0d100e 45%, transparent) 82%,
+    transparent 100%
+  );
+  color: #f8f3ea;
+  pointer-events: none;
+}
+.reader-edition-hero-meta > * {
+  pointer-events: auto;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .section-heading {
+  margin: 0 0 0.1rem;
+  font-family: var(--display-font);
+  font-size: clamp(1.15rem, 3.6vw, 1.45rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  color: #f8f3ea;
+  text-shadow: none;
+  scroll-margin-top: 6.5rem;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-meta {
+  margin: 0;
+  max-width: none;
+  font-family: var(--ui-font);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #f3ece1;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-authors {
+  margin: 0 0 0.15rem;
+  font-family: var(--ui-font);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f3ece1;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-publisher,
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-summary,
+.reader-section.reader-edition .reader-edition-hero-meta .muted {
+  font-family: var(--ui-font);
+  font-size: 0.78rem;
+  color: #e7dac8;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-publisher {
+  margin: 0;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-reader-summary {
+  margin: 0.35rem 0 0;
+  max-width: 36rem;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-inline-link {
+  font-family: var(--ui-font);
+  color: #f8f3ea;
+  text-decoration-color: color-mix(in srgb, #f8f3ea 45%, transparent);
+}
+.reader-section.reader-edition .reader-edition-hero-meta .edition-inline-link:hover {
+  color: #fff;
+}
+.reader-section.reader-edition .reader-edition-hero-meta .userbadge,
+.reader-section.reader-edition .reader-edition-hero-meta .userbadge span {
+  font-family: var(--ui-font);
+  color: #f3ece1;
+}
+.reader-section.reader-edition .reading-track-panel,
+.reader-section.reader-edition .reader-info-actions {
+  margin-top: 0.35rem;
 }
 .reader-section.reader-index {
   margin-bottom: 1.25rem;

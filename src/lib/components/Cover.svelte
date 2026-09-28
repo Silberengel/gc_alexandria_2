@@ -4,6 +4,7 @@
   import { coverAuthor, coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { hasPublicationSection, preferRicherEvent, publicationPath } from '$lib/metadata';
   import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
+  import { isRemoteImageMissing, peekImageMissing } from '$lib/image-reachable';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
   import { openMediaViewer } from '$lib/stores/media-viewer';
 
@@ -68,11 +69,40 @@
       return;
     }
 
-    const peek = peekCachedImageSrc(remoteUrl);
-    displaySrc = peek ?? remoteUrl;
+    const knownMissing = peekImageMissing(remoteUrl);
+    if (knownMissing === true) {
+      failedFor = id;
+      displaySrc = ph;
+      return;
+    }
 
-    void cachedImageSrc(remoteUrl).then((src) => {
+    const applyRemote = (src: string) => {
       if (!cancelled && failedFor !== id) displaySrc = src;
+    };
+
+    // Already probed OK — paint immediately.
+    if (knownMissing === false) {
+      const peek = peekCachedImageSrc(remoteUrl);
+      displaySrc = peek ?? remoteUrl;
+      void cachedImageSrc(remoteUrl).then(applyRemote);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Unprobed: hold the generated cover until we know the remote is real
+    // (nostr.build soft-404s are HTTP 200 JPEGs — never fire img onerror).
+    displaySrc = ph;
+    void isRemoteImageMissing(remoteUrl).then((missing) => {
+      if (cancelled) return;
+      if (missing) {
+        failedFor = id;
+        displaySrc = ph;
+        return;
+      }
+      const peek = peekCachedImageSrc(remoteUrl);
+      displaySrc = peek ?? remoteUrl;
+      void cachedImageSrc(remoteUrl).then(applyRemote);
     });
 
     return () => {

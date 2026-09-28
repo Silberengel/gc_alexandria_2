@@ -75,6 +75,8 @@
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { readerSectionHeroUrl, sectionHeroFullImageUrl } from '$lib/cover';
+  import { coverPlaceholderUrl } from '$lib/cover-fallback';
+  import { isRemoteImageMissing } from '$lib/image-reachable';
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import { bibleDisplay, groupReaderSections } from '$lib/bible-verse';
   import { verseStyling } from '$lib/stores/verse-styling';
@@ -184,6 +186,47 @@
   let jumpBusy = $state(false);
   let jumpLabel = $state('');
   let tocOpen = $state(false);
+  /** Hero image URLs that 404'd or failed to decode — fall back to the celtic brand header. */
+  let brokenHeroUrls = $state(new Set<string>());
+  /** Heroes that passed reachability probe (nostr.build soft-404 check). */
+  let confirmedHeroUrls = $state(new Set<string>());
+
+  function markHeroBroken(url: string): void {
+    const key = url.trim();
+    if (!key || brokenHeroUrls.has(key)) return;
+    brokenHeroUrls = new Set(brokenHeroUrls).add(key);
+  }
+
+  function markHeroConfirmed(url: string): void {
+    const key = url.trim();
+    if (!key || confirmedHeroUrls.has(key)) return;
+    confirmedHeroUrls = new Set(confirmedHeroUrls).add(key);
+  }
+
+  function heroIsBroken(url: string | undefined): boolean {
+    return Boolean(url && brokenHeroUrls.has(url.trim()));
+  }
+
+  function heroIsConfirmed(url: string | undefined): boolean {
+    return Boolean(url && confirmedHeroUrls.has(url.trim()));
+  }
+
+  /** Prefer HEAD; treat HTTP errors and nostr.build `x-status: 404` as broken. */
+  async function probeHeroReachable(url: string): Promise<void> {
+    if (!url || brokenHeroUrls.has(url) || confirmedHeroUrls.has(url)) return;
+    if (await isRemoteImageMissing(url)) markHeroBroken(url);
+    else markHeroConfirmed(url);
+  }
+
+  /** Svelte action: probe reachability when a hero `<img>` mounts. */
+  function probeHero(_node: HTMLImageElement, url: string) {
+    void probeHeroReachable(url);
+    return {
+      update(next: string) {
+        void probeHeroReachable(next);
+      }
+    };
+  }
   /** Expand/collapse state for nested ToC branches (default: top-level open). */
   let tocExpanded = $state<Record<string, boolean>>({});
   let readingPane = $state<HTMLElement | undefined>();
@@ -230,6 +273,22 @@
     });
   });
   const activeTocKey = $derived(activeToc ? tocEntryKey(activeToc) : '');
+
+  // Probe edition/section heroes up front — nostr.build soft-404s never fire img.onerror.
+  $effect(() => {
+    const root = event;
+    const list = sections;
+    const urls = new Set<string>();
+    if (root) {
+      const u = readerSectionHeroUrl(root, root);
+      if (u && isAllowedMediaUrl(u)) urls.add(u);
+    }
+    for (const section of list) {
+      const u = readerSectionHeroUrl(section, root);
+      if (u && isAllowedMediaUrl(u)) urls.add(u);
+    }
+    for (const url of urls) void probeHeroReachable(url);
+  });
 
   $effect(() => {
     const key = activeTocKey;
@@ -2713,35 +2772,97 @@
               {@const missing = isPlaceholderSection(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
               {@const heroFull = sectionHeroFullImageUrl(section)}
+              {@const showHero = Boolean(
+                heroUrl && isAllowedMediaUrl(heroUrl) && !heroIsBroken(heroUrl) && heroIsConfirmed(heroUrl)
+              )}
+              {@const showGeneratedHero = Boolean(event && section.id === event.id && !showHero)}
+              {@const generatedHero = showGeneratedHero ? coverPlaceholderUrl(section) : ''}
+              {@const isEditionRoot = Boolean(event && section.id === event.id)}
+              {@const heroSrc = showHero ? heroUrl : showGeneratedHero ? generatedHero : ''}
+              {@const heroViewerUrl =
+                showHero && heroFull && isAllowedMediaUrl(heroFull)
+                  ? heroFull
+                  : showHero
+                    ? heroUrl
+                    : generatedHero}
               {@const pos = sectionReadPos.get(section.id) ?? 0}
               <article
                 class="reader-section"
                 class:reader-index={isIndex}
-                class:reader-edition={!!event && section.id === event.id}
+                class:reader-edition={isEditionRoot}
                 class:reader-section-missing={missing}
                 data-read-pos={pos}
                 data-section-addr={sectionKey}
                 data-section-id={section.id}
               >
-                {#if heroUrl && isAllowedMediaUrl(heroUrl)}
-                  <figure class="section-hero">
-                    <button
-                      class="section-hero-zoom"
-                      type="button"
-                      title="View image"
-                      onclick={() =>
-                        openMediaViewer({
-                          url: heroFull && isAllowedMediaUrl(heroFull) ? heroFull : heroUrl,
-                          title: sectionHeading(section)
-                        })}
+                {#if isEditionRoot && heroSrc}
+                  <div class="reader-edition-hero" class:reader-edition-hero-generated={showGeneratedHero}>
+                    <figure class="section-hero">
+                      <button
+                        class="section-hero-zoom"
+                        type="button"
+                        title="View cover"
+                        onclick={() =>
+                          openMediaViewer({
+                            url: heroViewerUrl || heroSrc,
+                            title: sectionHeading(section)
+                          })}
+                      >
+                        <img
+                          src={heroSrc}
+                          alt=""
+                          loading="lazy"
+                          use:probeHero={showHero && heroUrl ? heroUrl : ''}
+                          onerror={() => {
+                            if (showHero && heroUrl) markHeroBroken(heroUrl);
+                          }}
+                        />
+                      </button>
+                    </figure>
+                    <div class="reader-edition-hero-meta">
+                      <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
+                      <EditionReaderMeta event={section} {sections} />
+                    </div>
+                  </div>
+                  <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
+                    <TrackReadingButton
+                      publication={event}
+                      total={corpusCount}
+                      pos={readerPos}
+                      sectionId={readerSectionId}
+                      readLabels={editionReads}
+                    />
+                  </div>
+                  <div class="edition-actions reader-info-actions">
+                    <button class="btn btn-primary" type="button" onclick={stopReading}
+                      >Publication info</button
                     >
-                      <img src={heroUrl} alt="" loading="lazy" />
-                    </button>
-                  </figure>
-                {/if}
-                <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
-                {#if isIndex}
-                  {#if event && section.id === event.id}
+                  </div>
+                {:else}
+                  {#if showHero && heroUrl}
+                    <figure class="section-hero">
+                      <button
+                        class="section-hero-zoom"
+                        type="button"
+                        title="View image"
+                        onclick={() =>
+                          openMediaViewer({
+                            url: heroFull && isAllowedMediaUrl(heroFull) ? heroFull : heroUrl,
+                            title: sectionHeading(section)
+                          })}
+                      >
+                        <img
+                          src={heroUrl}
+                          alt=""
+                          loading="lazy"
+                          use:probeHero={heroUrl}
+                          onerror={() => markHeroBroken(heroUrl)}
+                        />
+                      </button>
+                    </figure>
+                  {/if}
+                  <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
+                  {#if isIndex && isEditionRoot}
                     <EditionReaderMeta event={section} {sections} />
                     <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
                       <TrackReadingButton
@@ -2758,7 +2879,9 @@
                       >
                     </div>
                   {/if}
-                  <!-- Nested index stubs keep the title heading only (Mercury row with no event). -->
+                {/if}
+                {#if isIndex}
+                  <!-- Edition root chrome is above; nested indexes keep the heading only. -->
                 {:else if missing}
                   <p class="muted missing-section-hint">This section is unavailable.</p>
                 {:else if isMarkupKind(section.kind)}

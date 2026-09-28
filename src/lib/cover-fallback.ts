@@ -21,12 +21,12 @@ const BOOK_PALETTE = [
   { cloth: '#12100c', clothLite: '#28241c', ink: '#f3ece1', gold: '#c9a874', mist: '#704438' }
 ] as const;
 
-/** Cooler dark cloth for wiki/spec — still gold-tooled; oxblood medallion for brand. */
+/** Cool parchment tones — bland document cards, distinct from tooled book covers. */
 const WIKI_PALETTE = [
-  { cloth: '#0c141c', clothLite: '#1a2834', ink: '#e4eef4', gold: '#b8a888', mist: '#5a4048' },
-  { cloth: '#0a1614', clothLite: '#182c28', ink: '#e2f0ec', gold: '#a8b090', mist: '#4a4840' },
-  { cloth: '#10141c', clothLite: '#222836', ink: '#eceaf2', gold: '#b0a8c0', mist: '#504058' },
-  { cloth: '#0c1818', clothLite: '#1c3030', ink: '#e6f2f0', gold: '#a0b0a4', mist: '#485048' }
+  { cloth: '#2a3a48', panel: '#e8eef3', ink: '#1a2830', gold: '#7a9eb0' },
+  { cloth: '#243642', panel: '#e4ece8', ink: '#152028', gold: '#6a9a8c' },
+  { cloth: '#2e3440', panel: '#eceaf2', ink: '#1c1e28', gold: '#8a8eb0' },
+  { cloth: '#1f3a3a', panel: '#e6f0ee', ink: '#143028', gold: '#6aa89a' }
 ] as const;
 
 /** Turn a slug-like T / N / d value into display text. Already-spaced names are kept. */
@@ -118,17 +118,70 @@ type CoverPalette = {
   mist: string;
 };
 
-function paletteFor(event: Event): CoverPalette {
-  const key = firstTag(event, 'd') ?? event.id;
+type WikiPalette = {
+  cloth: string;
+  panel: string;
+  ink: string;
+  gold: string;
+};
+
+function hashKey(key: string): number {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 33 + key.charCodeAt(i)) >>> 0;
-  const wiki = event.kind === KIND.WIKI || event.kind === KIND.SPEC;
-  const palette: readonly CoverPalette[] = wiki ? WIKI_PALETTE : BOOK_PALETTE;
-  return palette[h % palette.length]!;
+  return h;
+}
+
+function bookPaletteFor(event: Event): CoverPalette {
+  const key = firstTag(event, 'd') ?? event.id;
+  return BOOK_PALETTE[hashKey(key) % BOOK_PALETTE.length]!;
+}
+
+function wikiPaletteFor(event: Event): WikiPalette {
+  const key = firstTag(event, 'd') ?? event.id;
+  return WIKI_PALETTE[hashKey(key) % WIKI_PALETTE.length]!;
 }
 
 function isWikiKind(event: Event): boolean {
   return event.kind === KIND.WIKI || event.kind === KIND.SPEC;
+}
+
+/** Bland parchment document card for wiki / spec — not the tooled book treatment. */
+function wikiDocumentSvg(event: Event): string {
+  const palette = wikiPaletteFor(event);
+  const titleLines = wrapWords(coverTitle(event), 16, 7).map(escapeXml);
+  const authorLines = wrapWords(coverAuthor(event), 18, 3).map(escapeXml);
+  const titleH = titleLines.length * 22;
+  const titleY = Math.max(78, 64 + (150 - titleH) / 2);
+  const authorY = 248 - Math.max(0, authorLines.length - 1) * 15;
+  const kindLabel = event.kind === KIND.SPEC ? 'Spec' : 'Wiki';
+
+  const titleTs = titleLines
+    .map(
+      (line, i) =>
+        `<text x="100" y="${titleY + i * 22}" text-anchor="middle" font-size="15" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
+    )
+    .join('');
+  const authorTs = authorLines
+    .map(
+      (line, i) =>
+        `<text x="100" y="${authorY + i * 15}" text-anchor="middle" font-size="11" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.88">${line}</text>`
+    )
+    .join('');
+  const rule = authorLines.length
+    ? `<line x1="48" y1="${authorY - 16}" x2="152" y2="${authorY - 16}" stroke="${palette.gold}" stroke-width="0.8" stroke-opacity="0.75"/>`
+    : '';
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+<rect width="200" height="300" fill="${palette.cloth}"/>
+<rect x="10" y="10" width="180" height="280" rx="3" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.2"/>
+<rect x="22" y="24" width="156" height="7" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
+<rect x="22" y="38" width="118" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.22"/>
+<rect x="22" y="48" width="136" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.18"/>
+${titleTs}
+${rule}
+${authorTs}
+<text x="100" y="274" text-anchor="middle" font-size="11" font-family="system-ui,sans-serif" letter-spacing="0.06em" fill="${palette.ink}" fill-opacity="0.55">${kindLabel}</text>
+</svg>`;
 }
 
 function coverDefs(palette: CoverPalette, id: string): string {
@@ -214,6 +267,20 @@ function celticMedallion(cx: number, cy: number, scale: number, palette: CoverPa
 </g>`;
 }
 
+const EMBLEM_PALETTE: CoverPalette = {
+  cloth: '#100c0b',
+  clothLite: '#2a1814',
+  ink: '#f0e6d8',
+  gold: '#d4b88a',
+  mist: OXBLOOD
+};
+
+/** Standalone oxblood Celtic mark for reader headers (no full book plate). */
+export function celticEmblemUrl(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">${celticMedallion(32, 32, 1, EMBLEM_PALETTE)}</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 function titleBlock(
   titleLines: string[],
   authorLines: string[],
@@ -254,15 +321,14 @@ function titleBlock(
 }
 
 export function coverPlaceholderSvg(event: Event): string {
-  const palette = paletteFor(event);
-  const wiki = isWikiKind(event);
+  if (isWikiKind(event)) return wikiDocumentSvg(event);
+
+  const palette = bookPaletteFor(event);
   const id = (firstTag(event, 'd') ?? event.id).slice(0, 12).replace(/[^a-zA-Z0-9_-]/g, 'x');
   const titleLines = wrapWords(coverTitle(event), 13, 4).map(escapeXml);
   const authorLines = wrapWords(coverAuthor(event), 20, 2).map(escapeXml);
   const titleStartY = 148;
   const authorY = 252 - Math.max(0, authorLines.length - 1) * 12;
-
-  const kindLabel = wiki ? (event.kind === KIND.SPEC ? 'SPEC' : 'WIKI') : undefined;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
 ${coverDefs(palette, id)}
@@ -271,7 +337,7 @@ ${coverDefs(palette, id)}
 <rect width="200" height="300" fill="url(#glow-${id})"/>
 ${ornateFrame(palette)}
 ${celticMedallion(100, 78, 1.15, palette)}
-${titleBlock(titleLines, authorLines, palette, { titleStartY, authorY, gradId: id, kindLabel })}
+${titleBlock(titleLines, authorLines, palette, { titleStartY, authorY, gradId: id })}
 <rect width="200" height="300" fill="url(#vignette-${id})" pointer-events="none"/>
 </svg>`;
 }

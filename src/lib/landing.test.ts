@@ -50,6 +50,41 @@ describe('mergeLandingShelves', () => {
     // a stays on mine — network only keeps b
     expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([b.id]);
   });
+
+  it('drops Mercury network filler when follows resolve without a network shelf', () => {
+    const nested = ev([['d', 'day-1'], ['title', 'Day 1']], '1');
+    const followBook = ev([['d', 'jane-eyre'], ['title', 'Jane Eyre']], '2');
+    followBook.pubkey = 'f'.repeat(64);
+    const prev: LandingShelfSnap[] = [
+      { id: 'network', title: 'From the network', events: [nested] }
+    ];
+    const next: LandingShelfSnap[] = [
+      { id: 'follows', title: 'From follows', events: [followBook] },
+      { id: 'mine', title: 'My shelf', events: [] }
+    ];
+    const merged = mergeLandingShelves(prev, next);
+    expect(merged.map((s) => s.id)).toEqual(['follows']);
+    expect(merged.find((s) => s.id === 'network')).toBeUndefined();
+  });
+
+  it('scrubs follow-authored pubs off a kept network shelf', () => {
+    const followPk = 'f'.repeat(64);
+    const onFollows = ev([['d', 'classic'], ['title', 'Classic']], '1');
+    onFollows.pubkey = followPk;
+    const alsoNetwork = ev([['d', 'nested-day'], ['title', 'Day 3']], '2');
+    alsoNetwork.pubkey = followPk;
+    const stranger = ev([['d', 'other'], ['title', 'Other']], '3');
+    stranger.pubkey = 'c'.repeat(64);
+    const merged = mergeLandingShelves(
+      [{ id: 'network', title: 'From the network', events: [alsoNetwork, stranger] }],
+      [
+        { id: 'follows', title: 'From follows', events: [onFollows] },
+        { id: 'network', title: 'From the network', events: [alsoNetwork, stranger] }
+      ]
+    );
+    const network = merged.find((s) => s.id === 'network');
+    expect(network?.events.map((e) => e.id)).toEqual([stranger.id]);
+  });
 });
 
 describe('orderLandingShelves', () => {

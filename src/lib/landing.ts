@@ -177,6 +177,10 @@ function mergeEvents(...lists: Event[][]): Event[] {
  * (e.g. My shelf only). Union shelves/events so the UI does not flicker fewer→more→fewer.
  * Callers should still replace wholesale on identity change or final snapshot.
  * Always re-orders and cross-shelf dedupes via {@link dedupeLandingShelfEvents}.
+ *
+ * When `next` includes From follows but omits From the network, drop a prior network row —
+ * that usually came from the Mercury filler dump and would keep nested/follow pubs on
+ * "From the network" after assignShelves correctly left network empty.
  */
 export function mergeLandingShelves(
   prev: LandingShelfSnap[],
@@ -187,6 +191,8 @@ export function mergeLandingShelves(
   const prevById = new Map(prev.map((s) => [s.id, s]));
   const seen = new Set<string>();
   const out: LandingShelfSnap[] = [];
+  const nextHasFollows = next.some((s) => s.id === 'follows');
+  const nextHasNetwork = next.some((s) => s.id === 'network');
   for (const shelf of next) {
     seen.add(shelf.id);
     const older = prevById.get(shelf.id);
@@ -198,9 +204,40 @@ export function mergeLandingShelves(
     });
   }
   for (const shelf of prev) {
-    if (!seen.has(shelf.id)) out.push(shelf);
+    if (seen.has(shelf.id)) continue;
+    // Full membership resolve omitted network on purpose — do not keep Mercury filler.
+    if (shelf.id === 'network' && nextHasFollows && !nextHasNetwork) continue;
+    out.push(shelf);
   }
-  return dedupeLandingShelfEvents(out);
+  return scrubNetworkShelfEvents(dedupeLandingShelfEvents(out));
+}
+
+/**
+ * Network filler must not show follow-authored pubs or nested indexes still in the pool.
+ * Re-promotes against the union of all shelf covers, then drops network rows that still
+ * are not top-level or whose author already appears on From follows.
+ */
+export function scrubNetworkShelfEvents(
+  shelves: LandingShelfSnap[]
+): LandingShelfSnap[] {
+  const network = shelves.find((s) => s.id === 'network');
+  if (!network?.events.length) return shelves;
+  const followsAuthors = new Set(
+    shelves
+      .filter((s) => s.id === 'follows')
+      .flatMap((s) => s.events.map((e) => e.pubkey.toLowerCase()))
+  );
+  const pool = shelves.flatMap((s) => s.events);
+  const cleaned = topLevelShelfEvents(network.events, pool).filter((event) => {
+    if (followsAuthors.has(event.pubkey.toLowerCase())) return false;
+    return isTopLevel30040(event, pool);
+  });
+  if (cleaned.length === network.events.length) {
+    const same = cleaned.every((e, i) => e.id === network.events[i]?.id);
+    if (same) return shelves;
+  }
+  if (!cleaned.length) return shelves.filter((s) => s.id !== 'network');
+  return shelves.map((s) => (s.id === 'network' ? { ...s, events: cleaned } : s));
 }
 
 function settled<T>(result: PromiseSettledResult<T>, fallback: T): T {
@@ -422,13 +459,23 @@ async function enrichPublicationParents(byAddr: Map<string, Event>, hops = 3): P
 }
 
 /** Resolve Mercury/cache pubs to top-level edition covers (fetch parents when needed). */
-export async function resolveTopLevelShelfEvents(events: Event[]): Promise<Event[]> {
-  const pubs = events.filter((e) => e.kind === KIND.PUBLICATION);
+export async function resolveTopLevelShelfEvents(
+  events: Event[],
+  opts?: { excludePubkeys?: Set<string> }
+): Promise<Event[]> {
+  const exclude = opts?.excludePubkeys;
+  const pubs = events.filter((e) => {
+    if (e.kind !== KIND.PUBLICATION) return false;
+    if (exclude?.has(e.pubkey.toLowerCase())) return false;
+    return true;
+  });
   if (!pubs.length) return [];
   const byAddr = new Map<string, Event>();
   for (const e of pubs) byAddr.set(eventAddress(e), e);
   await enrichPublicationParents(byAddr);
-  return topLevelShelfEvents(pubs, [...byAddr.values()]);
+  const pool = [...byAddr.values()];
+  // Only confirmed roots in this pool — nested chapters whose parents never arrived stay out.
+  return topLevelShelfEvents(pubs, pool).filter((e) => isTopLevel30040(e, pool));
 }
 
 async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {
@@ -1072,8 +1119,13 @@ export async function refreshLanding(
 
   // Immediate covers from Mercury pubs while label membership resolves (~5–8s).
   if (!shelvesHaveCovers(shelves) && publications.some((e) => e.kind === KIND.PUBLICATION)) {
+    const excludePubkeys = new Set(followPubkeysFromMetadata(session.getMetadata()));
+    if (viewer) excludePubkeys.add(viewer);
     const networkCovers = (
-      await resolveTopLevelShelfEvents(publications.filter((e) => e.kind === KIND.PUBLICATION))
+      await resolveTopLevelShelfEvents(
+        publications.filter((e) => e.kind === KIND.PUBLICATION),
+        { excludePubkeys }
+      )
     ).slice(0, 50);
     if (networkCovers.length) {
       shelves = [
@@ -1121,8 +1173,13 @@ export async function refreshLanding(
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   } else if (!shelvesHaveCovers(shelves) && publications.length) {
     // Last resort: show recent Mercury/cache pubs so the landing is never shelf-less.
+    const excludePubkeys = new Set(followPubkeysFromMetadata(session.getMetadata()));
+    if (viewer) excludePubkeys.add(viewer);
     const networkCovers = (
-      await resolveTopLevelShelfEvents(publications.filter((e) => e.kind === KIND.PUBLICATION))
+      await resolveTopLevelShelfEvents(
+        publications.filter((e) => e.kind === KIND.PUBLICATION),
+        { excludePubkeys }
+      )
     ).slice(0, 50);
     if (networkCovers.length) {
       shelves = [
