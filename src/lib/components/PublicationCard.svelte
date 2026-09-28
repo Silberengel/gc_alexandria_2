@@ -3,7 +3,7 @@
   import { link } from 'svelte-spa-router';
   import { KIND } from '$lib/constants';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { cardMeta, displayTitle, publicationPath, wikiPath } from '$lib/metadata';
+  import { cardMeta, displayTitle, libraryDocumentPath } from '$lib/metadata';
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { warmWikiDeferTarget } from '$lib/wiki-defer';
   import Cover from './Cover.svelte';
@@ -25,8 +25,8 @@
 
   const meta = $derived(cardMeta(event));
   const title = $derived(displayTitle(event));
-  const isWiki = $derived(event.kind === KIND.WIKI || event.kind === KIND.SPEC);
-  const href = $derived(isWiki ? wikiPath(event) : publicationPath(event));
+  const isArticle = $derived(event.kind === KIND.WIKI || event.kind === KIND.SPEC);
+  const href = $derived(libraryDocumentPath(event));
   const summary = $derived(meta.summary?.trim() ?? '');
   const subjects = $derived(meta.subjects.slice(0, 5));
   const kindLabel = $derived(
@@ -77,7 +77,7 @@
     <CopyPointerButton {event} class="listing-row-copy" />
   </div>
 {:else}
-  <div class="card pub-card" class:pub-card-wiki={isWiki}>
+  <div class="card pub-card" class:pub-card-wiki={isArticle}>
     <CopyPointerButton {event} class="generic-card-copy" />
     <div class="pub-card-top">
       <div class="pub-card-cover">

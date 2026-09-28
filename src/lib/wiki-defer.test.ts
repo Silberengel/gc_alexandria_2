@@ -42,13 +42,16 @@ describe('wiki deference', () => {
     expect(isDeferralPlaceholderContent('# Bitcoin\n\nA real article.')).toBe(false);
   });
 
-  it('builds a wiki path from a defer coordinate', async () => {
+  it('builds a wiki or spec path from a defer coordinate', async () => {
     const { nip19 } = await import('nostr-tools');
     const { wikiPathFromCoordinate, wikiDeferTargetHref } = await import('./wiki-defer');
     const pk = 'b'.repeat(64);
     const npub = nip19.npubEncode(pk);
     expect(wikiPathFromCoordinate(`30818:${pk}:bitcoin`)).toBe(
       `/wiki/d/bitcoin/p/${npub}`
+    );
+    expect(wikiPathFromCoordinate(`30817:${pk}:nkbip-01`)).toBe(
+      `/spec/d/nkbip-01/p/${npub}`
     );
     const article = ev({
       tags: [

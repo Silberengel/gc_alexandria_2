@@ -29,6 +29,14 @@ const WIKI_PALETTE = [
   { cloth: '#1f3a3a', panel: '#e6f0ee', ink: '#143028', gold: '#6aa89a' }
 ] as const;
 
+/** Cool slate / blueprint plate — specs, not wiki parchment. */
+const SPEC_PALETTE = [
+  { cloth: '#0e1620', panel: '#1a2838', ink: '#e8f0f8', gold: '#6eb0d4', accent: '#3a7ca5' },
+  { cloth: '#10141c', panel: '#1c2430', ink: '#e6eef6', gold: '#8aa8c8', accent: '#4a6a8a' },
+  { cloth: '#0c1818', panel: '#162828', ink: '#e4f4f0', gold: '#6ab8a8', accent: '#3a8070' },
+  { cloth: '#141018', panel: '#241c2c', ink: '#f0e8f4', gold: '#a898c8', accent: '#6a5890' }
+] as const;
+
 /** Turn a slug-like T / N / d value into display text. Already-spaced names are kept. */
 export function humanizeTag(value: string): string {
   let s = value.trim();
@@ -125,6 +133,14 @@ type WikiPalette = {
   gold: string;
 };
 
+type SpecPalette = {
+  cloth: string;
+  panel: string;
+  ink: string;
+  gold: string;
+  accent: string;
+};
+
 function hashKey(key: string): number {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 33 + key.charCodeAt(i)) >>> 0;
@@ -141,34 +157,36 @@ function wikiPaletteFor(event: Event): WikiPalette {
   return WIKI_PALETTE[hashKey(key) % WIKI_PALETTE.length]!;
 }
 
-function isWikiKind(event: Event): boolean {
-  return event.kind === KIND.WIKI || event.kind === KIND.SPEC;
+function specPaletteFor(event: Event): SpecPalette {
+  const key = firstTag(event, 'd') ?? event.id;
+  return SPEC_PALETTE[hashKey(key) % SPEC_PALETTE.length]!;
 }
 
-/** Bland parchment document card for wiki / spec — not the tooled book treatment. */
+/** Warm parchment article card — large serif title. */
 function wikiDocumentSvg(event: Event): string {
   const palette = wikiPaletteFor(event);
-  const titleLines = wrapWords(coverTitle(event), 16, 7).map(escapeXml);
-  const authorLines = wrapWords(coverAuthor(event), 18, 3).map(escapeXml);
-  const titleH = titleLines.length * 22;
-  const titleY = Math.max(78, 64 + (150 - titleH) / 2);
-  const authorY = 248 - Math.max(0, authorLines.length - 1) * 15;
-  const kindLabel = event.kind === KIND.SPEC ? 'Spec' : 'Wiki';
+  const titleLines = wrapWords(coverTitle(event), 13, 6).map(escapeXml);
+  const authorLines = wrapWords(coverAuthor(event), 16, 2).map(escapeXml);
+  const titleSize = 19;
+  const titleLineH = 24;
+  const titleH = titleLines.length * titleLineH;
+  const titleY = Math.max(92, 72 + (148 - titleH) / 2);
+  const authorY = 252 - Math.max(0, authorLines.length - 1) * 16;
 
   const titleTs = titleLines
     .map(
       (line, i) =>
-        `<text x="100" y="${titleY + i * 22}" text-anchor="middle" font-size="15" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
+        `<text x="100" y="${titleY + i * titleLineH}" text-anchor="middle" font-size="${titleSize}" font-weight="700" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
     )
     .join('');
   const authorTs = authorLines
     .map(
       (line, i) =>
-        `<text x="100" y="${authorY + i * 15}" text-anchor="middle" font-size="11" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.88">${line}</text>`
+        `<text x="100" y="${authorY + i * 16}" text-anchor="middle" font-size="13" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.9">${line}</text>`
     )
     .join('');
   const rule = authorLines.length
-    ? `<line x1="48" y1="${authorY - 16}" x2="152" y2="${authorY - 16}" stroke="${palette.gold}" stroke-width="0.8" stroke-opacity="0.75"/>`
+    ? `<line x1="44" y1="${authorY - 18}" x2="156" y2="${authorY - 18}" stroke="${palette.gold}" stroke-width="1" stroke-opacity="0.8"/>`
     : '';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
@@ -180,7 +198,53 @@ function wikiDocumentSvg(event: Event): string {
 ${titleTs}
 ${rule}
 ${authorTs}
-<text x="100" y="274" text-anchor="middle" font-size="11" font-family="system-ui,sans-serif" letter-spacing="0.06em" fill="${palette.ink}" fill-opacity="0.55">${kindLabel}</text>
+<text x="100" y="274" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" letter-spacing="0.14em" fill="${palette.ink}" fill-opacity="0.55">WIKI</text>
+</svg>`;
+}
+
+/** Slate blueprint plate — distinct from wiki parchment. */
+function specDocumentSvg(event: Event): string {
+  const palette = specPaletteFor(event);
+  const titleLines = wrapWords(coverTitle(event), 14, 5).map(escapeXml);
+  const authorLines = wrapWords(coverAuthor(event), 18, 2).map(escapeXml);
+  const titleSize = 17;
+  const titleLineH = 22;
+  const titleH = titleLines.length * titleLineH;
+  const titleY = Math.max(108, 96 + (120 - titleH) / 2);
+  const authorY = 246 - Math.max(0, authorLines.length - 1) * 14;
+
+  const titleTs = titleLines
+    .map(
+      (line, i) =>
+        `<text x="100" y="${titleY + i * titleLineH}" text-anchor="middle" font-size="${titleSize}" font-weight="600" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.02em" fill="${palette.ink}">${line}</text>`
+    )
+    .join('');
+  const authorTs = authorLines
+    .map(
+      (line, i) =>
+        `<text x="100" y="${authorY + i * 14}" text-anchor="middle" font-size="12" font-family="ui-sans-serif,system-ui,sans-serif" fill="${palette.ink}" fill-opacity="0.78">${line}</text>`
+    )
+    .join('');
+
+  // Horizontal rule marks — blueprint / technical sheet feel.
+  const rules = [0, 1, 2, 3, 4]
+    .map((i) => {
+      const y = 78 + i * 28;
+      return `<line x1="28" y1="${y}" x2="172" y2="${y}" stroke="${palette.accent}" stroke-width="0.6" stroke-opacity="0.28"/>`;
+    })
+    .join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+<rect width="200" height="300" fill="${palette.cloth}"/>
+<rect x="8" y="8" width="184" height="284" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.4"/>
+<rect x="8" y="8" width="184" height="36" fill="${palette.accent}" fill-opacity="0.85"/>
+<text x="100" y="32" text-anchor="middle" font-size="11" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.28em" fill="${palette.ink}">SPEC</text>
+${rules}
+${titleTs}
+${authorLines.length ? `<line x1="52" y1="${authorY - 14}" x2="148" y2="${authorY - 14}" stroke="${palette.gold}" stroke-width="0.9" stroke-opacity="0.55"/>` : ''}
+${authorTs}
+<rect x="8" y="268" width="184" height="24" fill="${palette.cloth}" fill-opacity="0.55"/>
+<text x="100" y="284" text-anchor="middle" font-size="10" font-family="ui-monospace,monospace" letter-spacing="0.08em" fill="${palette.gold}" fill-opacity="0.85">30817</text>
 </svg>`;
 }
 
@@ -321,7 +385,8 @@ function titleBlock(
 }
 
 export function coverPlaceholderSvg(event: Event): string {
-  if (isWikiKind(event)) return wikiDocumentSvg(event);
+  if (event.kind === KIND.SPEC) return specDocumentSvg(event);
+  if (event.kind === KIND.WIKI) return wikiDocumentSvg(event);
 
   const palette = bookPaletteFor(event);
   const id = (firstTag(event, 'd') ?? event.id).slice(0, 12).replace(/[^a-zA-Z0-9_-]/g, 'x');

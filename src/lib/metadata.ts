@@ -40,6 +40,18 @@ export function wikiPath(event: Event): string {
   return `/wiki/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
 }
 
+export function specPath(event: Event): string {
+  const d = firstTag(event, 'd') ?? '';
+  return `/spec/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
+}
+
+/** Canonical SPA path for a publication, wiki, or spec event. */
+export function libraryDocumentPath(event: Event): string {
+  if (event.kind === KIND.SPEC) return specPath(event);
+  if (event.kind === KIND.WIKI) return wikiPath(event);
+  return publicationPath(event);
+}
+
 export function cardMeta(event: Event): CardMeta {
   const authors = tagValue(event, 'author');
   const nTags = tagValue(event, 'N');

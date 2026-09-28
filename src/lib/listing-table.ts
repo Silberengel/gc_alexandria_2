@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { cardMeta, displayTitle, publicationPath, wikiPath } from './metadata';
+import { cardMeta, displayTitle, publicationPath, libraryDocumentPath } from './metadata';
 import type { ListingDensity } from './stores/listing-density';
 
 /** Full detailed cards (multiple of 3 columns). */
@@ -45,7 +45,7 @@ export type ListingTableRow = {
 };
 
 export function eventHref(event: Event): string | null {
-  if (event.kind === KIND.WIKI || event.kind === KIND.SPEC) return `#${wikiPath(event)}`;
+  if (event.kind === KIND.WIKI || event.kind === KIND.SPEC) return `#${libraryDocumentPath(event)}`;
   if (event.kind === KIND.PUBLICATION || event.kind === KIND.SECTION) {
     return `#${publicationPath(event)}`;
   }

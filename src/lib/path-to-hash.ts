@@ -1,13 +1,13 @@
 /**
- * Hash-routed SPA: external path links (/publication/..., /wiki/..., /p/..., /search)
+ * Hash-routed SPA: external path links (/publication/..., /wiki/..., /spec/..., /p/..., /search)
  * must become /#/… before the router mounts. Also collapses /publication/naddr/{bech32}
- * (and wiki/nevent/note variants) into /publication/{bech32}.
+ * (and wiki/spec/nevent/note variants) into /publication/{bech32}.
  */
 
 const POINTER = '(?:naddr|nevent|note)1[02-9ac-hj-np-z]+';
 
 const SPA_PREFIX =
-  /^\/(?:search|settings|about|start|contact|p\/|publication\/|wiki\/)/i;
+  /^\/(?:search|settings|about|start|contact|p\/|publication\/|wiki\/|spec\/)/i;
 
 /** Collapse typed pointer segments used by some external linkers. */
 export function normalizeExternalSpaPath(pathname: string): string {
@@ -16,7 +16,7 @@ export function normalizeExternalSpaPath(pathname: string): string {
   path = path.replace(/\/{2,}/g, '/');
   // /publication/naddr/naddr1… → /publication/naddr1…
   path = path.replace(
-    new RegExp(`^/(publication|wiki)/(?:naddr|nevent|note)/(${POINTER})/?$`, 'i'),
+    new RegExp(`^/(publication|wiki|spec)/(?:naddr|nevent|note)/(${POINTER})/?$`, 'i'),
     '/$1/$2'
   );
   if (path.length > 1) path = path.replace(/\/+$/, '');
@@ -28,7 +28,7 @@ export function isSpaPathname(pathname: string): boolean {
   if (path === '/') return false;
   // Real static assets (js/css/images) — leave alone
   if (/\.[a-z0-9]{1,8}$/i.test(path) && !/\.html?$/i.test(path)) return false;
-  return SPA_PREFIX.test(path) || new RegExp(`^/(publication|wiki)/${POINTER}$`, 'i').test(path);
+  return SPA_PREFIX.test(path) || new RegExp(`^/(publication|wiki|spec)/${POINTER}$`, 'i').test(path);
 }
 
 /**

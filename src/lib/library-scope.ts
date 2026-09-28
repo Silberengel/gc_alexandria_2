@@ -81,7 +81,8 @@ export function addressPath(coord: string): string | null {
   if (!parsed) return null;
   const npub = nip19.npubEncode(parsed.pubkey);
   const d = encodeURIComponent(parsed.d);
-  if (parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC) return `/wiki/d/${d}/p/${npub}`;
+  if (parsed.kind === KIND.SPEC) return `/spec/d/${d}/p/${npub}`;
+  if (parsed.kind === KIND.WIKI) return `/wiki/d/${d}/p/${npub}`;
   return `/publication/d/${d}/p/${npub}`;
 }
 

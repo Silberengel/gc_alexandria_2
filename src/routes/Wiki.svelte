@@ -10,7 +10,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { KIND } from '$lib/constants';
-  import { wikiPath } from '$lib/metadata';
+  import { libraryDocumentPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys } from '$lib/wiki-defer';
   import { normalizeDTag } from '$lib/dtag';
@@ -55,8 +55,12 @@
   let pageFilter = $state('');
   let loading = $state(true);
   let articlePane = $state<HTMLElement | undefined>();
+  /** Route kind from URL prefix — wiki and spec share this page but never the same address. */
+  let routeKind = $state<number>(KIND.WIKI);
   const pageFind = createPageFindController();
 
+  const isSpecRoute = $derived(routeKind === KIND.SPEC);
+  const surfaceLabel = $derived(isSpecRoute ? 'Spec' : 'Wiki');
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
   const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
@@ -79,15 +83,14 @@
     }
   }
 
+  function routeKindFromHash(hashPath: string): number {
+    return /^\/spec(\/|$)/i.test(hashPath) ? KIND.SPEC : KIND.WIKI;
+  }
+
   /** Sync only — landing/search already put this in memory. Never scan Cache Storage here. */
-  function warmWiki(pubkey: string, d: string): Event | null {
+  function warmArticle(pubkey: string, d: string, kind: number): Event | null {
     const slug = normalizeDTag(d) || d;
-    return (
-      memoryFindByAddress(KIND.WIKI, pubkey, slug) ??
-      memoryFindByAddress(KIND.SPEC, pubkey, slug) ??
-      memoryFindByAddress(KIND.WIKI, pubkey, d) ??
-      memoryFindByAddress(KIND.SPEC, pubkey, d)
-    );
+    return memoryFindByAddress(kind, pubkey, slug) ?? memoryFindByAddress(kind, pubkey, d);
   }
 
   /**
@@ -95,32 +98,33 @@
    * `onHit` fires as soon as any relay returns the article so SPA nav can paint early.
    * Uses a priority pool slot so Home background FoF/deletion REQs cannot starve wiki.
    */
-  async function loadWikiByAuthorD(
+  async function loadArticleByAuthorD(
     pubkey: string,
     d: string,
+    kind: number,
     onHit?: (event: Event) => void
   ): Promise<Event | null> {
     if (!/^[0-9a-f]{64}$/.test(pubkey)) return null;
     const slug = normalizeDTag(d) || d;
     const dValues = [...new Set([d, slug].filter(Boolean))];
     const filter = {
-      kinds: [KIND.WIKI, KIND.SPEC],
+      kinds: [kind],
       authors: [pubkey],
       '#d': dValues,
       limit: 5
     };
     let reported = false;
-    const report = (event: Event): void => {
+    const report = (ev: Event): void => {
       if (reported) return;
-      if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) return;
+      if (ev.kind !== kind) return;
       reported = true;
-      onHit?.(event);
+      onHit?.(ev);
     };
     const pickNewest = (events: Event[]): Event | null => {
       let best: Event | null = null;
-      for (const event of events) {
-        if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) continue;
-        if (!best || isNewerReplaceable(event, best)) best = event;
+      for (const ev of events) {
+        if (ev.kind !== kind) continue;
+        if (!best || isNewerReplaceable(ev, best)) best = ev;
       }
       return best;
     };
@@ -211,6 +215,7 @@
     const addr = eventAddress(target);
     const dTag = target.tags.find((t) => t[0] === 'd')?.[1];
     // Mercury-first — avoid a second full wikiStack fan-out on every page load.
+    // Deferrers are wiki/spec articles that point at this address (either kind may defer).
     const filters = [
       { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 40 },
       ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 40 }] : [])
@@ -269,7 +274,7 @@
       const dest = await eventFromId(target.eventId);
       if (dest) {
         warmNavEvent(dest);
-        path = wikiPath(dest);
+        path = libraryDocumentPath(dest);
       }
     }
     if (!path) return false;
@@ -300,10 +305,16 @@
     // Prefer router params; fall back to parsing the hash so a stale/empty params
     // object never skips the lookup and flashes "not found".
     const hashPath = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '').split('?')[0] : '';
-    const hashDnpub = hashPath.match(/^\/wiki\/d\/([^/]+)\/p\/([^/]+)\/?$/);
-    const hashDonly = hashPath.match(/^\/wiki\/d\/([^/]+)\/?$/);
+    const kind = routeKindFromHash(hashPath);
+    routeKind = kind;
+    const prefix = kind === KIND.SPEC ? 'spec' : 'wiki';
+    const hashDnpub = hashPath.match(new RegExp(`^\\/${prefix}\\/d\\/([^/]+)\\/p\\/([^/]+)\\/?$`, 'i'));
+    const hashDonly = hashPath.match(new RegExp(`^\\/${prefix}\\/d\\/([^/]+)\\/?$`, 'i'));
     const hashPointer = hashPath.match(
-      /^\/wiki\/(?:(?:naddr|nevent|note)\/)?((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\/?$/i
+      new RegExp(
+        `^\\/${prefix}\\/(?:(?:naddr|nevent|note)\\/)?((?:naddr|nevent|note)1[02-9ac-hj-np-z]+)\\/?$`,
+        'i'
+      )
     );
 
     const dTag = decodeParam(
@@ -323,7 +334,7 @@
     deferredByList = seedDeferrersFromUrl();
 
     const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
-    const warm = dTag && pubkey ? warmWiki(pubkey, dTag) : null;
+    const warm = dTag && pubkey ? warmArticle(pubkey, dTag, kind) : null;
 
     if (warm) {
       void paintWiki(warm);
@@ -344,16 +355,14 @@
           const slug = normalizeDTag(dTag) || dTag;
           // Memory / shallow cache only — a full Cache Storage walk blocks wiki for seconds.
           const cached =
-            memoryFindByAddress(KIND.WIKI, pubkey, slug) ??
-            memoryFindByAddress(KIND.SPEC, pubkey, slug) ??
-            (await cacheFindByAddress(KIND.WIKI, pubkey, slug)) ??
-            (await cacheFindByAddress(KIND.SPEC, pubkey, slug));
+            memoryFindByAddress(kind, pubkey, slug) ??
+            (await cacheFindByAddress(kind, pubkey, slug));
           if (cancelled) return;
           if (cached) {
             await paintWiki(cached);
             return;
           }
-          const fetched = await loadWikiByAuthorD(pubkey, dTag, (early) => {
+          const fetched = await loadArticleByAuthorD(pubkey, dTag, kind, (early) => {
             if (!cancelled) void paintWiki(early);
           });
           if (cancelled) return;
@@ -369,13 +378,17 @@
             if (!cancelled) error = true;
             return;
           }
+          // Pointer kind wins over the URL prefix so a wiki naddr under /spec (or vice versa)
+          // canonicalizes to the correct surface.
+          const pointerKind =
+            decoded.kind === KIND.SPEC || decoded.kind === KIND.WIKI ? decoded.kind : kind;
           let fetched: Event | null = null;
           if (decoded.id) {
             fetched = memoryGetEvent(decoded.id) ?? (await fetchById(decoded.id));
           } else if (decoded.pubkey && decoded.d != null) {
             fetched =
-              warmWiki(decoded.pubkey, decoded.d) ??
-              (await loadWikiByAuthorD(decoded.pubkey, decoded.d, (early) => {
+              warmArticle(decoded.pubkey, decoded.d, pointerKind) ??
+              (await loadArticleByAuthorD(decoded.pubkey, decoded.d, pointerKind, (early) => {
                 if (!cancelled) void paintWiki(early);
               }));
           }
@@ -384,7 +397,7 @@
             if (!event) error = true;
             return;
           }
-          const path = wikiPath(fetched);
+          const path = libraryDocumentPath(fetched);
           const here = window.location.hash.replace(/^#/, '').split('?')[0];
           if (here !== path) {
             replace(path);
@@ -395,13 +408,15 @@
         }
 
         if (dTag && !npubParam) {
-          const filter = { kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 50 };
+          const filter = { kinds: [kind], '#d': [dTag], limit: 50 };
           const [m, w] = await Promise.all([
             mercuryFilter(filter),
             relayPool.query(wikiStack(), [filter], 8000)
           ]);
           const byId = new Map<string, Event>();
-          for (const e of [...m, ...w]) byId.set(e.id, e);
+          for (const e of [...m, ...w]) {
+            if (e.kind === kind) byId.set(e.id, e);
+          }
           const found = [...byId.values()];
           if (cancelled) return;
           if (!found.length) {
@@ -445,12 +460,12 @@
 <TopBar />
 <main class="shell">
   {#if error}
-    <ErrorPage title="Wiki page not found" />
+    <ErrorPage title={`${surfaceLabel} page not found`} />
   {:else if forwarding}
     <p class="loading-hint">Opening the preferred version…</p>
   {:else if versions.length}
     <header class="page-header">
-      <p class="page-kicker">Wiki</p>
+      <p class="page-kicker">{surfaceLabel}</p>
       <h1>Versions</h1>
       <p class="page-lede muted">Choose which author’s version of this page to open.</p>
     </header>

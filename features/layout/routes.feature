@@ -14,10 +14,14 @@ Feature: Routes
       | /publication/d/{d}/p/{npub}  | that 30040                                          |
       | /publication/{naddr\|nevent} | that 30040; bar becomes /publication/d/{d}/p/{npub} |
       | /publication/naddr/{naddr}   | same as /publication/{naddr} (external linker form) |
-      | /wiki/d/{d}                  | disambiguation of matching 30818 and 30817          |
-      | /wiki/d/{d}/p/{npub}         | that wiki or spec page                              |
-      | /wiki/{naddr\|nevent}        | that page; bar becomes /wiki/d/{d}/p/{npub}         |
+      | /wiki/d/{d}                  | disambiguation of matching 30818 wiki pages         |
+      | /wiki/d/{d}/p/{npub}         | that wiki page (kind 30818)                         |
+      | /wiki/{naddr\|nevent}        | that wiki; bar becomes /wiki/d/{d}/p/{npub}         |
       | /wiki/naddr/{naddr}          | same as /wiki/{naddr} (external linker form)        |
+      | /spec/d/{d}                  | disambiguation of matching 30817 specs              |
+      | /spec/d/{d}/p/{npub}         | that spec page (kind 30817)                         |
+      | /spec/{naddr\|nevent}        | that spec; bar becomes /spec/d/{d}/p/{npub}         |
+      | /spec/naddr/{naddr}          | same as /spec/{naddr} (external linker form)        |
       | /settings                    | appearance and cache                                |
       | /about                       | About and getting started                           |
       | /contact                     | Contact when signed in; otherwise redirects to /    |
@@ -27,4 +31,4 @@ Feature: Routes
     When another site links to https://host/publication/naddr/{naddr} or /publication/{naddr} without a #/
     Then the app rewrites to /#/publication/{naddr} before the router mounts
     And the edition page opens instead of the landing page
-    And /wiki/naddr/{naddr} and /p/{npub} path links rewrite the same way
+    And /wiki/naddr/{naddr}, /spec/naddr/{naddr}, and /p/{npub} path links rewrite the same way

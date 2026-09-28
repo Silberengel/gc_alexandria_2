@@ -2,7 +2,7 @@
   import type { Event } from 'nostr-tools';
   import { coverFullImageUrl, coverImageUrl } from '$lib/cover';
   import { coverAuthor, coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
-  import { hasPublicationSection, preferRicherEvent, publicationPath } from '$lib/metadata';
+  import { hasPublicationSection, preferRicherEvent, libraryDocumentPath } from '$lib/metadata';
   import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
   import { isRemoteImageMissing, peekImageMissing } from '$lib/image-reachable';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
@@ -55,7 +55,7 @@
   const enlargeUrl = $derived((!broken && (fullRemote || remote)) || placeholder);
   const canEnlarge = $derived(Boolean(enlargeOnClick && enlargeUrl));
   const openHref = $derived(
-    viewerHref === null ? undefined : (viewerHref ?? publicationPath(resolved))
+    viewerHref === null ? undefined : (viewerHref ?? libraryDocumentPath(resolved))
   );
 
   $effect(() => {

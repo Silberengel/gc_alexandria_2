@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { cardMeta, hasPublicationSection, preferRicherEvent, sortSearchResults } from './metadata';
+import { nip19 } from 'nostr-tools';
+import {
+  cardMeta,
+  hasPublicationSection,
+  libraryDocumentPath,
+  preferRicherEvent,
+  sortSearchResults,
+  specPath,
+  wikiPath
+} from './metadata';
+import { addressPath } from './library-scope';
+import { KIND } from './constants';
 
 function ev(kind: number, tags: string[][], content = '', id = 'a'.repeat(64)): Event {
   return {
@@ -82,6 +93,23 @@ describe('cardMeta summary', () => {
     expect(meta.summary).toBeUndefined();
     const { nip19 } = await import('nostr-tools');
     expect(meta.deferHref).toBe(`/wiki/d/preferred/p/${nip19.npubEncode(pk)}`);
+  });
+});
+
+describe('libraryDocumentPath', () => {
+  it('keeps wiki and spec on separate URL prefixes when they share a d-tag', () => {
+    const pk = 'f'.repeat(64);
+    const wiki = ev(KIND.WIKI, [['d', 'nkbip-01']], '', '1'.repeat(64));
+    wiki.pubkey = pk;
+    const spec = ev(KIND.SPEC, [['d', 'nkbip-01']], '', '2'.repeat(64));
+    spec.pubkey = pk;
+    const npub = nip19.npubEncode(pk);
+    expect(wikiPath(wiki)).toBe(`/wiki/d/nkbip-01/p/${npub}`);
+    expect(specPath(spec)).toBe(`/spec/d/nkbip-01/p/${npub}`);
+    expect(libraryDocumentPath(wiki)).toBe(wikiPath(wiki));
+    expect(libraryDocumentPath(spec)).toBe(specPath(spec));
+    expect(addressPath(`30818:${pk}:nkbip-01`)).toBe(`/wiki/d/nkbip-01/p/${npub}`);
+    expect(addressPath(`30817:${pk}:nkbip-01`)).toBe(`/spec/d/nkbip-01/p/${npub}`);
   });
 });
 

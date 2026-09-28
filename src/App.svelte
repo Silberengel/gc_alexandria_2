@@ -37,6 +37,12 @@
     '/wiki/nevent/:naddr': Wiki,
     '/wiki/note/:naddr': Wiki,
     '/wiki/:naddr': Wiki,
+    '/spec/d/:d/p/:npub': Wiki,
+    '/spec/d/:d': Wiki,
+    '/spec/naddr/:naddr': Wiki,
+    '/spec/nevent/:naddr': Wiki,
+    '/spec/note/:naddr': Wiki,
+    '/spec/:naddr': Wiki,
     '*': NotFound
   };
 
