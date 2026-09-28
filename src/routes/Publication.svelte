@@ -89,7 +89,6 @@
     isPreambleHeading
   } from '$lib/bible-verse';
   import {
-    chapterSectionAddress,
     findDouayChapterIndex,
     parseVerseQuery,
     verseInRange,
@@ -947,49 +946,6 @@
     replace(qs ? `${path}?${qs}` : path);
   }
 
-  /** Keep ?read=&section= (and Douay book/chapter) aligned with the painted pane. */
-  function syncReadingLocation(
-    target: Event | null,
-    opts?: { editionTop?: boolean; clearVerseMark?: boolean }
-  ): void {
-    if (!event || !reading) return;
-    const q = new URLSearchParams($querystring ?? '');
-    q.set('read', '1');
-    if (opts?.editionTop || !target) {
-      q.delete('section');
-      q.delete('book');
-      q.delete('chapter');
-      q.delete('verse');
-      q.delete('verses');
-      q.delete('pos');
-    } else {
-      const addr = eventAddress(target);
-      if (addr) q.set('section', addr);
-      else q.set('section', target.id);
-      const c = (firstTag(target, 'c') ?? '').trim();
-      let book: ReturnType<typeof douayBookByCode> = null;
-      for (const tag of target.tags) {
-        if (tag[0] !== 'T' || !tag[1]) continue;
-        book = douayBookByCode(tag[1]);
-        if (book) break;
-      }
-      if (book && c && /^\d+$/.test(c)) {
-        q.set('book', book.slug);
-        q.set('chapter', c);
-      } else {
-        q.delete('book');
-        q.delete('chapter');
-      }
-      if (opts?.clearVerseMark) {
-        q.delete('verse');
-        q.delete('verses');
-      }
-    }
-    const qs = q.toString();
-    if (qs === ($querystring ?? '')) return;
-    replace(`${hashPathOnly()}?${qs}`);
-  }
-
   /** True when the URL already describes the painted reader pane (avoid reload loops). */
   function urlMatchesPainted(focus: ReturnType<typeof focusFromUrl>): boolean {
     if (!reading) return false;
@@ -1190,7 +1146,6 @@
       sections.length === painted.length &&
       sections.every((s, i) => s.id === painted[i]?.id);
     if (sameIndex) {
-      // Already painted — do not syncReadingLocation (URL replace → applyUrlFocus doom loop).
       sectionsLoading = false;
       return;
     }
@@ -1224,7 +1179,6 @@
       readerSectionId = leaf.id;
       saveResume(eventAddress(edition), { pos: readerPos, sectionId: leaf.id });
     }
-    syncReadingLocation(leaf);
     void enrichHighlightsFromSections(painted);
     sectionsLoading = false;
     if (keepY != null && keepY > 0) {
@@ -1237,7 +1191,7 @@
   }
 
   /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
-  function paintScopedEditionTop(edition: Event, opts?: { syncUrl?: boolean }): void {
+  function paintScopedEditionTop(edition: Event): void {
     scopedAtEditionTop = true;
     scopedPaintGen += 1;
     clearAdoptFlush();
@@ -1260,11 +1214,12 @@
         sectionId: edition.id
       });
     }
-    // fillScopedReading paints cover as a brief shell before a ?section= leaf — skip URL sync
-    // so we do not strip the deep link and race bare ?read=1 back to the cover.
-    if (opts?.syncUrl !== false) syncReadingLocation(null, { editionTop: true });
     sectionsLoading = false;
   }
+
+  /** Dedup concurrent Douay seed loads — overlapping fills were flooding relays. */
+  let scopedFillPromise: Promise<boolean> | null = null;
+  let scopedFillEditionId = '';
 
   /**
    * Bible-typed / large / reading-plan editions: keep indexes in memory, paint one leaf.
@@ -1272,6 +1227,11 @@
    * Stays on the edition cover until the user picks a ToC entry (or Continue / deep link).
    */
   async function fillScopedReading(edition: Event): Promise<boolean> {
+    if (scopedFillPromise && scopedFillEditionId === edition.id) {
+      return scopedFillPromise;
+    }
+    scopedFillEditionId = edition.id;
+    const run = (async (): Promise<boolean> => {
     readingBusy = true;
     sectionsLoading = true;
     scopedPaintIndex = null;
@@ -1282,7 +1242,7 @@
     const signal = treeAbort.signal;
     try {
       toc = buildIndexScopedToc(edition);
-      paintScopedEditionTop(edition, { syncUrl: false });
+      paintScopedEditionTop(edition);
       readingBusy = false;
 
       let tocRefreshTimer = 0;
@@ -1427,6 +1387,14 @@
     } finally {
       if (event?.id === edition.id) readingBusy = false;
     }
+    })();
+    scopedFillPromise = run.finally(() => {
+      if (scopedFillEditionId === edition.id) {
+        scopedFillPromise = null;
+        scopedFillEditionId = '';
+      }
+    });
+    return scopedFillPromise;
   }
 
   /** Load ToC + first heading immediately, then stream/walk sections into the pane. */
@@ -1482,7 +1450,20 @@
   }
 
   let focusKey = '';
+  /** Blocks applyUrlFocus from starting the same deep-link open over and over (effect loops). */
+  let urlFocusInFlight = '';
 
+  function urlFocusSignature(focus: ReturnType<typeof focusFromUrl>): string {
+    return [
+      focus.read ? '1' : '0',
+      focus.section,
+      focus.book,
+      Number.isFinite(focus.chapter) ? String(focus.chapter) : '',
+      focus.quote,
+      Number.isFinite(focus.pos) ? String(focus.pos) : '',
+      focus.verses ? `${focus.verses.start}-${focus.verses.end}` : ''
+    ].join('\0');
+  }
 
   /** Open reader for a quote with no section (edition-level highlight). */
   async function openQuoteReading(quote: string): Promise<void> {
@@ -1499,9 +1480,7 @@
     if (!event || unreadable || !canRead) return;
     if (jumpBusy) return;
     const key = `${sectionAddr}\0${quote}`;
-    // Duplicate in-flight only — finished-but-wrong-pane must be allowed to retry.
-    if (key === focusKey && readingBusy) return;
-    // Already showing this index — do not reset via fillScopedReading.
+    // Same target already open or opening — never stack another fill/paint (relay flood).
     if (
       reading &&
       !scopedAtEditionTop &&
@@ -1512,6 +1491,7 @@
       focusKey = key;
       return;
     }
+    if (key === focusKey && readingBusy) return;
     focusKey = key;
     reading = true;
     readingBusy = true;
@@ -1521,12 +1501,11 @@
     const edition = event;
     if (isIndexScopedEdition(edition)) {
       try {
-        setReadQuery(true);
-        reading = true;
-        // Never call fillScopedReading while a leaf/cover shell is already up — it cancelTree()s
-        // and paints the cover, aborting ToC jumps. Cold deep links (empty pane) still warm.
+        // Do not setReadQuery here — URL already has ?read=1&section= from the router;
+        // rewriting querystring re-enters the URL-focus effect and doom-loops.
         if (!toc.length) toc = buildIndexScopedToc(edition);
-        if (!scopedPaintIndex && !sections.length) {
+        // Only bootstrap the cover/seed load when the pane is empty — never reset a live leaf.
+        if (!sections.length) {
           await fillScopedReading(edition);
         }
         if (focusKey !== key || event !== edition || jumpBusy) return;
@@ -1542,7 +1521,6 @@
           }
         }
         if (!focused) {
-          // One short retry after seeds may have landed — avoid a 4s blocking loop.
           await new Promise((r) => setTimeout(r, 200));
           if (focusKey !== key || event !== edition || jumpBusy) return;
           if (/^[0-9a-f]{64}$/i.test(focusAddr)) {
@@ -1696,9 +1674,13 @@
     const focus = focusFromUrl();
     const book = douayBookBySlug(focus.book);
     if (!book || !Number.isFinite(focus.chapter)) return;
+    if (urlMatchesPainted(focus)) {
+      if (focus.verses) scrollToMarkedVerse();
+      return;
+    }
     const verseKey = focus.verses ? `${focus.verses.start}-${focus.verses.end}` : '';
     const key = `douay:${book.slug}:${focus.chapter}\0${verseKey}`;
-    if (key === focusKey && reading) {
+    if (key === focusKey && reading && (readingBusy || (scopedPaintIndex && !scopedAtEditionTop))) {
       if (focus.verses && scopedPaintIndex) scrollToMarkedVerse();
       return;
     }
@@ -1708,8 +1690,12 @@
     sectionsLoading = true;
     const edition = event;
     try {
-      setReadQuery(true);
-      await fillScopedReading(edition);
+      // Do not setReadQuery / rewrite URL here — that re-enters applyUrlFocus.
+      if (!toc.length || (!sections.length && !scopedPaintIndex)) {
+        await fillScopedReading(edition);
+      } else if (!toc.length) {
+        toc = buildIndexScopedToc(edition);
+      }
       if (focusKey !== key || event !== edition) return;
       toc = buildIndexScopedToc(edition);
       let chapterEv = findDouayChapterIndex(book.code, focus.chapter);
@@ -1720,13 +1706,6 @@
         chapterEv = findDouayChapterIndex(book.code, focus.chapter);
       }
       if (!chapterEv || focusKey !== key || event !== edition) return;
-      const addr = chapterSectionAddress(chapterEv);
-      const q = new URLSearchParams($querystring ?? '');
-      if (q.get('section') !== addr) {
-        q.set('section', addr);
-        q.set('read', '1');
-        replace(`${hashPathOnly()}?${q}`);
-      }
       await paintScopedIndex(edition, chapterEv, { network: false });
       if (focus.verses) {
         await tick();
@@ -1746,36 +1725,55 @@
     // (that aborted paintScopedIndex and left jumpBusy stuck on “Opening…”).
     if (jumpBusy) return;
     const focus = focusFromUrl();
+    const sig = urlFocusSignature(focus);
     // Landing comment / rating deep links stay on the info page, not the reader.
     if (focus.comment || focus.rating) {
       if (reading) reading = false;
+      urlFocusInFlight = '';
+      return;
+    }
+    // Prefer ?section= over book/chapter when both are present (inbound deep links).
+    if (focus.section) {
+      if (urlMatchesPainted(focus)) {
+        urlFocusInFlight = '';
+        if (focus.verses) scrollToMarkedVerse();
+        return;
+      }
+      if (sig === urlFocusInFlight || readingBusy) return;
+      if (textUnavailable || unreadable || !canRead) return;
+      urlFocusInFlight = sig;
+      void openFocusedReading(focus.section, focus.quote, focus.pos)
+        .then(() => {
+          if (focusFromUrl().verses) scrollToMarkedVerse();
+        })
+        .finally(() => {
+          if (urlFocusInFlight === sig) urlFocusInFlight = '';
+        });
       return;
     }
     if (focus.book && Number.isFinite(focus.chapter)) {
       if (urlMatchesPainted(focus)) {
+        urlFocusInFlight = '';
         if (focus.verses) scrollToMarkedVerse();
         return;
       }
+      if (sig === urlFocusInFlight || readingBusy) return;
       if (textUnavailable || unreadable || !canRead) return;
-      void openDouayPassageReading();
-      return;
-    }
-    if (focus.section) {
-      if (urlMatchesPainted(focus)) {
-        if (focus.verses) scrollToMarkedVerse();
-        return;
-      }
-      if (textUnavailable || unreadable || !canRead) return;
-      void openFocusedReading(focus.section, focus.quote, focus.pos).then(() => {
-        if (focusFromUrl().verses) scrollToMarkedVerse();
+      urlFocusInFlight = sig;
+      void openDouayPassageReading().finally(() => {
+        if (urlFocusInFlight === sig) urlFocusInFlight = '';
       });
       return;
     }
     if (focus.quote) {
       const key = `\0${focus.quote}`;
       if (key === focusKey && reading) return;
+      if (sig === urlFocusInFlight || readingBusy) return;
       if (textUnavailable || unreadable || !canRead) return;
-      void openQuoteReading(focus.quote);
+      urlFocusInFlight = sig;
+      void openQuoteReading(focus.quote).finally(() => {
+        if (urlFocusInFlight === sig) urlFocusInFlight = '';
+      });
       return;
     }
     if (focus.read) {
@@ -1788,19 +1786,34 @@
           !focus.book &&
           !Number.isFinite(focus.pos);
         if (bareRead) {
-          // Already showing a nested index from a ToC click — do not clobber it just because
-          // syncReadingLocation has not written ?section= yet.
-          if (scopedPaintIndex && !scopedAtEditionTop) return;
-          void startReading({ fromUrl: true });
+          // Already showing a nested index from a ToC click — do not clobber it.
+          if (scopedPaintIndex && !scopedAtEditionTop) {
+            urlFocusInFlight = '';
+            return;
+          }
+          if (scopedAtEditionTop && readingShellOnly) {
+            urlFocusInFlight = '';
+            return;
+          }
+          if (sig === urlFocusInFlight || readingBusy) return;
+          urlFocusInFlight = sig;
+          void startReading({ fromUrl: true }).finally(() => {
+            if (urlFocusInFlight === sig) urlFocusInFlight = '';
+          });
           return;
         }
         if (!reading || (!sections.length && !readingBusy)) {
-          void startReading({ fromUrl: true });
+          if (sig === urlFocusInFlight || readingBusy) return;
+          urlFocusInFlight = sig;
+          void startReading({ fromUrl: true }).finally(() => {
+            if (urlFocusInFlight === sig) urlFocusInFlight = '';
+          });
         }
       }
       return;
     }
     // Plain info URL (title links from landing) — metadata view, forced to top.
+    urlFocusInFlight = '';
     if (reading) reading = false;
     focusKey = '';
     commentFocusApplied = '';
@@ -2056,11 +2069,14 @@
   });
 
   $effect(() => {
-    // Re-apply deep links (?section=&quote=, ?comment=, ?rating=, or plain path → top).
+    // Re-apply deep links when the hash query changes (inbound only — we do not rewrite URL).
     if (!event || loading) return;
     void $querystring;
-    void canRead;
-    applyUrlFocus();
+    const evId = event.id;
+    queueMicrotask(() => {
+      if (!event || event.id !== evId || loading) return;
+      applyUrlFocus();
+    });
   });
 
   async function startReading(opts?: {
@@ -2083,10 +2099,9 @@
       opts?.pos == null;
     // URL sync can re-enter; ignore if we are already reading with content on screen.
     if (reading && opts?.fromUrl && sections.length && !wantScopedCover) return;
-    // Nested index already painted (ToC jump) — bare URL sync must not wipe it.
+    // Nested index already painted (ToC jump) — bare URL must not wipe it.
     if (wantScopedCover && scopedPaintIndex && !scopedAtEditionTop) return;
     if (reading && opts?.fromUrl && wantScopedCover && scopedAtEditionTop && readingShellOnly) {
-      syncReadingLocation(null, { editionTop: true });
       return;
     }
     reading = true;
@@ -2454,28 +2469,14 @@
           reading = true;
           setReadQuery(true);
         }
-        // Write ?section= before await so bare ?read=1 applyUrlFocus cannot startReading(cover).
-        if (entry.address) {
-          const q = new URLSearchParams($querystring ?? '');
-          q.set('read', '1');
-          q.set('section', entry.address);
-          q.delete('book');
-          q.delete('chapter');
-          q.delete('verse');
-          q.delete('verses');
-          q.delete('pos');
-          const qs = q.toString();
-          if (qs !== ($querystring ?? '')) replace(`${hashPathOnly()}?${qs}`);
-        }
+        // Hold jumpBusy so bare ?read=1 applyUrlFocus cannot startReading(cover) mid-jump.
         const focused = await resolveTocSection(entry);
         if (event !== edition || !focused) return;
-        // Accept focusKey change from URL sync (openFocusedReading) — still finish this jump.
         rememberEvents([focused]);
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
         if (!leaf) return;
         await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
-        syncReadingLocation(leaf, { clearVerseMark: true });
         focusKey = `toc:${entry.address ?? entry.id ?? entry.pos}`;
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
@@ -2611,10 +2612,8 @@
     const resolvedPos = corpusPos >= 0 ? corpusPos : pos;
     saveResume(eventAddress(event), { pos: resolvedPos, sectionId: section.id });
     const prev = readerPos;
-    const prevSection = readerSectionId;
     readerPos = resolvedPos;
     readerSectionId = section.id;
-    if (section.id !== prevSection) syncReadingLocation(section);
     if (resolvedPos !== prev) {
       sectionTick = true;
       window.setTimeout(() => {

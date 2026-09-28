@@ -30,7 +30,6 @@ export function readerShareUrl(edition: Event, target: Event): string {
   const c = (firstTag(target, 'c') ?? '').trim();
   const s = (firstTag(target, 's') ?? '').trim();
   const book = douayBookFromTags(target);
-  const title = (firstTag(target, 'title') ?? '').trim();
 
   if (book && c && /^\d+$/.test(c)) {
     // Verse body
@@ -54,6 +53,5 @@ export function readerShareUrl(edition: Event, target: Event): string {
     q.set('book', book.slug);
     q.set('chapter', c);
   }
-  void title;
   return `${origin}/#${path}?${q}`;
 }

@@ -1,10 +1,17 @@
 /**
  * Detect remote cover/hero URLs that are gone even when the host returns HTTP 200
  * with a placeholder image (nostr.build sets `x-status: 404`).
+ *
+ * Only those hosts are CORS-probed. Gutenberg and most other cover CDNs omit
+ * Access-Control-Allow-Origin — probing them floods the console and never helps
+ * (plain `<img onerror>` is enough).
  */
 
 const missingByUrl = new Map<string, boolean>();
 const inflight = new Map<string, Promise<boolean>>();
+
+/** Hosts that soft-404 with HTTP 200 + `x-status: 404` (must be readable via CORS). */
+const SOFT_404_HOST_RE = /(^|\.)nostr\.build$/i;
 
 function normalizeUrl(url: string): string {
   const t = url.trim();
@@ -20,6 +27,14 @@ function isHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
+function needsCorsProbe(url: string): boolean {
+  try {
+    return SOFT_404_HOST_RE.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Sync session memory — `true` = known missing, `false` = known ok, else unprobed. */
 export function peekImageMissing(url: string): boolean | undefined {
   return missingByUrl.get(normalizeUrl(url));
@@ -27,12 +42,18 @@ export function peekImageMissing(url: string): boolean | undefined {
 
 /**
  * `true` when the URL should not be shown (HTTP error or nostr.build soft-404).
- * CORS/network failures return `false` so `<img onerror>` can still decide.
+ * Non-probe hosts and CORS/network failures return `false` so `<img onerror>` decides.
  */
 export async function isRemoteImageMissing(url: string): Promise<boolean> {
   const key = normalizeUrl(url);
   if (!key || !isHttpUrl(key)) return false;
   if (missingByUrl.has(key)) return missingByUrl.get(key)!;
+
+  // Skip Gutenberg / imwald / etc. — CORS probe only creates console noise.
+  if (!needsCorsProbe(key)) {
+    missingByUrl.set(key, false);
+    return false;
+  }
 
   const pending = inflight.get(key);
   if (pending) return pending;
