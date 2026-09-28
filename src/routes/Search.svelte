@@ -21,9 +21,12 @@
     runReadSearch,
     npubFromInput
   } from '$lib/search';
-  import { muteState, filterMuted } from '$lib/mute';
+  import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
+  import { session } from '$lib/stores/session';
   import type { Event } from 'nostr-tools';
+
+  type ResultScope = 'all' | 'mine' | 'follows';
 
   let events = $state<Event[]>([]);
   let loading = $state(false);
@@ -33,6 +36,10 @@
   /** Active query shown under the Search heading (empty when no params). */
   let searchTerm = $state('');
   let searchKind = $state('');
+  let resultScope = $state<ResultScope>('all');
+
+  const signedIn = $derived(Boolean($session.pubkey));
+  let follows = $state<Set<string>>(new Set());
 
   function hashParams(): URLSearchParams {
     const hash = window.location.hash;
@@ -74,6 +81,7 @@
     searchKind = described.kind;
     if (key === lastKey) return;
     lastKey = key;
+    resultScope = 'all';
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
     const label = params.get('label') ?? '';
@@ -113,20 +121,43 @@
     else void runSearch(q, onUpdate);
   }
 
+  function setResultScope(next: ResultScope): void {
+    resultScope = next;
+    page = 1;
+  }
+
+  function filterByScope(list: Event[], scope: ResultScope): Event[] {
+    if (scope === 'all') return list;
+    const me = $session.pubkey?.toLowerCase();
+    if (!me) return [];
+    if (scope === 'mine') return list.filter((e) => e.pubkey.toLowerCase() === me);
+    return list.filter((e) => follows.has(e.pubkey.toLowerCase()));
+  }
+
   onMount(() => {
+    follows = followPubkeysFromMetadata(session.getMetadata());
+    const unsubMeta = session.metadata.subscribe((events) => {
+      follows = followPubkeysFromMetadata(events);
+    });
     runFromHash();
     window.addEventListener('hashchange', runFromHash);
-    return () => window.removeEventListener('hashchange', runFromHash);
+    return () => {
+      unsubMeta();
+      window.removeEventListener('hashchange', runFromHash);
+    };
   });
 
   $effect(() => {
     pageFilter;
     $listingDensity;
+    resultScope;
     page = 1;
   });
 
   const pageSize = $derived(listingPageSize($listingDensity));
-  const visible = $derived(filterPageEvents(filterMuted(events, $muteState), pageFilter));
+  const visible = $derived(
+    filterByScope(filterPageEvents(filterMuted(events, $muteState), pageFilter), resultScope)
+  );
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
 </script>
 
@@ -141,11 +172,48 @@
   {/if}
   <div class="listing-toolbar">
     <PageFilter bind:value={pageFilter} />
+  </div>
+  <div class="listing-toolbar search-result-filters" role="group" aria-label="Result filters">
+    <div class="booklist-scope search-result-scope" role="group" aria-label="Result source">
+      <button
+        type="button"
+        class="booklist-scope-btn"
+        class:active={resultScope === 'all'}
+        aria-pressed={resultScope === 'all'}
+        onclick={() => setResultScope('all')}
+      >All</button>
+      <button
+        type="button"
+        class="booklist-scope-btn"
+        class:active={resultScope === 'mine'}
+        aria-pressed={resultScope === 'mine'}
+        disabled={!signedIn}
+        title={signedIn ? 'Published by you' : 'Sign in to filter to your publications'}
+        onclick={() => setResultScope('mine')}
+      >From me</button>
+      <button
+        type="button"
+        class="booklist-scope-btn"
+        class:active={resultScope === 'follows'}
+        aria-pressed={resultScope === 'follows'}
+        disabled={!signedIn}
+        title={signedIn ? 'Published by accounts you follow' : 'Sign in to filter to follows'}
+        onclick={() => setResultScope('follows')}
+      >From follows</button>
+    </div>
     <ListingViewToggle label="Search results" />
   </div>
   {#if loading}<p class="muted">{events.length ? 'Updating…' : 'Searching…'}</p>{/if}
   {#if !loading && visible.length === 0}
-    <p class="muted">Nothing matched.</p>
+    <p class="muted">
+      {#if resultScope === 'mine'}
+        Nothing here from you.
+      {:else if resultScope === 'follows'}
+        Nothing here from accounts you follow.
+      {:else}
+        Nothing matched.
+      {/if}
+    </p>
   {/if}
   {#if $listingDensity === 'table'}
     <EventsTable events={visible} />

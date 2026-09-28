@@ -34,9 +34,12 @@ async function openCache(): Promise<Cache> {
 const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
 const PUBLICATION_STREAM_PREFIX = '/snapshot/publication-stream/';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
-const MAX_SEARCH_SNAPSHOTS = 20;
+const MAX_SEARCH_SNAPSHOTS = 24;
 /** Soft cap for publication stream snapshots (Douay seed is ~38k). */
 const MAX_PUBLICATION_STREAM_EVENTS = 50_000;
+
+/** Medium-term search result paint — skip relay fan-out while fresh. */
+export const SEARCH_SNAPSHOT_TTL_MS = 20 * 60 * 1000;
 
 export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
 
@@ -274,29 +277,70 @@ function searchKeyList(): string[] {
   return [];
 }
 
-export async function cacheGetSearchSnapshot(key: string): Promise<Event[]> {
-  const cache = await openCache();
-  const res = await cache.match(searchSnapshotUrl(key));
-  if (!res) return [];
+export type SearchSnapshot = {
+  savedAt: number;
+  events: Event[];
+};
+
+const searchMemory = new Map<string, SearchSnapshot>();
+
+function ingestSearchSnapshot(raw: unknown): SearchSnapshot | null {
+  if (Array.isArray(raw)) {
+    // Legacy bare event list — treat as expired so the next search refreshes.
+    return { savedAt: 0, events: ingestList(raw) };
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as { savedAt?: unknown; events?: unknown };
+  if (!Array.isArray(obj.events)) return null;
+  const savedAt = typeof obj.savedAt === 'number' && Number.isFinite(obj.savedAt) ? obj.savedAt : 0;
+  return { savedAt, events: ingestList(obj.events) };
+}
+
+export function searchSnapshotFresh(
+  snap: SearchSnapshot | null | undefined,
+  ttlMs = SEARCH_SNAPSHOT_TTL_MS
+): boolean {
+  if (!snap) return false;
+  return Date.now() - snap.savedAt < ttlMs;
+}
+
+export async function cacheGetSearchSnapshot(key: string): Promise<SearchSnapshot | null> {
+  const mem = searchMemory.get(key);
+  if (mem) return { savedAt: mem.savedAt, events: [...mem.events] };
   try {
-    return ingestList(await res.json());
+    const cache = await openCache();
+    const res = await cache.match(searchSnapshotUrl(key));
+    if (!res) return null;
+    const snap = ingestSearchSnapshot(await res.json());
+    if (snap) searchMemory.set(key, snap);
+    return snap ? { savedAt: snap.savedAt, events: [...snap.events] } : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
 export async function cachePutSearchSnapshot(key: string, events: Event[]): Promise<void> {
-  const cache = await openCache();
-  const body = JSON.stringify(events.slice(0, 100));
-  await cache.put(
-    searchSnapshotUrl(key),
-    new Response(body, { headers: { 'Content-Type': 'application/json' } })
-  );
-  const keys = [key, ...searchKeyList().filter((k) => k !== key)];
-  const dropped = keys.slice(MAX_SEARCH_SNAPSHOTS);
-  const kept = keys.slice(0, MAX_SEARCH_SNAPSHOTS);
-  localStorage.setItem(SEARCH_KEYS_META, JSON.stringify(kept));
-  await Promise.all(dropped.map((k) => cache.delete(searchSnapshotUrl(k))));
+  const snap: SearchSnapshot = {
+    savedAt: Date.now(),
+    events: events.slice(0, 100)
+  };
+  searchMemory.set(key, snap);
+  try {
+    const cache = await openCache();
+    const body = JSON.stringify(snap);
+    await cache.put(
+      searchSnapshotUrl(key),
+      new Response(body, { headers: { 'Content-Type': 'application/json' } })
+    );
+    const keys = [key, ...searchKeyList().filter((k) => k !== key)];
+    const dropped = keys.slice(MAX_SEARCH_SNAPSHOTS);
+    const kept = keys.slice(0, MAX_SEARCH_SNAPSHOTS);
+    localStorage.setItem(SEARCH_KEYS_META, JSON.stringify(kept));
+    await Promise.all(dropped.map((k) => cache.delete(searchSnapshotUrl(k))));
+    for (const k of dropped) searchMemory.delete(k);
+  } catch {
+    /* private mode / quota — memory still helps this session */
+  }
 }
 
 /** Medium-term profile page paint (produced / interacted / queue). */
@@ -590,6 +634,8 @@ export async function clearEventCache(): Promise<void> {
   }
   localStorage.removeItem(META_KEY);
   localStorage.removeItem(SEARCH_KEYS_META);
+  searchMemory.clear();
+  profilePageMemory.clear();
   try {
     localStorage.removeItem('alexandria-profile-thumbs');
   } catch {

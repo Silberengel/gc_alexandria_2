@@ -147,8 +147,8 @@
 </script>
 
 {#if signedIn}
-  <section class="landing-block reading-now-block">
-    <h2>Reading now</h2>
+  <section class="landing-section reading-now-block">
+    <h2 class="section-title">Reading now</h2>
     {#if active.length}
       <ul class="reading-now-list">
         {#each active as entry (entry.a)}

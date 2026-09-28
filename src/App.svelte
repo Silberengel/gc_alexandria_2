@@ -8,6 +8,7 @@
   import Profile from './routes/Profile.svelte';
   import Settings from './routes/Settings.svelte';
   import About from './routes/About.svelte';
+  import Booklists from './routes/Booklists.svelte';
   import StartRedirect from './routes/StartRedirect.svelte';
   import Contact from './routes/Contact.svelte';
   import NotFound from './routes/NotFound.svelte';
@@ -20,6 +21,7 @@
     '/search': Search,
     '/settings': Settings,
     '/about': About,
+    '/booklists': Booklists,
     '/start': StartRedirect,
     '/contact': Contact,
     '/p/:id': Profile,

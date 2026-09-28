@@ -42,21 +42,27 @@
   Published by <UserBadge pubkey={meta.publishedBy} />
 </p>
 {#if meta.authors.length}
-  <p class="muted pub-card-line">
+  <p class="muted pub-card-line" title={meta.authors.join(', ')}>
     Author:
-    {#each meta.authors as author, i}
+    {#each meta.authors.slice(0, 4) as author, i}
       {#if i > 0}, {/if}
       <a href={`#/search?author=${encodeURIComponent(author)}`} use:link>{author}</a>
     {/each}
+    {#if meta.authors.length > 4}
+      <span>, +{meta.authors.length - 4} more</span>
+    {/if}
   </p>
 {/if}
 {#if showTitles && meta.titles.length}
-  <p class="muted pub-card-line">
+  <p class="muted pub-card-line" title={meta.titles.join(', ')}>
     Title:
-    {#each meta.titles as title, i}
+    {#each meta.titles.slice(0, 3) as title, i}
       {#if i > 0}, {/if}
       <a href={`#/search?title=${encodeURIComponent(title)}`} use:link>{title}</a>
     {/each}
+    {#if meta.titles.length > 3}
+      <span>, +{meta.titles.length - 3} more</span>
+    {/if}
   </p>
 {/if}
 {#if meta.source}

@@ -511,6 +511,31 @@
     </div>
   </header>
 
+  {#if visibleGuides.length}
+    <section class="landing-section landing-guides">
+      <h2 class="section-title">Guides</h2>
+      <nav class="guide-links" aria-label="Starter guides">
+        {#each visibleGuides as guide, i (guide.d)}
+          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+          <a href={guide.href} use:link>{guide.title}</a>
+        {/each}
+      </nav>
+    </section>
+  {/if}
+
+  {#if visibleLabels.length}
+    <section class="landing-section landing-booklists">
+      <h2 class="section-title">Booklists</h2>
+      <nav class="guide-links guide-links-clamp" aria-label="Booklists">
+        {#each visibleLabels as label, i}
+          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+          <a href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
+        {/each}
+      </nav>
+      <a class="landing-browse-link" href="#/booklists" use:link>Browse the booklists</a>
+    </section>
+  {/if}
+
   <ReadingNowPanel />
 
   {#if showLandingSpinner || landingStatus}
@@ -627,18 +652,6 @@
     </div>
   {/if}
 
-  {#if visibleGuides.length}
-    <section class="landing-section landing-guides">
-      <h2 class="section-title">Guides</h2>
-      <nav class="guide-links" aria-label="Starter guides">
-        {#each visibleGuides as guide, i (guide.d)}
-          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
-          <a href={guide.href} use:link>{guide.title}</a>
-        {/each}
-      </nav>
-    </section>
-  {/if}
-
   {#if visibleSubjects.length}
     <section class="landing-section">
       <h2 class="section-title">Subjects</h2>
@@ -647,18 +660,6 @@
           <a class="chip" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link>{subject}</a>
         {/each}
       </div>
-    </section>
-  {/if}
-
-  {#if visibleLabels.length}
-    <section class="landing-section">
-      <h2 class="section-title">Labels</h2>
-      <nav class="guide-links" aria-label="Labels">
-        {#each visibleLabels as label, i}
-          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
-          <a href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
-        {/each}
-      </nav>
     </section>
   {/if}
 </main>

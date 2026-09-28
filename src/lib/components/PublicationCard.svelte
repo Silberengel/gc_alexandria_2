@@ -97,7 +97,9 @@
           {/if}
         </h3>
         {#if showMeta}
-          <CardMeta {event} showTitles={false} showSubjects={false} />
+          <div class="pub-card-meta">
+            <CardMeta {event} showTitles={false} showSubjects={false} />
+          </div>
         {/if}
       </div>
     </div>

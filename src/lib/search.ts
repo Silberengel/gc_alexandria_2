@@ -5,7 +5,7 @@ import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
 import { filterRenderableCatalogEvents } from './catalog-visibility';
-import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText } from './nostr/cache';
+import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText, searchSnapshotFresh } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
@@ -162,11 +162,29 @@ export function isNsec(input: string): boolean {
   }
 }
 
-async function paintCached(key: string, onUpdate: (r: SearchResult) => void): Promise<Event[]> {
-  const cached = filterRenderableCatalogEvents(filterDeletedEvents(await cacheGetSearchSnapshot(key)));
+async function paintCached(
+  key: string,
+  onUpdate: (r: SearchResult) => void
+): Promise<{ events: Event[]; fresh: boolean }> {
+  const snap = await cacheGetSearchSnapshot(key);
+  const cached = filterRenderableCatalogEvents(filterDeletedEvents(snap?.events ?? []));
+  const fresh = searchSnapshotFresh(snap);
   rememberEvents(cached);
-  onUpdate({ events: cached, loading: true, done: false });
-  return cached;
+  onUpdate({ events: cached, loading: !fresh, done: fresh });
+  return { events: cached, fresh };
+}
+
+/** Paint from cache; fetch live only when the snapshot is missing or stale. */
+async function cachedOrLive(
+  key: string,
+  onUpdate: (r: SearchResult) => void,
+  live: () => Promise<Event[]>,
+  opts?: { exactD?: string }
+): Promise<void> {
+  const { events: cached, fresh } = await paintCached(key, onUpdate);
+  if (fresh) return;
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  await finishWithGrapevine(key, await live(), cached, onUpdate, opts);
 }
 
 export async function runSearch(query: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -178,13 +196,15 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
   }
 
   const key = `q:${normalizeSearchKey(q)}`;
-  const cached = await paintCached(key, onUpdate);
+  const { events: cached, fresh } = await paintCached(key, onUpdate);
 
   const profileNpub = npubFromInput(q);
   if (profileNpub) {
     onUpdate({ events: cached, loading: false, done: true });
     return;
   }
+
+  if (fresh) return;
 
   if (HEX64.test(q)) {
     await finishWithGrapevine(key, await fetchByIdOrAuthor(q), cached, onUpdate);
@@ -312,70 +332,70 @@ async function fanOutSearch(
 
 export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `author:${normalizeSearchKey(author)}`;
-  const cached = await paintCached(key, onUpdate);
   const slug = relayTagSlug(author);
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [mercury, wiki, relays, brainstorm] = await Promise.all([
-    mercuryPublicationSearch({ author, limit: 100 }),
-    mercuryWikiSearch({ author, limit: 100 }),
-    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }]),
-    brainstormSearch(author)
-  ]);
-  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays, ...brainstorm]), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const [mercury, wiki, relays, brainstorm] = await Promise.all([
+      mercuryPublicationSearch({ author, limit: 100 }),
+      mercuryWikiSearch({ author, limit: 100 }),
+      relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }]),
+      brainstormSearch(author)
+    ]);
+    return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
+  });
 }
 
 export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `title:${normalizeSearchKey(title)}`;
-  const cached = await paintCached(key, onUpdate);
   const slug = relayTagSlug(title);
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [mercury, wiki, relays, brainstorm] = await Promise.all([
-    mercuryPublicationSearch({ title, limit: 100 }),
-    mercuryWikiSearch({ title, limit: 100 }),
-    relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }]),
-    brainstormSearch(title)
-  ]);
-  await finishWithGrapevine(key, mergeById([...mercury, ...wiki, ...relays, ...brainstorm]), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const [mercury, wiki, relays, brainstorm] = await Promise.all([
+      mercuryPublicationSearch({ title, limit: 100 }),
+      mercuryWikiSearch({ title, limit: 100 }),
+      relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }]),
+      brainstormSearch(title)
+    ]);
+    return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
+  });
 }
 
 export async function runIdentifierSearch(identifier: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `identifier:${normalizeSearchKey(identifier)}`;
-  const cached = await paintCached(key, onUpdate);
   const hints = identifierHints(identifier);
   const ids = hints.length ? hints : [identifier];
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const batches = await Promise.all([
-    ...ids.flatMap((id) => [
-      mercuryPublicationSearch({ identifier: id, limit: 100 }),
-      mercuryPublicationSearch({ s: id, limit: 100 }),
-      mercuryWikiSearch({ identifier: id, limit: 100 }),
-      mercuryWikiSearch({ s: id, limit: 100 })
-    ]),
-    brainstormSearch(identifier)
-  ]);
-  await finishWithGrapevine(key, mergeById(batches.flat()), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const batches = await Promise.all([
+      ...ids.flatMap((id) => [
+        mercuryPublicationSearch({ identifier: id, limit: 100 }),
+        mercuryPublicationSearch({ s: id, limit: 100 }),
+        mercuryWikiSearch({ identifier: id, limit: 100 }),
+        mercuryWikiSearch({ s: id, limit: 100 })
+      ]),
+      brainstormSearch(identifier)
+    ]);
+    return mergeById(batches.flat());
+  });
 }
 
 export async function runLanguageSearch(language: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `language:${normalizeSearchKey(language)}`;
-  const cached = await paintCached(key, onUpdate);
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [mercury, brainstorm] = await Promise.all([
-    mercuryPublicationSearch({ language, limit: 100 }),
-    brainstormSearch(language)
-  ]);
-  await finishWithGrapevine(key, mergeById([...mercury, ...brainstorm]), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const [mercury, brainstorm] = await Promise.all([
+      mercuryPublicationSearch({ language, limit: 100 }),
+      brainstormSearch(language)
+    ]);
+    return mergeById([...mercury, ...brainstorm]);
+  });
 }
 
 export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `subject:${normalizeSearchKey(subject)}`;
-  const cached = await paintCached(key, onUpdate);
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [subjects, brainstorm] = await Promise.all([
-    searchBySubject(subject),
-    brainstormSearch(subject)
-  ]);
-  await finishWithGrapevine(key, mergeById([...subjects, ...brainstorm]), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const [subjects, brainstorm] = await Promise.all([
+      searchBySubject(subject),
+      brainstormSearch(subject)
+    ]);
+    return mergeById([...subjects, ...brainstorm]);
+  });
 }
 
 export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -384,13 +404,13 @@ export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) 
     return;
   }
   const key = `label:${normalizeSearchKey(label)}`;
-  const cached = await paintCached(key, onUpdate);
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [labels, brainstorm] = await Promise.all([
-    searchByLabel(label),
-    brainstormSearch(`label:${label}`)
-  ]);
-  await finishWithGrapevine(key, mergeById([...labels, ...brainstorm]), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, async () => {
+    const [labels, brainstorm] = await Promise.all([
+      searchByLabel(label),
+      brainstormSearch(`label:${label}`)
+    ]);
+    return mergeById([...labels, ...brainstorm]);
+  });
 }
 
 /** Author-scoped books marked read — not a public label search. */
@@ -400,14 +420,11 @@ export async function runReadSearch(
 ): Promise<void> {
   const hex = hexPubkey(npubOrHex) ?? (HEX64.test(npubOrHex.trim()) ? npubOrHex.trim().toLowerCase() : '');
   const key = `read:${hex || normalizeSearchKey(npubOrHex)}`;
-  const cached = await paintCached(key, onUpdate);
   if (!hex) {
-    await finishWithGrapevine(key, [], cached, onUpdate);
+    await cachedOrLive(key, onUpdate, async () => []);
     return;
   }
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const pubs = await searchByReadAuthor(hex);
-  await finishWithGrapevine(key, pubs, cached, onUpdate);
+  await cachedOrLive(key, onUpdate, () => searchByReadAuthor(hex));
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {
@@ -418,27 +435,26 @@ export async function suggestTitles(q: string): Promise<string[]> {
 export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const slug = normalizeDTag(d);
   const key = `d:${normalizeSearchKey(slug || d)}`;
-  const cached = await paintCached(key, onUpdate);
   if (!slug) {
-    await finishWithGrapevine(key, [], cached, onUpdate);
+    await cachedOrLive(key, onUpdate, async () => []);
     return;
   }
   const variants = dTagVariants(d);
   const kinds = [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.DIRECTORY];
   const filter: Filter = { kinds, '#d': variants.slice(0, 12), limit: 100 };
-  void trustedAssertions.resolveProvider(session.getPubkey());
-  const [mercuryPubs, mercuryWiki, relays, filtered, brainstorm] = await Promise.all([
-    mercuryPublicationSearch({ d: slug, limit: 100 }),
-    mercuryWikiSearch({ d: slug, limit: 100 }),
-    relayPool.query(documentStack(), [filter]),
-    mercuryFilter(filter),
-    brainstormSearch(slug)
-  ]);
-  await finishWithGrapevine(
+  await cachedOrLive(
     key,
-    mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered, ...brainstorm]),
-    cached,
     onUpdate,
+    async () => {
+      const [mercuryPubs, mercuryWiki, relays, filtered, brainstorm] = await Promise.all([
+        mercuryPublicationSearch({ d: slug, limit: 100 }),
+        mercuryWikiSearch({ d: slug, limit: 100 }),
+        relayPool.query(documentStack(), [filter]),
+        mercuryFilter(filter),
+        brainstormSearch(slug)
+      ]);
+      return mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered, ...brainstorm]);
+    },
     { exactD: slug }
   );
 }
@@ -586,8 +602,7 @@ export async function runBookshelfSearch(
   npubOrHex?: string
 ): Promise<void> {
   const key = `bookshelf:${normalizeSearchKey(d)}:${npubOrHex ?? ''}`;
-  const cached = await paintCached(key, onUpdate);
-  await finishWithGrapevine(key, await searchByBookshelf(d, npubOrHex), cached, onUpdate);
+  await cachedOrLive(key, onUpdate, () => searchByBookshelf(d, npubOrHex));
 }
 
 export { hexPubkey, npubFromInput };

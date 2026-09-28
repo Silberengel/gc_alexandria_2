@@ -37,6 +37,7 @@
   import { untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { isAllowedHref } from '$lib/markup';
+  import { openMediaViewer } from '$lib/stores/media-viewer';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
   import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
   import { session } from '$lib/stores/session';
@@ -535,7 +536,19 @@
           ></div>
         {/if}
         {#if displayPicture && isAllowedHref(displayPicture)}
-          <img class="profile-avatar" src={toNostrBuildThumbUrl(displayPicture)} alt="" />
+          <button
+            type="button"
+            class="profile-avatar profile-avatar-zoom"
+            title="View profile picture"
+            aria-label={`View profile picture of ${displayTitle}`}
+            onclick={() =>
+              openMediaViewer({
+                url: displayPicture,
+                title: displayTitle
+              })}
+          >
+            <img src={toNostrBuildThumbUrl(displayPicture)} alt="" />
+          </button>
         {/if}
       </div>
       <div class="profile-header">
