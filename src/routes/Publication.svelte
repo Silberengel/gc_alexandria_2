@@ -45,6 +45,8 @@
     buildIndexScopedToc,
     collectIndexPaintEvents,
     isIndexScopedEdition,
+    isLeafIndex,
+    isPlanDayD,
     isReadingPlanEdition,
     listLeafIndexes,
     missingPaintAddresses,
@@ -86,6 +88,15 @@
     isBibleSection,
     isPreambleHeading
   } from '$lib/bible-verse';
+  import {
+    chapterSectionAddress,
+    findDouayChapterIndex,
+    parseVerseQuery,
+    verseInRange,
+    type VerseRange
+  } from '$lib/douay-passage';
+  import { douayBookBySlug, douayBookByCode } from '$lib/douay-canon';
+  import { readerShareUrl } from '$lib/reader-share-url';
   import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
   import {
@@ -350,6 +361,7 @@
   });
   const canContinue = $derived(!!continueTarget);
   const urlFocusQuote = $derived((new URLSearchParams($querystring ?? '').get('quote') ?? '').trim());
+  const urlVerseRange = $derived(parseVerseQuery(new URLSearchParams($querystring ?? '')));
   const urlFocusComment = $derived(
     (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
   );
@@ -876,16 +888,27 @@
     rating: string;
     read: boolean;
     pos: number;
+    book: string;
+    chapter: number;
+    verses: VerseRange | null;
   } {
     const q = new URLSearchParams($querystring ?? '');
-    const posRaw = Number(q.get('pos'));
+    // Number(null) === 0 — only parse pos/chapter when the param is actually present.
+    const posParam = q.get('pos');
+    const posRaw = posParam != null && posParam !== '' ? Number(posParam) : NaN;
+    const chapterParam = q.get('chapter');
+    const chapterRaw =
+      chapterParam != null && chapterParam !== '' ? Number(chapterParam) : NaN;
     return {
       section: (q.get('section') ?? '').trim(),
       quote: (q.get('quote') ?? '').trim(),
       comment: (q.get('comment') ?? '').trim().toLowerCase(),
       rating: (q.get('rating') ?? '').trim().toLowerCase(),
       read: q.get('read') === '1',
-      pos: Number.isFinite(posRaw) && posRaw >= 0 ? Math.floor(posRaw) : NaN
+      pos: Number.isFinite(posRaw) && posRaw >= 0 ? Math.floor(posRaw) : NaN,
+      book: (q.get('book') ?? '').trim().toLowerCase(),
+      chapter: Number.isInteger(chapterRaw) && chapterRaw > 0 ? chapterRaw : NaN,
+      verses: parseVerseQuery(q)
     };
   }
 
@@ -901,16 +924,120 @@
       q.set('read', '1');
     } else {
       const had =
-        q.get('read') === '1' || q.has('section') || q.has('pos') || q.has('quote');
+        q.get('read') === '1' ||
+        q.has('section') ||
+        q.has('pos') ||
+        q.has('quote') ||
+        q.has('book') ||
+        q.has('chapter') ||
+        q.has('verse') ||
+        q.has('verses');
       if (!had) return;
       q.delete('read');
       q.delete('section');
       q.delete('pos');
       q.delete('quote');
+      q.delete('book');
+      q.delete('chapter');
+      q.delete('verse');
+      q.delete('verses');
     }
     const qs = q.toString();
     const path = hashPathOnly();
     replace(qs ? `${path}?${qs}` : path);
+  }
+
+  /** Keep ?read=&section= (and Douay book/chapter) aligned with the painted pane. */
+  function syncReadingLocation(
+    target: Event | null,
+    opts?: { editionTop?: boolean; clearVerseMark?: boolean }
+  ): void {
+    if (!event || !reading) return;
+    const q = new URLSearchParams($querystring ?? '');
+    q.set('read', '1');
+    if (opts?.editionTop || !target) {
+      q.delete('section');
+      q.delete('book');
+      q.delete('chapter');
+      q.delete('verse');
+      q.delete('verses');
+      q.delete('pos');
+    } else {
+      const addr = eventAddress(target);
+      if (addr) q.set('section', addr);
+      else q.set('section', target.id);
+      const c = (firstTag(target, 'c') ?? '').trim();
+      let book: ReturnType<typeof douayBookByCode> = null;
+      for (const tag of target.tags) {
+        if (tag[0] !== 'T' || !tag[1]) continue;
+        book = douayBookByCode(tag[1]);
+        if (book) break;
+      }
+      if (book && c && /^\d+$/.test(c)) {
+        q.set('book', book.slug);
+        q.set('chapter', c);
+      } else {
+        q.delete('book');
+        q.delete('chapter');
+      }
+      if (opts?.clearVerseMark) {
+        q.delete('verse');
+        q.delete('verses');
+      }
+    }
+    const qs = q.toString();
+    if (qs === ($querystring ?? '')) return;
+    replace(`${hashPathOnly()}?${qs}`);
+  }
+
+  /** True when the URL already describes the painted reader pane (avoid reload loops). */
+  function urlMatchesPainted(focus: ReturnType<typeof focusFromUrl>): boolean {
+    if (!reading) return false;
+    if (focus.book && Number.isFinite(focus.chapter) && scopedPaintIndex) {
+      const c = (firstTag(scopedPaintIndex, 'c') ?? '').trim();
+      let book: ReturnType<typeof douayBookByCode> = null;
+      for (const tag of scopedPaintIndex.tags) {
+        if (tag[0] !== 'T' || !tag[1]) continue;
+        book = douayBookByCode(tag[1]);
+        if (book) break;
+      }
+      if (book?.slug === focus.book && c === String(focus.chapter)) return true;
+    }
+    if (focus.section) {
+      const sid = focus.section.toLowerCase();
+      // Cover while URL names a nested section is never a match (would stick on the edition top).
+      if (scopedAtEditionTop && event && sid !== event.id.toLowerCase() && sid !== eventAddress(event).toLowerCase()) {
+        return false;
+      }
+      if (scopedPaintIndex) {
+        const addr = eventAddress(scopedPaintIndex).toLowerCase();
+        if (addr === sid || scopedPaintIndex.id.toLowerCase() === sid) return true;
+      }
+      if (readerSectionId?.toLowerCase() === sid) return true;
+      if (
+        scopedAtEditionTop &&
+        event &&
+        (event.id.toLowerCase() === sid || eventAddress(event).toLowerCase() === sid)
+      ) {
+        return true;
+      }
+    }
+    if (focus.read && !focus.section && !focus.book && !focus.quote && scopedAtEditionTop) {
+      return true;
+    }
+    return false;
+  }
+
+  function scrollToMarkedVerse(attempts = 50): void {
+    const hit = document.querySelector<HTMLElement>('.bible-verse-marked');
+    if (hit) {
+      hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      hit.classList.add('highlight-flash');
+      window.setTimeout(() => hit.classList.remove('highlight-flash'), 1600);
+      return;
+    }
+    if (attempts <= 0) return;
+    setTimeout(() => scrollToMarkedVerse(attempts - 1), 120);
   }
 
   function scrollToHighlightQuote(quote: string, attempts = 40): void {
@@ -1008,11 +1135,27 @@
     return memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ?? index;
   }
 
+  /** True when seed/memory growth would change what collectIndexPaintEvents returns. */
+  function scopedPaintSetChanged(leaf: Event): boolean {
+    const next = collectIndexPaintEvents(liveScopedIndex(leaf));
+    if (!next.length) return false;
+    if (
+      !scopedAtEditionTop &&
+      scopedPaintIndex &&
+      scopedPaintIndex.id === leaf.id &&
+      sections.length === next.length &&
+      sections.every((s, i) => s.id === next[i]?.id)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   /** Replace the pane with one plan day or Douay chapter (and its verses only). */
   async function paintScopedIndex(
     edition: Event,
     index: Event,
-    opts?: { network?: boolean }
+    opts?: { network?: boolean; preserveScroll?: boolean }
   ): Promise<void> {
     const gen = ++scopedPaintGen;
     scopedAtEditionTop = false;
@@ -1041,6 +1184,22 @@
     leaf = liveScopedIndex(leaf);
     const painted = collectIndexPaintEvents(leaf);
     if (!painted.length) return;
+    // Seed batches used to re-paint on every SECTION arrival — same DOM remount jumped scroll to top.
+    const sameIndex =
+      scopedPaintIndex?.id === leaf.id &&
+      sections.length === painted.length &&
+      sections.every((s, i) => s.id === painted[i]?.id);
+    if (sameIndex) {
+      // Already painted — do not syncReadingLocation (URL replace → applyUrlFocus doom loop).
+      sectionsLoading = false;
+      return;
+    }
+    const keepY =
+      opts?.preserveScroll === true &&
+      scopedPaintIndex?.id === leaf.id &&
+      typeof window !== 'undefined'
+        ? window.scrollY
+        : null;
     clearAdoptFlush();
     sectionCorpus = painted;
     corpusCount = painted.length;
@@ -1065,8 +1224,12 @@
       readerSectionId = leaf.id;
       saveResume(eventAddress(edition), { pos: readerPos, sectionId: leaf.id });
     }
+    syncReadingLocation(leaf);
     void enrichHighlightsFromSections(painted);
     sectionsLoading = false;
+    if (keepY != null && keepY > 0) {
+      requestAnimationFrame(() => window.scrollTo({ top: keepY, left: 0, behavior: 'auto' }));
+    }
     // Day indexes often arrive during paint (seed holes) — refresh ToC titles without a click.
     if (isReadingPlanEdition(edition) && !isPlaceholderIndex(leaf)) {
       toc = buildIndexScopedToc(edition);
@@ -1074,7 +1237,7 @@
   }
 
   /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
-  function paintScopedEditionTop(edition: Event): void {
+  function paintScopedEditionTop(edition: Event, opts?: { syncUrl?: boolean }): void {
     scopedAtEditionTop = true;
     scopedPaintGen += 1;
     clearAdoptFlush();
@@ -1097,6 +1260,9 @@
         sectionId: edition.id
       });
     }
+    // fillScopedReading paints cover as a brief shell before a ?section= leaf — skip URL sync
+    // so we do not strip the deep link and race bare ?read=1 back to the cover.
+    if (opts?.syncUrl !== false) syncReadingLocation(null, { editionTop: true });
     sectionsLoading = false;
   }
 
@@ -1116,11 +1282,19 @@
     const signal = treeAbort.signal;
     try {
       toc = buildIndexScopedToc(edition);
-      paintScopedEditionTop(edition);
+      paintScopedEditionTop(edition, { syncUrl: false });
       readingBusy = false;
 
+      let tocRefreshTimer = 0;
       const refreshToc = (): void => {
-        toc = buildIndexScopedToc(edition);
+        // Seed shards emit many PUBLICATION batches — rebuilding the full Douay ToC each
+        // time freezes the tab. Coalesce to one rebuild per animation frame burst.
+        if (tocRefreshTimer) return;
+        tocRefreshTimer = window.setTimeout(() => {
+          tocRefreshTimer = 0;
+          if (signal.aborted || event?.id !== edition.id) return;
+          toc = buildIndexScopedToc(edition);
+        }, 250);
       };
 
       try {
@@ -1135,17 +1309,30 @@
 
       const afterTreeReady = async (allowNetwork: boolean): Promise<void> => {
         if (signal.aborted || event?.id !== edition.id || !reading) return;
-        refreshToc();
-        // Cover stays until ToC / Continue selects a leaf — only refresh an already-open day.
-        if (scopedPaintIndex && !scopedAtEditionTop) {
-          await paintScopedIndex(edition, scopedPaintIndex, { network: allowNetwork });
+        if (tocRefreshTimer) {
+          clearTimeout(tocRefreshTimer);
+          tocRefreshTimer = 0;
+        }
+        toc = buildIndexScopedToc(edition);
+        // Cover stays until ToC / Continue selects a leaf — only refresh an already-open day
+        // when memory grew new children for it (avoid remount → scroll jump).
+        if (scopedPaintIndex && !scopedAtEditionTop && scopedPaintSetChanged(scopedPaintIndex)) {
+          await paintScopedIndex(edition, scopedPaintIndex, {
+            network: allowNetwork,
+            preserveScroll: true
+          });
         }
         if (event?.id === edition.id) sectionsLoading = false;
+        // Only leaf/day paints are expected to include verses. Intermediate indexes
+        // (Introduction / testament) legitimately have no KIND.SECTION children — the old
+        // check marked them unreadable, stripped ?section=, and doom-looped back to cover.
+        const open = scopedPaintIndex;
         if (
           event?.id === edition.id &&
           reading &&
-          scopedPaintIndex &&
+          open &&
           !scopedAtEditionTop &&
+          (isLeafIndex(open) || isPlanDayD(firstTag(open, 'd') ?? '')) &&
           !sections.some((s) => s.kind === KIND.SECTION) &&
           !listLeafIndexes(edition, toc).length
         ) {
@@ -1161,10 +1348,17 @@
           onBatch: (batch) => {
             if (signal.aborted || event?.id !== edition.id || !reading) return;
             if (batch.some((e) => e.kind === KIND.PUBLICATION)) refreshToc();
-            // Verses arrive from Douay deps after the plan indexes — repaint the open day.
-            if (scopedPaintIndex && !scopedAtEditionTop && batch.some((e) => e.kind === KIND.SECTION)) {
+            // Only repaint when this batch adds children for the open index — not on every
+            // unrelated verse shard (that remounted Introduction and yanked scroll to top).
+            if (
+              scopedPaintIndex &&
+              !scopedAtEditionTop &&
+              batch.some((e) => e.kind === KIND.SECTION) &&
+              scopedPaintSetChanged(scopedPaintIndex)
+            ) {
               void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                network: isReadingPlanEdition(edition)
+                network: isReadingPlanEdition(edition),
+                preserveScroll: true
               });
             }
           }
@@ -1189,9 +1383,15 @@
             onBatch: (batch) => {
               if (signal.aborted || event?.id !== edition.id || !reading) return;
               if (batch.some((e) => e.kind === KIND.PUBLICATION)) refreshToc();
-              if (scopedPaintIndex && !scopedAtEditionTop && batch.some((e) => e.kind === KIND.SECTION)) {
+              if (
+                scopedPaintIndex &&
+                !scopedAtEditionTop &&
+                batch.some((e) => e.kind === KIND.SECTION) &&
+                scopedPaintSetChanged(scopedPaintIndex)
+              ) {
                 void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                  network: isReadingPlanEdition(edition)
+                  network: isReadingPlanEdition(edition),
+                  preserveScroll: true
                 });
               }
             }
@@ -1297,7 +1497,21 @@
 
   async function openFocusedReading(sectionAddr: string, quote: string, resumePos?: number): Promise<void> {
     if (!event || unreadable || !canRead) return;
+    if (jumpBusy) return;
     const key = `${sectionAddr}\0${quote}`;
+    // Duplicate in-flight only — finished-but-wrong-pane must be allowed to retry.
+    if (key === focusKey && readingBusy) return;
+    // Already showing this index — do not reset via fillScopedReading.
+    if (
+      reading &&
+      !scopedAtEditionTop &&
+      scopedPaintIndex &&
+      (eventAddress(scopedPaintIndex).toLowerCase() === sectionAddr.toLowerCase() ||
+        scopedPaintIndex.id.toLowerCase() === sectionAddr.toLowerCase())
+    ) {
+      focusKey = key;
+      return;
+    }
     focusKey = key;
     reading = true;
     readingBusy = true;
@@ -1308,8 +1522,14 @@
     if (isIndexScopedEdition(edition)) {
       try {
         setReadQuery(true);
-        await fillScopedReading(edition);
-        if (focusKey !== key || event !== edition) return;
+        reading = true;
+        // Never call fillScopedReading while a leaf/cover shell is already up — it cancelTree()s
+        // and paints the cover, aborting ToC jumps. Cold deep links (empty pane) still warm.
+        if (!toc.length) toc = buildIndexScopedToc(edition);
+        if (!scopedPaintIndex && !sections.length) {
+          await fillScopedReading(edition);
+        }
+        if (focusKey !== key || event !== edition || jumpBusy) return;
         let focused: Event | null = null;
         if (/^[0-9a-f]{64}$/i.test(focusAddr)) {
           focused = memoryGetEvent(focusAddr) ?? (await fetchById(focusAddr));
@@ -1321,7 +1541,22 @@
               (await fetchByAddress(focusAddr));
           }
         }
-        if (focusKey !== key || event !== edition) return;
+        if (!focused) {
+          // One short retry after seeds may have landed — avoid a 4s blocking loop.
+          await new Promise((r) => setTimeout(r, 200));
+          if (focusKey !== key || event !== edition || jumpBusy) return;
+          if (/^[0-9a-f]{64}$/i.test(focusAddr)) {
+            focused = memoryGetEvent(focusAddr) ?? (await fetchById(focusAddr));
+          } else {
+            const parsed = parseAddress(focusAddr);
+            if (parsed) {
+              focused =
+                memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) ??
+                (await fetchByAddress(focusAddr));
+            }
+          }
+        }
+        if (focusKey !== key || event !== edition || jumpBusy) return;
         toc = buildIndexScopedToc(edition);
         const leaf = focused
           ? resolvePaintIndex(focused, edition, toc)
@@ -1330,10 +1565,12 @@
               sectionId: focusAddr,
               queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(edition))?.total
             });
-        if (leaf) await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
+        if (leaf) {
+          await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
+        }
         if (focusQuote) scrollToHighlightQuote(focusQuote);
       } finally {
-        if (event?.id === edition.id) {
+        if (event?.id === edition.id && !jumpBusy) {
           readingBusy = false;
           sectionsLoading = false;
         }
@@ -1454,19 +1691,84 @@
   }
 
 
+  async function openDouayPassageReading(): Promise<void> {
+    if (!event || unreadable || !canRead) return;
+    const focus = focusFromUrl();
+    const book = douayBookBySlug(focus.book);
+    if (!book || !Number.isFinite(focus.chapter)) return;
+    const verseKey = focus.verses ? `${focus.verses.start}-${focus.verses.end}` : '';
+    const key = `douay:${book.slug}:${focus.chapter}\0${verseKey}`;
+    if (key === focusKey && reading) {
+      if (focus.verses && scopedPaintIndex) scrollToMarkedVerse();
+      return;
+    }
+    focusKey = key;
+    reading = true;
+    readingBusy = true;
+    sectionsLoading = true;
+    const edition = event;
+    try {
+      setReadQuery(true);
+      await fillScopedReading(edition);
+      if (focusKey !== key || event !== edition) return;
+      toc = buildIndexScopedToc(edition);
+      let chapterEv = findDouayChapterIndex(book.code, focus.chapter);
+      for (let i = 0; !chapterEv && i < 60; i += 1) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (focusKey !== key || event !== edition) return;
+        toc = buildIndexScopedToc(edition);
+        chapterEv = findDouayChapterIndex(book.code, focus.chapter);
+      }
+      if (!chapterEv || focusKey !== key || event !== edition) return;
+      const addr = chapterSectionAddress(chapterEv);
+      const q = new URLSearchParams($querystring ?? '');
+      if (q.get('section') !== addr) {
+        q.set('section', addr);
+        q.set('read', '1');
+        replace(`${hashPathOnly()}?${q}`);
+      }
+      await paintScopedIndex(edition, chapterEv, { network: false });
+      if (focus.verses) {
+        await tick();
+        scrollToMarkedVerse();
+      }
+    } finally {
+      if (event?.id === edition.id) {
+        readingBusy = false;
+        sectionsLoading = false;
+      }
+    }
+  }
+
   function applyUrlFocus(): void {
     if (!event || loading) return;
+    // ToC jump owns the pane until it finishes — bare ?read=1 must not reset to cover mid-jump
+    // (that aborted paintScopedIndex and left jumpBusy stuck on “Opening…”).
+    if (jumpBusy) return;
     const focus = focusFromUrl();
     // Landing comment / rating deep links stay on the info page, not the reader.
     if (focus.comment || focus.rating) {
       if (reading) reading = false;
       return;
     }
-    if (focus.section) {
-      const key = `${focus.section}\0${focus.quote}`;
-      if (key === focusKey && reading) return;
+    if (focus.book && Number.isFinite(focus.chapter)) {
+      if (urlMatchesPainted(focus)) {
+        if (focus.verses) scrollToMarkedVerse();
+        return;
+      }
       if (textUnavailable || unreadable || !canRead) return;
-      void openFocusedReading(focus.section, focus.quote, focus.pos);
+      void openDouayPassageReading();
+      return;
+    }
+    if (focus.section) {
+      if (urlMatchesPainted(focus)) {
+        if (focus.verses) scrollToMarkedVerse();
+        return;
+      }
+      if (textUnavailable || unreadable || !canRead) return;
+      void openFocusedReading(focus.section, focus.quote, focus.pos).then(() => {
+        if (focusFromUrl().verses) scrollToMarkedVerse();
+      });
       return;
     }
     if (focus.quote) {
@@ -1478,7 +1780,20 @@
     }
     if (focus.read) {
       // Recover if a prior fill was aborted (route effect cleanup) leaving reading stuck empty.
+      // Bare ?read=1 (no section/book) on Douay/plans always means the edition cover.
       if (canRead && !unreadable && !textUnavailable) {
+        const bareRead =
+          isIndexScopedEdition(event) &&
+          !focus.section &&
+          !focus.book &&
+          !Number.isFinite(focus.pos);
+        if (bareRead) {
+          // Already showing a nested index from a ToC click — do not clobber it just because
+          // syncReadingLocation has not written ?section= yet.
+          if (scopedPaintIndex && !scopedAtEditionTop) return;
+          void startReading({ fromUrl: true });
+          return;
+        }
         if (!reading || (!sections.length && !readingBusy)) {
           void startReading({ fromUrl: true });
         }
@@ -1609,7 +1924,7 @@
       typeof window !== 'undefined' ? (window.location.hash.split('?')[1] ?? '') : ''
     );
     const deep =
-      q.has('comment') || q.has('rating') || q.has('section') || q.has('quote') || q.get('read') === '1';
+      q.has('comment') || q.has('rating') || q.has('section') || q.has('quote') || q.has('book') || q.has('chapter') || q.get('read') === '1';
     if (!deep && !sameRoute) {
       queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
     }
@@ -1744,6 +2059,7 @@
     // Re-apply deep links (?section=&quote=, ?comment=, ?rating=, or plain path → top).
     if (!event || loading) return;
     void $querystring;
+    void canRead;
     applyUrlFocus();
   });
 
@@ -1753,17 +2069,42 @@
     sectionId?: string;
   }): Promise<void> {
     if (!event || unreadable || !canRead) return;
+    if (jumpBusy) return;
+    const focusEarly = focusFromUrl();
+    // Bare ?read=1 on a bible/plan means the edition cover — reset even if a leaf is open.
+    const wantScopedCover =
+      opts?.fromUrl === true &&
+      isIndexScopedEdition(event) &&
+      focusEarly.read &&
+      !focusEarly.section &&
+      !focusEarly.book &&
+      !Number.isFinite(focusEarly.pos) &&
+      opts?.sectionId == null &&
+      opts?.pos == null;
     // URL sync can re-enter; ignore if we are already reading with content on screen.
-    if (reading && opts?.fromUrl && sections.length) return;
+    if (reading && opts?.fromUrl && sections.length && !wantScopedCover) return;
+    // Nested index already painted (ToC jump) — bare URL sync must not wipe it.
+    if (wantScopedCover && scopedPaintIndex && !scopedAtEditionTop) return;
+    if (reading && opts?.fromUrl && wantScopedCover && scopedAtEditionTop && readingShellOnly) {
+      syncReadingLocation(null, { editionTop: true });
+      return;
+    }
     reading = true;
     if (!opts?.fromUrl) setReadQuery(true);
     if (isIndexScopedEdition(event)) {
       const focus = focusFromUrl();
       const wantLeaf =
-        opts?.sectionId != null ||
-        opts?.pos != null ||
-        (!!focus.section && focus.read) ||
-        (Number.isFinite(focus.pos) && focus.read);
+        !wantScopedCover &&
+        (opts?.sectionId != null ||
+          opts?.pos != null ||
+          (!!focus.section && focus.read) ||
+          (Number.isFinite(focus.pos) && focus.read));
+      if (wantScopedCover) {
+        await fillReadingSections(event);
+        if (event) paintScopedEditionTop(event);
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        return;
+      }
       if (!sections.length || readingShellOnly || !scopedPaintIndex) {
         await fillReadingSections(event);
       }
@@ -2113,19 +2454,33 @@
           reading = true;
           setReadQuery(true);
         }
+        // Write ?section= before await so bare ?read=1 applyUrlFocus cannot startReading(cover).
+        if (entry.address) {
+          const q = new URLSearchParams($querystring ?? '');
+          q.set('read', '1');
+          q.set('section', entry.address);
+          q.delete('book');
+          q.delete('chapter');
+          q.delete('verse');
+          q.delete('verses');
+          q.delete('pos');
+          const qs = q.toString();
+          if (qs !== ($querystring ?? '')) replace(`${hashPathOnly()}?${qs}`);
+        }
         const focused = await resolveTocSection(entry);
-        if (focusKey !== key || event !== edition || !focused) return;
+        if (event !== edition || !focused) return;
+        // Accept focusKey change from URL sync (openFocusedReading) — still finish this jump.
         rememberEvents([focused]);
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
         if (!leaf) return;
         await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
+        syncReadingLocation(leaf, { clearVerseMark: true });
+        focusKey = `toc:${entry.address ?? entry.id ?? entry.pos}`;
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
-        if (focusKey === key) {
-          jumpBusy = false;
-          readingBusy = false;
-        }
+        jumpBusy = false;
+        readingBusy = false;
       }
       return;
     }
@@ -2219,6 +2574,13 @@
 
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
+    // Cover pane: keep resume on the edition root; never invent a nested ?section=.
+    if (isIndexScopedEdition(event) && !scopedPaintIndex) {
+      saveResume(eventAddress(event), { pos: 0, sectionId: event.id });
+      readerPos = 0;
+      readerSectionId = event.id;
+      return;
+    }
     if (isIndexScopedEdition(event) && scopedPaintIndex) {
       const prog = scopedProgressForIndex(event, toc, scopedPaintIndex);
       if (!prog) return;
@@ -2249,8 +2611,10 @@
     const resolvedPos = corpusPos >= 0 ? corpusPos : pos;
     saveResume(eventAddress(event), { pos: resolvedPos, sectionId: section.id });
     const prev = readerPos;
+    const prevSection = readerSectionId;
     readerPos = resolvedPos;
     readerSectionId = section.id;
+    if (section.id !== prevSection) syncReadingLocation(section);
     if (resolvedPos !== prev) {
       sectionTick = true;
       window.setTimeout(() => {
@@ -2696,15 +3060,66 @@
                   {@const split = bibleContentParts(verse.content, disp)}
                   {@const pos = sectionReadPos.get(verse.id) ?? 0}
                   {#if disp.kind === 'heading'}
-                    <h3
-                      class="bible-run-heading"
+                    <div
+                      class="bible-run-heading-wrap"
                       id={`section-${verse.id}`}
                       data-section-id={verse.id}
                       data-section-addr={sectionKey}
                       data-read-pos={pos}
                     >
-                      {disp.title}
-                    </h3>
+                      <h3 class="bible-run-heading">{disp.title}</h3>
+                      {#if event}
+                        <CopyPointerButton
+                          event={verse}
+                          class="bible-heading-menu"
+                          shareUrl={readerShareUrl(event, verse)}
+                        >
+                          {#snippet before()}
+                            <li role="none">
+                              {#if $session.pubkey}
+                                <button
+                                  class="menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onclick={() => {
+                                    void saveHighlight(verse);
+                                  }}
+                                >
+                                  Save highlight
+                                </button>
+                              {:else}
+                                <button
+                                  class="menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onclick={() => {
+                                    openLoginDialog();
+                                  }}
+                                >
+                                  Sign in to highlight
+                                </button>
+                              {/if}
+                            </li>
+                          {/snippet}
+                          {#snippet after()}
+                            <li role="none">
+                              <button
+                                class="menu-item"
+                                type="button"
+                                role="menuitem"
+                                onclick={() => {
+                                  const open = !sectionCommentsOpen[sectionKey];
+                                  sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                                  if (open) void loadSectionComments(verse);
+                                }}
+                              >
+                                {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                              </button>
+                            </li>
+                          {/snippet}
+                        </CopyPointerButton>
+                      {/if}
+                    </div>
                     {#if split.text}
                       <p
                         class="bible-run-text"
@@ -2714,15 +3129,29 @@
                     {#if split.note}
                       <p class="bible-challoner-note">{split.note}</p>
                     {/if}
+                    {#if sectionCommentsOpen[sectionKey]}
+                      <div class="section-comments bible-verse-comments">
+                        {#if sectionComments[sectionKey]?.length}
+                          <ul class="thread-list">
+                            {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [verse.id]) as node (threadNodeKey(node))}
+                              <CommentThread {node} target={verse} bind:replyOpenId />
+                            {/each}
+                          </ul>
+                        {:else}
+                          <p class="muted">No comments yet.</p>
+                        {/if}
+                      </div>
+                    {/if}
                   {:else}
                     <span
                       class="bible-verse"
+                      class:bible-verse-marked={verseInRange(verse, urlVerseRange)}
                       id={`section-${verse.id}`}
                       data-section-id={verse.id}
                       data-section-addr={sectionKey}
                       data-read-pos={pos}
                     >
-                      <CopyPointerButton event={verse} class="bible-verse-menu" preferStart={false}>
+                      <CopyPointerButton event={verse} class="bible-verse-menu" preferStart={false} shareUrl={event ? readerShareUrl(event, verse) : ''}>
                         {#snippet trigger()}
                           <span class="bible-verse-num" title={disp.label}>{disp.verse}</span>
                         {/snippet}
@@ -2817,6 +3246,7 @@
                 class:reader-index={isIndex}
                 class:reader-edition={isEditionRoot}
                 class:reader-section-missing={missing}
+                class:bible-verse-marked={verseInRange(section, urlVerseRange)}
                 data-read-pos={pos}
                 data-section-addr={sectionKey}
                 data-section-id={section.id}
@@ -2887,7 +3317,62 @@
                       </button>
                     </figure>
                   {/if}
-                  <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
+                  <div class="section-heading-wrap">
+                    <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
+                    {#if event && isIndex && section.id === scopedPaintIndex?.id}
+                      <CopyPointerButton
+                        event={section}
+                        class="section-heading-menu"
+                        shareUrl={readerShareUrl(event, section)}
+                      >
+                        {#snippet before()}
+                          {#if !missing}
+                            <li role="none">
+                              {#if $session.pubkey}
+                                <button
+                                  class="menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onclick={() => {
+                                    void saveHighlight(section);
+                                  }}
+                                >
+                                  Save highlight
+                                </button>
+                              {:else}
+                                <button
+                                  class="menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onclick={() => {
+                                    openLoginDialog();
+                                  }}
+                                >
+                                  Sign in to highlight
+                                </button>
+                              {/if}
+                            </li>
+                          {/if}
+                        {/snippet}
+                        {#snippet after()}
+                          <li role="none">
+                            <button
+                              class="menu-item"
+                              type="button"
+                              role="menuitem"
+                              onclick={() => {
+                                const open = !sectionCommentsOpen[sectionKey];
+                                sectionCommentsOpen = { ...sectionCommentsOpen, [sectionKey]: open };
+                                if (open) void loadSectionComments(section);
+                              }}
+                            >
+                              {sectionCommentsOpen[sectionKey] ? 'Hide comments' : 'Comments'}
+                            </button>
+                          </li>
+                        {/snippet}
+                      </CopyPointerButton>
+                    {/if}
+                  </div>
                   {#if isIndex && isEditionRoot}
                     <EditionReaderMeta event={section} {sections} />
                     <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
@@ -2933,9 +3418,9 @@
                 {:else}
                   <EventCard event={section} />
                 {/if}
-                {#if (!isIndex || missing) && !(event && section.id === event.id)}
+                {#if !isIndex && !(event && section.id === event.id)}
                 <div class="section-toolbar">
-                  <CopyPointerButton event={section}>
+                  <CopyPointerButton event={section} shareUrl={event ? readerShareUrl(event, section) : ''}>
                     {#snippet before()}
                       {#if !missing}
                       <li role="none">
@@ -2983,7 +3468,8 @@
                     {/snippet}
                   </CopyPointerButton>
                 </div>
-                {#if sectionCommentsOpen[sectionKey]}
+                {/if}
+                {#if sectionCommentsOpen[sectionKey] && !(event && section.id === event.id)}
                   <div class="section-comments">
                     {#if sectionComments[sectionKey]?.length}
                       <ul class="thread-list">
@@ -3050,7 +3536,6 @@
                       >
                     {/if}
                   </div>
-                {/if}
                 {/if}
               </article>
             {/if}

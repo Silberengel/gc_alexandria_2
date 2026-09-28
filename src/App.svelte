@@ -11,6 +11,7 @@
   import Booklists from './routes/Booklists.svelte';
   import StartRedirect from './routes/StartRedirect.svelte';
   import Contact from './routes/Contact.svelte';
+  import DouayPassage from './routes/DouayPassage.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { scheduleDeletionSweep } from './lib/deletions';
   import { session } from './lib/stores/session';
@@ -43,6 +44,8 @@
     '/spec/nevent/:naddr': Wiki,
     '/spec/note/:naddr': Wiki,
     '/spec/:naddr': Wiki,
+    /** Biblestr-compatible Douay: `/luke/9?verses=46-50` (after library routes). */
+    '/:book/:chapter': DouayPassage,
     '*': NotFound
   };
 

@@ -90,3 +90,32 @@ export function memoryFindByAddress(kind: number, pubkey: string, d: string): Ev
   }
   return best;
 }
+
+/**
+ * Douay chapter leaf: kind 30040 with matching book `T` code and chapter `c`.
+ * Dedupes address aliases so the same event is only considered once.
+ */
+export function memoryFindBibleChapter(
+  pubkey: string,
+  bookCode: string,
+  chapter: number
+): Event | null {
+  const pk = pubkey.toLowerCase();
+  const code = bookCode.trim().toLowerCase();
+  const c = String(chapter);
+  const seen = new Set<string>();
+  let best: Event | null = null;
+  for (const ev of byAddr.values()) {
+    const id = ev.id.toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (ev.kind !== KIND.PUBLICATION) continue;
+    if (ev.pubkey.toLowerCase() !== pk) continue;
+    if (!ev.tags.some((t) => t[0] === 'c' && (t[1] ?? '').trim() === c)) continue;
+    if (!ev.tags.some((t) => t[0] === 'T' && (t[1] ?? '').trim().toLowerCase() === code)) continue;
+    const hasVerseChild = ev.tags.some((t) => t[0] === 'a' && (t[1] ?? '').startsWith(`${KIND.SECTION}:`));
+    if (hasVerseChild) return ev;
+    if (!best) best = ev;
+  }
+  return best;
+}

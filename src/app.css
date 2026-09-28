@@ -4283,6 +4283,53 @@ mark.text-highlight.highlight-flash,
   font-size: 1.05rem;
   font-weight: 700;
 }
+.bible-run-heading-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0.85rem 0 0.35rem;
+}
+.bible-run-heading-wrap .bible-run-heading {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.bible-heading-menu {
+  flex: 0 0 auto;
+  align-self: center;
+}
+.bible-heading-menu .copy-pointer-btn {
+  width: 1.6rem;
+  height: 1.6rem;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  padding: 0;
+  opacity: 0.55;
+}
+.bible-heading-menu:hover .copy-pointer-btn,
+.bible-heading-menu.event-more-menu-open .copy-pointer-btn {
+  opacity: 1;
+}
+.section-heading-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.section-heading-wrap .section-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.section-heading-menu {
+  flex: 0 0 auto;
+  align-self: center;
+}
+.section-heading-menu .copy-pointer-btn {
+  opacity: 0.55;
+}
+.section-heading-menu:hover .copy-pointer-btn,
+.section-heading-menu.event-more-menu-open .copy-pointer-btn {
+  opacity: 1;
+}
 .bible-run-text {
   margin: 0 0 0.65rem;
   white-space: pre-wrap;
@@ -4307,6 +4354,21 @@ mark.text-highlight.highlight-flash,
 .bible-verse {
   position: relative;
   display: inline;
+}
+.bible-verse-marked,
+.reader-section.bible-verse-marked {
+  background: color-mix(in srgb, var(--accent, #8b6914) 18%, transparent);
+  border-radius: 0.35rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.bible-verse.bible-verse-marked {
+  padding: 0.05rem 0.2rem;
+}
+.reader-section.bible-verse-marked {
+  padding: 0.35rem 0.55rem;
+  margin-left: -0.55rem;
+  margin-right: -0.55rem;
 }
 .bible-verse-menu {
   display: inline-block;

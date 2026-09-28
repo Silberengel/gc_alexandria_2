@@ -2,7 +2,10 @@
  * Hash-routed SPA: external path links (/publication/..., /wiki/..., /spec/..., /p/..., /search)
  * must become /#/… before the router mounts. Also collapses /publication/naddr/{bech32}
  * (and wiki/spec/nevent/note variants) into /publication/{bech32}.
+ * Biblestr-shaped Douay paths (`/luke/9?verses=46-50`) rewrite the same way.
  */
+
+import { isDouayPassagePath } from './douay-passage';
 
 const POINTER = '(?:naddr|nevent|note)1[02-9ac-hj-np-z]+';
 
@@ -28,7 +31,10 @@ export function isSpaPathname(pathname: string): boolean {
   if (path === '/') return false;
   // Real static assets (js/css/images) — leave alone
   if (/\.[a-z0-9]{1,8}$/i.test(path) && !/\.html?$/i.test(path)) return false;
-  return SPA_PREFIX.test(path) || new RegExp(`^/(publication|wiki|spec)/${POINTER}$`, 'i').test(path);
+  if (SPA_PREFIX.test(path) || new RegExp(`^/(publication|wiki|spec)/${POINTER}$`, 'i').test(path)) {
+    return true;
+  }
+  return isDouayPassagePath(path);
 }
 
 /**

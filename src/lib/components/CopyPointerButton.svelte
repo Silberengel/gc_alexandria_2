@@ -10,6 +10,8 @@
     class?: string;
     /** Prefer opening toward the start (left) — e.g. left-side toolbars. */
     preferStart?: boolean;
+    /** Absolute URL to copy as “Copy hyperlink” (reader deep link). */
+    shareUrl?: string;
     /** Replace the default ⋯ control (e.g. a bible verse number). */
     trigger?: Snippet;
     before?: Snippet;
@@ -20,6 +22,7 @@
     event,
     class: className = '',
     preferStart = false,
+    shareUrl = '',
     trigger,
     before,
     after
@@ -27,6 +30,7 @@
 
   let open = $state(false);
   let copied = $state(false);
+  let linkCopied = $state(false);
   let timer = 0;
   let root: HTMLDivElement | undefined = $state();
   // Initial side is updated when opening; preferStart is applied in toggle().
@@ -56,9 +60,26 @@
     try {
       await navigator.clipboard.writeText(ptr.text);
       copied = true;
+      linkCopied = false;
       clearTimeout(timer);
       timer = window.setTimeout(() => {
         copied = false;
+        close();
+      }, 900);
+    } catch {
+      close();
+    }
+  }
+
+  async function copyShareLink(): Promise<void> {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      linkCopied = true;
+      copied = false;
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        linkCopied = false;
         close();
       }, 900);
     } catch {
@@ -73,6 +94,7 @@
     open = !open;
     if (!open) {
       copied = false;
+      linkCopied = false;
       clearTimeout(timer);
     }
   }
@@ -148,6 +170,23 @@
     >
       {#if before}
         {@render before()}
+      {/if}
+      {#if shareUrl}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            data-copy-action
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void copyShareLink();
+            }}
+          >
+            {linkCopied ? 'Copied' : 'Copy hyperlink'}
+          </button>
+        </li>
       {/if}
       <li role="none">
         <button

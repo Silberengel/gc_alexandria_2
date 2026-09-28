@@ -31,6 +31,12 @@ describe('isSpaPathname', () => {
     expect(isSpaPathname('/')).toBe(false);
     expect(isSpaPathname('/assets/index.js')).toBe(false);
   });
+
+  it('recognizes Biblestr-shaped Douay chapter paths', () => {
+    expect(isSpaPathname('/luke/9')).toBe(true);
+    expect(isSpaPathname('/genesis/1')).toBe(true);
+    expect(isSpaPathname('/not-a-book/1')).toBe(false);
+  });
 });
 
 describe('rewritePathDeepLinkToHash', () => {
@@ -73,5 +79,15 @@ describe('rewritePathDeepLinkToHash', () => {
   it('does nothing for the landing path', () => {
     expect(rewritePathDeepLinkToHash({ pathname: '/', search: '', hash: '' })).toBe(false);
     expect(replaceState).not.toHaveBeenCalled();
+  });
+
+  it('rewrites a Douay /luke/9?verses= path into a hash route', () => {
+    const ok = rewritePathDeepLinkToHash({
+      pathname: '/luke/9',
+      search: '?verses=46-50',
+      hash: ''
+    });
+    expect(ok).toBe(true);
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/#/luke/9?verses=46-50');
   });
 });
