@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { coverImageUrl, gutenbergCoverUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
+import { coverFullImageUrl, coverImageUrl, gutenbergCoverUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
 
 function ev(tags: string[][], id = 'a'.repeat(64)): Event {
   return {
@@ -21,6 +21,12 @@ describe('coverImageUrl', () => {
     );
     expect(coverImageUrl(ev([['image', 'https://i.nostr.build/cover.webp']]))).toBe(
       'https://i.nostr.build/thumb/cover.webp'
+    );
+  });
+
+  it('keeps the full nostr.build URL for the media viewer', () => {
+    expect(coverFullImageUrl(ev([['image', 'https://i.nostr.build/cover.webp']]))).toBe(
+      'https://i.nostr.build/cover.webp'
     );
   });
 

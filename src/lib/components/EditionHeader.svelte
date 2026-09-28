@@ -59,7 +59,7 @@
 <div class="edition-header">
   <div class="edition-hero">
     <div class="edition-cover">
-      <Cover {event} />
+      <Cover {event} enlargeOnClick />
     </div>
     <div class="edition-meta">
       <h1>

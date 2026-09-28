@@ -40,16 +40,16 @@ function imetaImageUrl(event: Event): string | undefined {
   return undefined;
 }
 
-/** Cover from `image`, then `imeta`, then Gutenberg id on s / i / d. */
-export function coverImageUrl(event: Event): string | undefined {
+/** Full-resolution cover URL (no nostr.build thumb rewrite). */
+export function coverFullImageUrl(event: Event): string | undefined {
   const image = firstTag(event, 'image')?.trim();
   if (image && DIRECT_IMAGE.test(image)) {
     const id = gutenbergIdFromText(image);
-    return toNostrBuildThumbUrl(id ? gutenbergCoverUrl(id) : image);
+    return id ? gutenbergCoverUrl(id) : image;
   }
 
   const imeta = imetaImageUrl(event);
-  if (imeta) return toNostrBuildThumbUrl(imeta);
+  if (imeta) return imeta;
 
   const source = firstTag(event, 's') ?? firstTag(event, 'source');
   const fromSource = gutenbergIdFromText(source);
@@ -65,10 +65,23 @@ export function coverImageUrl(event: Event): string | undefined {
   return undefined;
 }
 
+/** Cover from `image`, then `imeta`, then Gutenberg id on s / i / d (thumbs when available). */
+export function coverImageUrl(event: Event): string | undefined {
+  const full = coverFullImageUrl(event);
+  return full ? toNostrBuildThumbUrl(full) : undefined;
+}
+
 /** Explicit `image` tag for reader section/index heroes (no Gutenberg/imeta fallback). */
 export function sectionHeroImageUrl(event: Event): string | undefined {
   const image = firstTag(event, 'image')?.trim();
   if (image && DIRECT_IMAGE.test(image)) return toNostrBuildThumbUrl(image);
+  return undefined;
+}
+
+/** Full-size section/edition hero (no thumb rewrite). */
+export function sectionHeroFullImageUrl(event: Event): string | undefined {
+  const image = firstTag(event, 'image')?.trim();
+  if (image && DIRECT_IMAGE.test(image)) return image;
   return undefined;
 }
 

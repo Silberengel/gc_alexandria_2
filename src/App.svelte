@@ -13,6 +13,7 @@
   import NotFound from './routes/NotFound.svelte';
   import { scheduleDeletionSweep } from './lib/deletions';
   import { session } from './lib/stores/session';
+  import MediaViewer from './lib/components/MediaViewer.svelte';
 
   const routes = {
     '/': Home,
@@ -62,3 +63,4 @@
 </script>
 
 <Router {routes} />
+<MediaViewer />

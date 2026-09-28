@@ -74,7 +74,8 @@
   import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
-  import { readerSectionHeroUrl } from '$lib/cover';
+  import { readerSectionHeroUrl, sectionHeroFullImageUrl } from '$lib/cover';
+  import { openMediaViewer } from '$lib/stores/media-viewer';
   import { bibleDisplay, groupReaderSections } from '$lib/bible-verse';
   import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
@@ -2685,6 +2686,7 @@
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const missing = isPlaceholderSection(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event)}
+              {@const heroFull = sectionHeroFullImageUrl(section)}
               {@const pos = sectionReadPos.get(section.id) ?? 0}
               <article
                 class="reader-section"
@@ -2697,7 +2699,18 @@
               >
                 {#if heroUrl && isAllowedMediaUrl(heroUrl)}
                   <figure class="section-hero">
-                    <img src={heroUrl} alt="" loading="lazy" />
+                    <button
+                      class="section-hero-zoom"
+                      type="button"
+                      title="View image"
+                      onclick={() =>
+                        openMediaViewer({
+                          url: heroFull && isAllowedMediaUrl(heroFull) ? heroFull : heroUrl,
+                          title: sectionHeading(section)
+                        })}
+                    >
+                      <img src={heroUrl} alt="" loading="lazy" />
+                    </button>
                   </figure>
                 {/if}
                 <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>

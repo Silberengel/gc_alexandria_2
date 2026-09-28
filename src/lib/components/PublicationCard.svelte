@@ -53,11 +53,11 @@
 
 {#if isRow}
   <div class="listing-row-wrap">
-    <a class="listing-row" href={`#${href}`} use:link onpointerdown={warmSelf}>
+    <div class="listing-row listing-row-split">
       <span class="listing-row-cover">
-        <Cover {event} />
+        <Cover {event} enlargeOnClick />
       </span>
-      <span class="listing-row-body">
+      <a class="listing-row-body" href={`#${href}`} use:link onpointerdown={warmSelf}>
         <span class="listing-row-title">
           {#if meta.titles.length}
             {#each meta.titles as name, i}
@@ -72,17 +72,17 @@
         {:else}
           <span class="listing-row-meta muted">{kindLabel}</span>
         {/if}
-      </span>
-    </a>
+      </a>
+    </div>
     <CopyPointerButton {event} class="listing-row-copy" />
   </div>
 {:else}
   <div class="card pub-card" class:pub-card-wiki={isWiki}>
     <CopyPointerButton {event} class="generic-card-copy" />
     <div class="pub-card-top">
-      <a class="pub-card-cover" href={`#${href}`} use:link onpointerdown={warmSelf}>
-        <Cover {event} />
-      </a>
+      <div class="pub-card-cover">
+        <Cover {event} enlargeOnClick />
+      </div>
       <div class="pub-card-body">
         <p class="pub-card-kind muted">{kindLabel}</p>
         <h3>
