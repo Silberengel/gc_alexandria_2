@@ -3318,7 +3318,7 @@
                   {/if}
                   <div class="section-heading-wrap">
                     <h2 class="section-heading" id={`section-${section.id}`}>{sectionHeading(section)}</h2>
-                    {#if event && isIndex && section.id === scopedPaintIndex?.id}
+                    {#if event && isIndex && !missing && section.id === scopedPaintIndex?.id}
                       <CopyPointerButton
                         event={section}
                         class="section-heading-menu"
@@ -3417,7 +3417,7 @@
                 {:else}
                   <EventCard event={section} />
                 {/if}
-                {#if !isIndex && !(event && section.id === event.id)}
+                {#if !(event && section.id === event.id) && !(isIndex && !missing && section.id === scopedPaintIndex?.id)}
                 <div class="section-toolbar">
                   <CopyPointerButton event={section} shareUrl={event ? readerShareUrl(event, section) : ''}>
                     {#snippet before()}

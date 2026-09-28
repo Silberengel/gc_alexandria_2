@@ -2,6 +2,8 @@
   import type { Snippet } from 'svelte';
   import type { Event } from 'nostr-tools';
   import { copyPointerForEvent } from '$lib/publication-load';
+  import { libraryDocumentPath } from '$lib/metadata';
+  import { KIND } from '$lib/constants';
   import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
 
   interface Props {
@@ -10,7 +12,7 @@
     class?: string;
     /** Prefer opening toward the start (left) — e.g. left-side toolbars. */
     preferStart?: boolean;
-    /** Absolute URL to copy as “Copy hyperlink” (reader deep link). */
+    /** Absolute URL to copy as “Copy hyperlink” (reader deep link). Falls back to the library page. */
     shareUrl?: string;
     /** Replace the default ⋯ control (e.g. a bible verse number). */
     trigger?: Snippet;
@@ -39,6 +41,21 @@
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
   const jumbleUrl = $derived(`https://jumble.imwald.eu/notes/${ptr.text}`);
+  /** Prefer an explicit reader share URL; otherwise the Alexandria document (or njump). */
+  const hyperlink = $derived.by(() => {
+    const explicit = shareUrl.trim();
+    if (explicit) return explicit;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (
+      event.kind === KIND.PUBLICATION ||
+      event.kind === KIND.SECTION ||
+      event.kind === KIND.WIKI ||
+      event.kind === KIND.SPEC
+    ) {
+      return `${origin}/#${libraryDocumentPath(event)}`;
+    }
+    return njumpUrl;
+  });
 
   function refreshPlace(): void {
     if (!root) return;
@@ -72,9 +89,9 @@
   }
 
   async function copyShareLink(): Promise<void> {
-    if (!shareUrl) return;
+    if (!hyperlink) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(hyperlink);
       linkCopied = true;
       copied = false;
       clearTimeout(timer);
@@ -171,23 +188,21 @@
       {#if before}
         {@render before()}
       {/if}
-      {#if shareUrl}
-        <li role="none">
-          <button
-            class="menu-item"
-            type="button"
-            role="menuitem"
-            data-copy-action
-            onclick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void copyShareLink();
-            }}
-          >
-            {linkCopied ? 'Copied' : 'Copy hyperlink'}
-          </button>
-        </li>
-      {/if}
+      <li role="none">
+        <button
+          class="menu-item"
+          type="button"
+          role="menuitem"
+          data-copy-action
+          onclick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void copyShareLink();
+          }}
+        >
+          {linkCopied ? 'Copied' : 'Copy hyperlink'}
+        </button>
+      </li>
       <li role="none">
         <button
           class="menu-item"
