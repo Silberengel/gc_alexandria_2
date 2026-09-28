@@ -2471,17 +2471,19 @@
         }
         // Hold jumpBusy so bare ?read=1 applyUrlFocus cannot startReading(cover) mid-jump.
         const focused = await resolveTocSection(entry);
-        if (event !== edition || !focused) return;
+        if (focusKey !== key || event !== edition || !focused) return;
         rememberEvents([focused]);
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
-        if (!leaf) return;
+        if (!leaf || focusKey !== key || event !== edition) return;
         await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
-        focusKey = `toc:${entry.address ?? entry.id ?? entry.pos}`;
+        if (focusKey !== key || event !== edition) return;
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
-        jumpBusy = false;
-        readingBusy = false;
+        if (focusKey === key) {
+          jumpBusy = false;
+          readingBusy = false;
+        }
       }
       return;
     }
