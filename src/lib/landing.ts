@@ -115,12 +115,24 @@ function persistLandingSoon(view: LandingView): void {
   void (async () => {
     try {
       const prev = await cacheGetLandingSnapshot();
-      // Union shelves so a timed-out paint cannot wipe a prior curated row.
-      const shelves = mergeLandingShelves(prev?.shelves ?? [], view.shelves ?? []);
+      const viewer = view.viewerPubkey === undefined ? null : view.viewerPubkey;
+      const same = Boolean(prev && sameViewer(prev, viewer));
+      // Never merge another identity's mine/follows shelves into this viewer's snapshot.
+      const shelves = same
+        ? mergeLandingShelves(prev!.shelves ?? [], view.shelves ?? [])
+        : (view.shelves ?? []);
       const ratings =
-        (view.ratings?.length ?? 0) > 0 ? view.ratings : (prev?.ratings ?? view.ratings ?? []);
+        (view.ratings?.length ?? 0) > 0
+          ? view.ratings
+          : same
+            ? (prev!.ratings ?? view.ratings ?? [])
+            : (view.ratings ?? []);
       const labels =
-        (view.labels?.length ?? 0) > 0 ? view.labels : (prev?.labels ?? view.labels ?? []);
+        (view.labels?.length ?? 0) > 0
+          ? view.labels
+          : same
+            ? (prev!.labels ?? view.labels ?? [])
+            : (view.labels ?? []);
       await cachePutLandingSnapshot({
         ...view,
         shelves,

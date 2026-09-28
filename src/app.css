@@ -456,6 +456,94 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   padding-left: 1.45rem;
   padding-right: 1.45rem;
 }
+.landing-reading-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1.5rem 2.5rem;
+  margin-top: 2.35rem;
+  width: 100%;
+  min-width: 0;
+}
+.landing-reading-row > .landing-shelf-reading {
+  margin-top: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.landing-follows-reading {
+  flex: 0 1 18rem;
+  min-width: min(100%, 14rem);
+  max-width: 22rem;
+  margin-left: 0;
+  box-sizing: border-box;
+  padding: 0.15rem 0 0.25rem;
+}
+.landing-follows-reading .section-title {
+  margin: 0 0 0.85rem;
+}
+.landing-follows-reading-hint {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+}
+.landing-follows-reading-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.landing-follows-reading-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0;
+}
+.landing-follows-reading-title {
+  font-family: var(--ui-font);
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  text-decoration: none;
+}
+.landing-follows-reading-title:hover,
+.landing-follows-reading-title:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.landing-follows-reading-author {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.3;
+}
+.landing-follows-reading-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  min-width: 0;
+  margin-top: 0.15rem;
+}
+.landing-follows-reading-people {
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.3;
+}
+.landing-follows-reading-avatars {
+  flex: 0 1 auto;
+}
+.landing-follows-reading-avatars .booklist-avatar {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-left: -0.3rem;
+}
 /*
  * Track is the only scroller. Bar is fit-content with overflow:clip so Firefox
  * does not inflate scrollWidth from cover shadows / 3D transforms (endless scroll).

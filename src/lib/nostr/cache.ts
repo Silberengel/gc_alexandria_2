@@ -280,49 +280,87 @@ function searchKeyList(): string[] {
 export type SearchSnapshot = {
   savedAt: number;
   events: Event[];
+  /** Hex pubkey of the signed-in viewer when saved; null = anonymous. */
+  viewerPubkey?: string | null;
 };
 
 const searchMemory = new Map<string, SearchSnapshot>();
 
+function normalizeViewerPubkey(pubkey: string | null | undefined): string | null {
+  if (!pubkey) return null;
+  const hex = pubkey.trim().toLowerCase();
+  return hex || null;
+}
+
 function ingestSearchSnapshot(raw: unknown): SearchSnapshot | null {
   if (Array.isArray(raw)) {
     // Legacy bare event list — treat as expired so the next search refreshes.
-    return { savedAt: 0, events: ingestList(raw) };
+    return { savedAt: 0, events: ingestList(raw), viewerPubkey: null };
   }
   if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as { savedAt?: unknown; events?: unknown };
+  const obj = raw as { savedAt?: unknown; events?: unknown; viewerPubkey?: unknown };
   if (!Array.isArray(obj.events)) return null;
   const savedAt = typeof obj.savedAt === 'number' && Number.isFinite(obj.savedAt) ? obj.savedAt : 0;
-  return { savedAt, events: ingestList(obj.events) };
+  const viewerPubkey =
+    obj.viewerPubkey === undefined
+      ? undefined
+      : obj.viewerPubkey === null
+        ? null
+        : normalizeViewerPubkey(String(obj.viewerPubkey));
+  return { savedAt, events: ingestList(obj.events), viewerPubkey };
+}
+
+/** True when the snapshot was saved for this viewer (legacy missing field = anonymous only). */
+export function searchSnapshotMatchesViewer(
+  snap: SearchSnapshot | null | undefined,
+  viewerPubkey?: string | null
+): boolean {
+  if (!snap) return false;
+  const snapViewer = snap.viewerPubkey === undefined ? null : snap.viewerPubkey;
+  return (snapViewer ?? null) === normalizeViewerPubkey(viewerPubkey);
 }
 
 export function searchSnapshotFresh(
   snap: SearchSnapshot | null | undefined,
-  ttlMs = SEARCH_SNAPSHOT_TTL_MS
+  ttlMs = SEARCH_SNAPSHOT_TTL_MS,
+  viewerPubkey?: string | null
 ): boolean {
-  if (!snap) return false;
-  return Date.now() - snap.savedAt < ttlMs;
+  if (!searchSnapshotMatchesViewer(snap, viewerPubkey)) return false;
+  return Date.now() - snap!.savedAt < ttlMs;
 }
 
 export async function cacheGetSearchSnapshot(key: string): Promise<SearchSnapshot | null> {
   const mem = searchMemory.get(key);
-  if (mem) return { savedAt: mem.savedAt, events: [...mem.events] };
+  if (mem) {
+    return {
+      savedAt: mem.savedAt,
+      events: [...mem.events],
+      viewerPubkey: mem.viewerPubkey
+    };
+  }
   try {
     const cache = await openCache();
     const res = await cache.match(searchSnapshotUrl(key));
     if (!res) return null;
     const snap = ingestSearchSnapshot(await res.json());
     if (snap) searchMemory.set(key, snap);
-    return snap ? { savedAt: snap.savedAt, events: [...snap.events] } : null;
+    return snap
+      ? { savedAt: snap.savedAt, events: [...snap.events], viewerPubkey: snap.viewerPubkey }
+      : null;
   } catch {
     return null;
   }
 }
 
-export async function cachePutSearchSnapshot(key: string, events: Event[]): Promise<void> {
+export async function cachePutSearchSnapshot(
+  key: string,
+  events: Event[],
+  viewerPubkey?: string | null
+): Promise<void> {
   const snap: SearchSnapshot = {
     savedAt: Date.now(),
-    events: events.slice(0, 100)
+    events: events.slice(0, 100),
+    viewerPubkey: normalizeViewerPubkey(viewerPubkey)
   };
   searchMemory.set(key, snap);
   try {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeSearchKey } from './search';
+import { searchSnapshotFresh, searchSnapshotMatchesViewer, type SearchSnapshot } from './nostr/cache';
 
 describe('normalizeSearchKey', () => {
   it('folds case and whitespace so repeats hit the same snapshot', () => {
@@ -8,6 +9,24 @@ describe('normalizeSearchKey', () => {
   });
 });
 
+describe('search snapshot viewer binding', () => {
+  const a = 'a'.repeat(64);
+  const b = 'b'.repeat(64);
+  const snap = (viewer: string | null | undefined, ageMs = 0): SearchSnapshot => ({
+    savedAt: Date.now() - ageMs,
+    events: [],
+    viewerPubkey: viewer
+  });
+
+  it('rejects another identity and legacy anonymous snapshots for signed-in viewers', () => {
+    expect(searchSnapshotMatchesViewer(snap(a), a)).toBe(true);
+    expect(searchSnapshotMatchesViewer(snap(a), b)).toBe(false);
+    expect(searchSnapshotMatchesViewer(snap(null), a)).toBe(false);
+    expect(searchSnapshotMatchesViewer(snap(undefined), null)).toBe(true);
+    expect(searchSnapshotFresh(snap(a), 60_000, b)).toBe(false);
+    expect(searchSnapshotFresh(snap(a), 60_000, a)).toBe(true);
+  });
+});
 describe('identifierHints', () => {
   it('expands Gutenberg URLs, colon ids, and short numbers', async () => {
     const { identifierHints } = await import('./search');

@@ -5,7 +5,7 @@ import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
 import { filterRenderableCatalogEvents } from './catalog-visibility';
-import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText, searchSnapshotFresh } from './nostr/cache';
+import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText, searchSnapshotFresh, searchSnapshotMatchesViewer } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
@@ -17,11 +17,15 @@ import {
 } from './grapevine-rank';
 import { hasKnownRank } from './nip85-trusted-assertions';
 import { hexPubkey, npubFromInput, preferRicherEvent, publicationSectionCount, sortSearchResults } from './metadata';
-import { followPubkeysFromMetadata } from './mute';
+import { followPubkeysFromMetadata, muteState } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
 import { isTopLevel30040, eventAddress } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { fetchByAddresses, fetchByIds } from './nostr/fetch';
+import {
+  fetchFollowReadingQueues,
+  groupFollowsReadingByPublication
+} from './follows-reading';
 import { parseReadingQueue, readingQueueFromMetadata } from './reading-queue';
 import { localReadingQueue } from './stores/local-reading-queue';
 import { readingPrefs } from './stores/reading-prefs';
@@ -152,7 +156,7 @@ async function finishWithGrapevine(
   }
   events = events.slice(0, 100);
   rememberEvents(events);
-  void cachePutSearchSnapshot(key, events);
+  void cachePutSearchSnapshot(key, events, session.getPubkey());
   void cachePutMany(events);
   onUpdate({ events, loading: false, done: true });
   return events;
@@ -170,9 +174,15 @@ async function paintCached(
   key: string,
   onUpdate: (r: SearchResult) => void
 ): Promise<{ events: Event[]; fresh: boolean }> {
+  const viewer = session.getPubkey()?.toLowerCase() ?? null;
   const snap = await cacheGetSearchSnapshot(key);
+  // Never paint another identity's grapevine/follows-scoped results.
+  if (!searchSnapshotMatchesViewer(snap, viewer)) {
+    onUpdate({ events: [], loading: true, done: false });
+    return { events: [], fresh: false };
+  }
   const cached = filterRenderableCatalogEvents(filterDeletedEvents(snap?.events ?? []));
-  const fresh = searchSnapshotFresh(snap);
+  const fresh = searchSnapshotFresh(snap, undefined, viewer);
   rememberEvents(cached);
   onUpdate({ events: cached, loading: !fresh, done: fresh });
   return { events: cached, fresh };
@@ -472,11 +482,44 @@ export async function searchByReadingQueue(pubkeyHex: string): Promise<Event[]> 
   return ordered.filter((e) => e.kind === KIND.PUBLICATION);
 }
 
+/**
+ * Publications on follows' active reading queues, ordered by how many follows are reading each.
+ */
+export async function searchByFollowsReadingQueue(): Promise<Event[]> {
+  const follows = [...followPubkeysFromMetadata(session.getMetadata())];
+  if (!follows.length) return [];
+  const mutePubkeys = get(muteState).pubkeys;
+  const concurrent = get(readingPrefs).concurrent;
+  const queues = await fetchFollowReadingQueues(follows, mutePubkeys);
+  const grouped = groupFollowsReadingByPublication(queues, {
+    concurrent,
+    excludePubkey: session.getPubkey()
+  }).slice(0, 80);
+  if (!grouped.length) return [];
+  const pubs = await fetchByAddresses(grouped.map((g) => g.address));
+  const byAddr = new Map(pubs.map((e) => [eventAddress(e), e]));
+  const ordered: Event[] = [];
+  const seen = new Set<string>();
+  for (const g of grouped) {
+    const hit = byAddr.get(g.address);
+    if (!hit || hit.kind !== KIND.PUBLICATION || seen.has(hit.id)) continue;
+    seen.add(hit.id);
+    ordered.push(hit);
+  }
+  return ordered;
+}
+
 export async function runReadingQueueSearch(
   npubOrHex: string,
   onUpdate: (r: SearchResult) => void
 ): Promise<void> {
-  const hex = hexPubkey(npubOrHex) ?? (HEX64.test(npubOrHex.trim()) ? npubOrHex.trim().toLowerCase() : '');
+  const raw = npubOrHex.trim();
+  if (raw.toLowerCase() === 'follows') {
+    const viewer = session.getPubkey()?.toLowerCase() ?? 'anon';
+    await cachedOrLive(`queue:follows:${viewer}`, onUpdate, () => searchByFollowsReadingQueue());
+    return;
+  }
+  const hex = hexPubkey(raw) ?? (HEX64.test(raw) ? raw.toLowerCase() : '');
   const key = `queue:${hex || normalizeSearchKey(npubOrHex)}`;
   if (!hex) {
     await cachedOrLive(key, onUpdate, async () => []);

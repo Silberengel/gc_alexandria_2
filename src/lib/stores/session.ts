@@ -293,6 +293,7 @@ function createSessionStore() {
     }
   ): Promise<void> {
     const pubkey = pubkeyRaw.toLowerCase();
+    const previousPubkey = get({ subscribe }).pubkey?.toLowerCase() ?? null;
     const { nip19 } = await import('nostr-tools');
     const npub = nip19.npubEncode(pubkey);
     activeSigner = signer;
@@ -310,6 +311,17 @@ function createSessionStore() {
     relayPool.setSignedIn(true);
     metadataEvents = [];
     metadata.set([]);
+    if (previousPubkey && previousPubkey !== pubkey) {
+      void import('../nostr/cache').then(({ cacheClearLandingSnapshot }) => {
+        void cacheClearLandingSnapshot();
+      });
+      void import('../trusted-assertions').then(({ trustedAssertions }) => {
+        trustedAssertions.resetForViewer(previousPubkey);
+      });
+      void import('../follows-of-follows').then(({ resetFollowsOfFollows }) => {
+        resetFollowsOfFollows(previousPubkey);
+      });
+    }
     const meta = loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     if (opts.waitMetadata !== false) await meta;
   }

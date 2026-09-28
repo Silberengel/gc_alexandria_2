@@ -49,9 +49,13 @@
   }
 
   function searchKey(params: URLSearchParams): string {
-    return ['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'npub', 'read', 'queue']
-      .map((k) => `${k}=${params.get(k) ?? ''}`)
-      .join('&');
+    const viewer = session.getPubkey()?.toLowerCase() ?? '';
+    return [
+      `viewer=${viewer}`,
+      ...['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'npub', 'read', 'queue'].map(
+        (k) => `${k}=${params.get(k) ?? ''}`
+      )
+    ].join('&');
   }
 
   function describeSearch(params: URLSearchParams): { kind: string; term: string } {
@@ -70,7 +74,11 @@
     ];
     for (const [key, kind] of keyed) {
       const term = (params.get(key) ?? '').trim();
-      if (term) return { kind, term };
+      if (!term) continue;
+      if (key === 'queue' && term.toLowerCase() === 'follows') {
+        return { kind: 'Reading now', term: 'from follows' };
+      }
+      return { kind, term };
     }
     return { kind: '', term: '' };
   }
@@ -143,10 +151,19 @@
     const unsubMeta = session.metadata.subscribe((events) => {
       follows = followPubkeysFromMetadata(events);
     });
+    let lastViewer = $session.pubkey?.toLowerCase() ?? '';
+    const unsubSession = session.subscribe(($s) => {
+      const next = $s.pubkey?.toLowerCase() ?? '';
+      if (next === lastViewer) return;
+      lastViewer = next;
+      lastKey = '';
+      runFromHash();
+    });
     runFromHash();
     window.addEventListener('hashchange', runFromHash);
     return () => {
       unsubMeta();
+      unsubSession();
       window.removeEventListener('hashchange', runFromHash);
     };
   });

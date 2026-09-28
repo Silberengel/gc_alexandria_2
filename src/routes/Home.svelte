@@ -51,6 +51,7 @@
   import { fetchByAddress } from '$lib/nostr/fetch';
   import { eventAddress } from '$lib/nostr/verify';
   import { MY_BOOK_COLLECTION_D_TAG } from '$lib/bookshelf';
+  import LandingFollowsReading from '$lib/components/LandingFollowsReading.svelte';
 
   const LOG = '[alexandria:landing]';
 
@@ -674,9 +675,79 @@
   {:else}
     {#each visibleShelves as shelf (shelf.id)}
       {@const headingHref = shelfHeadingHref(shelf)}
+      {#if shelf.id === 'reading-now'}
+        <div class="landing-reading-row">
+          <section class="landing-section landing-shelf landing-shelf-reading">
+            <div class="shelf-heading">
+              <h2 class="section-title">
+                {#if headingHref}
+                  <a href={headingHref} use:link>{shelf.title}</a>
+                {:else}
+                  {shelf.title}
+                {/if}
+              </h2>
+            </div>
+            {#if $listingDensity === 'list'}
+              <div class="listing-list">
+                {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
+                  <PublicationCard event={pub} variant="row" />
+                {/each}
+              </div>
+            {:else}
+              <div class="shelf-track shelf-track-reading" use:shelfWheel>
+                <div class="shelf-bar">
+                  {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                    {@const tipTitle = coverTitle(pub)}
+                    {@const tipAuthor = coverAuthor(pub)}
+                    {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+                    {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                    {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                    <a
+                      class="cover"
+                      href={shelfCoverHref(shelf, pub)}
+                      use:link
+                      title={tip}
+                      aria-label={`${tip} — ${pct}% read`}
+                      onpointerdown={() => warmNavEvent(pub)}
+                      onclick={() => warmNavEvent(pub)}
+                    >
+                      <Cover event={pub} />
+                    </a>
+                  {/each}
+                </div>
+                <div class="shelf-reading-captions">
+                  {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                    {@const tipTitle = coverTitle(pub)}
+                    {@const tipAuthor = coverAuthor(pub)}
+                    {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                    {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                    <div class="shelf-reading-caption">
+                      <span class="shelf-reading-caption-title">{tipTitle}</span>
+                      {#if tipAuthor}
+                        <span class="shelf-reading-caption-author">{tipAuthor}</span>
+                      {/if}
+                      <div
+                        class="shelf-reading-progress"
+                        role="progressbar"
+                        aria-valuenow={pct}
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-label={`${pct}% read`}
+                      >
+                        <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
+                      </div>
+                      <span class="shelf-reading-caption-pct">{pct}%</span>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </section>
+          <LandingFollowsReading />
+        </div>
+      {:else}
       <section
         class="landing-section landing-shelf"
-        class:landing-shelf-reading={shelf.id === 'reading-now'}
       >
         <div class="shelf-heading">
           <h2 class="section-title">
@@ -692,54 +763,6 @@
             {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
               <PublicationCard event={pub} variant="row" />
             {/each}
-          </div>
-        {:else if shelf.id === 'reading-now'}
-          <div class="shelf-track shelf-track-reading" use:shelfWheel>
-            <div class="shelf-bar">
-              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
-                {@const tipTitle = coverTitle(pub)}
-                {@const tipAuthor = coverAuthor(pub)}
-                {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
-                {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
-                {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
-                <a
-                  class="cover"
-                  href={shelfCoverHref(shelf, pub)}
-                  use:link
-                  title={tip}
-                  aria-label={`${tip} — ${pct}% read`}
-                  onpointerdown={() => warmNavEvent(pub)}
-                  onclick={() => warmNavEvent(pub)}
-                >
-                  <Cover event={pub} />
-                </a>
-              {/each}
-            </div>
-            <div class="shelf-reading-captions">
-              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
-                {@const tipTitle = coverTitle(pub)}
-                {@const tipAuthor = coverAuthor(pub)}
-                {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
-                {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
-                <div class="shelf-reading-caption">
-                  <span class="shelf-reading-caption-title">{tipTitle}</span>
-                  {#if tipAuthor}
-                    <span class="shelf-reading-caption-author">{tipAuthor}</span>
-                  {/if}
-                  <div
-                    class="shelf-reading-progress"
-                    role="progressbar"
-                    aria-valuenow={pct}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-label={`${pct}% read`}
-                  >
-                    <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
-                  </div>
-                  <span class="shelf-reading-caption-pct">{pct}%</span>
-                </div>
-              {/each}
-            </div>
           </div>
         {:else}
           <div class="shelf-track" use:shelfWheel>
@@ -764,6 +787,7 @@
           </div>
         {/if}
       </section>
+      {/if}
     {/each}
   {/if}
 
