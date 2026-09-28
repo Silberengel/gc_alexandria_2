@@ -28,6 +28,8 @@
   let focusApplied = $state('');
   /** When the viewer already has a published rating, the form stays closed until Edit. */
   let editing = $state(false);
+  /** First-time rating form stays closed until Write a review. */
+  let composing = $state(false);
 
   $effect(() => {
     list = ratings;
@@ -70,7 +72,7 @@
       ? (scored.find((r) => r.pubkey.toLowerCase() === $session.pubkey!.toLowerCase()) ?? null)
       : null
   );
-  const showForm = $derived(!!$session.pubkey && (!minePublished || editing));
+  const showForm = $derived(!!$session.pubkey && (editing || composing));
   const canClear = $derived(mineStars > 0 || review.trim().length > 0);
 
   $effect(() => {
@@ -79,10 +81,66 @@
     mineStars = existing ? ratingStarsFromEvent(existing) : 0;
     review = existing?.content?.trim() ?? '';
     if (!pk || !existing || !ratingHasScore(existing)) {
-      // First-time form stays available; drop edit mode if the published rating vanished.
+      // Drop edit mode if the published rating vanished.
       if (!existing) editing = false;
     }
   });
+
+  function openCompose(): void {
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    composing = true;
+  }
+
+  function openEdit(): void {
+    if (!minePublished) return;
+    mineStars = ratingStarsFromEvent(minePublished);
+    review = minePublished.content?.trim() ?? '';
+    editing = true;
+    composing = false;
+  }
+
+  function cancelForm(): void {
+    if (busy) return;
+    if (minePublished) {
+      mineStars = ratingStarsFromEvent(minePublished);
+      review = minePublished.content?.trim() ?? '';
+      editing = false;
+      return;
+    }
+    mineStars = 0;
+    review = '';
+    composing = false;
+  }
+
+  async function submit(): Promise<void> {
+    if (busy) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    if (mineStars < 1) return;
+    busy = true;
+    try {
+      const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
+      if (signed) {
+        list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
+        editing = false;
+        composing = false;
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Reset the picker and review box only — never delete a published rating. */
+  function clearForm(): void {
+    if (busy) return;
+    mineStars = 0;
+    review = '';
+  }
 
   function bindReview(node: HTMLElement, id: string) {
     const measure = () => {
@@ -104,51 +162,6 @@
         ro.disconnect();
       }
     };
-  }
-
-  function openEdit(): void {
-    if (!minePublished) return;
-    mineStars = ratingStarsFromEvent(minePublished);
-    review = minePublished.content?.trim() ?? '';
-    editing = true;
-  }
-
-  function cancelForm(): void {
-    if (busy) return;
-    if (minePublished) {
-      mineStars = ratingStarsFromEvent(minePublished);
-      review = minePublished.content?.trim() ?? '';
-      editing = false;
-      return;
-    }
-    mineStars = 0;
-    review = '';
-  }
-
-  async function submit(): Promise<void> {
-    if (busy) return;
-    if (!$session.pubkey) {
-      openLoginDialog();
-      return;
-    }
-    if (mineStars < 1) return;
-    busy = true;
-    try {
-      const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
-      if (signed) {
-        list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
-        editing = false;
-      }
-    } finally {
-      busy = false;
-    }
-  }
-
-  /** Reset the picker and review box only — never delete a published rating. */
-  function clearForm(): void {
-    if (busy) return;
-    mineStars = 0;
-    review = '';
   }
 </script>
 
@@ -258,14 +271,15 @@
         <button class="btn btn-primary" type="button" disabled={mineStars < 1 || busy} onclick={() => void submit()}
           >{busy ? 'Saving…' : 'Save rating'}</button
         >
-        {#if minePublished}
-          <button class="btn" type="button" disabled={busy} onclick={cancelForm}>Cancel</button>
-        {:else}
+        <button class="btn" type="button" disabled={busy} onclick={cancelForm}>Cancel</button>
+        {#if !minePublished}
           <button class="btn" type="button" disabled={!canClear || busy} onclick={clearForm}>Clear</button>
         {/if}
       </div>
     </div>
   {:else if !$session.pubkey}
     <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to rate</button>
+  {:else if !minePublished}
+    <button class="btn" type="button" onclick={openCompose}>Write a review</button>
   {/if}
 </section>

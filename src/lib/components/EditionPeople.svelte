@@ -36,7 +36,7 @@
 </script>
 
 {#if rows.length}
-  <section class="reading-width edition-people" aria-label="People">
+  <section class="edition-people" aria-label="People">
     <h2 class="page-kicker">People</h2>
     <dl class="edition-facts edition-people-facts">
       {#each rows as row (row.key)}

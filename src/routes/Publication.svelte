@@ -166,9 +166,11 @@
   let loading = $state(true);
   let commentText = $state('');
   let replyOpenId = $state<string | null>(null);
+  let commentComposeOpen = $state(false);
   let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
   let sectionCommentsOpen = $state<Record<string, boolean>>({});
+  let sectionCommentComposeOpen = $state<Record<string, boolean>>({});
   let treeAbort: AbortController | null = null;
   /** Info-page ToC prefetch — separate from the reader stream abort. */
   let prefetchAbort: AbortController | null = null;
@@ -2333,6 +2335,7 @@
     if (signed) {
       comments = [...comments, signed];
       commentText = '';
+      commentComposeOpen = false;
     }
   }
 
@@ -2351,6 +2354,7 @@
         [a]: [...(sectionComments[a] ?? []), signed]
       };
       sectionCommentText = { ...sectionCommentText, [a]: '' };
+      sectionCommentComposeOpen = { ...sectionCommentComposeOpen, [a]: false };
     }
   }
 
@@ -2507,11 +2511,25 @@
         {:else}
           <p class="muted">No comments yet.</p>
         {/if}
-        {#if $session.pubkey && !replyOpenId}
+        {#if $session.pubkey && !replyOpenId && commentComposeOpen}
           <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
             <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
-            <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+            <div class="compose-actions">
+              <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+              <button
+                class="btn"
+                type="button"
+                onclick={() => {
+                  commentComposeOpen = false;
+                  commentText = '';
+                }}>Cancel</button
+              >
+            </div>
           </form>
+        {:else if $session.pubkey && !replyOpenId}
+          <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
+            >Leave a comment</button
+          >
         {:else if !$session.pubkey}
           <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
         {/if}
@@ -2811,7 +2829,7 @@
                     {:else}
                       <p class="muted">No comments yet.</p>
                     {/if}
-                    {#if $session.pubkey && !replyOpenId}
+                    {#if $session.pubkey && !replyOpenId && sectionCommentComposeOpen[sectionKey]}
                       <form
                         class="compose"
                         onsubmit={(e) => {
@@ -2830,13 +2848,37 @@
                           rows="3"
                           placeholder="Write a comment on this section"
                         ></textarea>
-                        <button
-                          class="btn btn-primary"
-                          type="submit"
-                          disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
-                          >Post</button
-                        >
+                        <div class="compose-actions">
+                          <button
+                            class="btn btn-primary"
+                            type="submit"
+                            disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
+                            >Post</button
+                          >
+                          <button
+                            class="btn"
+                            type="button"
+                            onclick={() => {
+                              sectionCommentComposeOpen = {
+                                ...sectionCommentComposeOpen,
+                                [sectionKey]: false
+                              };
+                              sectionCommentText = { ...sectionCommentText, [sectionKey]: '' };
+                            }}>Cancel</button
+                          >
+                        </div>
                       </form>
+                    {:else if $session.pubkey && !replyOpenId}
+                      <button
+                        class="btn"
+                        type="button"
+                        onclick={() => {
+                          sectionCommentComposeOpen = {
+                            ...sectionCommentComposeOpen,
+                            [sectionKey]: true
+                          };
+                        }}>Leave a comment</button
+                      >
                     {:else if !$session.pubkey}
                       <button class="btn" type="button" onclick={() => openLoginDialog()}
                         >Sign in to comment</button

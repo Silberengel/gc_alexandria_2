@@ -51,6 +51,7 @@
   let forwarding = $state(false);
   let commentText = $state('');
   let replyOpenId = $state<string | null>(null);
+  let commentComposeOpen = $state(false);
   let pageFilter = $state('');
   let loading = $state(true);
   let articlePane = $state<HTMLElement | undefined>();
@@ -436,6 +437,7 @@
     if (signed) {
       comments = [...comments, signed];
       commentText = '';
+      commentComposeOpen = false;
     }
   }
 </script>
@@ -497,11 +499,25 @@
       {:else}
         <p class="muted">No comments yet.</p>
       {/if}
-      {#if $session.pubkey && !replyOpenId}
+      {#if $session.pubkey && !replyOpenId && commentComposeOpen}
         <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
           <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
-          <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+          <div class="compose-actions">
+            <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+            <button
+              class="btn"
+              type="button"
+              onclick={() => {
+                commentComposeOpen = false;
+                commentText = '';
+              }}>Cancel</button
+            >
+          </div>
         </form>
+      {:else if $session.pubkey && !replyOpenId}
+        <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
+          >Leave a comment</button
+        >
       {:else if !$session.pubkey}
         <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
       {/if}
