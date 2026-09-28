@@ -447,7 +447,11 @@
   {:else if forwarding}
     <p class="loading-hint">Opening the preferred version…</p>
   {:else if versions.length}
-    <h1>Versions</h1>
+    <header class="page-header">
+      <p class="page-kicker">Wiki</p>
+      <h1>Versions</h1>
+      <p class="page-lede muted">Choose which author’s version of this page to open.</p>
+    </header>
     <PageFilter bind:value={pageFilter} />
     <div class="card-grid card-grid-results">
       {#each visibleVersions as version (version.id)}
@@ -483,7 +487,7 @@
       <DetailsPanel {event} />
     </article>
     <section class="card reading-width" style="margin-top:1rem">
-      <h2>Comments</h2>
+      <h2 class="section-title">Comments</h2>
       {#if thread.length}
         <ul class="thread-list">
           {#each thread as node (threadNodeKey(node))}

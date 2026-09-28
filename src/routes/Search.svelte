@@ -184,7 +184,13 @@
 
 <TopBar />
 <main class="shell">
-  <h1>Search</h1>
+  <header class="page-header">
+    <p class="page-kicker">Catalog</p>
+    <h1>Search</h1>
+    {#if !searchTerm}
+      <p class="page-lede muted">Find publications, wiki pages, authors, and labels across the library.</p>
+    {/if}
+  </header>
   {#if searchTerm}
     <p class="search-term">
       {#if searchKind}<span class="muted">{searchKind}</span>{/if}

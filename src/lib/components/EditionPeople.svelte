@@ -36,17 +36,22 @@
 </script>
 
 {#if rows.length}
-  <section class="card reading-width edition-people" style="margin-bottom:1rem">
-    <h2>People</h2>
-    {#each rows as row (row.key)}
-      <div class="edition-people-row">
-        <h3 class="edition-people-title">{row.title}</h3>
-        <ul class="edition-people-list">
-          {#each row.pubkeys as pk (pk)}
-            <li><UserBadge pubkey={pk} /></li>
-          {/each}
-        </ul>
-      </div>
-    {/each}
+  <section class="reading-width edition-people" aria-label="People">
+    <h2 class="page-kicker">People</h2>
+    <dl class="edition-facts edition-people-facts">
+      {#each rows as row (row.key)}
+        <div class="edition-fact edition-people-fact">
+          <dt>{row.title}</dt>
+          <dd>
+            <ul class="edition-people-list">
+              {#each row.pubkeys as pk, i (pk)}
+                {#if i > 0}<li class="edition-people-sep" aria-hidden="true">·</li>{/if}
+                <li><UserBadge pubkey={pk} compact /></li>
+              {/each}
+            </ul>
+          </dd>
+        </div>
+      {/each}
+    </dl>
   </section>
 {/if}

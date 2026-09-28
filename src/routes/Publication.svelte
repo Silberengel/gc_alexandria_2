@@ -2434,7 +2434,11 @@
   {:else if unreadable}
     <ErrorPage title="This edition cannot be read" message="The library has no readable copy of this edition." />
   {:else if editions.length}
-    <h1>Editions</h1>
+    <header class="page-header">
+      <p class="page-kicker">Catalog</p>
+      <h1>Editions</h1>
+      <p class="page-lede muted">Multiple editions match this address — pick one to open.</p>
+    </header>
     <PageFilter bind:value={pageFilter} />
     <div class="card-grid card-grid-results">
       {#each visibleEditions as edition (edition.id)}
@@ -2479,7 +2483,7 @@
 
       <EditionPeople
         publication={event}
-        labels={editionLabels}
+        labels={[...editionLabels, ...editionReads]}
         bookmarks={editionBookmarks}
         highlights={mutedHighlights}
         directories={editionDirectories}
@@ -2493,7 +2497,7 @@
       />
 
       <section class="card reading-width" style="margin-bottom:1rem">
-        <h2>Comments</h2>
+        <h2 class="section-title">Comments</h2>
         {#if thread.length}
           <ul class="thread-list">
             {#each thread as node (threadNodeKey(node))}

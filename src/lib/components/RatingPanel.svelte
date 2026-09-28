@@ -153,7 +153,7 @@
 </script>
 
 <section class="card rating-panel" style="margin-bottom:1rem">
-  <h2>Ratings</h2>
+  <h2 class="section-title">Ratings</h2>
   {#if agg.count}
     <p class="rating-summary">
       <Stars value={avgStars} size={18} label={`${avgStars.toFixed(1)} out of 5 from ${agg.count} ratings`} />

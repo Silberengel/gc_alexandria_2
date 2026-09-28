@@ -521,7 +521,10 @@
 
 <TopBar />
 <main class="shell">
-  <h1>Profile</h1>
+  <header class="page-header">
+    <p class="page-kicker">Reader</p>
+    <h1>Profile</h1>
+  </header>
   <PageFilter bind:value={pageFilter} />
   {#if pubkey}
     <div class="card profile-card" style="margin-bottom:1rem">

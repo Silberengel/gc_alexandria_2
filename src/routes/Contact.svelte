@@ -55,8 +55,12 @@
 
 {#if $session.pubkey}
   <TopBar />
-  <main class="shell reading-body">
-    <h1>Contact GitCitadel</h1>
+  <main class="shell reading-body contact-page">
+    <header class="page-header">
+      <p class="page-kicker">GitCitadel</p>
+      <h1>Contact</h1>
+      <p class="page-lede muted">Reach the project maintainers or open an Alexandria issue on Nostr.</p>
+    </header>
     <p>
       <a href="https://github.com/ShadowySupercode/gitcitadel" target="_blank" rel="noopener">GitHub</a> ·
       <a href="https://geyser.fund/project/gitcitadel" target="_blank" rel="noopener">Geyser</a>
@@ -69,9 +73,9 @@
     <form class="card" onsubmit={submit}>
       <label>Subject<input type="text" bind:value={subject} required /></label>
       <label style="display:block;margin-top:1rem">Body<textarea rows="8" bind:value={body} required></textarea></label>
-      {#if error}<p style="color:crimson">{error}</p>{/if}
+      {#if error}<p class="contact-form-error">{error}</p>{/if}
       {#if success}
-        <p style="color:green">{success}</p>
+        <p class="contact-form-success">{success}</p>
         {#if issueHref}
           <p><a href={issueHref} target="_blank" rel="noopener">{issueHref}</a></p>
         {/if}

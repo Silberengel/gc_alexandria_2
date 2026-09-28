@@ -97,7 +97,7 @@ describe('read marks', () => {
     expect(countReadPublications([a, b])).toBe(1);
   });
 
-  it('builds people rows without read labels in Labeled', () => {
+  it('builds people rows with Read and Shelved or labeled covering labels and highlights', () => {
     const labeled = ev({
       id: '3'.repeat(64),
       pubkey: '3'.repeat(64),
@@ -116,15 +116,31 @@ describe('read marks', () => {
       kind: KIND.BOOKMARK,
       tags: [['a', addr]]
     });
+    const shelf = ev({
+      id: '6'.repeat(64),
+      pubkey: '6'.repeat(64),
+      kind: KIND.DIRECTORY,
+      tags: [['a', addr], ['d', 'my-shelf']]
+    });
+    const highlight = ev({
+      id: '7'.repeat(64),
+      pubkey: '7'.repeat(64),
+      kind: KIND.HIGHLIGHT,
+      tags: [['a', addr]]
+    });
     const rows = editionPeopleRows({
       publication: pub,
       labels: [labeled, read],
       bookmarks: [bookmark],
-      highlights: [],
-      directories: []
+      highlights: [highlight],
+      directories: [shelf]
     });
-    expect(rows.map((r) => r.key)).toEqual(['labeled', 'bookmarked']);
-    expect(rows.find((r) => r.key === 'labeled')?.pubkeys).toEqual(['3'.repeat(64)]);
+    expect(rows.map((r) => r.key)).toEqual(['read', 'shelved', 'bookmarked']);
+    expect(rows.find((r) => r.key === 'read')?.pubkeys).toEqual(['4'.repeat(64)]);
+    expect(rows.find((r) => r.key === 'shelved')?.title).toBe('Shelved, Labeled, or Highlighted');
+    expect(rows.find((r) => r.key === 'shelved')?.pubkeys.sort()).toEqual(
+      ['3'.repeat(64), '4'.repeat(64), '6'.repeat(64), '7'.repeat(64)].sort()
+    );
     expect(rows.find((r) => r.key === 'bookmarked')?.pubkeys).toEqual(['5'.repeat(64)]);
   });
 
@@ -181,6 +197,7 @@ describe('read marks', () => {
       mute: { pubkeys: new Set([mutedPk]), eventIds: new Set() }
     });
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.key).toBe('shelved');
     expect(rows[0]?.pubkeys).toEqual(['7'.repeat(64)]);
   });
 });

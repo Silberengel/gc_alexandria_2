@@ -80,7 +80,7 @@ export function publicationKeysForQuery(publication: Event): string[] {
 }
 
 export type EditionPeopleRow = {
-  key: 'labeled' | 'bookmarked' | 'highlighted' | 'shelved' | 'reading';
+  key: 'bookmarked' | 'shelved' | 'reading' | 'read';
   title: string;
   pubkeys: string[];
 };
@@ -109,7 +109,8 @@ function targetsEdition(event: Event, publication: Event): boolean {
 
 /**
  * People rows for the edition info page.
- * Labeled ignores `l=read` (those belong on the read toggle count).
+ * Read is the dedicated l=read mark; Shelved, Labeled, or Highlighted unions
+ * directories, any label, and highlights.
  */
 export function editionPeopleRows(opts: {
   publication: Event;
@@ -121,12 +122,10 @@ export function editionPeopleRows(opts: {
   mute?: MuteState;
 }): EditionPeopleRow[] {
   const { publication, mute } = opts;
-  const labeled = (opts.labels ?? []).filter(
-    (e) =>
-      e.kind === KIND.LABEL &&
-      isListPublicationLabelEvent(e) &&
-      targetsEdition(e, publication)
+  const anyLabeled = (opts.labels ?? []).filter(
+    (e) => e.kind === KIND.LABEL && targetsEdition(e, publication)
   );
+  const read = readLabelsForPublication(opts.labels ?? [], publication);
   const bookmarked = (opts.bookmarks ?? []).filter(
     (e) => e.kind === KIND.BOOKMARK && targetsEdition(e, publication)
   );
@@ -149,10 +148,13 @@ export function editionPeopleRows(opts: {
 
   const rows: EditionPeopleRow[] = [
     { key: 'reading', title: 'Reading', pubkeys: newestPubkey(reading, mute) },
-    { key: 'labeled', title: 'Labeled', pubkeys: newestPubkey(labeled, mute) },
-    { key: 'bookmarked', title: 'Bookmarked', pubkeys: newestPubkey(bookmarked, mute) },
-    { key: 'highlighted', title: 'Highlighted', pubkeys: newestPubkey(highlighted, mute) },
-    { key: 'shelved', title: 'Shelved', pubkeys: newestPubkey(shelved, mute) }
+    { key: 'read', title: 'Read', pubkeys: newestPubkey(read, mute) },
+    {
+      key: 'shelved',
+      title: 'Shelved, Labeled, or Highlighted',
+      pubkeys: newestPubkey([...shelved, ...anyLabeled, ...highlighted], mute)
+    },
+    { key: 'bookmarked', title: 'Bookmarked', pubkeys: newestPubkey(bookmarked, mute) }
   ];
   return rows.filter((r) => r.pubkeys.length > 0);
 }

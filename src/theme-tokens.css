@@ -8,6 +8,9 @@
   --rule: #d8c9b5;
   /* Oxblood — links, hovers, stars; not large surfaces */
   --accent-strong: #713b32;
+  /* Reading now shelf well — warm tip on antique paper */
+  --reading-now-well: color-mix(in srgb, var(--paper-dark) 82%, var(--accent-strong) 18%);
+  --reading-now-well-border: color-mix(in srgb, var(--accent-strong) 28%, var(--rule));
 
   /* Brand ramp kept for components; aligned to the paper system */
   --brand-primary-0: #f8f3ea;
@@ -33,6 +36,8 @@
   --ink-soft: #d8c9b5;
   --rule: #564a3e;
   --accent-strong: #c4897a;
+  --reading-now-well: color-mix(in srgb, var(--paper-dark) 72%, var(--accent-strong) 28%);
+  --reading-now-well-border: color-mix(in srgb, var(--accent-strong) 35%, var(--rule));
   --brand-primary-300: #d4a574;
   --brand-primary-200: #e0b890;
 }
@@ -59,6 +64,9 @@
   --rule: var(--brand-primary-200);
   /* Shared oxblood seal on neutral paper */
   --accent-strong: #713b32;
+  /* Cool gray well — no warm accent mix (that reads brown). */
+  --reading-now-well: var(--brand-primary-200);
+  --reading-now-well-border: var(--brand-primary-300);
 }
 
 :root.dark[data-theme='gray'] {
@@ -73,4 +81,7 @@
   --ink-soft: var(--brand-primary-200);
   --rule: var(--brand-primary-800);
   --accent-strong: #c4897a;
+  /* Elevated cool slate, distinct from page without brown cast. */
+  --reading-now-well: var(--brand-primary-700);
+  --reading-now-well-border: var(--brand-primary-600);
 }
