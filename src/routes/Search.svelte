@@ -19,6 +19,7 @@
     runBookshelfSearch,
     runDTagSearch,
     runReadSearch,
+    runReadingQueueSearch,
     npubFromInput
   } from '$lib/search';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
@@ -48,13 +49,14 @@
   }
 
   function searchKey(params: URLSearchParams): string {
-    return ['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'npub', 'read']
+    return ['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'npub', 'read', 'queue']
       .map((k) => `${k}=${params.get(k) ?? ''}`)
       .join('&');
   }
 
   function describeSearch(params: URLSearchParams): { kind: string; term: string } {
     const keyed: [string, string][] = [
+      ['queue', 'Reading now'],
       ['read', 'Read by'],
       ['bookshelf', 'Bookshelf'],
       ['d', 'Slug'],
@@ -93,6 +95,7 @@
     const d = params.get('d') ?? '';
     const shelfNpub = params.get('npub') ?? '';
     const read = params.get('read') ?? '';
+    const queue = params.get('queue') ?? '';
     const term = described.term;
     if (!term) {
       events = [];
@@ -100,7 +103,7 @@
       return;
     }
     const npub = npubFromInput(term);
-    if (npub && !bookshelf && !read) {
+    if (npub && !bookshelf && !read && !queue) {
       window.location.hash = `#/p/${npub}`;
       return;
     }
@@ -109,7 +112,8 @@
       events = r.events;
       loading = r.loading;
     };
-    if (read) void runReadSearch(read, onUpdate);
+    if (queue) void runReadingQueueSearch(queue, onUpdate);
+    else if (read) void runReadSearch(read, onUpdate);
     else if (bookshelf) void runBookshelfSearch(bookshelf, onUpdate, shelfNpub || undefined);
     else if (d) void runDTagSearch(d, onUpdate);
     else if (subject) void runSubjectSearch(subject, onUpdate);

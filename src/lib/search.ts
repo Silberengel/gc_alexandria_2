@@ -19,9 +19,13 @@ import { hasKnownRank } from './nip85-trusted-assertions';
 import { hexPubkey, npubFromInput, preferRicherEvent, publicationSectionCount, sortSearchResults } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
-import { isTopLevel30040 } from './nostr/verify';
+import { isTopLevel30040, eventAddress } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { fetchByAddresses, fetchByIds } from './nostr/fetch';
+import { parseReadingQueue, readingQueueFromMetadata } from './reading-queue';
+import { localReadingQueue } from './stores/local-reading-queue';
+import { readingPrefs } from './stores/reading-prefs';
+import { get } from 'svelte/store';
 import { session } from './stores/session';
 import { trust } from './stores/trust';
 import { trustedAssertions } from './trusted-assertions';
@@ -425,6 +429,60 @@ export async function runReadSearch(
     return;
   }
   await cachedOrLive(key, onUpdate, () => searchByReadAuthor(hex));
+}
+
+/**
+ * Publications on one author's reading queue (kind 16374), in queue order.
+ * Own profile + local-only uses the on-device queue.
+ */
+export async function searchByReadingQueue(pubkeyHex: string): Promise<Event[]> {
+  const hex = pubkeyHex.toLowerCase();
+  if (!HEX64.test(hex)) return [];
+
+  const me = session.getPubkey()?.toLowerCase();
+  const localOnly = Boolean(me && me === hex && get(readingPrefs).localOnly);
+  let entries = localOnly
+    ? get(localReadingQueue)
+    : me && me === hex
+      ? readingQueueFromMetadata(session.getMetadata())
+      : [];
+
+  if (!entries.length && !localOnly) {
+    const queues = await relayPool.query(
+      socialStack(),
+      [{ kinds: [KIND.READING_QUEUE], authors: [hex], limit: 5 }],
+      4000,
+      3
+    );
+    const newest = queues.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
+    entries = parseReadingQueue(newest);
+  }
+
+  if (!entries.length) return [];
+  const pubs = await fetchByAddresses(entries.map((e) => e.a).slice(0, 80));
+  const byExact = new Map(pubs.map((e) => [eventAddress(e), e]));
+  const ordered: Event[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const hit = byExact.get(entry.a);
+    if (!hit || seen.has(hit.id)) continue;
+    seen.add(hit.id);
+    ordered.push(hit);
+  }
+  return ordered.filter((e) => e.kind === KIND.PUBLICATION);
+}
+
+export async function runReadingQueueSearch(
+  npubOrHex: string,
+  onUpdate: (r: SearchResult) => void
+): Promise<void> {
+  const hex = hexPubkey(npubOrHex) ?? (HEX64.test(npubOrHex.trim()) ? npubOrHex.trim().toLowerCase() : '');
+  const key = `queue:${hex || normalizeSearchKey(npubOrHex)}`;
+  if (!hex) {
+    await cachedOrLive(key, onUpdate, async () => []);
+    return;
+  }
+  await cachedOrLive(key, onUpdate, () => searchByReadingQueue(hex));
 }
 
 export async function suggestTitles(q: string): Promise<string[]> {

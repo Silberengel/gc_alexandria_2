@@ -83,6 +83,18 @@ export function childGuideFolderDTags(dir: Event | undefined): string[] {
 }
 
 /**
+ * Instant Home Guides chips from the canonical genre list (no network).
+ * Relays may later refine which folders actually exist.
+ */
+export function defaultStarterGuideChips(): StarterGuideChip[] {
+  return GC_STARTER_GENRE_D_TAGS.map((d) => ({
+    d,
+    title: starterGuideTitle(d),
+    href: guideSearchHref(d)
+  }));
+}
+
+/**
  * Ordered Home Guides chips from curator 30045 events.
  * Genre shelves in canonical order. Only includes d-tags with a loaded directory.
  */
@@ -119,8 +131,9 @@ export function starterGuideCoordinate(d: string): string {
 }
 
 /**
- * Load curator starter-guide directories from the document stack.
- * Returns chips for Home; empty when the tree is not published yet.
+ * Confirm starter-guide directories on the document stack (best-effort).
+ * Prefer calling this early and in parallel with heavier landing work — chips
+ * should already be painted via {@link defaultStarterGuideChips}.
  */
 export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
   const dTags = allStarterGuideDTags();
@@ -135,12 +148,14 @@ export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
           limit: Math.min(40, dTags.length + 5)
         }
       ],
-      4_000,
-      4
+      2_500,
+      3
     );
     if (events.length) rememberEvents(events);
-    return starterGuideChipsFromDirectories(events);
+    const live = starterGuideChipsFromDirectories(events);
+    // Keep the instant defaults when relays are empty / timed out.
+    return live.length ? live : defaultStarterGuideChips();
   } catch {
-    return [];
+    return defaultStarterGuideChips();
   }
 }

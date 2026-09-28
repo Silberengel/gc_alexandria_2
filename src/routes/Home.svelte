@@ -30,14 +30,27 @@
   import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { prefetchImages } from '$lib/image-cache';
   import { link } from 'svelte-spa-router';
-  import type { Event } from 'nostr-tools';
-  import type { LandingShelfSnap } from '$lib/nostr/cache';
-  import ReadingNowPanel from '$lib/components/ReadingNowPanel.svelte';
+  import { nip19, type Event } from 'nostr-tools';
+  import { cachePutEvent, type LandingShelfSnap } from '$lib/nostr/cache';
   import { KIND } from '$lib/constants';
   import {
+    defaultStarterGuideChips,
     loadStarterGuideChips,
     type StarterGuideChip
   } from '$lib/starter-guides';
+  import { viewerReadingEntries } from '$lib/viewer-reading-queue';
+  import { readingPrefs } from '$lib/stores/reading-prefs';
+  import {
+    activeReadingEntries,
+    findQueueEntry,
+    readingProgressPercent,
+    waitingReadingEntries,
+    type ReadingQueueEntry
+  } from '$lib/reading-queue';
+  import { warmReadingQueueCache } from '$lib/reading-queue-cache';
+  import { fetchByAddress } from '$lib/nostr/fetch';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { MY_BOOK_COLLECTION_D_TAG } from '$lib/bookshelf';
 
   const LOG = '[alexandria:landing]';
 
@@ -144,25 +157,50 @@
   let subjects = $state<string[]>([]);
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
-  let guideChips = $state<StarterGuideChip[]>([]);
+  let guideChips = $state<StarterGuideChip[]>(defaultStarterGuideChips());
   let landingBusy = $state(true);
   let landingStatus = $state('Starting…');
   let shelfBusy = $state(false);
   /** Stable for this SPA session (module seed) so covers reshuffle only on full reload. */
   const shelfSeed = landingCoverSeed();
+  /** Resolved edition events for the viewer's reading queue (Reading now shelf). */
+  let readingEditions = $state<Map<string, Event>>(new Map());
+
+  const readingQueue = $derived($viewerReadingEntries);
+  const readingShelfEntries = $derived([
+    ...activeReadingEntries(readingQueue, $readingPrefs.concurrent),
+    ...waitingReadingEntries(readingQueue, $readingPrefs.concurrent)
+  ]);
+
+  const readingNowShelf = $derived.by((): LandingShelfSnap | null => {
+    if (!$session.pubkey) return null;
+    const events: Event[] = [];
+    const seen = new Set<string>();
+    for (const entry of readingShelfEntries) {
+      const hit = readingEditions.get(entry.a);
+      if (!hit) continue;
+      const key = eventAddress(hit) || hit.id.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      events.push(hit);
+    }
+    if (!events.length) return null;
+    return { id: 'reading-now', title: 'Reading now', events };
+  });
 
   const visibleShelves = $derived(
     dedupeLandingShelfEvents(
       orderLandingShelves(
-        shelves
-          .map((s) => {
+        [
+          ...(readingNowShelf ? [readingNowShelf] : []),
+          ...shelves.map((s) => {
             // Curated shelves keep their covers; mute only drops authors on open network rows.
             if (s.id === 'network') {
               return { ...s, events: filterMuted(s.events, $muteState) };
             }
             return s;
           })
-          .filter((s) => s.events.length)
+        ].filter((s) => s.events.length)
       )
     )
   );
@@ -177,18 +215,81 @@
   const visibleLabels = $derived(labels);
   const visibleGuides = $derived(guideChips);
 
+  function shelfCoverEvents(shelf: LandingShelfSnap): Event[] {
+    // Keep reading-queue order; other shelves still shuffle for variety.
+    if (shelf.id === 'reading-now') return shelf.events;
+    return orderShelfCovers(shelf.events, shelfSeed);
+  }
+
+  function continueReadingHref(entry: ReadingQueueEntry, edition: Event): string {
+    const base = `#${publicationPath(edition)}`;
+    const q = new URLSearchParams();
+    q.set('read', '1');
+    const sid = (entry.sectionId ?? '').trim();
+    if (sid) q.set('section', sid);
+    if (Number.isFinite(entry.pos) && entry.pos >= 0) q.set('pos', String(Math.floor(entry.pos)));
+    return `${base}?${q.toString()}`;
+  }
+
+  function shelfCoverHref(shelf: LandingShelfSnap, pub: Event): string {
+    if (shelf.id === 'reading-now') {
+      const entry = findQueueEntry(readingQueue, eventAddress(pub));
+      if (entry) return continueReadingHref(entry, pub);
+    }
+    return `#${publicationPath(pub)}`;
+  }
+
+  /** Search URL for a landing shelf heading (replaces the old “Full shelf →” link). */
+  function shelfHeadingHref(shelf: LandingShelfSnap): string | null {
+    if (shelf.href) {
+      return shelf.href.startsWith('#') ? shelf.href : `#${shelf.href}`;
+    }
+    const pk = $session.pubkey;
+    if (!pk) return null;
+    let npub = '';
+    try {
+      npub = nip19.npubEncode(pk);
+    } catch {
+      return null;
+    }
+    if (shelf.id === 'reading-now') {
+      return `#/search?queue=${encodeURIComponent(npub)}`;
+    }
+    if (shelf.id === 'mine') {
+      return `#/search?bookshelf=${encodeURIComponent(MY_BOOK_COLLECTION_D_TAG)}&npub=${encodeURIComponent(npub)}`;
+    }
+    return null;
+  }
+
   /** All shelf publications in priority order, deduped — used by table view. */
   const allShelfEvents = $derived.by(() => {
     const seen = new Set<string>();
     const out: Event[] = [];
     for (const shelf of visibleShelves) {
-      for (const event of orderShelfCovers(shelf.events, shelfSeed)) {
+      for (const event of shelfCoverEvents(shelf)) {
         if (seen.has(event.id)) continue;
         seen.add(event.id);
         out.push(event);
       }
     }
     return out;
+  });
+
+  $effect(() => {
+    if (!$session.pubkey) return;
+    const queue = readingShelfEntries;
+    for (const entry of queue) {
+      if (readingEditions.has(entry.a)) continue;
+      const addr = entry.a;
+      void (async () => {
+        const hit = await fetchByAddress(addr);
+        if (!hit) return;
+        rememberEvents([hit]);
+        void cachePutEvent(hit);
+        readingEditions = new Map(readingEditions).set(addr, hit);
+      })();
+    }
+    warmReadingQueueCache(queue);
   });
 
   function apply(view: LandingView, replaceShelves = false): void {
@@ -380,6 +481,13 @@
     const identity = session.getPubkey();
     const replaceFromCache = shelves.length === 0;
     console.info(LOG, 'loadLanding start', { identity: identity?.slice(0, 8) ?? null });
+    // Guides first (top of page): already painted from defaults; refine in parallel.
+    void loadStarterGuideChips()
+      .then((chips) => {
+        if (session.getPubkey() !== identity) return;
+        if (chips.length) guideChips = chips;
+      })
+      .catch(() => {});
     try {
       landingStatus = 'Loading cached landing…';
       const cached = await loadCachedLanding();
@@ -389,12 +497,6 @@
       });
       if (cached) apply(cached, replaceFromCache);
       landingStatus = 'Refreshing shelves and feeds…';
-      void loadStarterGuideChips()
-        .then((chips) => {
-          if (session.getPubkey() !== identity) return;
-          guideChips = chips;
-        })
-        .catch(() => {});
       const live = await refreshLanding(cached, (view) => {
         // Drop updates only when the viewer identity changed under us.
         if (session.getPubkey() !== identity) return;
@@ -502,12 +604,35 @@
       <p class="landing-hero-lede muted">
         A calm shelf of publications, reviews, and quotes from the Nostr library.
       </p>
-      <p class="landing-hero-crosslink">
-        <a href="https://biblestr.imwald.eu/" target="_blank" rel="noopener noreferrer">
-          <img class="landing-hero-crosslink-icon" src="/biblestr-icon.png" alt="" width="18" height="18" />
-          Biblestr
-        </a>
-      </p>
+      <div class="landing-hero-footer">
+        {#if showLandingSpinner || landingStatus}
+          <p class="loading-hint landing-status landing-hero-status" class:landing-status-busy={showLandingSpinner}>
+            {#if showLandingSpinner}
+              <span class="landing-status-dot" aria-hidden="true"></span>
+            {/if}
+            {#if $session.loading}
+              Signing in and fetching your lists…
+            {:else if landingStatus}
+              {landingStatus}
+            {:else}
+              Loading library…
+            {/if}
+          </p>
+        {:else if $session.pubkey && !hasViewerShelves}
+          <p class="muted landing-status landing-hero-status">
+            Signed in, but My shelf / folders did not load. Open the browser console and filter for
+            <code>alexandria:landing</code>.
+          </p>
+        {:else}
+          <span class="landing-hero-status-spacer" aria-hidden="true"></span>
+        {/if}
+        <p class="landing-hero-crosslink">
+          <a href="https://biblestr.imwald.eu/" target="_blank" rel="noopener noreferrer">
+            <img class="landing-hero-crosslink-icon" src="/biblestr-icon.png" alt="" width="18" height="18" />
+            Biblestr
+          </a>
+        </p>
+      </div>
     </div>
   </header>
 
@@ -536,28 +661,6 @@
     </section>
   {/if}
 
-  <ReadingNowPanel />
-
-  {#if showLandingSpinner || landingStatus}
-    <p class="loading-hint landing-status" class:landing-status-busy={showLandingSpinner}>
-      {#if showLandingSpinner}
-        <span class="landing-status-dot" aria-hidden="true"></span>
-      {/if}
-      {#if $session.loading}
-        Signing in and fetching your lists…
-      {:else if landingStatus}
-        {landingStatus}
-      {:else}
-        Loading library…
-      {/if}
-    </p>
-  {:else if $session.pubkey && !hasViewerShelves}
-    <p class="muted landing-status">
-      Signed in, but My shelf / folders did not load. Open the browser console and filter for
-      <code>alexandria:landing</code>.
-    </p>
-  {/if}
-
   {#if visibleShelves.length}
     <div class="listing-toolbar">
       <ListingViewToggle label="Shelves" />
@@ -570,35 +673,84 @@
     {/if}
   {:else}
     {#each visibleShelves as shelf (shelf.id)}
-      <section class="landing-section landing-shelf">
+      {@const headingHref = shelfHeadingHref(shelf)}
+      <section
+        class="landing-section landing-shelf"
+        class:landing-shelf-reading={shelf.id === 'reading-now'}
+      >
         <div class="shelf-heading">
           <h2 class="section-title">
-            {#if shelf.href}
-              <a href={`#${shelf.href}`} use:link>{shelf.title}</a>
+            {#if headingHref}
+              <a href={headingHref} use:link>{shelf.title}</a>
             {:else}
               {shelf.title}
             {/if}
           </h2>
-          {#if shelf.href && $listingDensity !== 'list'}
-            <a class="shelf-full-link" href={`#${shelf.href}`} use:link>Full shelf →</a>
-          {/if}
         </div>
         {#if $listingDensity === 'list'}
           <div class="listing-list">
-            {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
+            {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
               <PublicationCard event={pub} variant="row" />
             {/each}
+          </div>
+        {:else if shelf.id === 'reading-now'}
+          <div class="shelf-track shelf-track-reading" use:shelfWheel>
+            <div class="shelf-bar">
+              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                {@const tipTitle = coverTitle(pub)}
+                {@const tipAuthor = coverAuthor(pub)}
+                {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+                {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                <a
+                  class="cover"
+                  href={shelfCoverHref(shelf, pub)}
+                  use:link
+                  title={tip}
+                  aria-label={`${tip} — ${pct}% read`}
+                  onpointerdown={() => warmNavEvent(pub)}
+                  onclick={() => warmNavEvent(pub)}
+                >
+                  <Cover event={pub} />
+                </a>
+              {/each}
+            </div>
+            <div class="shelf-reading-captions">
+              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                {@const tipTitle = coverTitle(pub)}
+                {@const tipAuthor = coverAuthor(pub)}
+                {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                <div class="shelf-reading-caption">
+                  <span class="shelf-reading-caption-title">{tipTitle}</span>
+                  {#if tipAuthor}
+                    <span class="shelf-reading-caption-author">{tipAuthor}</span>
+                  {/if}
+                  <div
+                    class="shelf-reading-progress"
+                    role="progressbar"
+                    aria-valuenow={pct}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-label={`${pct}% read`}
+                  >
+                    <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
+                  </div>
+                  <span class="shelf-reading-caption-pct">{pct}%</span>
+                </div>
+              {/each}
+            </div>
           </div>
         {:else}
           <div class="shelf-track" use:shelfWheel>
             <div class="shelf-bar">
-              {#each orderShelfCovers(shelf.events, shelfSeed).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
                 {@const tipTitle = coverTitle(pub)}
                 {@const tipAuthor = coverAuthor(pub)}
                 {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
                 <a
                   class="cover"
-                  href={`#${publicationPath(pub)}`}
+                  href={shelfCoverHref(shelf, pub)}
                   use:link
                   title={tip}
                   aria-label={tip}

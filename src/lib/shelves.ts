@@ -43,21 +43,24 @@ const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'network'];
 
 /**
  * Home / landing row order:
- * 1. My shelf
- * 2. Viewer's nested folder shelves (A–Z by title)
- * 3. From follows
- * 4. From the network (includes GitCitadel curator lists)
+ * 1. Reading now (active + up-next queue)
+ * 2. My shelf
+ * 3. Viewer's nested folder shelves (A–Z by title)
+ * 4. From follows
+ * 5. From the network (includes GitCitadel curator lists)
  * Unknown ids stay at the end in input order.
  * Legacy `gitcitadel` shelf ids are folded into network.
  */
 export function orderLandingShelves<T extends { id: string; title?: string }>(shelves: T[]): T[] {
+  const readingNow: T[] = [];
   const mine: T[] = [];
   const folders: T[] = [];
   const follows: T[] = [];
   const network: T[] = [];
   const other: T[] = [];
   for (const shelf of shelves) {
-    if (shelf.id === 'mine') mine.push(shelf);
+    if (shelf.id === 'reading-now') readingNow.push(shelf);
+    else if (shelf.id === 'mine') mine.push(shelf);
     else if (shelf.id.startsWith('folder:')) folders.push(shelf);
     else if (shelf.id === 'follows') follows.push(shelf);
     else if (shelf.id === 'network' || shelf.id === 'gitcitadel') {
@@ -84,7 +87,7 @@ export function orderLandingShelves<T extends { id: string; title?: string }>(sh
       networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network } as T];
     }
   }
-  return [...mine, ...folders, ...follows, ...networkRow, ...other];
+  return [...readingNow, ...mine, ...folders, ...follows, ...networkRow, ...other];
 }
 
 /**
@@ -122,7 +125,7 @@ export function dedupeLandingShelfEvents<
 
 /** My shelf and nested 30045 folders — not follows/network. */
 export function isViewerOwnedShelfId(id: string): boolean {
-  return id === 'mine' || id.startsWith('folder:');
+  return id === 'reading-now' || id === 'mine' || id.startsWith('folder:');
 }
 
 function targetsFromMembershipEvent(event: Event): {

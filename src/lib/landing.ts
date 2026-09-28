@@ -41,6 +41,7 @@ import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
 import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, dedupeLandingShelfEvents, SHELF_TITLES, topLevelShelfEvents, type Membership, type Shelf } from './shelves';
+import { MY_BOOK_COLLECTION_D_TAG } from './bookshelf';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -898,7 +899,16 @@ async function loadShelvesAndLabels(
     }
   }
   const shelfSnaps: LandingShelfSnap[] = dedupeLandingShelfEvents([
-    ...shelves.map((s) => ({ id: s.id, title: s.title, events: s.events })),
+    ...shelves.map((s) => ({
+      id: s.id,
+      title: s.title,
+      events: s.events,
+      ...(s.id === 'mine' && viewerNpub
+        ? {
+            href: `/search?bookshelf=${encodeURIComponent(MY_BOOK_COLLECTION_D_TAG)}&npub=${viewerNpub}`
+          }
+        : {})
+    })),
     ...nested.map((s) => ({
       id: s.id,
       title: s.title,

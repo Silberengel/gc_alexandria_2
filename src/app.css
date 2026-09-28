@@ -337,9 +337,29 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   max-width: 32rem;
   color: var(--ink-soft);
 }
+.landing-hero-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem 1rem;
+  margin-top: 0.15rem;
+  min-width: 0;
+}
+.landing-hero-status,
+.landing-hero-status-spacer {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+}
+.landing-hero-status.landing-status {
+  margin: 0;
+  font-size: var(--text-meta);
+}
 .landing-hero-crosslink {
-  margin: 0.15rem 0 0;
-  justify-self: end;
+  margin: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
   font-family: var(--ui-font);
   font-size: var(--text-meta);
   letter-spacing: 0.02em;
@@ -407,22 +427,34 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 .landing-page .landing-shelf .section-title {
   margin: 0;
 }
-.landing-page .shelf-full-link {
-  flex: 0 0 auto;
-  font-family: var(--ui-font);
-  font-size: var(--text-meta);
-  font-weight: 550;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--ink-soft);
-  text-decoration: none;
-  white-space: nowrap;
+.landing-page .landing-shelf-reading {
+  box-sizing: border-box;
+  /* Hug the covers; left inset comes from the shared 1.45rem shelf-bar padding. */
+  width: fit-content;
+  max-width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0.95rem 0 0.7rem;
+  border-radius: calc(var(--radius) + 0.1rem);
+  background: color-mix(in srgb, #e3d4bf 82%, var(--accent-strong) 18%);
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 28%, var(--rule));
 }
-.landing-page .shelf-full-link:hover,
-.landing-page .shelf-full-link:focus-visible {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
+:root.dark .landing-page .landing-shelf-reading {
+  background: color-mix(in srgb, var(--paper-dark) 72%, var(--accent-strong) 28%);
+  border-color: color-mix(in srgb, var(--accent-strong) 35%, var(--rule));
+}
+.landing-page .landing-shelf-reading .section-title {
+  font-family: var(--display-font);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  color: var(--accent-strong);
+}
+.landing-page .landing-shelf-reading .shelf-heading {
+  margin-bottom: 0.75rem;
+  padding-left: 1.45rem;
+  padding-right: 1.45rem;
 }
 /*
  * Track is the only scroller. Bar is fit-content with overflow:clip so Firefox
@@ -546,6 +578,105 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
     0 5px 8px color-mix(in srgb, #000 45%, transparent),
     0 14px 22px -2px color-mix(in srgb, #000 52%, transparent),
     0 26px 40px -6px color-mix(in srgb, #000 42%, transparent);
+}
+
+/*
+ * Reading now — must follow general .landing-shelf .cover rules (same/ earlier
+ * specificity was losing and keeping covers at 6.35rem).
+ */
+.landing-page .landing-shelf.landing-shelf-reading .shelf-track-reading {
+  overflow-x: auto;
+  overflow-y: visible;
+  margin-bottom: 0;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-bar {
+  align-items: flex-end;
+  gap: 1.15rem;
+  /* Match other shelves so covers share one left edge. */
+  padding: 0.85rem 1.45rem 0.75rem;
+  overflow: clip;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-bar::after {
+  top: auto;
+  bottom: 0;
+}
+.landing-page .landing-shelf.landing-shelf-reading .cover {
+  /* 20% larger than the 6.35rem shelf covers. */
+  flex: 0 0 7.62rem;
+  width: 7.62rem;
+  max-width: 7.62rem;
+}
+.landing-page .landing-shelf.landing-shelf-reading .cover .cover-frame {
+  /* Keep the full cover visible in Firefox under overflow:clip. */
+  transform: perspective(820px) rotateX(-5deg);
+}
+.landing-page .landing-shelf.landing-shelf-reading .cover:hover .cover-frame,
+.landing-page .landing-shelf.landing-shelf-reading .cover:focus-visible .cover-frame {
+  transform: perspective(820px) rotateX(-2deg);
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-captions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 1.15rem;
+  width: fit-content;
+  max-width: none;
+  margin: 0.45rem 0 0;
+  padding: 0 1.45rem;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 0 0 7.62rem;
+  width: 7.62rem;
+  padding: 0;
+  color: var(--ink);
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-caption-title {
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-caption-author {
+  font-family: var(--ui-font);
+  font-size: 0.65rem;
+  line-height: 1.25;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-progress {
+  display: block;
+  width: 100%;
+  height: 0.28rem;
+  margin-top: 0.15rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  overflow: hidden;
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent-strong) 88%, var(--ink));
+}
+.landing-page .landing-shelf.landing-shelf-reading .shelf-reading-caption-pct {
+  font-family: var(--ui-font);
+  font-size: 0.65rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--ink-soft) 70%, var(--accent-strong));
 }
 
 .about-hero {
@@ -4408,100 +4539,6 @@ a.user-status-line:hover {
   .reading-finish-burst {
     animation: none !important;
   }
-}
-
-.reading-now-block {
-  margin-bottom: 0;
-}
-.reading-now-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 1rem;
-}
-.reading-now-card {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: 0.85rem 1rem;
-  align-items: start;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--surface-2, var(--surface));
-}
-.reading-now-cover {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  aspect-ratio: 2 / 3;
-  align-self: start;
-  border-radius: 0.25rem;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.reading-now-cover .cover-frame,
-.reading-now-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.reading-now-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-}
-.reading-now-title {
-  font-weight: 600;
-  color: inherit;
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-.reading-now-title:hover {
-  color: var(--accent);
-}
-.reading-now-body .reading-progress {
-  align-self: stretch;
-  margin: 0;
-}
-.reading-now-excerpt {
-  margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.reading-now-body .btn {
-  margin-top: 0.15rem;
-}
-.reading-upnext-title {
-  margin: 1.25rem 0 0.5rem;
-  font-size: 1.05rem;
-}
-.reading-upnext-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-.reading-upnext-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 0.35rem;
 }
 
 .reading-finish-backdrop {

@@ -53,16 +53,18 @@ describe('mergeLandingShelves', () => {
 });
 
 describe('orderLandingShelves', () => {
-  it('puts My shelf first, nested folders alphabetically, then follows, then network', () => {
+  it('puts Reading now first, then My shelf, nested folders, follows, then network', () => {
     const ordered = orderLandingShelves([
       { id: 'network', title: 'From the network' },
       { id: 'folder:Mystery', title: 'Mystery' },
       { id: 'follows', title: 'From follows' },
       { id: 'folder:adventure', title: 'adventure' },
       { id: 'gitcitadel', title: 'GitCitadel' },
-      { id: 'mine', title: 'My shelf' }
+      { id: 'mine', title: 'My shelf' },
+      { id: 'reading-now', title: 'Reading now' }
     ]);
     expect(ordered.map((s) => s.id)).toEqual([
+      'reading-now',
       'mine',
       'folder:adventure',
       'folder:Mystery',

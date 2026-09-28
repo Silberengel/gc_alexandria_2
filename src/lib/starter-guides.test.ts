@@ -6,6 +6,7 @@ import {
   GC_STARTER_GENRE_D_TAGS,
   GC_STARTER_GUIDES_D_TAG,
   childGuideFolderDTags,
+  defaultStarterGuideChips,
   starterGuideChipsFromDirectories,
   starterGuideCoordinate,
   starterGuideTitle
@@ -64,6 +65,12 @@ describe('starter guides', () => {
 
   it('returns empty chips when no curator directories are loaded', () => {
     expect(starterGuideChipsFromDirectories([])).toEqual([]);
+  });
+
+  it('paints default genre chips without waiting on relays', () => {
+    const chips = defaultStarterGuideChips();
+    expect(chips.map((c) => c.d)).toEqual([...GC_STARTER_GENRE_D_TAGS]);
+    expect(chips[0]?.href).toContain('bookshelf=ancient-classics');
   });
 
   it('ignores directories from other authors', () => {
