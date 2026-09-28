@@ -55,34 +55,37 @@ describe('coverTitle / coverAuthor', () => {
 });
 
 describe('coverPlaceholderSvg', () => {
-  it('embeds the resolved title and author', () => {
+  it('embeds the resolved title and author on a dark tooled cover', () => {
     const svg = coverPlaceholderSvg(
       ev([
         ['title', 'Emma & Knightley'],
         ['author', 'Jane Austen']
       ])
     );
-    expect(svg).toContain('Emma &amp; Knightley');
+    expect(svg).toContain('Emma &amp;');
+    expect(svg).toContain('Knightley');
     expect(svg).toContain('Jane Austen');
     expect(svg.startsWith('<svg ')).toBe(true);
+    expect(svg).toContain('linearGradient');
+    expect(svg).toContain('#713b32'); // signature oxblood medallion
+    expect(svg).toContain('rotate(90)'); // celtic quatrefoil lobes
+    expect(svg).toContain('font-size="19"');
+    expect(svg).toContain('font-weight="700"');
   });
 
-  it('uses a parchment-style wiki placeholder with a Wiki label', () => {
+  it('uses a dark wiki placeholder with a Wiki label and celtic medallion', () => {
     const wiki = { ...ev([['title', 'Aristotle'], ['d', 'aristotle']]), kind: 30818 };
     const svg = coverPlaceholderSvg(wiki);
-    expect(svg).toContain('Wiki');
+    expect(svg).toContain('WIKI');
     expect(svg).toContain('Aristotle');
-    expect(svg).not.toContain('fill-opacity="0.28"'); // book spine shadow
-    expect(svg).toContain('width="180" height="280"'); // tight parchment inset
-    expect(svg).toMatch(/y="274"[^>]*>Wiki</);
+    expect(svg).toContain('#713b32');
   });
 
-  it('keeps Spec inside the parchment panel', () => {
+  it('keeps Spec labeled on the dark wiki cover', () => {
     const spec = { ...ev([['title', 'Nkbip 04'], ['d', 'nkbip-04']]), kind: 30817 };
     const svg = coverPlaceholderSvg(spec);
-    expect(svg).toContain('>Spec</text>');
-    expect(svg).toContain('y="274"');
-    expect(svg).not.toContain('y="286"');
+    expect(svg).toContain('>SPEC</text>');
+    expect(svg).toContain('y="272"');
   });
 });
 

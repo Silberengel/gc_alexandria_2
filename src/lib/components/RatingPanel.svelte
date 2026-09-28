@@ -76,19 +76,33 @@
   const canClear = $derived(mineStars > 0 || review.trim().length > 0);
 
   $effect(() => {
-    const pk = $session.pubkey;
-    const existing = list.find((r) => r.pubkey === pk);
+    const pk = $session.pubkey?.toLowerCase() ?? null;
+    const existing = pk
+      ? (list.find((r) => r.pubkey.toLowerCase() === pk) ?? null)
+      : null;
     mineStars = existing ? ratingStarsFromEvent(existing) : 0;
     review = existing?.content?.trim() ?? '';
-    if (!pk || !existing || !ratingHasScore(existing)) {
-      // Drop edit mode if the published rating vanished.
-      if (!existing) editing = false;
+    if (!pk) {
+      editing = false;
+      composing = false;
+      return;
     }
+    if (existing && ratingHasScore(existing)) {
+      // First-time compose is only for viewers without a published rating.
+      composing = false;
+      return;
+    }
+    // Drop edit mode if the published rating vanished.
+    editing = false;
   });
 
   function openCompose(): void {
     if (!$session.pubkey) {
       openLoginDialog();
+      return;
+    }
+    if (minePublished) {
+      openEdit();
       return;
     }
     composing = true;
@@ -108,6 +122,7 @@
       mineStars = ratingStarsFromEvent(minePublished);
       review = minePublished.content?.trim() ?? '';
       editing = false;
+      composing = false;
       return;
     }
     mineStars = 0;

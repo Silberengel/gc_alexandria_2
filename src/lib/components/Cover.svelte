@@ -50,7 +50,9 @@
   const authorText = $derived(coverAuthor(resolved));
   const label = $derived(alt ?? titleText);
   const showBadge = $derived(Boolean(showReadableBadge && hasPublicationSection(resolved)));
-  const canEnlarge = $derived(Boolean(enlargeOnClick && fullRemote && !broken));
+  /** Prefer a real image; fall back to the generated cover so placeholders can open too. */
+  const enlargeUrl = $derived((!broken && (fullRemote || remote)) || placeholder);
+  const canEnlarge = $derived(Boolean(enlargeOnClick && enlargeUrl));
   const openHref = $derived(
     viewerHref === null ? undefined : (viewerHref ?? publicationPath(resolved))
   );
@@ -84,10 +86,10 @@
   }
 
   function enlarge(e: MouseEvent): void {
-    if (!canEnlarge || !fullRemote) return;
+    if (!canEnlarge || !enlargeUrl) return;
     stopNav(e);
     openMediaViewer({
-      url: fullRemote,
+      url: enlargeUrl,
       title: titleText,
       href: openHref
     });
