@@ -247,13 +247,18 @@ export async function cacheGetPublicationStream(editionAddress: string): Promise
 /**
  * A finished read of this edition is already in Cache Storage.
  * Callers must paint from this snapshot and not contact Mercury or relays.
+ *
+ * `complete` is set only when the snapshot contains section text, or when a
+ * reading-plan seed force-completes an indexes-only tree. An indexes-only
+ * miss stays incomplete, so it is not treated as a finished book. Requiring
+ * every event to be kind 30040 would also reject novels and the Douay seed,
+ * which store their text as section events.
  */
 export async function cacheGetCompletePublication(
   editionAddress: string
 ): Promise<PublicationStreamSnapshot | null> {
   const snap = await cacheGetPublicationStreamSnapshot(editionAddress);
   if (!snap.complete || !snap.events.length) return null;
-  if (!snap.events.some((event) => event.kind !== KIND.PUBLICATION)) return null;
   return snap;
 }
 

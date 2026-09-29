@@ -3,6 +3,7 @@ import { naddrFor } from './publication-load';
 import { eventAddress } from './nostr/verify';
 import { fetchByAddress, fetchById } from './nostr/fetch';
 import { cacheGetCompletePublication, cachePutEvent, cachePutPublicationStream } from './nostr/cache';
+import { editionHasLocalSeeds, loadSeedsForEdition } from './nostr/seed-load';
 import { mercuryPublicationStream } from './nostr/mercury';
 import { rememberEvents } from './nostr/event-memory';
 import type { ReadingQueueEntry } from './reading-queue';
@@ -27,11 +28,22 @@ export function warmReadingQueueCache(entries: ReadingQueueEntry[]): void {
     try {
       for (const entry of slice) {
         const cached = await cacheGetCompletePublication(entry.a);
-        if (cached) continue;
+        if (cached) {
+          const root = cached.events.find(
+            (event) => eventAddress(event).toLowerCase() === entry.a.toLowerCase()
+          );
+          // A cached plan is only the day indexes. Load Douay too, or each day is headings.
+          if (root && (await editionHasLocalSeeds(root))) await loadSeedsForEdition(root);
+          continue;
+        }
         const pub = await fetchByAddress(entry.a);
         if (!pub) continue;
         rememberEvents([pub]);
         void cachePutEvent(pub);
+        if (await editionHasLocalSeeds(pub)) {
+          await loadSeedsForEdition(pub);
+          continue;
+        }
         if (entry.sectionId) {
           let section: Event | null = null;
           if (HEX64.test(entry.sectionId)) section = await fetchById(entry.sectionId);

@@ -4,11 +4,12 @@
  */
 import type { Event } from 'nostr-tools';
 import { KIND } from '../constants';
+import { parseAddress } from '../library-scope';
 import {
   cacheGetPublicationStreamSnapshot,
   cachePutPublicationStream
 } from './cache';
-import { rememberEvents } from './event-memory';
+import { memoryFindByAddress, rememberEvents } from './event-memory';
 import { eventAddress, firstTag, ingestTrustedEvent } from './verify';
 
 const MANIFEST_URL = '/seeds/manifest.json';
@@ -33,6 +34,8 @@ export type SeedManifest = {
 
 /** edition address / d → manifest.version already ingested this session */
 const loaded = new Map<string, number>();
+/** One ingest per edition so the info page and Read do not parse the shards twice. */
+const inflightLoads = new Map<string, Promise<Event[] | null>>();
 let manifestPromise: Promise<SeedManifest | null> | null = null;
 
 function yieldToUi(): Promise<void> {
@@ -67,6 +70,7 @@ async function loadManifest(_signal?: AbortSignal): Promise<SeedManifest | null>
 /** Reset cached manifest (tests). */
 export function resetSeedLoadState(): void {
   loaded.clear();
+  inflightLoads.clear();
   manifestPromise = null;
 }
 
@@ -276,6 +280,13 @@ async function streamShardPaths(
   return { events: all, missingShard };
 }
 
+/** True when this bible's own index is already in session memory, not merely flagged. */
+function bibleTextResident(address: string): boolean {
+  const parsed = parseAddress(address);
+  if (!parsed) return false;
+  return memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d) != null;
+}
+
 async function ensurePlanDependencies(
   dependsOn: string[],
   manifest: SeedManifest,
@@ -291,7 +302,9 @@ async function ensurePlanDependencies(
 
     const depKey = editionRow.address.toLowerCase();
     // Same-tab Douay open (or a prior plan) already ingested verses — do not re-stream.
-    if (loaded.get(depKey) === manifest.version) {
+    // The flag alone is not enough: a catalog card can sit in memory while the
+    // verse text was never stored, and a plan day would then render empty.
+    if (loaded.get(depKey) === manifest.version && bibleTextResident(editionRow.address)) {
       console.info(LOG, 'dependency already loaded', {
         title,
         dep,
@@ -299,6 +312,7 @@ async function ensurePlanDependencies(
       });
       continue;
     }
+    loaded.delete(depKey);
 
     const depSnap = await cacheGetPublicationStreamSnapshot(editionRow.address);
     if (snapshotReady(depSnap)) {
@@ -344,6 +358,35 @@ async function ensurePlanDependencies(
  * or null when this edition has no seed (caller continues to Mercury/relays).
  */
 export async function loadSeedsForEdition(
+  edition: Event,
+  opts?: { signal?: AbortSignal; onBatch?: (batch: Event[]) => void }
+): Promise<Event[] | null> {
+  const manifest = await loadManifest();
+  if (!manifest || opts?.signal?.aborted) return null;
+  if (!matchSeedTarget(edition, manifest)) return null;
+
+  const key = editionKey(edition);
+  const existing = inflightLoads.get(key);
+  if (existing) {
+    const events = await existing;
+    if (opts?.signal?.aborted) return events;
+    if (events?.length) {
+      rememberEvents(events);
+      opts?.onBatch?.(events);
+    }
+    return events;
+  }
+
+  const run = ingestSeedsForEdition(edition, opts);
+  inflightLoads.set(key, run);
+  try {
+    return await run;
+  } finally {
+    inflightLoads.delete(key);
+  }
+}
+
+async function ingestSeedsForEdition(
   edition: Event,
   opts?: { signal?: AbortSignal; onBatch?: (batch: Event[]) => void }
 ): Promise<Event[] | null> {

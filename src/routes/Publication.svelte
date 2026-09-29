@@ -652,13 +652,28 @@
     return built.length ? built : fromTags;
   }
 
+  function tocForOpenedEdition(target: Event, events: Event[]): void {
+    rememberEvents(events);
+    toc = isIndexScopedEdition(target)
+      ? buildIndexScopedToc(target)
+      : tocFromCachedEvents(target, events);
+  }
+
   async function prefetchTree(target: Event, signal: AbortSignal): Promise<void> {
     try {
+      // Douay and the reading plans ship in /seeds. Load that into the cache
+      // and never ask Mercury to walk the tree. Relays are only a Read fallback
+      // when the seed file itself cannot be read.
+      if (await editionHasLocalSeeds(target)) {
+        const seeded = await loadSeedsForEdition(target);
+        if (signal.aborted) return;
+        if (seeded?.length) tocForOpenedEdition(target, seeded);
+        return;
+      }
       const cached = await cacheGetCompletePublication(eventAddress(target));
       if (signal.aborted) return;
       if (cached) {
-        rememberEvents(cached.events);
-        toc = tocFromCachedEvents(target, cached.events);
+        tocForOpenedEdition(target, cached.events);
         return;
       }
       const naddr = naddrFor(target);
@@ -1341,7 +1356,7 @@
               scopedPaintSetChanged(scopedPaintIndex)
             ) {
               void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                network: isReadingPlanEdition(edition),
+                network: false,
                 preserveScroll: true
               });
             }
@@ -1351,6 +1366,7 @@
         // Seeded editions / reading plans: never fan out hundreds of relay index
         // fetches (that only loads day headings — verses stay blank).
         const hasSeeds = await editionHasLocalSeeds(edition);
+        let retry: Event[] | null = null;
         if (!seeded?.length && !hasSeeds && !isReadingPlanEdition(edition)) {
           await warmIndexTree(edition, (coord) => fetchByAddress(coord), {
             signal,
@@ -1362,7 +1378,7 @@
             hasSeeds,
             plan: isReadingPlanEdition(edition)
           });
-          const retry = await loadSeedsForEdition(edition, {
+          retry = await loadSeedsForEdition(edition, {
             signal,
             onBatch: (batch) => {
               if (signal.aborted || event?.id !== edition.id || !reading) return;
@@ -1374,7 +1390,7 @@
                 scopedPaintSetChanged(scopedPaintIndex)
               ) {
                 void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                  network: isReadingPlanEdition(edition),
+                  network: false,
                   preserveScroll: true
                 });
               }
@@ -1382,12 +1398,36 @@
           });
           if (retry?.length) {
             refreshToc();
+          } else {
+            console.info('[alexandria:seeds] seed unreadable; falling back to relays', {
+              title: firstTag(edition, 'title') ?? firstTag(edition, 'd')
+            });
+            await warmIndexTree(
+              edition,
+              (coord) => fetchByAddress(coord, { relaysOnly: true }),
+              { signal, onIndex: refreshToc }
+            );
           }
         }
-        // Plans may still need relays for seed holes (bible-in-a-year lacks days 1–90).
-        await afterTreeReady(!hasSeeds || isReadingPlanEdition(edition));
-        // Fill missing day titles in the background so ToC isn't stuck on "Day 004" stubs.
-        if (!signal.aborted && isReadingPlanEdition(edition)) {
+        const loadedFromSeed = Boolean(seeded?.length) || Boolean(retry?.length);
+        // Plan seed returns indexes only. Douay verses are in memory once that load
+        // finishes — repaint an already-open day so it does not stay a heading list.
+        if (
+          loadedFromSeed &&
+          isReadingPlanEdition(edition) &&
+          scopedPaintIndex &&
+          !scopedAtEditionTop &&
+          event?.id === edition.id
+        ) {
+          await paintScopedIndex(edition, scopedPaintIndex, {
+            network: false,
+            preserveScroll: true
+          });
+        }
+        // Readable seed: stay on the cache. Relays only if the seed could not be read,
+        // or this plan is not in the manifest at all.
+        await afterTreeReady(!loadedFromSeed);
+        if (!signal.aborted && !loadedFromSeed && isReadingPlanEdition(edition)) {
           const holes = missingPlanDayAddresses(edition);
           if (holes.length) {
             let filled = 0;
@@ -1568,7 +1608,9 @@
               queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(edition))?.total
             });
         if (leaf) {
-          await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
+          await paintScopedIndex(edition, leaf, {
+            network: !(await editionHasLocalSeeds(edition)) && isReadingPlanEdition(edition)
+          });
         }
         if (focusQuote) scrollToHighlightQuote(focusQuote);
       } finally {
@@ -2162,7 +2204,11 @@
           sectionId: opts?.sectionId ?? (focus.section || undefined),
           queueTotal: findQueueEntry($viewerReadingEntries, eventAddress(event))?.total
         });
-        if (open) await paintScopedIndex(event, open, { network: isReadingPlanEdition(event) });
+        if (open) {
+          await paintScopedIndex(event, open, {
+            network: !(await editionHasLocalSeeds(event)) && isReadingPlanEdition(event)
+          });
+        }
       }
       window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       return;
@@ -2508,7 +2554,9 @@
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
         if (!leaf || focusKey !== key || event !== edition) return;
-        await paintScopedIndex(edition, leaf, { network: isReadingPlanEdition(edition) });
+        await paintScopedIndex(edition, leaf, {
+          network: !(await editionHasLocalSeeds(edition)) && isReadingPlanEdition(edition)
+        });
         if (focusKey !== key || event !== edition) return;
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
