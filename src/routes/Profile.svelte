@@ -101,6 +101,13 @@
 
   const fields = $derived(parseKind0(profile));
   const payments = $derived(paymentRows(fields, paymentEvents, profile));
+  const hasProfileDetails = $derived(
+    fields.websites.length > 0 ||
+      fields.nip05List.length > 0 ||
+      Object.keys(fields.extra).length > 0 ||
+      fields.extraTags.length > 0 ||
+      payments.length > 0
+  );
   const displayTitle = $derived(fields.title || warmName || 'Unknown');
   const displayPicture = $derived(fields.picture || warmPicture);
   const pageSize = $derived(listingPageSize($listingDensity));
@@ -773,50 +780,55 @@
           {@html aboutHtml(fields.about)}
         </div>
       {/if}
-      {#if fields.websites.length}
-        <ul class="profile-tag-list">
-          {#each fields.websites as url}
-            {#if isAllowedHref(url)}
-              <li><a href={url} rel="noopener noreferrer">{url}</a></li>
-            {/if}
+      {#if hasProfileDetails}
+        <details class="accordion profile-details">
+          <summary>Details</summary>
+          {#if fields.websites.length}
+            <ul class="profile-tag-list">
+              {#each fields.websites as url}
+                {#if isAllowedHref(url)}
+                  <li><a href={url} rel="noopener noreferrer">{url}</a></li>
+                {/if}
+              {/each}
+            </ul>
+          {/if}
+          {#if fields.nip05List.length}
+            <ul class="profile-tag-list profile-nip05-list">
+              {#each fields.nip05List as n}
+                <li><Nip05Badge nip05={n} {pubkey} /></li>
+              {/each}
+            </ul>
+          {/if}
+          {#each Object.entries(fields.extra) as [key, value]}
+            <p class="muted">{key}: {value}</p>
           {/each}
-        </ul>
-      {/if}
-      {#if fields.nip05List.length}
-        <ul class="profile-tag-list profile-nip05-list">
-          {#each fields.nip05List as n}
-            <li><Nip05Badge nip05={n} {pubkey} /></li>
+          {#each fields.extraTags as tag}
+            <p class="muted">{tag.name}: {tag.value}</p>
           {/each}
-        </ul>
-      {/if}
-      {#each Object.entries(fields.extra) as [key, value]}
-        <p class="muted">{key}: {value}</p>
-      {/each}
-      {#each fields.extraTags as tag}
-        <p class="muted">{tag.name}: {tag.value}</p>
-      {/each}
-      {#if payments.length}
-        <h3>Payment targets</h3>
-        <table class="profile-payments">
-          <thead>
-            <tr>
-              <th scope="col">Type</th>
-              <th scope="col">Address</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each payments as row}
-              <tr>
-                <td>{paymentTypeLabel(row.type)}</td>
-                <td>
-                  <a href={row.href} rel="noopener noreferrer" title={row.label}>
-                    {cropPaymentAddress(row.label)}
-                  </a>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+          {#if payments.length}
+            <h3>Payment targets</h3>
+            <table class="profile-payments">
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col">Address</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each payments as row}
+                  <tr>
+                    <td>{paymentTypeLabel(row.type)}</td>
+                    <td>
+                      <a href={row.href} rel="noopener noreferrer" title={row.label}>
+                        {cropPaymentAddress(row.label)}
+                      </a>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+        </details>
       {/if}
     </div>
     {#if !isKindFiltered && (profileActiveReading.length || readingEntries.length)}
