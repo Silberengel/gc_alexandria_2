@@ -3282,6 +3282,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: var(--text-muted);
   background: color-mix(in srgb, var(--surface) 70%, transparent);
   border-color: transparent;
+  transition: opacity 0.15s ease, color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+/* Ellipsis headers stay quiet until hover / open (not verse-number triggers). */
+.copy-pointer-btn:not(.copy-pointer-btn-custom) {
+  opacity: 0.22;
 }
 .copy-pointer-btn .more-ellipsis {
   display: block;
@@ -3291,10 +3296,25 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   letter-spacing: 0.05em;
   transform: translateY(-0.06em);
 }
-.copy-pointer-btn:hover:not(:disabled) {
+.copy-pointer-btn:hover:not(:disabled),
+.copy-pointer-btn:focus-visible {
   color: var(--text);
   background: var(--surface-2);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.copy-pointer-btn:not(.copy-pointer-btn-custom):hover:not(:disabled),
+.copy-pointer-btn:not(.copy-pointer-btn-custom):focus-visible,
+.menu-wrap:hover > .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.menu-wrap.event-more-menu-open > .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.pub-card:hover .generic-card-copy .copy-pointer-btn,
+.generic-card:hover .generic-card-copy .copy-pointer-btn,
+.note-card:hover .generic-card-copy .copy-pointer-btn,
+.result-card-wrap:hover .generic-card-copy .copy-pointer-btn,
+.listing-row-wrap:hover .listing-row-copy .copy-pointer-btn,
+.details-panel-wrap:hover .details-more-menu .copy-pointer-btn,
+.bible-heading-menu:hover .copy-pointer-btn,
+.section-heading-menu:hover .copy-pointer-btn {
+  opacity: 1;
 }
 .icon-action-btn {
   width: 1.85rem;
@@ -4466,11 +4486,6 @@ mark.text-highlight.highlight-flash,
   min-width: 1.6rem;
   min-height: 1.6rem;
   padding: 0;
-  opacity: 0.55;
-}
-.bible-heading-menu:hover .copy-pointer-btn,
-.bible-heading-menu.event-more-menu-open .copy-pointer-btn {
-  opacity: 1;
 }
 .section-heading-wrap {
   display: flex;
@@ -4484,13 +4499,6 @@ mark.text-highlight.highlight-flash,
 .section-heading-menu {
   flex: 0 0 auto;
   align-self: center;
-}
-.section-heading-menu .copy-pointer-btn {
-  opacity: 0.55;
-}
-.section-heading-menu:hover .copy-pointer-btn,
-.section-heading-menu.event-more-menu-open .copy-pointer-btn {
-  opacity: 1;
 }
 .bible-run-text {
   margin: 0 0 0.65rem;
