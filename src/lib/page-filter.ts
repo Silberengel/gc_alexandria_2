@@ -33,7 +33,7 @@ export function applyPageFind(root: HTMLElement, query: string): HTMLElement | n
     acceptNode(node) {
       const parent = (node as Text).parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
-      if (parent.closest('textarea, input, script, style, .toc, .page-filter, .loading-hint')) {
+      if (parent.closest('textarea, input, script, style, .toc, .page-filter, .loading-hint, .reader-edition-hero-meta')) {
         return NodeFilter.FILTER_REJECT;
       }
       if (!node.textContent) return NodeFilter.FILTER_REJECT;

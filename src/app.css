@@ -4855,9 +4855,17 @@ mark.text-highlight.highlight-flash,
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.25;
-  color: #f8f3ea;
-  text-shadow: none;
+  /* Beat `.reader-section.reader-edition .section-heading { color: var(--text) }` */
+  color: #f8f3ea !important;
+  text-shadow: 0 1px 2px color-mix(in srgb, #0d100e 55%, transparent);
   scroll-margin-top: 6.5rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  max-width: 42rem;
 }
 .reader-edition-hero-meta .edition-reader-meta {
   margin: 0;
@@ -4879,7 +4887,7 @@ mark.text-highlight.highlight-flash,
 .reader-edition-hero-meta .muted {
   font-family: var(--ui-font);
   font-size: 0.78rem;
-  color: #e7dac8;
+  color: #e7dac8 !important;
 }
 .reader-edition-hero-meta .edition-reader-publisher {
   margin: 0;
@@ -4887,19 +4895,31 @@ mark.text-highlight.highlight-flash,
 .reader-edition-hero-meta .edition-reader-summary {
   margin: 0.35rem 0 0;
   max-width: 36rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 .reader-edition-hero-meta .edition-inline-link {
   font-family: var(--ui-font);
-  color: #f8f3ea;
+  color: #f8f3ea !important;
   text-decoration-color: color-mix(in srgb, #f8f3ea 45%, transparent);
 }
 .reader-edition-hero-meta .edition-inline-link:hover {
-  color: #fff;
+  color: #fff !important;
 }
 .reader-edition-hero-meta .userbadge,
 .reader-edition-hero-meta .userbadge span {
-  font-family: var(--ui-font);
-  color: #f3ece1;
+  color: #f8f3ea !important;
+}
+/* Page-find / highlight marks inside the dark overlay must stay light-on-ink, not ink-on-gold. */
+.reader-edition-hero-meta mark.page-filter-hit,
+.reader-edition-hero-meta mark.text-highlight,
+.reader-edition-hero-meta mark {
+  background: color-mix(in srgb, #f8f3ea 28%, transparent);
+  color: #f8f3ea !important;
+  box-shadow: none;
 }
 .reader-section.reader-edition .reading-track-panel,
 .reader-section.reader-edition .reader-info-actions {
