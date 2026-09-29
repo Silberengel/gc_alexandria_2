@@ -2890,7 +2890,6 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: var(--ink-soft);
 }
 .guide-links-clamp {
-  /* Two wrapped rows, then fade into the browse link. */
   max-height: calc(2 * 1.55em + 0.35rem);
   overflow: hidden;
 }
@@ -2909,9 +2908,26 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: color-mix(in srgb, var(--ink-soft) 45%, transparent);
   user-select: none;
 }
+.landing-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.85rem;
+  margin: 0 0 0.55rem;
+}
+.landing-section-heading .section-title {
+  margin: 0;
+}
+.landing-section-hint {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+}
 .landing-browse-link {
   display: inline-block;
-  margin-top: 0.55rem;
+  margin: 0;
   font-family: var(--ui-font);
   font-size: var(--text-meta);
   letter-spacing: 0.02em;
