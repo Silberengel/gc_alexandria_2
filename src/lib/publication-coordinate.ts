@@ -1,4 +1,6 @@
-/** Split `kind:64-hex-pubkey:d…` (d may contain `:`). */
+import { pubkeyFromCoordinateSegment } from './library-scope';
+
+/** Split `kind:pubkey:d…` — pubkey may be 64-hex or `npub1…` (d may contain `:`). */
 export function splitPublicationCoordinate(coordinate: string): {
   kind: number;
   pubkey: string;
@@ -10,22 +12,25 @@ export function splitPublicationCoordinate(coordinate: string): {
   if (i0 < 1 || i1 <= i0 + 1) return null;
   const kind = Number.parseInt(trimmed.slice(0, i0), 10);
   if (Number.isNaN(kind)) return null;
-  const pubkeyRaw = trimmed.slice(i0 + 1, i1);
-  if (!/^[0-9a-fA-F]{64}$/.test(pubkeyRaw)) return null;
-  const pubkey = pubkeyRaw.toLowerCase();
+  const pubkey = pubkeyFromCoordinateSegment(trimmed.slice(i0 + 1, i1));
+  if (!pubkey) return null;
   const d = trimmed.slice(i1 + 1);
+  if (!d) return null;
   return { kind, pubkey, d };
 }
 
 /**
  * Coordinate strings to try when matching index `a` tags (NFC/NFD on `d` only).
  * Relays filter `#d` on exact bytes; clients still need flexible matching after REQ.
+ * Always emits hex-pubkey forms so they match on-wire `a` tags.
  */
 export function publicationCoordinateLookupKeys(coordinate: string): string[] {
   const p = splitPublicationCoordinate(coordinate);
   if (!p) return [coordinate.trim()];
   const ds = [...new Set([p.d, p.d.normalize('NFC'), p.d.normalize('NFD')])];
-  return [...new Set(ds.map((dt) => `${p.kind}:${p.pubkey}:${dt}`))];
+  const keys = ds.map((dt) => `${p.kind}:${p.pubkey}:${dt}`);
+  // Also keep the raw (possibly npub) form for direct string compares.
+  return [...new Set([coordinate.trim(), ...keys])];
 }
 
 export function coordinatesOverlap(left: string, right: string): boolean {

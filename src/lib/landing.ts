@@ -478,7 +478,11 @@ export async function resolveTopLevelShelfEvents(
   return topLevelShelfEvents(pubs, pool).filter((e) => isTopLevel30040(e, pool));
 }
 
-async function fetchContainingPublication(childAddr: string, hops = 0): Promise<Event | null> {
+/** Top-level (or outermost known) 30040 that contains `childAddr` via nested `a` tags. */
+export async function fetchContainingPublication(
+  childAddr: string,
+  hops = 0
+): Promise<Event | null> {
   const chain = await fetchSuperindexes(childAddr, hops);
   return chain.length ? chain[chain.length - 1]! : null;
 }

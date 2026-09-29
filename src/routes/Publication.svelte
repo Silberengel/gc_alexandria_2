@@ -59,9 +59,13 @@
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
-  import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
+  import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
-  import { ingestLocalLandingHighlight, fetchSuperindexes } from '$lib/landing';
+  import {
+    ingestLocalLandingHighlight,
+    fetchContainingPublication,
+    fetchSuperindexes
+  } from '$lib/landing';
   import { signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -95,7 +99,7 @@
     type VerseRange
   } from '$lib/douay-passage';
   import { douayBookBySlug, douayBookByCode } from '$lib/douay-canon';
-  import { readerShareUrl } from '$lib/reader-share-url';
+  import { readerShareLocation, readerShareUrl } from '$lib/reader-share-url';
   import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
   import {
@@ -995,18 +999,28 @@
     if (focus.section) {
       const sid = focus.section.toLowerCase();
       // Cover while URL names a nested section is never a match (would stick on the edition top).
-      if (scopedAtEditionTop && event && sid !== event.id.toLowerCase() && sid !== eventAddress(event).toLowerCase()) {
+      if (
+        scopedAtEditionTop &&
+        event &&
+        sid !== event.id.toLowerCase() &&
+        !coordinatesOverlap(eventAddress(event), focus.section)
+      ) {
         return false;
       }
       if (scopedPaintIndex) {
-        const addr = eventAddress(scopedPaintIndex).toLowerCase();
-        if (addr === sid || scopedPaintIndex.id.toLowerCase() === sid) return true;
+        const addr = eventAddress(scopedPaintIndex);
+        if (
+          coordinatesOverlap(addr, focus.section) ||
+          scopedPaintIndex.id.toLowerCase() === sid
+        ) {
+          return true;
+        }
       }
       if (readerSectionId?.toLowerCase() === sid) return true;
       if (
         scopedAtEditionTop &&
         event &&
-        (event.id.toLowerCase() === sid || eventAddress(event).toLowerCase() === sid)
+        (event.id.toLowerCase() === sid || coordinatesOverlap(eventAddress(event), focus.section))
       ) {
         return true;
       }
@@ -1549,7 +1563,7 @@
       reading &&
       !scopedAtEditionTop &&
       scopedPaintIndex &&
-      (eventAddress(scopedPaintIndex).toLowerCase() === sectionAddr.toLowerCase() ||
+      (coordinatesOverlap(eventAddress(scopedPaintIndex), sectionAddr) ||
         scopedPaintIndex.id.toLowerCase() === sectionAddr.toLowerCase())
     ) {
       focusKey = key;
@@ -1945,6 +1959,18 @@
     void afterSocialPrefetchTree(target);
   }
 
+  /**
+   * Kind-30041 (and nested indexes mistaken for editions) are not cover pages —
+   * open the containing edition in the reader focused on this address.
+   */
+  async function redirectSectionToReader(section: Event): Promise<boolean> {
+    const edition = await fetchContainingPublication(eventAddress(section));
+    if (!edition) return false;
+    rememberEvents([edition, section]);
+    replace(readerShareLocation(edition, section));
+    return true;
+  }
+
   $effect(() => {
     const edition = event;
     if (!edition || edition.kind !== KIND.PUBLICATION) {
@@ -2079,6 +2105,10 @@
             }
           }
           if (cancelled) return;
+          if (fetched?.kind === KIND.SECTION) {
+            if (!(await redirectSectionToReader(fetched))) error = true;
+            return;
+          }
           if (!fetched || fetched.kind !== KIND.PUBLICATION) {
             error = true;
             return;
@@ -2089,10 +2119,14 @@
         }
 
         if (dTag && !npubParam) {
-          const found = (await searchByDTag(dTag)).filter((e) => e.kind === KIND.PUBLICATION);
+          const byD = await searchByDTag(dTag);
+          const found = byD.filter((e) => e.kind === KIND.PUBLICATION);
           const top = found.filter((e) => isTopLevel30040(e, found));
           if (cancelled) return;
           if (!top.length) {
+            // d-only may match a lone section — promote to its edition reader.
+            const sectionHit = byD.find((e) => e.kind === KIND.SECTION);
+            if (sectionHit && (await redirectSectionToReader(sectionHit))) return;
             error = true;
             return;
           }
@@ -2119,8 +2153,18 @@
           }
           const fetched = await fetchPublication(slug || dTag, pubkey);
           if (cancelled) return;
-          if (fetched) paintEdition(fetched);
-          else error = true;
+          if (fetched) {
+            paintEdition(fetched);
+            return;
+          }
+          // Inbound links sometimes use a section d-tag as if it were an edition.
+          const section =
+            memoryFindByAddress(KIND.SECTION, pubkey, slug || dTag) ??
+            (await cacheFindByAddress(KIND.SECTION, pubkey, slug || dTag)) ??
+            (await fetchByAddress(`${KIND.SECTION}:${pubkey}:${slug || dTag}`));
+          if (cancelled) return;
+          if (section?.kind === KIND.SECTION && (await redirectSectionToReader(section))) return;
+          error = true;
         }
       } catch {
         if (!cancelled) error = true;

@@ -3,6 +3,7 @@
  */
 import type { Event } from 'nostr-tools';
 import { douayBookByCode } from './douay-canon';
+import { readableEventAddress } from './library-scope';
 import { publicationPath } from './metadata';
 import { eventAddress, firstTag } from './nostr/verify';
 
@@ -21,37 +22,46 @@ function douayBookFromTags(event: Event) {
 }
 
 /**
+ * SPA location (path + query) that opens `target` inside `edition`'s reader.
+ * Douay verses/chapters → `/luke/9?verse=…`; else `/publication/…?read=1&section=…`.
+ * Section coords use `kind:npub:d` for readable share URLs.
+ */
+export function readerShareLocation(edition: Event, target: Event): string {
+  const c = (firstTag(target, 'c') ?? '').trim();
+  const s = (firstTag(target, 's') ?? '').trim();
+  const book = douayBookFromTags(target);
+
+  if (book && c && /^\d+$/.test(c)) {
+    if (/^\d+$/.test(s)) {
+      return `/${book.slug}/${c}?verse=${s}`;
+    }
+    if (target.kind === 30040 && !s) {
+      return `/${book.slug}/${c}`;
+    }
+  }
+
+  const path = publicationPath(edition);
+  const addr = readableEventAddress(target) || eventAddress(target);
+  const q = new URLSearchParams();
+  q.set('read', '1');
+  q.set('section', addr || target.id);
+  if (book && c && /^\d+$/.test(c)) {
+    q.set('book', book.slug);
+    q.set('chapter', c);
+  }
+  return `${path}?${q}`;
+}
+
+/**
  * Link that reopens the edition on this index/section/verse.
  * Douay chapters/verses use `/luke/9` / `/luke/9?verse=46`; everything else uses
  * `#/publication/...?read=1&section=…`.
  */
 export function readerShareUrl(edition: Event, target: Event): string {
   const origin = originBase();
-  const c = (firstTag(target, 'c') ?? '').trim();
-  const s = (firstTag(target, 's') ?? '').trim();
-  const book = douayBookFromTags(target);
-
-  if (book && c && /^\d+$/.test(c)) {
-    // Verse body
-    if (/^\d+$/.test(s)) {
-      return `${origin}/${book.slug}/${c}?verse=${s}`;
-    }
-    // Chapter index leaf (not a preface/preamble section)
-    if (target.kind === 30040 && !s) {
-      return `${origin}/${book.slug}/${c}`;
-    }
+  const loc = readerShareLocation(edition, target);
+  if (loc.startsWith('/publication/') || loc.startsWith('/wiki/') || loc.startsWith('/spec/')) {
+    return `${origin}/#${loc}`;
   }
-
-  // Prefaces, preambles, other sections/indexes — section deep link on the edition.
-  const path = publicationPath(edition);
-  const addr = eventAddress(target);
-  const q = new URLSearchParams();
-  q.set('read', '1');
-  q.set('section', addr || target.id);
-  // Keep Douay book/chapter hints when present (helps resume after seeds load).
-  if (book && c && /^\d+$/.test(c)) {
-    q.set('book', book.slug);
-    q.set('chapter', c);
-  }
-  return `${origin}/#${path}?${q}`;
+  return `${origin}${loc}`;
 }

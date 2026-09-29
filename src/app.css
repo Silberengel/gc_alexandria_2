@@ -2052,6 +2052,16 @@ a.listing-row:hover,
   overflow: hidden;
 }
 
+.pub-card-section .pub-card-summary {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+
+.pub-card-section-hint {
+  margin: 0.25rem 0 0;
+  font-size: var(--text-meta);
+}
+
 .pub-card-defer {
   width: 100%;
   margin: 0;
@@ -3138,7 +3148,11 @@ a.listing-row:hover,
 .generic-media {
   display: block;
   max-width: 100%;
+  max-height: 12rem;
+  width: 100%;
   height: auto;
+  object-fit: cover;
+  object-position: center;
   margin: 0.75rem 0;
   border-radius: 0.35rem;
 }
@@ -3193,6 +3207,11 @@ a.listing-row:hover,
   font-size: 0.95rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .generic-card-list .generic-card-body {
   display: -webkit-box;

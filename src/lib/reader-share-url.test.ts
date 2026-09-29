@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { readerShareUrl } from './reader-share-url';
+import { readerShareLocation, readerShareUrl } from './reader-share-url';
 
 const PK = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690';
 
@@ -63,6 +63,10 @@ describe('readerShareUrl', () => {
     const url = readerShareUrl(edition, preface);
     expect(url).toContain('/#/publication/d/bible-the-bible-douay-rheims-version/');
     expect(url).toContain('read=1');
-    expect(url).toContain('section=30041%3A');
+    expect(url).toContain('section=30041%3Anpub1');
+    const loc = readerShareLocation(edition, preface);
+    expect(loc.startsWith('/publication/d/bible-the-bible-douay-rheims-version/')).toBe(true);
+    expect(loc).toContain('read=1');
+    expect(loc).toContain('section=30041%3Anpub1');
   });
 });

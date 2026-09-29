@@ -64,6 +64,12 @@ describe('publication coordinates', () => {
     expect(keys.some((k) => k.includes(nfd.normalize('NFC')) || k.includes(nfd))).toBe(true);
     expect(coordinatesOverlap(coord, `30040:${pk}:${nfd.normalize('NFC')}`)).toBe(true);
   });
+
+  it('treats hex and npub coordinates as the same address', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const npub = nip19.npubEncode(pk);
+    expect(coordinatesOverlap(`30041:${pk}:ch-1`, `30041:${npub}:ch-1`)).toBe(true);
+  });
 });
 
 describe('ratings jumble shape', () => {

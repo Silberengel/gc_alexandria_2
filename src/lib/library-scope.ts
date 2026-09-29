@@ -10,14 +10,48 @@ export function isLibraryKind(kind: number): boolean {
   return LIBRARY_KINDS.has(kind);
 }
 
+/** Hex pubkey from a coordinate segment (64-hex or `npub1…`). */
+export function pubkeyFromCoordinateSegment(segment: string): string | null {
+  const raw = segment.trim();
+  if (!raw) return null;
+  if (/^[0-9a-fA-F]{64}$/.test(raw)) return raw.toLowerCase();
+  if (!raw.toLowerCase().startsWith('npub1')) return null;
+  try {
+    const decoded = nip19.decode(raw);
+    if (decoded.type !== 'npub') return null;
+    return typeof decoded.data === 'string' ? decoded.data.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function parseAddress(coord: string): { kind: number; pubkey: string; d: string } | null {
   const parts = coord.split(':');
   if (parts.length < 3) return null;
   const kind = Number(parts[0]);
-  const pubkey = parts[1]?.toLowerCase();
+  const pubkey = pubkeyFromCoordinateSegment(parts[1] ?? '');
   const d = parts.slice(2).join(':');
-  if (!Number.isInteger(kind) || !pubkey || !/^[0-9a-f]{64}$/.test(pubkey)) return null;
+  if (!Number.isInteger(kind) || !pubkey || !d) return null;
   return { kind, pubkey, d };
+}
+
+/**
+ * Share-friendly `kind:npub:d` (Alexandria {@link parseAddress} still accepts hex).
+ */
+export function readableAddress(kind: number, pubkeyHex: string, d: string): string | null {
+  const pk = pubkeyHex.trim().toLowerCase();
+  const identifier = d.trim();
+  if (!/^[0-9a-f]{64}$/.test(pk) || !identifier) return null;
+  try {
+    return `${kind}:${nip19.npubEncode(pk)}:${identifier}`;
+  } catch {
+    return null;
+  }
+}
+
+export function readableEventAddress(event: Event): string | null {
+  const d = event.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
+  return readableAddress(event.kind, event.pubkey, d);
 }
 
 export function libraryAddress(event: Event): string | null {

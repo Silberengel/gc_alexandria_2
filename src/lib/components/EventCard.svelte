@@ -19,7 +19,10 @@
   let { event, embedDepth = 0, density = 'full' }: Props = $props();
 
   const isPubLike = $derived(
-    event.kind === KIND.PUBLICATION || event.kind === KIND.WIKI || event.kind === KIND.SPEC
+    event.kind === KIND.PUBLICATION ||
+      event.kind === KIND.SECTION ||
+      event.kind === KIND.WIKI ||
+      event.kind === KIND.SPEC
   );
   const isNoteLike = $derived(
     event.kind === KIND.HIGHLIGHT ||
