@@ -189,7 +189,7 @@ function wikiDocumentSvg(event: Event): string {
     ? `<line x1="44" y1="${authorY - 18}" x2="156" y2="${authorY - 18}" stroke="${palette.gold}" stroke-width="1" stroke-opacity="0.8"/>`
     : '';
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
 <rect width="200" height="300" fill="${palette.cloth}"/>
 <rect x="10" y="10" width="180" height="280" rx="3" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.2"/>
 <rect x="22" y="24" width="156" height="7" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
@@ -234,7 +234,7 @@ function specDocumentSvg(event: Event): string {
     })
     .join('');
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
 <rect width="200" height="300" fill="${palette.cloth}"/>
 <rect x="8" y="8" width="184" height="284" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.4"/>
 <rect x="8" y="8" width="184" height="36" fill="${palette.accent}" fill-opacity="0.85"/>
@@ -395,7 +395,7 @@ export function coverPlaceholderSvg(event: Event): string {
   const titleStartY = 148;
   const authorY = 252 - Math.max(0, authorLines.length - 1) * 12;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="200" height="300">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
 ${coverDefs(palette, id)}
 <rect width="200" height="300" fill="url(#cloth-${id})"/>
 <rect width="200" height="300" fill="url(#grain-${id})"/>

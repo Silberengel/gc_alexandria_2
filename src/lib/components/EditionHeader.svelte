@@ -169,7 +169,7 @@
                   class="edition-topic"
                   href={`#/search?subject=${encodeURIComponent(subject)}`}
                   use:link
-                >#{subject}</a>
+                >{subject}</a>
               </li>
             {/each}
           </ul>
@@ -207,7 +207,7 @@
       {/if}
 
       {#if meta.summary}
-        <p class="edition-summary">{meta.summary}</p>
+        <p class="edition-summary" class:edition-summary-rule={!children}>{meta.summary}</p>
       {/if}
 
       {#if children}
