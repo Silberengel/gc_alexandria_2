@@ -210,6 +210,13 @@
   /** ToC jump to a section that is not in the pane yet. */
   let jumpBusy = $state(false);
   let jumpLabel = $state('');
+  /** Bumps per ToC jump so finally always clears the owning jump’s busy flags. */
+  let jumpGen = 0;
+  /**
+   * Seed finished while a ToC jump held the pane — refresh the open day after jumpBusy clears
+   * (otherwise headings stay empty of verses forever).
+   */
+  let pendingScopedRepaint = false;
   let tocOpen = $state(false);
   /** Hero image URLs that 404'd or failed to decode — fall back to the celtic brand header. */
   let brokenHeroUrls = $state(new Set<string>());
@@ -1243,39 +1250,16 @@
     return true;
   }
 
-  /** Replace the pane with one plan day or Douay chapter (and its verses only). */
-  async function paintScopedIndex(
+  /** Apply collectIndexPaintEvents into the pane; returns false if aborted or empty. */
+  function commitScopedPaint(
     edition: Event,
-    index: Event,
-    opts?: { network?: boolean; preserveScroll?: boolean }
-  ): Promise<void> {
-    const gen = ++scopedPaintGen;
-    scopedAtEditionTop = false;
-    let leaf = liveScopedIndex(index);
-    // Incomplete plan seeds leave early days as placeholders — resolve via relays.
-    if (isPlaceholderIndex(leaf) && opts?.network === true) {
-      const addr = eventAddress(leaf);
-      if (addr) {
-        const hit = await fetchByAddress(addr);
-        if (hit) {
-          rememberEvents([hit]);
-          leaf = hit;
-        }
-      }
-    }
-    const missing = missingPaintAddresses(leaf);
-    if (missing.length) {
-      // Seeded bibles: never stampede relays for verses — shards fill memory.
-      // Reading plans: allow network for seed holes (e.g. days 1–90 missing locally).
-      const localOnly = opts?.network !== true;
-      await poolMap(missing.slice(0, 120), localOnly ? 8 : 3, (coord) =>
-        fetchByAddress(coord, localOnly ? { localOnly: true } : undefined)
-      );
-    }
-    if (event?.id !== edition.id || scopedAtEditionTop || gen !== scopedPaintGen) return;
-    leaf = liveScopedIndex(leaf);
+    leaf: Event,
+    gen: number,
+    opts?: { preserveScroll?: boolean }
+  ): boolean {
+    if (event?.id !== edition.id || scopedAtEditionTop || gen !== scopedPaintGen) return false;
     const painted = collectIndexPaintEvents(leaf);
-    if (!painted.length) return;
+    if (!painted.length) return false;
     // Seed batches used to re-paint on every SECTION arrival — same DOM remount jumped scroll to top.
     const sameIndex =
       scopedPaintIndex?.id === leaf.id &&
@@ -1283,7 +1267,7 @@
       sections.every((s, i) => s.id === painted[i]?.id);
     if (sameIndex) {
       sectionsLoading = false;
-      return;
+      return true;
     }
     const keepY =
       opts?.preserveScroll === true &&
@@ -1324,6 +1308,94 @@
     if (isReadingPlanEdition(edition) && !isPlaceholderIndex(leaf)) {
       toc = buildIndexScopedToc(edition);
     }
+    return true;
+  }
+
+  /**
+   * Refresh the open scoped leaf after seeds land. Mid-jump batches must not abort paintScopedIndex
+   * (scopedPaintGen); queue a run for when jumpBusy clears instead.
+   */
+  function scheduleScopedRepaint(edition: Event, allowNetwork: boolean): void {
+    if (!scopedPaintIndex || scopedAtEditionTop || event?.id !== edition.id) return;
+    if (!scopedPaintSetChanged(scopedPaintIndex)) return;
+    if (jumpBusy) {
+      pendingScopedRepaint = true;
+      return;
+    }
+    void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
+      network: allowNetwork,
+      preserveScroll: true
+    });
+  }
+
+  function flushPendingScopedRepaint(): void {
+    if (!pendingScopedRepaint || jumpBusy || !event || !scopedPaintIndex || scopedAtEditionTop) {
+      return;
+    }
+    pendingScopedRepaint = false;
+    const edition = event;
+    void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
+      network: false,
+      preserveScroll: true
+    });
+  }
+
+  function endJump(gen: number): void {
+    if (gen !== jumpGen) return;
+    jumpBusy = false;
+    readingBusy = false;
+    jumpLabel = '';
+    flushPendingScopedRepaint();
+    // Deep-link focus may have been deferred while jumpBusy was true.
+    queueMicrotask(() => applyUrlFocus());
+  }
+
+  /** Replace the pane with one plan day or Douay chapter (and its verses only). */
+  async function paintScopedIndex(
+    edition: Event,
+    index: Event,
+    opts?: { network?: boolean; preserveScroll?: boolean }
+  ): Promise<void> {
+    const gen = ++scopedPaintGen;
+    scopedAtEditionTop = false;
+    let leaf = liveScopedIndex(index);
+    // Incomplete plan seeds leave early days as placeholders — resolve via relays.
+    if (isPlaceholderIndex(leaf) && opts?.network === true) {
+      const addr = eventAddress(leaf);
+      if (addr) {
+        const hit = await fetchByAddress(addr);
+        if (hit) {
+          rememberEvents([hit]);
+          leaf = hit;
+        }
+      }
+    }
+    // Paint whatever is already in memory first so ToC jumps clear “Opening…” immediately.
+    // Plan days often resolve before Douay verse shards finish — headings first, verses follow.
+    commitScopedPaint(edition, leaf, gen, opts);
+
+    const missing = missingPaintAddresses(leaf);
+    if (!missing.length) return;
+    // Seeded bibles: never stampede relays for verses — shards fill memory.
+    // Reading plans: allow network for seed holes (e.g. days 1–90 missing locally).
+    const localOnly = opts?.network !== true;
+    // While a jump owns the toast, do not await IDB/relay fills — that left Opening… stuck
+    // under pool pressure. Fill in the background and repaint when memory grows.
+    const deferFill = jumpBusy;
+    const fillMissing = async (): Promise<void> => {
+      await poolMap(missing.slice(0, 120), localOnly ? 8 : 3, (coord) =>
+        fetchByAddress(coord, localOnly ? { localOnly: true } : undefined)
+      );
+      if (event?.id !== edition.id || scopedAtEditionTop || gen !== scopedPaintGen) return;
+      commitScopedPaint(edition, liveScopedIndex(leaf), gen, {
+        preserveScroll: true
+      });
+    };
+    if (deferFill) {
+      void fillMissing();
+      return;
+    }
+    await fillMissing();
   }
 
   /** Edition root in the pane — cover, authors, summary (Go to top / root ToC). */
@@ -1412,12 +1484,7 @@
         toc = buildIndexScopedToc(edition);
         // Cover stays until ToC / Continue selects a leaf — only refresh an already-open day
         // when memory grew new children for it (avoid remount → scroll jump).
-        if (scopedPaintIndex && !scopedAtEditionTop && scopedPaintSetChanged(scopedPaintIndex)) {
-          await paintScopedIndex(edition, scopedPaintIndex, {
-            network: allowNetwork,
-            preserveScroll: true
-          });
-        }
+        scheduleScopedRepaint(edition, allowNetwork);
         if (event?.id === edition.id) sectionsLoading = false;
         // Only leaf/day paints are expected to include verses. Intermediate indexes
         // (Introduction / testament) legitimately have no KIND.SECTION children — the old
@@ -1452,10 +1519,7 @@
               batch.some((e) => e.kind === KIND.SECTION) &&
               scopedPaintSetChanged(scopedPaintIndex)
             ) {
-              void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                network: false,
-                preserveScroll: true
-              });
+              scheduleScopedRepaint(edition, false);
             }
           }
         });
@@ -1486,10 +1550,7 @@
                 batch.some((e) => e.kind === KIND.SECTION) &&
                 scopedPaintSetChanged(scopedPaintIndex)
               ) {
-                void paintScopedIndex(edition, liveScopedIndex(scopedPaintIndex), {
-                  network: false,
-                  preserveScroll: true
-                });
+                scheduleScopedRepaint(edition, false);
               }
             }
           });
@@ -1516,10 +1577,14 @@
           !scopedAtEditionTop &&
           event?.id === edition.id
         ) {
-          await paintScopedIndex(edition, scopedPaintIndex, {
-            network: false,
-            preserveScroll: true
-          });
+          // Force a pass even when set-equality is stale mid-jump (pending flag).
+          if (jumpBusy) pendingScopedRepaint = true;
+          else {
+            await paintScopedIndex(edition, scopedPaintIndex, {
+              network: false,
+              preserveScroll: true
+            });
+          }
         }
         // Readable seed: stay on the cache. Relays only if the seed could not be read,
         // or this plan is not in the manifest at all.
@@ -1711,9 +1776,12 @@
         }
         if (focusQuote) scrollToHighlightQuote(focusQuote);
       } finally {
-        if (event?.id === edition.id && !jumpBusy) {
-          readingBusy = false;
-          sectionsLoading = false;
+        if (event?.id === edition.id) {
+          // ToC jump owns busy if it preempted mid-open; otherwise always clear.
+          if (!jumpBusy) {
+            readingBusy = false;
+            sectionsLoading = false;
+          }
         }
       }
       return;
@@ -2110,6 +2178,11 @@
       commentFocusApplied = '';
       replyOpenId = null;
       sectionsLoading = false;
+      jumpGen++;
+      jumpBusy = false;
+      jumpLabel = '';
+      pendingScopedRepaint = false;
+      readingBusy = false;
       socialGen++;
       ratings = [];
       comments = [];
@@ -2442,6 +2515,7 @@
     reading = false;
     tocOpen = false;
     jumpBusy = false;
+    pendingScopedRepaint = false;
     sectionsLoading = false;
     cancelTree();
     setReadQuery(false);
@@ -2529,6 +2603,9 @@
       if (parsed) {
         const mem = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
         if (mem && !isPlaceholderIndex(mem)) return mem;
+        // Prefer local cache before relays — pool congestion left “Opening…” stuck on plan days.
+        const local = await fetchByAddress(entry.address, { localOnly: true });
+        if (local && !isPlaceholderIndex(local)) return local;
         // Plan seeds can omit early days — fetch the real index before stubbing.
         const hit = await fetchByAddress(entry.address);
         if (hit) return hit;
@@ -2680,6 +2757,7 @@
         return;
       }
       const key = `toc:${entry.address ?? entry.id ?? entry.pos}`;
+      const gen = ++jumpGen;
       focusKey = key;
       jumpLabel = entry.title;
       jumpBusy = true;
@@ -2690,22 +2768,24 @@
           setReadQuery(true);
         }
         // Hold jumpBusy so bare ?read=1 applyUrlFocus cannot startReading(cover) mid-jump.
+        // Bootstrap cover/seeds when the pane is empty (same as openFocusedReading).
+        if (!sections.length) {
+          await fillScopedReading(edition);
+          if (gen !== jumpGen || event !== edition) return;
+        }
         const focused = await resolveTocSection(entry);
-        if (focusKey !== key || event !== edition || !focused) return;
+        if (gen !== jumpGen || event !== edition || !focused) return;
         rememberEvents([focused]);
         toc = buildIndexScopedToc(edition);
         const leaf = resolvePaintIndex(focused, edition, toc);
-        if (!leaf || focusKey !== key || event !== edition) return;
+        if (!leaf || gen !== jumpGen || event !== edition) return;
         await paintScopedIndex(edition, leaf, {
           network: !(await editionHasLocalSeeds(edition)) && isReadingPlanEdition(edition)
         });
-        if (focusKey !== key || event !== edition) return;
+        if (gen !== jumpGen || event !== edition) return;
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
-        if (focusKey === key) {
-          jumpBusy = false;
-          readingBusy = false;
-        }
+        endJump(gen);
       }
       return;
     }
@@ -2719,13 +2799,14 @@
 
     const edition = event;
     const key = `toc:${entry.address ?? entry.id ?? entry.pos}`;
+    const gen = ++jumpGen;
     focusKey = key;
     jumpLabel = entry.title;
     jumpBusy = true;
     readingBusy = true;
     try {
       const focused = await resolveTocSection(entry);
-      if (focusKey !== key || event !== edition) return;
+      if (gen !== jumpGen || event !== edition) return;
 
       if (focused) {
         if (!isPlaceholderSection(focused)) rememberEvents([focused]);
@@ -2733,8 +2814,9 @@
         void enrichHighlightsFromSections([focused]);
         jumpBusy = false;
         readingBusy = false;
+        flushPendingScopedRepaint();
         queueMicrotask(() => {
-          if (focusKey !== key) return;
+          if (gen !== jumpGen) return;
           scrollToSection(entry.pos, focused.id, eventAddress(focused));
         });
         saveResume(eventAddress(edition), { pos: entry.pos, sectionId: focused.id });
@@ -2763,26 +2845,26 @@
       } catch {
         streamed = [];
       }
-      if (focusKey !== key || event !== edition) return;
+      if (gen !== jumpGen || event !== edition) return;
       if (!streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
         streamed = mergeSections(
           streamed,
           await fallbackSections(edition, {
             relaysOnly: skipMercury || isMercuryPublicationMissing(naddr),
             onHit: (hit) => {
-              if (focusKey !== key || event !== edition) return;
+              if (gen !== jumpGen || event !== edition) return;
               adoptSections(mergeSections(sections, [hit]), edition);
             }
           })
         );
       }
-      if (focusKey !== key || event !== edition) return;
+      if (gen !== jumpGen || event !== edition) return;
 
       if (streamed.length || focused) {
         adoptSections(mergeSections(sections, streamed), edition);
         void enrichHighlightsFromSections(sections);
         queueMicrotask(() => {
-          if (focusKey !== key) return;
+          if (gen !== jumpGen) return;
           const scrollId = focused?.id ?? findLoadedSection(entry)?.id;
           scrollToSection(entry.pos, scrollId, entry.address);
         });
@@ -2791,10 +2873,7 @@
         reading = false;
       }
     } finally {
-      if (focusKey === key) {
-        jumpBusy = false;
-        readingBusy = false;
-      }
+      endJump(gen);
     }
   }
 
