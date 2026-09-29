@@ -5,7 +5,6 @@
   import { cardMeta, hasPublicationSection, preferRicherEvent } from '$lib/metadata';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
   import UserBadge from './UserBadge.svelte';
-  import { isAllowedHref } from '$lib/markup';
 
   interface Props {
     event: Event;
@@ -62,15 +61,6 @@
     {/each}
     {#if meta.titles.length > 3}
       <span>, +{meta.titles.length - 3} more</span>
-    {/if}
-  </p>
-{/if}
-{#if meta.source}
-  <p class="muted pub-card-line pub-card-source">
-    {#if isAllowedHref(meta.source)}
-      Source: <a href={meta.source} rel="noopener noreferrer">{meta.source}</a>
-    {:else}
-      Source: {meta.source}
     {/if}
   </p>
 {/if}

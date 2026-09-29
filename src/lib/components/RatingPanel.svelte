@@ -6,10 +6,12 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish } from '$lib/sign';
   import { ratingDraft } from '$lib/drafts';
+  import { eventAddress } from '$lib/nostr/verify';
   import {
     aggregateRating,
     ratingHasScore,
-    ratingStarsFromEvent
+    ratingStarsFromEvent,
+    clearPublicationRatingAggregateCache
   } from '$lib/ratings';
   import EventSocialBar from './EventSocialBar.svelte';
 
@@ -20,9 +22,11 @@
     focusId?: string;
     /** Hide Write a review / Sign in to rate — card-level CTAs own those entry points. */
     hideEntryCta?: boolean;
+    /** Hide the average summary — shown prominently on the edition card instead. */
+    hideSummary?: boolean;
   }
 
-  let { ratings, publication, focusId = '', hideEntryCta = false }: Props = $props();
+  let { ratings, publication, focusId = '', hideEntryCta = false, hideSummary = false }: Props = $props();
   let list = $state<Event[]>([]);
   let expanded = $state<Record<string, boolean>>({});
   let overflow = $state<Record<string, boolean>>({});
@@ -154,6 +158,7 @@
         list = [signed, ...list.filter((r) => r.pubkey !== signed.pubkey)];
         editing = false;
         composing = false;
+        clearPublicationRatingAggregateCache(eventAddress(publication));
       }
     } finally {
       busy = false;
@@ -190,13 +195,15 @@
   }
 </script>
 
-<section id="edition-ratings" class="card rating-panel" style="margin-bottom:1rem">
+<section id="edition-ratings" class="edition-open-section edition-ratings-section rating-panel">
   <h2 class="section-title">Ratings</h2>
-  {#if agg.count}
+  {#if agg.count && !hideSummary}
     <p class="rating-summary">
       <Stars value={avgStars} size={18} label={`${avgStars.toFixed(1)} out of 5 from ${agg.count} ratings`} />
       <span class="muted">{avgStars.toFixed(1)} · {agg.count} {agg.count === 1 ? 'rating' : 'ratings'}</span>
     </p>
+  {/if}
+  {#if agg.count}
     <ul class="rater-list">
       {#each scored as rating (rating.id)}
         {@const stars = ratingStarsFromEvent(rating)}

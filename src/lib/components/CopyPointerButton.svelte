@@ -35,8 +35,15 @@
   let linkCopied = $state(false);
   let timer = 0;
   let root: HTMLDivElement | undefined = $state();
+  let panel: HTMLUListElement | undefined = $state();
   // Initial side is updated when opening; preferStart is applied in toggle().
-  let place: MenuPlacement = $state({ side: 'end', up: false, top: 0, left: 0 });
+  let place: MenuPlacement = $state({
+    side: 'end',
+    up: false,
+    top: 0,
+    left: 0,
+    maxHeight: 280
+  });
 
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
@@ -57,20 +64,29 @@
     return njumpUrl;
   });
 
-  function refreshPlace(): void {
+  function refreshPlace(measured?: { width: number; height: number }): void {
     if (!root) return;
-    let next = placeMenuPanel(root);
+    let next = placeMenuPanel(root, measured);
     if (preferStart) {
       const r = root.getBoundingClientRect();
-      if (window.innerWidth - r.left - 8 >= 200) {
+      const w = measured?.width ?? 200;
+      if (window.innerWidth - r.left - 8 >= w) {
         next = {
           ...next,
           side: 'start',
-          left: Math.max(8, Math.min(r.left, window.innerWidth - 200 - 8))
+          left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8))
         };
       }
     }
     place = next;
+  }
+
+  /** After paint, measure the real panel and flip/clamp so it stays on-screen. */
+  function refinePlace(): void {
+    if (!root || !panel) return;
+    const rect = panel.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) return;
+    refreshPlace({ width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
   }
 
   async function copy(): Promise<void> {
@@ -136,13 +152,21 @@
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
-    const onReposition = () => refreshPlace();
+    const onReposition = () => {
+      refinePlace();
+    };
     document.addEventListener('pointerdown', onDoc);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onReposition);
     // Capture: reading pane / ToC may scroll inside nested containers.
     window.addEventListener('scroll', onReposition, true);
+    const tick = requestAnimationFrame(() => {
+      refinePlace();
+      // Second frame: fonts/layout may still settle after first paint.
+      requestAnimationFrame(refinePlace);
+    });
     return () => {
+      cancelAnimationFrame(tick);
       document.removeEventListener('pointerdown', onDoc);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onReposition);
@@ -175,7 +199,8 @@
   {#if open}
     <ul
       class="menu-panel menu-panel-fixed"
-      style={`top:${place.top}px;left:${place.left}px`}
+      bind:this={panel}
+      style={`top:${place.top}px;left:${place.left}px;max-height:${place.maxHeight}px;overflow-y:auto`}
       role="menu"
       onclick={onPanelClick}
       onkeydown={(e) => {
@@ -230,7 +255,7 @@
             close();
           }}
         >
-          njump.me
+          View on Njump
         </a>
       </li>
       <li role="none">
@@ -245,7 +270,7 @@
             close();
           }}
         >
-          jumble.imwald.eu
+          View on Jumble
         </a>
       </li>
       {#if after}

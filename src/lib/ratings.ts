@@ -174,6 +174,75 @@ export function aggregateRating(ratings: Event[]): { average: number; count: num
   return { average: sum / scored.length, count: scored.length };
 }
 
+export type PublicationRatingAggregate = {
+  /** Mean on a 1–5 star scale. */
+  averageStars: number;
+  count: number;
+};
+
+const ratingAggInflight = new Map<string, Promise<PublicationRatingAggregate>>();
+const ratingAggCache = new Map<string, PublicationRatingAggregate>();
+
+/** Clear card/search rating aggregates (e.g. after the viewer publishes a rating). */
+export function clearPublicationRatingAggregateCache(address?: string): void {
+  if (!address) {
+    ratingAggInflight.clear();
+    ratingAggCache.clear();
+    return;
+  }
+  const keys = publicationCoordinateLookupKeys(address);
+  for (const key of [...ratingAggInflight.keys(), ...ratingAggCache.keys()]) {
+    if (keys.some((k) => coordinatesOverlap(k, key)) || coordinatesOverlap(key, address)) {
+      ratingAggInflight.delete(key);
+      ratingAggCache.delete(key);
+    }
+  }
+}
+
+/**
+ * Newest-per-author average for a publication. Dedupes in-flight relay queries by address
+ * so search result grids do not fan out one REQ per identical edition.
+ */
+export async function fetchPublicationRatingAggregate(
+  publication: Event,
+  mute?: MuteState
+): Promise<PublicationRatingAggregate> {
+  const address = eventAddress(publication);
+  if (!address || publication.kind !== KIND.PUBLICATION) {
+    return { averageStars: 0, count: 0 };
+  }
+  const cached = ratingAggCache.get(address);
+  if (cached) return cached;
+  const pending = ratingAggInflight.get(address);
+  if (pending) return pending;
+
+  const work = (async (): Promise<PublicationRatingAggregate> => {
+    const { relayPool } = await import('./nostr/pool');
+    const { socialStack } = await import('./nostr/selector');
+    const ratingKeys = publicationRatingATagsForQuery(publication);
+    if (!ratingKeys.length) return { averageStars: 0, count: 0 };
+    const [byA, byAUpper] = await Promise.all([
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 4000, 3),
+      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 4000, 3)
+    ]);
+    const byId = new Map<string, Event>();
+    for (const e of [...byA, ...byAUpper]) byId.set(e.id, e);
+    const newest = newestRatingPerAuthor([...byId.values()], address, mute);
+    const agg = aggregateRating(newest);
+    const result: PublicationRatingAggregate = {
+      averageStars: agg.count ? agg.average * 5 : 0,
+      count: agg.count
+    };
+    ratingAggCache.set(address, result);
+    return result;
+  })().finally(() => {
+    ratingAggInflight.delete(address);
+  });
+
+  ratingAggInflight.set(address, work);
+  return work;
+}
+
 /**
  * Pollerama kind-34259 tags. `stars` is 1–5; `rating` is stars/5 in (0, 1].
  * Same pubkey+d replaces the previous rating.

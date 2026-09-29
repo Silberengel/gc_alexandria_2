@@ -40,8 +40,20 @@ describe('placeMenuPanel', () => {
     const anchor = {
       getBoundingClientRect: () => ({ left: 200, right: 240, top: 720, bottom: 760, width: 40, height: 40 })
     } as HTMLElement;
-    const place = placeMenuPanel(anchor);
+    const place = placeMenuPanel(anchor, { height: 160 });
     expect(place.up).toBe(true);
     expect(place.top).toBe(552); // top 720 - pad 8 - height 160
+    expect(place.maxHeight).toBe(800 - 16);
+  });
+
+  it('caps maxHeight to the viewport and keeps the panel on-screen', () => {
+    Object.defineProperty(globalThis, 'innerHeight', { configurable: true, value: 400 });
+    const anchor = {
+      getBoundingClientRect: () => ({ left: 200, right: 240, top: 300, bottom: 340, width: 40, height: 40 })
+    } as HTMLElement;
+    const place = placeMenuPanel(anchor, { height: 500 });
+    expect(place.maxHeight).toBe(400 - 16);
+    expect(place.top).toBeGreaterThanOrEqual(8);
+    expect(place.top + place.maxHeight).toBeLessThanOrEqual(400 - 8);
   });
 });

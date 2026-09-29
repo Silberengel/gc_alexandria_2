@@ -13,16 +13,30 @@
   import { isAllowedHref } from '$lib/markup';
   import { offersVerseStyling } from '$lib/bible-verse';
   import VerseStylingToggle from './VerseStylingToggle.svelte';
+  import type { Snippet } from 'svelte';
+  import Stars from './Stars.svelte';
 
   interface Props {
     event: Event;
     /** Loaded sections — helps detect bible verse styling when the index lacks type tags. */
     sections?: Event[];
+    /** Average on a 1–5 scale when the edition has scored ratings. */
+    ratingAverage?: number;
+    ratingCount?: number;
+    /** Extra content in the meta column (e.g. People). */
+    children?: Snippet;
   }
 
-  let { event, sections = [] }: Props = $props();
+  let { event, sections = [], ratingAverage, ratingCount = 0, children }: Props = $props();
   const meta = $derived(editionMetadata(event));
   const showVerseStyling = $derived(offersVerseStyling(event, sections));
+  const showCardRating = $derived(
+    typeof ratingAverage === 'number' && Number.isFinite(ratingAverage) && ratingCount > 0
+  );
+
+  function scrollToRatings(): void {
+    document.getElementById('edition-ratings')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
 
   const facts = $derived.by(() => {
     const rows: { label: string; value: string; href?: string }[] = [];
@@ -90,6 +104,25 @@
             >{formatAuthorLabel(author)}</a>
           {/each}
         </p>
+      {/if}
+
+      {#if showCardRating}
+        <button
+          class="edition-rating-hero"
+          type="button"
+          onclick={scrollToRatings}
+          title="See ratings and reviews"
+        >
+          <span class="edition-rating-score">{ratingAverage!.toFixed(1)}</span>
+          <Stars
+            value={ratingAverage!}
+            size={22}
+            label={`${ratingAverage!.toFixed(1)} out of 5 from ${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'}`}
+          />
+          <span class="edition-rating-count"
+            >{ratingCount} {ratingCount === 1 ? 'rating' : 'ratings'}</span
+          >
+        </button>
       {/if}
 
       <p class="muted edition-publisher">
@@ -172,10 +205,14 @@
           </ul>
         </div>
       {/if}
+
+      {#if meta.summary}
+        <p class="edition-summary">{meta.summary}</p>
+      {/if}
+
+      {#if children}
+        {@render children()}
+      {/if}
     </div>
   </div>
-
-  {#if meta.summary}
-    <p class="edition-summary">{meta.summary}</p>
-  {/if}
 </div>

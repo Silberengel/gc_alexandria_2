@@ -12,7 +12,6 @@
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
   import ReadButton from '$lib/components/ReadButton.svelte';
-  import ExportMenu from '$lib/components/ExportMenu.svelte';
   import EditionPeople from '$lib/components/EditionPeople.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import EditionSuperindexes from '$lib/components/EditionSuperindexes.svelte';
@@ -57,7 +56,7 @@
     warmIndexTree
   } from '$lib/index-scope';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
-  import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore } from '$lib/ratings';
+  import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
@@ -276,6 +275,8 @@
 
   const addr = $derived(event ? eventAddress(event) : '');
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
+  const ratingAgg = $derived(aggregateRating(visibleRatings));
+  const cardAvgStars = $derived(ratingAgg.count ? ratingAgg.average * 5 : 0);
   const hasMyReview = $derived(
     !!$session.pubkey &&
       visibleRatings.some(
@@ -3054,22 +3055,25 @@
   {:else if event}
     {#if !reading}
       <PageFilter bind:value={pageFilter} />
-      <header class="card edition-page-card" style="margin-bottom:1.5rem">
+      <header class="card edition-page-card">
         <div class="edition-page-read">
-          {#if canRead}
-            <ExportMenu publication={event} getSeedEvents={() => sectionCorpus} />
-          {/if}
           <ReadButton publication={event} readEvents={editionReads} />
         </div>
-        <EditionHeader {event} {sections} />
-        <EditionPeople
-          publication={event}
-          labels={[...editionLabels, ...editionReads]}
-          bookmarks={editionBookmarks}
-          highlights={mutedHighlights}
-          directories={editionDirectories}
-          readingQueues={editionReadingQueues}
-        />
+        <EditionHeader
+          {event}
+          {sections}
+          ratingAverage={ratingAgg.count ? cardAvgStars : undefined}
+          ratingCount={ratingAgg.count || undefined}
+        >
+          <EditionPeople
+            publication={event}
+            labels={[...editionLabels, ...editionReads]}
+            bookmarks={editionBookmarks}
+            highlights={mutedHighlights}
+            directories={editionDirectories}
+            readingQueues={editionReadingQueues}
+          />
+        </EditionHeader>
         <EditionSuperindexes parents={superindexes} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
@@ -3108,7 +3112,11 @@
             Catalog entry only — the full text is not available in the library (often a copyrighted work we cannot publish).
           </p>
         {/if}
-        <DetailsPanel {event} />
+        <DetailsPanel
+          {event}
+          canExport={canRead}
+          getSeedEvents={() => sectionCorpus}
+        />
       </header>
 
       <RatingPanel
@@ -3116,10 +3124,11 @@
         ratings={visibleRatings}
         publication={event}
         hideEntryCta
+        hideSummary
         focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
       />
 
-      <section id="edition-comments" class="card reading-width" style="margin-bottom:1rem">
+      <section id="edition-comments" class="edition-open-section edition-comments-section reading-width">
         <h2 class="section-title">Comments</h2>
         {#if thread.length}
           <ul class="thread-list">

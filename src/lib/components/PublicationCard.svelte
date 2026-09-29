@@ -3,7 +3,7 @@
   import { link, replace } from 'svelte-spa-router';
   import { KIND } from '$lib/constants';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { cardMeta, displayTitle, libraryDocumentPath } from '$lib/metadata';
+  import { cardMeta, displayTitle, libraryDocumentPath, publicationPath } from '$lib/metadata';
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchContainingPublication } from '$lib/landing';
@@ -12,22 +12,62 @@
   import Cover from './Cover.svelte';
   import CardMeta from './CardMeta.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import Stars from './Stars.svelte';
+  import { muteState } from '$lib/mute';
+  import { fetchPublicationRatingAggregate } from '$lib/ratings';
 
   interface Props {
     event: Event;
     showMeta?: boolean;
     /** `card` = detailed result card; `row` = compact list line. */
     variant?: 'card' | 'row';
+    /** Optional precomputed average (1–5). When omitted, full publication cards fetch it. */
+    ratingAverage?: number;
+    ratingCount?: number;
   }
 
-  let { event, showMeta = true, variant = 'card' }: Props = $props();
+  let {
+    event,
+    showMeta = true,
+    variant = 'card',
+    ratingAverage: ratingAverageProp,
+    ratingCount: ratingCountProp
+  }: Props = $props();
 
   /** Resolved top edition when [event] is a 30041 section. */
   let sectionEdition = $state<Event | null>(null);
   let sectionResolveBusy = $state(false);
+  let fetchedAvg = $state<number | undefined>(undefined);
+  let fetchedCount = $state(0);
 
   $effect(() => {
     rememberEvents([event]);
+  });
+
+  $effect(() => {
+    if (
+      variant !== 'card' ||
+      event.kind !== KIND.PUBLICATION ||
+      typeof ratingAverageProp === 'number'
+    ) {
+      fetchedAvg = undefined;
+      fetchedCount = 0;
+      return;
+    }
+    const target = event;
+    let cancelled = false;
+    fetchedAvg = undefined;
+    fetchedCount = 0;
+    void fetchPublicationRatingAggregate(target, $muteState).then((agg) => {
+      if (cancelled) return;
+      if (agg.count > 0) {
+        fetchedAvg = agg.averageStars;
+        fetchedCount = agg.count;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -67,7 +107,6 @@
     isSection && sectionEdition ? readerShareUrl(sectionEdition, event) : ''
   );
   const summary = $derived(meta.summary?.trim() ?? '');
-  const subjects = $derived(meta.subjects.slice(0, 5));
   const kindLabel = $derived(
     event.kind === KIND.SPEC
       ? 'Spec'
@@ -86,6 +125,17 @@
       : ''
   );
   const isRow = $derived(variant === 'row');
+  const cardAvg = $derived(
+    typeof ratingAverageProp === 'number' && Number.isFinite(ratingAverageProp)
+      ? ratingAverageProp
+      : fetchedAvg
+  );
+  const cardCount = $derived(
+    typeof ratingCountProp === 'number' && ratingCountProp > 0 ? ratingCountProp : fetchedCount
+  );
+  const showCardRating = $derived(
+    !isRow && typeof cardAvg === 'number' && Number.isFinite(cardAvg) && cardCount > 0
+  );
 
   function warmSelf(): void {
     if (sectionEdition) warmNavEvent(sectionEdition);
@@ -163,6 +213,22 @@
             <CardMeta {event} showTitles={false} showSubjects={false} />
           </div>
         {/if}
+        {#if showCardRating}
+          <a
+            class="pub-card-rating"
+            href={`#${publicationPath(event)}`}
+            use:link
+            onpointerdown={warmSelf}
+            title={`${cardAvg!.toFixed(1)} out of 5 from ${cardCount} ${cardCount === 1 ? 'rating' : 'ratings'}`}
+          >
+            <Stars
+              value={cardAvg!}
+              size={13}
+              label={`${cardAvg!.toFixed(1)} out of 5 from ${cardCount} ${cardCount === 1 ? 'rating' : 'ratings'}`}
+            />
+            <span class="pub-card-rating-count">({cardCount})</span>
+          </a>
+        {/if}
         {#if isSection && sectionResolveBusy && !sectionEdition}
           <p class="muted pub-card-section-hint">Finding edition…</p>
         {/if}
@@ -186,15 +252,6 @@
       </div>
     {:else if showMeta && summary}
       <p class="muted pub-card-summary">{summary}</p>
-    {/if}
-    {#if showMeta && subjects.length}
-      <div class="pub-card-tags chip-row">
-        {#each subjects as subject}
-          <a class="chip chip-quiet" href={`#/search?subject=${encodeURIComponent(subject)}`} use:link
-            >{subject}</a
-          >
-        {/each}
-      </div>
     {/if}
   </div>
 {/if}
