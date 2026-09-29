@@ -57,7 +57,7 @@
     warmIndexTree
   } from '$lib/index-scope';
   import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
-  import { newestRatingPerAuthor, publicationRatingATagsForQuery } from '$lib/ratings';
+  import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
@@ -276,6 +276,37 @@
 
   const addr = $derived(event ? eventAddress(event) : '');
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
+  const hasMyReview = $derived(
+    !!$session.pubkey &&
+      visibleRatings.some(
+        (r) => ratingHasScore(r) && r.pubkey.toLowerCase() === $session.pubkey!.toLowerCase()
+      )
+  );
+  /** Card primary CTA: sign-in > read (when readable) > edit/write review (catalog-only). */
+  const cardPrimary = $derived.by((): 'signin' | 'edit' | 'read' | 'write' => {
+    if (!$session.pubkey) return 'signin';
+    if (canRead) return 'read';
+    if (hasMyReview) return 'edit';
+    return 'write';
+  });
+  let ratingPanel = $state<{ openReviewEntry: () => void } | null>(null);
+
+  function openCardReview(): void {
+    ratingPanel?.openReviewEntry();
+  }
+
+  function openCardComment(): void {
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    replyOpenId = null;
+    commentComposeOpen = true;
+    queueMicrotask(() => {
+      document.getElementById('edition-comments')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }
+
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
@@ -3034,16 +3065,34 @@
         <EditionSuperindexes parents={superindexes} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
-          {#if canRead}
-            {#if canContinue}
-              <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
-                >Continue reading</button
+          {#if $session.pubkey}
+            <button class="btn" type="button" onclick={openCardComment}>Leave a comment</button>
+            {#if cardPrimary === 'read'}
+              <button class="btn" type="button" onclick={openCardReview}
+                >{hasMyReview ? 'Edit your review' : 'Write a review'}</button
+              >
+              {#if canContinue}
+                <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
+                  >Continue reading</button
+                >
+              {:else}
+                <button class="btn btn-primary" type="button" onclick={() => void startReading()}
+                  >Read the publication</button
+                >
+              {/if}
+            {:else if cardPrimary === 'edit'}
+              <button class="btn btn-primary" type="button" onclick={openCardReview}
+                >Edit your review</button
               >
             {:else}
-              <button class="btn btn-primary" type="button" onclick={() => void startReading()}
-                >Read the publication</button
+              <button class="btn btn-primary" type="button" onclick={openCardReview}
+                >Write a review</button
               >
             {/if}
+          {:else}
+            <button class="btn btn-primary" type="button" onclick={() => openLoginDialog()}
+              >Sign in to interact with this publication</button
+            >
           {/if}
         </div>
         {#if !canRead}
@@ -3064,12 +3113,14 @@
       />
 
       <RatingPanel
+        bind:this={ratingPanel}
         ratings={visibleRatings}
         publication={event}
+        hideEntryCta
         focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
       />
 
-      <section class="card reading-width" style="margin-bottom:1rem">
+      <section id="edition-comments" class="card reading-width" style="margin-bottom:1rem">
         <h2 class="section-title">Comments</h2>
         {#if thread.length}
           <ul class="thread-list">
@@ -3095,12 +3146,6 @@
               >
             </div>
           </form>
-        {:else if $session.pubkey && !replyOpenId}
-          <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
-            >Leave a comment</button
-          >
-        {:else if !$session.pubkey}
-          <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
         {/if}
       </section>
     {:else}

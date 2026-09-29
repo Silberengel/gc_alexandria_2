@@ -18,9 +18,11 @@
     publication: Event;
     /** When set, scroll to and highlight this rating id (from ?rating=). */
     focusId?: string;
+    /** Hide Write a review / Sign in to rate — card-level CTAs own those entry points. */
+    hideEntryCta?: boolean;
   }
 
-  let { ratings, publication, focusId = '' }: Props = $props();
+  let { ratings, publication, focusId = '', hideEntryCta = false }: Props = $props();
   let list = $state<Event[]>([]);
   let expanded = $state<Record<string, boolean>>({});
   let overflow = $state<Record<string, boolean>>({});
@@ -116,6 +118,14 @@
     composing = false;
   }
 
+  /** Card-level Write a review / Edit your review — opens form and scrolls this panel into view. */
+  export function openReviewEntry(): void {
+    openCompose();
+    queueMicrotask(() => {
+      document.getElementById('edition-ratings')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }
+
   function cancelForm(): void {
     if (busy) return;
     if (minePublished) {
@@ -180,7 +190,7 @@
   }
 </script>
 
-<section class="card rating-panel" style="margin-bottom:1rem">
+<section id="edition-ratings" class="card rating-panel" style="margin-bottom:1rem">
   <h2 class="section-title">Ratings</h2>
   {#if agg.count}
     <p class="rating-summary">
@@ -292,9 +302,9 @@
         {/if}
       </div>
     </div>
-  {:else if !$session.pubkey}
+  {:else if !hideEntryCta && !$session.pubkey}
     <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to rate</button>
-  {:else if !minePublished}
+  {:else if !hideEntryCta && !minePublished}
     <button class="btn" type="button" onclick={openCompose}>Write a review</button>
   {/if}
 </section>

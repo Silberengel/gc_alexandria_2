@@ -1863,12 +1863,13 @@ a.listing-row:hover,
   padding-inline: 1.15rem;
   font-weight: 650;
   flex: 1 1 12rem;
-  white-space: nowrap;
+  white-space: normal;
+  text-wrap: balance;
 }
-/* One row when list + bookshelf + read labels fit without wrapping. */
+/* Prefer one row when actions fit; wrap when review/comment CTAs join the shelf. */
 @media (min-width: 40rem) {
   .edition-actions {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
   .edition-actions .shelf-actions {
     flex: 0 1 auto;
@@ -1877,7 +1878,11 @@ a.listing-row:hover,
   .edition-actions .shelf-actions .btn,
   .edition-actions .btn-primary {
     flex: 0 0 auto;
-    white-space: nowrap;
+  }
+  .edition-actions .btn-primary {
+    white-space: normal;
+    text-wrap: balance;
+    max-width: 100%;
   }
 }
 

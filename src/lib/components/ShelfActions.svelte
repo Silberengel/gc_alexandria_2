@@ -284,8 +284,4 @@
       {/if}
     </div>
   </div>
-{:else}
-  <div class="shelf-actions">
-    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to list or shelf</button>
-  </div>
 {/if}
