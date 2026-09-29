@@ -24,7 +24,7 @@ Feature: Top bar and search
   Scenario: Top bar auto-hides in the publication reader
     When I am reading a publication
     And I scroll down
-    Then the top bar hides so the ToC is the only site navigation
+    Then the top bar hides so the floating ToC control is the only site navigation
     When I scroll up
     Then the top bar is shown again
     And when I leave the reader the top bar stays visible again

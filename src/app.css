@@ -4156,12 +4156,29 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   max-width: 100%;
 }
 .toc {
+  display: none;
+  position: fixed;
+  right: 1rem;
+  bottom: 4.75rem;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(70vh, calc(100dvh - 8rem));
+  overflow: hidden;
+  z-index: 40;
+  margin: 0;
+  padding: 0.85rem 0.95rem 1rem;
   min-width: 0;
-  max-width: 100%;
   font-family: var(--ui-font);
-  display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-left: 0.28rem solid var(--accent);
+  box-shadow:
+    0 0.15rem 0.35rem color-mix(in srgb, var(--text) 10%, transparent),
+    0 0.85rem 2rem color-mix(in srgb, var(--text) 16%, transparent);
+}
+.toc.toc-open {
+  display: flex;
 }
 .toc-chrome {
   flex: 0 0 auto;
@@ -4195,7 +4212,8 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   min-width: 0;
 }
 .toc-goto-top,
-.toc-create-highlight {
+.toc-create-highlight,
+.toc-find {
   appearance: none;
   flex: 0 0 auto;
   border: 0;
@@ -4214,7 +4232,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .toc-goto-top:hover,
 .toc-goto-top:focus-visible,
 .toc-create-highlight:hover,
-.toc-create-highlight:focus-visible {
+.toc-create-highlight:focus-visible,
+.toc-find:hover,
+.toc-find:focus-visible {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .toc-scroll {
@@ -4342,7 +4362,32 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
 }
 .toc-fab {
-  display: none;
+  display: inline-flex;
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 41;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  color: var(--accent);
+  opacity: 0.72;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0.2rem 0.65rem color-mix(in srgb, var(--text) 12%, transparent);
+}
+.toc-fab:hover,
+.toc-fab:focus-visible,
+.toc-fab[aria-expanded='true'] {
+  opacity: 1;
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0.25rem 0.85rem color-mix(in srgb, var(--text) 18%, transparent);
 }
 mark.page-filter-hit {
   background: color-mix(in srgb, var(--accent) 40%, #f5e6a8);
@@ -4540,6 +4585,11 @@ mark.text-highlight.highlight-flash,
   border-radius: 0.35rem;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  scroll-margin-top: 5.5rem;
+}
+:root.top-bar-concealed .bible-verse-marked,
+:root.top-bar-concealed .reader-section.bible-verse-marked {
+  scroll-margin-top: 1.25rem;
 }
 .bible-verse.bible-verse-marked {
   padding: 0.05rem 0.2rem;
@@ -5055,71 +5105,7 @@ a.user-status-line:hover {
   font-size: 0.88rem;
   word-break: break-all;
 }
-@media (max-width: 899px) {
-  .toc {
-    display: none;
-    position: fixed;
-    right: 1rem;
-    bottom: 4.75rem;
-    width: min(22rem, calc(100vw - 2rem));
-    max-height: min(70vh, calc(100dvh - 8rem));
-    overflow: hidden;
-    z-index: 40;
-    margin: 0;
-    padding: 0.85rem 0.95rem 1rem;
-    background: var(--surface);
-    border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
-    border-left: 0.28rem solid var(--accent);
-    box-shadow:
-      0 0.15rem 0.35rem color-mix(in srgb, var(--text) 10%, transparent),
-      0 0.85rem 2rem color-mix(in srgb, var(--text) 16%, transparent);
-  }
-  .toc.toc-open { display: flex; }
-  .toc-fab {
-    display: inline-flex;
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    z-index: 41;
-    width: 2.75rem;
-    height: 2.75rem;
-    padding: 0;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 55%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    color: var(--accent);
-    opacity: 0.72;
-    backdrop-filter: blur(6px);
-    box-shadow: 0 0.2rem 0.65rem color-mix(in srgb, var(--text) 12%, transparent);
-  }
-  .toc-fab:hover,
-  .toc-fab:focus-visible,
-  .toc-fab[aria-expanded="true"] {
-    opacity: 1;
-    background: var(--surface);
-    border-color: var(--accent);
-    color: var(--accent);
-    box-shadow: 0 0.25rem 0.85rem color-mix(in srgb, var(--text) 18%, transparent);
-  }
-}
 @media (min-width: 900px) {
-  .reader-layout {
-    grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
-    align-items: start;
-  }
-  .toc {
-    position: sticky;
-    top: 4.5rem;
-    max-height: calc(100dvh - 5.25rem);
-    overflow: hidden;
-    transition: top 0.2s ease, max-height 0.2s ease;
-  }
-  :root.top-bar-concealed .toc {
-    top: 0.75rem;
-    max-height: calc(100dvh - 1.5rem);
-  }
   .card-grid-results {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -15,7 +15,7 @@ Feature: Mobile-first layout
     Then the catalog gains columns and the top bar fills the width
     And I do not switch information architecture
     And reading and wiki bodies keep a comfortable line length
-    And on a phone the table of contents becomes a transparent icon at the bottom-right over the text
+    And on every width the table of contents is a quiet icon at the bottom-right over the text
     And that icon opens the ToC in place and closes it again without covering the top bar
     And tapping or clicking outside the open ToC closes it
     And Highlights and What we are discussing sit in two columns

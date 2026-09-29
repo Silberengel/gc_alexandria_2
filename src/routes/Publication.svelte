@@ -1066,9 +1066,31 @@
   function scrollToMarkedVerse(attempts = 50): void {
     const hit = document.querySelector<HTMLElement>('.bible-verse-marked');
     if (hit) {
-      hit.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      hit.classList.add('highlight-flash');
-      window.setTimeout(() => hit.classList.remove('highlight-flash'), 1600);
+      const pin = (behavior: ScrollBehavior) => {
+        hit.scrollIntoView({ block: 'start', behavior, inline: 'nearest' });
+      };
+      // Instant first — smooth scrolls often finish against a still-growing chapter
+      // and stop short of the marked verse.
+      pin('auto');
+      requestAnimationFrame(() => {
+        pin('auto');
+        hit.classList.add('highlight-flash');
+        window.setTimeout(() => hit.classList.remove('highlight-flash'), 1600);
+      });
+      // Keep pinning while seed paint / fonts shift the target down the page.
+      let left = 10;
+      const stabilize = () => {
+        const again = document.querySelector<HTMLElement>('.bible-verse-marked');
+        if (!again || left <= 0) return;
+        left -= 1;
+        const top = again.getBoundingClientRect().top;
+        // Leave room for the top bar / reading chrome.
+        if (top < 72 || top > 160) {
+          again.scrollIntoView({ block: 'start', behavior: 'auto', inline: 'nearest' });
+          window.setTimeout(stabilize, 120);
+        }
+      };
+      window.setTimeout(stabilize, 160);
       return;
     }
     if (attempts <= 0) return;
@@ -1828,6 +1850,7 @@
       if (!chapterEv || focusKey !== key || event !== edition) return;
       await paintScopedIndex(edition, chapterEv, { network: false });
       if (focus.verses) {
+        await tick();
         await tick();
         scrollToMarkedVerse();
       }
@@ -3188,6 +3211,19 @@
                   </button>
                 {/if}
                 <button
+                  class="toc-find"
+                  type="button"
+                  title="Find text in this publication"
+                  onclick={() => {
+                    tocOpen = false;
+                    queueMicrotask(() => {
+                      document.getElementById('reader-page-filter')?.focus();
+                    });
+                  }}
+                >
+                  Find
+                </button>
+                <button
                   class="toc-goto-top"
                   type="button"
                   title="Jump to the start of this publication"
@@ -3232,6 +3268,7 @@
         {/if}
         <div class="reading-body" bind:this={readingPane}>
           <PageFilter
+            id="reader-page-filter"
             bind:value={pageFilter}
             placeholder="Find in this publication…"
             onEnter={cyclePageFind}
