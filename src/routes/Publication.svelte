@@ -3062,6 +3062,14 @@
           <ReadButton publication={event} readEvents={editionReads} />
         </div>
         <EditionHeader {event} {sections} />
+        <EditionPeople
+          publication={event}
+          labels={[...editionLabels, ...editionReads]}
+          bookmarks={editionBookmarks}
+          highlights={mutedHighlights}
+          directories={editionDirectories}
+          readingQueues={editionReadingQueues}
+        />
         <EditionSuperindexes parents={superindexes} />
         <div class="edition-actions">
           <ShelfActions publication={event} />
@@ -3102,15 +3110,6 @@
         {/if}
         <DetailsPanel {event} />
       </header>
-
-      <EditionPeople
-        publication={event}
-        labels={[...editionLabels, ...editionReads]}
-        bookmarks={editionBookmarks}
-        highlights={mutedHighlights}
-        directories={editionDirectories}
-        readingQueues={editionReadingQueues}
-      />
 
       <RatingPanel
         bind:this={ratingPanel}
