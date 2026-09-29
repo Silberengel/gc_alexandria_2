@@ -731,7 +731,7 @@
       <p class="loading-hint">Looking up profile…</p>
     {/if}
     {#if pubkey}
-    <div class="card profile-card" class:profile-card-blog={isBlogMode} style="margin-bottom:1rem">
+    <div class="card profile-card" class:profile-card-blog={isBlogMode}>
       <div class="profile-hero">
         {#if fields.banner && isAllowedHref(fields.banner)}
           <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
