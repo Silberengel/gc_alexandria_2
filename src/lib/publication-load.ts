@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
-import { KIND } from './constants';
+import { KIND, DOCUMENT_SEARCH_RELAYS, MERCURY_WSS, WIKI_RELAYS } from './constants';
 import { parseAddress } from './library-scope';
 import { firstTag, eventAddress } from './nostr/verify';
 import { coverTitle, humanizeTag } from './cover-fallback';
@@ -45,18 +45,47 @@ export function naddrFor(event: Event): string {
   });
 }
 
+/**
+ * Relay hints for share pointers. njump (and most clients) look up naddr/nevent
+ * on those relays; an empty list yields “no event found” for Citadel editions.
+ */
+export function pointerHintRelays(event: Event): string[] {
+  if (event.kind === KIND.WIKI) {
+    return [...WIKI_RELAYS, DOCUMENT_SEARCH_RELAYS[0]];
+  }
+  if (
+    event.kind === KIND.PUBLICATION ||
+    event.kind === KIND.SECTION ||
+    event.kind === KIND.SPEC ||
+    event.kind === KIND.DIRECTORY
+  ) {
+    return [DOCUMENT_SEARCH_RELAYS[0], MERCURY_WSS];
+  }
+  return [DOCUMENT_SEARCH_RELAYS[0], 'wss://theforest.nostr1.com'];
+}
+
 /** Clipboard target for a section/event: naddr when addressable, else nevent. */
 export function copyPointerForEvent(event: Event): { label: 'Copy naddr' | 'Copy nevent'; text: string } {
   const d = firstTag(event, 'd');
+  const relays = pointerHintRelays(event);
   if (d != null && event.kind >= 30_000 && event.kind < 40_000) {
-    return { label: 'Copy naddr', text: naddrFor(event) };
+    return {
+      label: 'Copy naddr',
+      text: nip19.naddrEncode({
+        kind: event.kind,
+        pubkey: event.pubkey,
+        identifier: d,
+        relays
+      })
+    };
   }
   return {
     label: 'Copy nevent',
     text: nip19.neventEncode({
       id: event.id,
       kind: event.kind,
-      author: event.pubkey
+      author: event.pubkey,
+      relays
     })
   };
 }

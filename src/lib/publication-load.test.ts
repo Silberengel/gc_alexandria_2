@@ -21,6 +21,7 @@ import {
   tocEntryKey
 } from './publication-load';
 import { firstTag } from './nostr/verify';
+import { nip19 } from 'nostr-tools';
 
 function ev(over: Partial<Event> & { tags: string[][] }): Event {
   return {
@@ -50,8 +51,19 @@ describe('copyPointerForEvent', () => {
     });
     expect(copyPointerForEvent(section)).toMatchObject({ label: 'Copy naddr' });
     expect(copyPointerForEvent(section).text.startsWith('naddr1')).toBe(true);
+    const decoded = nip19.decode(copyPointerForEvent(section).text);
+    expect(decoded.type).toBe('naddr');
+    if (decoded.type === 'naddr') {
+      expect(decoded.data.relays?.length).toBeGreaterThan(0);
+      expect(decoded.data.relays).toContain('wss://thecitadel.nostr1.com');
+    }
     expect(copyPointerForEvent(note)).toMatchObject({ label: 'Copy nevent' });
     expect(copyPointerForEvent(note).text.startsWith('nevent1')).toBe(true);
+    const noteDecoded = nip19.decode(copyPointerForEvent(note).text);
+    expect(noteDecoded.type).toBe('nevent');
+    if (noteDecoded.type === 'nevent') {
+      expect(noteDecoded.data.relays?.length).toBeGreaterThan(0);
+    }
   });
 });
 
