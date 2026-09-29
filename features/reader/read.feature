@@ -89,6 +89,7 @@ Feature: In-browser reader
     And that control signs a NIP-84 highlight for the selection, marks it inline immediately, then publishes
     And the Create highlight control is hidden when the reading-pane selection is empty
     And scrolling down hides the top bar so the floating ToC control is the only site navigation while reading
+    And that floating ToC is the same on desktop as on mobile (fixed panel from the FAB — not a sticky sidebar)
     And scrolling up reveals the top bar again
     And clicking a ToC heading jumps to that section header
     And when that section has a hero image, the jump scrolls so the hero is visible above the heading

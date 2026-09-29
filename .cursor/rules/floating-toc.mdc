@@ -1,0 +1,23 @@
+---
+description: Reader ToC is floating on all viewports — never restore sticky desktop ToC
+globs: src/app.css,src/routes/Publication.svelte,features/layout/mobile_first.feature,features/reader/read.feature
+alwaysApply: false
+---
+
+# Floating table of contents
+
+The publication reader uses **one** ToC UX on phone, tablet, and desktop:
+
+- Quiet FAB at the bottom-right over the reading pane
+- Open panel is `position: fixed` (`.toc` / `.toc-open`), not in the document flow
+- Same behavior at every breakpoint
+
+## Do not
+
+- Add `@media (min-width: …)` rules that set `.toc { position: sticky; top: … }` or move the ToC into a sidebar column on wide screens
+- Treat “fixed ToC on desktop” as a bug — it is intentional (see `features/layout/mobile_first.feature`)
+
+## Do
+
+- Keep desktop and mobile ToC markup/CSS aligned
+- Prefer polishing the floating panel over reintroducing a dual layout

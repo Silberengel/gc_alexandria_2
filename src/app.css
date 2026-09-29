@@ -4263,6 +4263,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   min-width: 0;
   max-width: 100%;
 }
+/* Floating ToC on every viewport (intentional). Do NOT add a min-width media
+   query that switches .toc to position:sticky / in-flow sidebar — phone and
+   desktop share the FAB + fixed panel. Spec: features/layout/mobile_first.feature */
 .toc {
   display: none;
   position: fixed;

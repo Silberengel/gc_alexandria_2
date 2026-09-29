@@ -152,19 +152,19 @@ function pubkeyFromWellKnown(
   return null;
 }
 
-const lookupCache = new Map<string, string>();
+const lookupCache = new Map<string, string | null>();
 const lookupInflight = new Map<string, Promise<string | null>>();
 
 /**
  * Resolve `local@domain` to a hex pubkey via `/.well-known/nostr.json`.
  * Returns null when the address is malformed or not listed.
+ * Successful and failed resolutions are both cached for the session.
  */
 export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
   const split = splitNip05Identifier(nip05);
   if (!split) return null;
   const key = nip05.trim().toLowerCase();
-  const cached = lookupCache.get(key);
-  if (cached) return cached;
+  if (lookupCache.has(key)) return lookupCache.get(key) ?? null;
 
   let pending = lookupInflight.get(key);
   if (!pending) {
@@ -175,7 +175,7 @@ export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
         const scoped = await fetchWellKnown(split.domain, split.name);
         hex = pubkeyFromWellKnown(scoped, split.name);
       }
-      if (hex) lookupCache.set(key, hex);
+      lookupCache.set(key, hex);
       return hex;
     })().finally(() => {
       lookupInflight.delete(key);
