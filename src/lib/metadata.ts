@@ -30,6 +30,25 @@ export type CardMeta = {
   kind: number;
 };
 
+/** Drop a leading # so Topics never re-show hashtag chrome (t-tag values sometimes include it). */
+export function normalizeSubjectTag(raw: string): string {
+  return raw.trim().replace(/^#+/u, '').trim();
+}
+
+export function subjectTagsFromEvent(event: Event): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of tagValue(event, 't')) {
+    const s = normalizeSubjectTag(raw);
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
 export function publicationPath(event: Event): string {
   const d = firstTag(event, 'd') ?? '';
   return `/publication/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
@@ -45,10 +64,16 @@ export function specPath(event: Event): string {
   return `/spec/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
 }
 
-/** Canonical SPA path for a publication, wiki, or spec event. */
+export function articlePath(event: Event): string {
+  const d = firstTag(event, 'd') ?? '';
+  return `/article/d/${encodeURIComponent(d)}/p/${nip19.npubEncode(event.pubkey)}`;
+}
+
+/** Canonical SPA path for a publication, wiki, spec, or long-form article. */
 export function libraryDocumentPath(event: Event): string {
   if (event.kind === KIND.SPEC) return specPath(event);
   if (event.kind === KIND.WIKI) return wikiPath(event);
+  if (event.kind === KIND.LONG_FORM) return articlePath(event);
   return publicationPath(event);
 }
 
@@ -80,7 +105,7 @@ export function cardMeta(event: Event): CardMeta {
         return cardBlurb(plain, { markup: 'markdown', max: 100 }) || plain.slice(0, 100);
       })
       .filter(Boolean),
-    subjects: tagValue(event, 't'),
+    subjects: subjectTagsFromEvent(event),
     source: firstTag(event, 's') ?? firstTag(event, 'source'),
     identifier: firstTag(event, 'i'),
     language: firstTag(event, 'l'),
@@ -172,10 +197,10 @@ export function preferRicherEvent(a: Event, b: Event): Event {
   return b;
 }
 
-/** Search kind tier: publications first, then wiki/spec, then everything else. */
+/** Search kind tier: publications first, then wiki/spec/article, then everything else. */
 export function searchKindTier(kind: number): number {
   if (kind === KIND.PUBLICATION) return 0;
-  if (kind === KIND.WIKI || kind === KIND.SPEC) return 1;
+  if (kind === KIND.WIKI || kind === KIND.SPEC || kind === KIND.LONG_FORM) return 1;
   return 2;
 }
 

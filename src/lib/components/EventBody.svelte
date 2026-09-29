@@ -4,6 +4,7 @@
   import { KIND } from '$lib/constants';
   import { renderWithFallback, markHighlights, type HighlightQuote } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
+  import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
   import {
     expandNostrRefPlaceholders,
     protectNostrRefsForMarkup,
@@ -19,13 +20,26 @@
     kind?: number;
     embedDepth?: number;
     quotes?: Array<string | HighlightQuote>;
+    /**
+     * When false, keep body images even if they match the event cover
+     * (e.g. section hero was already suppressed as a duplicate of the edition).
+     */
+    dedupeHeroImage?: boolean;
   }
 
-  let { event, content = '', kind, embedDepth = 0, quotes = [] }: Props = $props();
+  let {
+    event,
+    content = '',
+    kind,
+    embedDepth = 0,
+    quotes = [],
+    dedupeHeroImage = true
+  }: Props = $props();
 
   const source = $derived(event?.content ?? content);
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
+  const heroUrls = $derived(event && dedupeHeroImage ? eventHeroImageUrls(event) : []);
   /** Full-document render for markup kinds — splitting first breaks AsciiDoc listings/tables. */
   const wholeDocument = $derived(
     sourceKind === KIND.SECTION ||
@@ -51,6 +65,7 @@
     const tags = sourceTags;
     const whole = wholeDocument;
     const q = quotes;
+    const heroes = heroUrls;
     let cancelled = false;
     bodyPending = true;
     segments = [];
@@ -59,9 +74,12 @@
       const found: Record<number, Event | null> = {};
       let next: Array<ContentSegment | RenderSegment> = [];
 
+      const maybeDedupe = (html: string) =>
+        heroes.length ? stripEarlyDuplicateHeroImage(html, heroes) : html;
+
       if (whole) {
         const { text, refs } = protectNostrRefsForMarkup(src);
-        const rendered = markHighlights(await renderWithFallback(k, text, tags), q);
+        const rendered = maybeDedupe(markHighlights(await renderWithFallback(k, text, tags), q));
         next = expandNostrRefPlaceholders(rendered, refs);
         // Paint the article immediately — embedded naddr/note fetches used to hold
         // "Page is loading…" until every ref resolved (and fought the relay pool).
@@ -90,7 +108,9 @@
       await Promise.all(
         segs.map(async (seg, i) => {
           if (seg.type === 'text') {
-            const rendered = await renderWithFallback(k, seg.text, tags);
+            let rendered = await renderWithFallback(k, seg.text, tags);
+            // Only the opening segment can hold a redundant cover plate.
+            if (i === 0 && heroes.length) rendered = maybeDedupe(rendered);
             next[i] = { type: 'html', html: markHighlights(rendered, q) };
             return;
           }

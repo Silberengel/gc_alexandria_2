@@ -9,7 +9,8 @@ Feature: Routes
       | path                         | result                                              |
       | /                            | landing                                             |
       | /search                      | global Nostr-event search results                   |
-      | /p/{npub\|nprofile\|hex}     | profile                                             |
+      | /p/{npub\|nprofile\|hex\|nip05} | profile                                          |
+      | /p/{id}/{kind}               | profile filtered to that kind (30023 = blog)      |
       | /publication/d/{d}           | disambiguation of matching top-level 30040 naddrs   |
       | /publication/d/{d}/p/{npub}  | that 30040                                          |
       | /publication/{naddr\|nevent} | that 30040; bar becomes /publication/d/{d}/p/{npub} |
@@ -22,6 +23,10 @@ Feature: Routes
       | /spec/d/{d}/p/{npub}         | that spec page (kind 30817)                         |
       | /spec/{naddr\|nevent}        | that spec; bar becomes /spec/d/{d}/p/{npub}         |
       | /spec/naddr/{naddr}          | same as /spec/{naddr} (external linker form)        |
+      | /article/d/{d}               | disambiguation of matching 30023 long-form articles |
+      | /article/d/{d}/p/{npub}      | that long-form article (kind 30023, Markdown)       |
+      | /article/{naddr\|nevent}     | that article; bar becomes /article/d/{d}/p/{npub}   |
+      | /article/naddr/{naddr}       | same as /article/{naddr} (external linker form)     |
       | /settings                    | appearance and cache                                |
       | /about                       | About and getting started                           |
       | /contact                     | Contact when signed in; otherwise redirects to /    |
@@ -31,4 +36,4 @@ Feature: Routes
     When another site links to https://host/publication/naddr/{naddr} or /publication/{naddr} without a #/
     Then the app rewrites to /#/publication/{naddr} before the router mounts
     And the edition page opens instead of the landing page
-    And /wiki/naddr/{naddr}, /spec/naddr/{naddr}, and /p/{npub} path links rewrite the same way
+    And /wiki/naddr/{naddr}, /spec/naddr/{naddr}, /article/naddr/{naddr}, and /p/{npub} path links rewrite the same way

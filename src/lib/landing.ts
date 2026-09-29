@@ -151,7 +151,9 @@ export function subjectsFromPublications(publications: Event[]): string[] {
   const subjectCounts = new Map<string, number>();
   for (const p of publications) {
     for (const t of p.tags.filter((x) => x[0] === 't' && x[1])) {
-      subjectCounts.set(t[1]!, (subjectCounts.get(t[1]!) ?? 0) + 1);
+      const s = t[1]!.trim().replace(/^#+/u, '').trim();
+      if (!s) continue;
+      subjectCounts.set(s, (subjectCounts.get(s) ?? 0) + 1);
     }
   }
   return [...subjectCounts.entries()]

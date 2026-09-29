@@ -82,7 +82,8 @@ export function eventPreview(event: Event): EventPreview {
   for (const tag of event.tags) {
     const name = tag[0];
     if (name === 't' && tag[1]?.trim()) {
-      topics.push(tag[1].trim());
+      const topic = tag[1].trim().replace(/^#+/u, '').trim();
+      if (topic) topics.push(topic);
       continue;
     }
     if (name === 'title') {

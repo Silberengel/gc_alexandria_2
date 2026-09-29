@@ -296,7 +296,11 @@ async function fanOutSearch(
 
   const tagSlug = relayTagSlug(q);
   const dFilter = dTags.length
-    ? { kinds: [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC], '#d': dTags.slice(0, 12), limit: 100 }
+    ? {
+        kinds: [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM],
+        '#d': dTags.slice(0, 12),
+        limit: 100
+      }
     : null;
 
   // Ensure community / viewer provider is ready so Brainstorm gets the right observer.
@@ -319,8 +323,17 @@ async function fanOutSearch(
     cacheScanText(q),
     brainstormSearch(q),
     ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
-    relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [tagSlug], limit: 100 }]),
-    relayPool.query(relays, [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [tagSlug], limit: 100 }])
+    relayPool.query(relays, [
+      { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [tagSlug], limit: 100 }
+    ]),
+    relayPool.query(relays, [
+      { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [tagSlug], limit: 100 }
+    ]),
+    ...(dTags.length
+      ? [mercuryFilter({ kinds: [KIND.LONG_FORM], '#d': dTags.slice(0, 12), limit: 100 })]
+      : []),
+    mercuryFilter({ kinds: [KIND.LONG_FORM], '#T': [tagSlug], limit: 100 }),
+    mercuryFilter({ kinds: [KIND.LONG_FORM], '#N': [tagSlug], limit: 100 })
   ];
 
   const merge = (batch: Event[]) => {
@@ -351,7 +364,10 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
     const [mercury, wiki, relays, brainstorm] = await Promise.all([
       mercuryPublicationSearch({ author, limit: 100 }),
       mercuryWikiSearch({ author, limit: 100 }),
-      relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#N': [slug], limit: 100 }]),
+      relayPool.query(documentStack(), [
+        { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [slug], limit: 100 }
+      ]),
+      mercuryFilter({ kinds: [KIND.LONG_FORM], '#N': [slug], limit: 100 }),
       brainstormSearch(author)
     ]);
     return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
@@ -365,7 +381,10 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
     const [mercury, wiki, relays, brainstorm] = await Promise.all([
       mercuryPublicationSearch({ title, limit: 100 }),
       mercuryWikiSearch({ title, limit: 100 }),
-      relayPool.query(documentStack(), [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#T': [slug], limit: 100 }]),
+      relayPool.query(documentStack(), [
+        { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }
+      ]),
+      mercuryFilter({ kinds: [KIND.LONG_FORM], '#T': [slug], limit: 100 }),
       brainstormSearch(title)
     ]);
     return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
@@ -541,7 +560,7 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
     return;
   }
   const variants = dTagVariants(d);
-  const kinds = [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.DIRECTORY];
+  const kinds = [KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM, KIND.DIRECTORY];
   const filter: Filter = { kinds, '#d': variants.slice(0, 12), limit: 100 };
   await cachedOrLive(
     key,
@@ -575,7 +594,7 @@ export async function searchByDTag(d: string): Promise<Event[]> {
 export async function searchBySubject(t: string): Promise<Event[]> {
   const [pubs, tagged] = await Promise.all([
     mercuryPublicationSearch({ subject: t, limit: 100 }),
-    mercuryFilter({ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC], '#t': [t], limit: 100 })
+    mercuryFilter({ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#t': [t], limit: 100 })
   ]);
   return mergeById([...pubs, ...tagged]);
 }

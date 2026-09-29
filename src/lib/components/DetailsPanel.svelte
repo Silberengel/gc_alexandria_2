@@ -7,6 +7,7 @@
     type PublicationDownloadFormat
   } from '$lib/publication-export';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import HeartButton from './HeartButton.svelte';
 
   interface Props {
     event: Event;
@@ -53,27 +54,30 @@
 </script>
 
 <div class="details-panel-wrap">
-  <CopyPointerButton {event} class="details-more-menu">
-    {#snippet after()}
-      {#if canExport}
-        <li class="menu-sep" role="separator"></li>
-        <li class="menu-heading" role="presentation">Download</li>
-        {#each formats as opt (opt.format)}
-          <li role="none">
-            <button
-              class="menu-item"
-              type="button"
-              role="menuitem"
-              disabled={!!busy}
-              onclick={() => void onExport(opt.format)}
-            >
-              {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
-            </button>
-          </li>
-        {/each}
-      {/if}
-    {/snippet}
-  </CopyPointerButton>
+  <div class="details-toolbar">
+    <HeartButton {event} />
+    <CopyPointerButton {event} class="details-more-menu">
+      {#snippet after()}
+        {#if canExport}
+          <li class="menu-sep" role="separator"></li>
+          <li class="menu-heading" role="presentation">Download</li>
+          {#each formats as opt (opt.format)}
+            <li role="none">
+              <button
+                class="menu-item"
+                type="button"
+                role="menuitem"
+                disabled={!!busy}
+                onclick={() => void onExport(opt.format)}
+              >
+                {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
+              </button>
+            </li>
+          {/each}
+        {/if}
+      {/snippet}
+    </CopyPointerButton>
+  </div>
   <details class="accordion details-panel">
     <summary>Details</summary>
     <dl class="details-list">

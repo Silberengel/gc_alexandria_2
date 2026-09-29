@@ -55,7 +55,8 @@ function pointerDefaultRelays(event: Event): string[] {
     event.kind === KIND.PUBLICATION ||
     event.kind === KIND.SECTION ||
     event.kind === KIND.SPEC ||
-    event.kind === KIND.DIRECTORY
+    event.kind === KIND.DIRECTORY ||
+    event.kind === KIND.LONG_FORM
   ) {
     return [DOCUMENT_SEARCH_RELAYS[0], MERCURY_WSS];
   }

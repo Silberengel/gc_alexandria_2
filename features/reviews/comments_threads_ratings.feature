@@ -7,6 +7,9 @@ Feature: Comments, threads, and ratings
   Scenario: Edition threads nest replies
     Given an edition has a kind 1111 comment targeted at that 30040, with a reply
     And kind 1 notes that e-tag the edition or a comment in the thread are shown too
+    And kind 1 notes that q-tag the edition appear under Quotes, not nested as replies
+    And kind 9802 highlights of the edition appear under Highlights
+    And those response lookups use social and document relays (plus inbox/outbox when signed in)
     When I open that edition
     Then I see the root and its reply nested on the edition page before Read
     And I see each commenter's userbadge
@@ -14,7 +17,15 @@ Feature: Comments, threads, and ratings
     And kind 1 replies nest under their parent e-tag (or as roots when that e-tag is the edition)
     And each kind 1 or kind 1111 response has a heart button that shows the count of kind 7 "+" likes (rendered as the jumble heart emoji)
 
-  Scenario: Section comments sit behind a more menu
+  Scenario: Edition comments include notes, quotes, and highlights
+    Given an edition has kind 1111 comments and kind 1 notes that e-tag or a-tag the edition
+    And kind 1 notes that q-tag the edition
+    And kind 9802 highlights that a-tag the edition
+    When I open that edition's Comments section
+    Then I see the kind 1111 / kind 1 thread
+    And Quotes lists those q-tag notes under their own subheader (not nested as replies)
+    And Highlights lists those 9802 events under their own subheader
+    And those lookups use the social stack plus document relays and, when signed in, my inbox and outbox
     When I am reading a section
     Then the bottom of that section has a more menu with highlight, copy pointer, njump.me, jumble.imwald.eu, and comment actions
     And that copy pointer embeds the relay the event was found on when known

@@ -43,7 +43,13 @@ export type ListingTableRow = {
 };
 
 export function eventHref(event: Event): string | null {
-  if (event.kind === KIND.WIKI || event.kind === KIND.SPEC) return `#${libraryDocumentPath(event)}`;
+  if (
+    event.kind === KIND.WIKI ||
+    event.kind === KIND.SPEC ||
+    event.kind === KIND.LONG_FORM
+  ) {
+    return `#${libraryDocumentPath(event)}`;
+  }
   if (event.kind === KIND.PUBLICATION || event.kind === KIND.SECTION) {
     return `#${publicationPath(event)}`;
   }

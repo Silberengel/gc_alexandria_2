@@ -25,6 +25,7 @@
     '/booklists': Booklists,
     '/start': StartRedirect,
     '/contact': Contact,
+    '/p/:id/:kind': Profile,
     '/p/:id': Profile,
     '/publication/d/:d/p/:npub': Publication,
     '/publication/d/:d': Publication,
@@ -44,6 +45,12 @@
     '/spec/nevent/:naddr': Wiki,
     '/spec/note/:naddr': Wiki,
     '/spec/:naddr': Wiki,
+    '/article/d/:d/p/:npub': Wiki,
+    '/article/d/:d': Wiki,
+    '/article/naddr/:naddr': Wiki,
+    '/article/nevent/:naddr': Wiki,
+    '/article/note/:naddr': Wiki,
+    '/article/:naddr': Wiki,
     /** Biblestr-compatible Douay: `/luke/9?verses=46-50` (after library routes). */
     '/:book/:chapter': DouayPassage,
     '*': NotFound

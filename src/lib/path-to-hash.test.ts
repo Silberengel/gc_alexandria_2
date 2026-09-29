@@ -12,6 +12,7 @@ describe('normalizeExternalSpaPath', () => {
     expect(normalizeExternalSpaPath(`/publication/naddr/${naddr}`)).toBe(`/publication/${naddr}`);
     expect(normalizeExternalSpaPath(`/wiki/naddr/${naddr}/`)).toBe(`/wiki/${naddr}`);
     expect(normalizeExternalSpaPath(`/spec/naddr/${naddr}/`)).toBe(`/spec/${naddr}`);
+    expect(normalizeExternalSpaPath(`/article/naddr/${naddr}/`)).toBe(`/article/${naddr}`);
   });
 
   it('leaves canonical pointer and d-tag paths alone', () => {
@@ -27,6 +28,7 @@ describe('isSpaPathname', () => {
     expect(isSpaPathname('/publication/naddr/naddr1abc')).toBe(true);
     expect(isSpaPathname('/publication/naddr1abc')).toBe(true);
     expect(isSpaPathname('/spec/naddr1abc')).toBe(true);
+    expect(isSpaPathname('/article/naddr1abc')).toBe(true);
     expect(isSpaPathname('/search')).toBe(true);
     expect(isSpaPathname('/')).toBe(false);
     expect(isSpaPathname('/assets/index.js')).toBe(false);

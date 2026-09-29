@@ -37,6 +37,14 @@ const SPEC_PALETTE = [
   { cloth: '#141018', panel: '#241c2c', ink: '#f0e8f4', gold: '#a898c8', accent: '#6a5890' }
 ] as const;
 
+/** Magazine plate — cream stock + bold masthead, distinct from wiki parchment and spec slate. */
+const ARTICLE_PALETTE = [
+  { cloth: '#1a1210', panel: '#f4ebe0', ink: '#1c1410', masthead: '#9a3a2a', rule: '#c4a574' },
+  { cloth: '#121618', panel: '#f0ece4', ink: '#14181c', masthead: '#2a4a5c', rule: '#8a9aa4' },
+  { cloth: '#181410', panel: '#f6eedf', ink: '#1a120e', masthead: '#6a3a28', rule: '#b89868' },
+  { cloth: '#141210', panel: '#efe8dc', ink: '#16120e', masthead: '#3a4828', rule: '#9a8a5c' }
+] as const;
+
 /** Turn a slug-like T / N / d value into display text. Already-spaced names are kept. */
 export function humanizeTag(value: string): string {
   let s = value.trim();
@@ -141,6 +149,14 @@ type SpecPalette = {
   accent: string;
 };
 
+type ArticlePalette = {
+  cloth: string;
+  panel: string;
+  ink: string;
+  masthead: string;
+  rule: string;
+};
+
 function hashKey(key: string): number {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 33 + key.charCodeAt(i)) >>> 0;
@@ -160,6 +176,11 @@ function wikiPaletteFor(event: Event): WikiPalette {
 function specPaletteFor(event: Event): SpecPalette {
   const key = firstTag(event, 'd') ?? event.id;
   return SPEC_PALETTE[hashKey(key) % SPEC_PALETTE.length]!;
+}
+
+function articlePaletteFor(event: Event): ArticlePalette {
+  const key = firstTag(event, 'd') ?? event.id;
+  return ARTICLE_PALETTE[hashKey(key) % ARTICLE_PALETTE.length]!;
 }
 
 /** Warm parchment article card — large serif title. */
@@ -245,6 +266,57 @@ ${authorLines.length ? `<line x1="52" y1="${authorY - 14}" x2="148" y2="${author
 ${authorTs}
 <rect x="8" y="268" width="184" height="24" fill="${palette.cloth}" fill-opacity="0.55"/>
 <text x="100" y="284" text-anchor="middle" font-size="10" font-family="ui-monospace,monospace" letter-spacing="0.08em" fill="${palette.gold}" fill-opacity="0.85">30817</text>
+</svg>`;
+}
+
+/** Magazine article plate — bold masthead, large serif headline, fake body columns. */
+function magazineArticleSvg(event: Event): string {
+  const palette = articlePaletteFor(event);
+  const titleLines = wrapWords(coverTitle(event), 14, 5).map(escapeXml);
+  const authorLines = wrapWords(coverAuthor(event), 18, 2).map(escapeXml);
+  const titleSize = titleLines.length > 3 ? 16 : 20;
+  const titleLineH = titleLines.length > 3 ? 20 : 24;
+  const titleH = titleLines.length * titleLineH;
+  const titleY = Math.max(78, 68 + (110 - titleH) / 2);
+  const authorY = 188 - Math.max(0, authorLines.length - 1) * 14;
+
+  const titleTs = titleLines
+    .map(
+      (line, i) =>
+        `<text x="22" y="${titleY + i * titleLineH}" text-anchor="start" font-size="${titleSize}" font-weight="700" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
+    )
+    .join('');
+  const authorTs = authorLines
+    .map(
+      (line, i) =>
+        `<text x="22" y="${authorY + i * 14}" text-anchor="start" font-size="11" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.78">${line}</text>`
+    )
+    .join('');
+
+  // Two-column teaser lines under the fold — magazine layout cue.
+  const bodyLines = [0, 1, 2, 3, 4, 5]
+    .map((i) => {
+      const y = 210 + i * 10;
+      const leftW = 70 + ((i * 17) % 18);
+      const rightW = 62 + ((i * 13) % 22);
+      return `<rect x="22" y="${y}" width="${leftW}" height="3.5" rx="1" fill="${palette.ink}" fill-opacity="0.12"/>
+<rect x="108" y="${y}" width="${rightW}" height="3.5" rx="1" fill="${palette.ink}" fill-opacity="0.1"/>`;
+    })
+    .join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
+<rect width="200" height="300" fill="${palette.cloth}"/>
+<rect x="8" y="8" width="184" height="284" fill="${palette.panel}"/>
+<rect x="8" y="8" width="184" height="28" fill="${palette.masthead}"/>
+<text x="22" y="27" text-anchor="start" font-size="10" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.32em" fill="#f8f0e8">ARTICLE</text>
+<text x="178" y="27" text-anchor="end" font-size="9" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.06em" fill="#f8f0e8" fill-opacity="0.75">30023</text>
+<line x1="22" y1="48" x2="178" y2="48" stroke="${palette.rule}" stroke-width="1.2" stroke-opacity="0.85"/>
+${titleTs}
+${authorLines.length ? `<line x1="22" y1="${authorY - 12}" x2="90" y2="${authorY - 12}" stroke="${palette.masthead}" stroke-width="2" stroke-opacity="0.7"/>` : ''}
+${authorTs}
+<line x1="22" y1="198" x2="178" y2="198" stroke="${palette.rule}" stroke-width="0.8" stroke-opacity="0.55"/>
+${bodyLines}
+<rect x="8" y="278" width="184" height="14" fill="${palette.masthead}" fill-opacity="0.12"/>
 </svg>`;
 }
 
@@ -387,6 +459,7 @@ function titleBlock(
 export function coverPlaceholderSvg(event: Event): string {
   if (event.kind === KIND.SPEC) return specDocumentSvg(event);
   if (event.kind === KIND.WIKI) return wikiDocumentSvg(event);
+  if (event.kind === KIND.LONG_FORM) return magazineArticleSvg(event);
 
   const palette = bookPaletteFor(event);
   const id = (firstTag(event, 'd') ?? event.id).slice(0, 12).replace(/[^a-zA-Z0-9_-]/g, 'x');

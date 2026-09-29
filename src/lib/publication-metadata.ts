@@ -5,6 +5,7 @@ import { coverImageUrl } from './cover';
 import { humanizeTag } from './cover-fallback';
 import { indexSlug } from './dtag';
 import { looksLikeNativeAsciidoc } from './markup';
+import { subjectTagsFromEvent } from './metadata';
 import { firstTag, tagValue } from './nostr/verify';
 
 export type PublicationAuthor = {
@@ -313,7 +314,10 @@ export function editionMetadata(event: Event): EditionMetadata {
   // Wiki/spec pages render the full body below the header — never dump raw markup as "summary".
   const rawExcerpt =
     summaryTag ||
-    (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC && event.content.trim()
+    (event.kind !== KIND.WIKI &&
+    event.kind !== KIND.SPEC &&
+    event.kind !== KIND.LONG_FORM &&
+    event.content.trim()
       ? event.content.trim().slice(0, 800)
       : undefined);
   const markup =
@@ -344,7 +348,7 @@ export function editionMetadata(event: Event): EditionMetadata {
   return {
     titles: titles.length ? titles : tTitles.map(humanizeTag).filter(Boolean),
     authors: authors.length ? authors : authorsFromN,
-    subjects: tagValue(event, 't'),
+    subjects: subjectTagsFromEvent(event),
     summary,
     image: coverImageUrl(event),
     source,

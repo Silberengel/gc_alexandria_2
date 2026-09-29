@@ -95,7 +95,9 @@
 
   const meta = $derived(cardMeta(event));
   const title = $derived(displayTitle(event));
-  const isArticle = $derived(event.kind === KIND.WIKI || event.kind === KIND.SPEC);
+  const isArticle = $derived(
+    event.kind === KIND.WIKI || event.kind === KIND.SPEC || event.kind === KIND.LONG_FORM
+  );
   const isSection = $derived(event.kind === KIND.SECTION);
   /** Fallback: section d-path — Publication route promotes it to the parent reader. */
   const href = $derived(
@@ -111,9 +113,11 @@
       ? 'Spec'
       : event.kind === KIND.WIKI
         ? 'Wiki'
-        : event.kind === KIND.SECTION
-          ? 'Section'
-          : 'Publication'
+        : event.kind === KIND.LONG_FORM
+          ? 'Article'
+          : event.kind === KIND.SECTION
+            ? 'Section'
+            : 'Publication'
   );
   const authorByline = $derived(
     meta.authors.length
@@ -190,7 +194,7 @@
     <CopyPointerButton {event} class="listing-row-copy" shareUrl={shareUrl} />
   </div>
 {:else}
-  <div class="card pub-card" class:pub-card-wiki={isArticle} class:pub-card-section={isSection}>
+  <div class="card pub-card" class:pub-card-wiki={isArticle} class:pub-card-article={event.kind === KIND.LONG_FORM} class:pub-card-section={isSection}>
     <CopyPointerButton {event} class="generic-card-copy" shareUrl={shareUrl} />
     <div class="pub-card-top">
       <div class="pub-card-cover">

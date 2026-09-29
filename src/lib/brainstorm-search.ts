@@ -21,8 +21,8 @@ export function isBrainstormSearchRelay(url: string): boolean {
   return a === b;
 }
 
-/** NIP-54 Wikipedia / wiki articles indexed on Brainstorm. */
-export const BRAINSTORM_WIKI_SEARCH_KINDS: readonly number[] = [KIND.WIKI];
+/** NIP-54 Wikipedia / wiki articles and NIP-23 long-form indexed on Brainstorm. */
+export const BRAINSTORM_WIKI_SEARCH_KINDS: readonly number[] = [KIND.WIKI, KIND.LONG_FORM];
 
 /** Publication indexes (30040) and section bodies (30041). */
 export const BRAINSTORM_PUBLICATION_SEARCH_KINDS: readonly number[] = [

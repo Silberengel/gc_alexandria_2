@@ -29,7 +29,7 @@ Feature: Wiki
       | AsciiDoc | [[#Publications|label]]      |
     When I follow that link from a wiki article or a publication section
     Then I open /search?d=constantinople
-    And the lookup is an explicit #d search for wiki, spec, publication, and directory events
+    And the lookup is an explicit #d search for wiki, spec, publication, long-form, and directory events
     And the link is a real hyperlink, not raw [[…]] or Markdown left in AsciiDoc
     And [[#Section|label]] becomes an in-page link that scrolls to that article's section heading without leaving the page (hash routes cannot use a bare #fragment)
 
@@ -41,12 +41,23 @@ Feature: Wiki
     And the header does not repeat the raw Markdown source as a summary
     And the published-by avatar stays badge-sized
 
+  Scenario: Long-form articles are readable
+    Given a kind 30023 with d-tag "living-like-god-in-france"
+    When I open /article/d/living-like-god-in-france/p/{npub}
+    Then I can read the article body
+    And the body is rendered as Markdown (headings, lists, links)
+    And the reading header shows a horizontal hero (image tag or magazine cover) with title and author overlaid
+    And when the body repeats that same hero image near the top, the body copy is not shown again
+    And search and profile cards for it use the same wiki/spec card layout labeled Article
+    And the generated cover is a magazine plate (not wiki parchment or spec blueprint)
+
   Scenario: Wiki page shows header, body, and interactions
     When I open a wiki article
     Then I see the header card and the body
     And below that I see kind 1111 threads for that article
-    And kind 1 replies that e-tag the article or those comments
-    And kind 9802 highlights for this article are marked inline in the body with a highlighter avatar
+    And kind 1 replies that e-tag or a-tag the article or those comments
+    And kind 1 notes that q-tag the article appear under Quotes
+    And kind 9802 highlights for this article are listed under Highlights and marked inline in the body with a highlighter avatar
     And I do not see a separate Highlights list under the article
     And I do not see kind 34259 ratings
     When I type into the page filter

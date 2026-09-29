@@ -130,6 +130,61 @@ async function verifyOnce(nip05: string, pubkey: string): Promise<VerifyNip05Res
   return base;
 }
 
+function pubkeyFromWellKnown(
+  json: Record<string, unknown> | null,
+  nip05Name: string
+): string | null {
+  if (!json) return null;
+  const names = json.names;
+  if (!names || typeof names !== 'object' || Array.isArray(names)) return null;
+  const map = names as Record<string, unknown>;
+
+  const direct = pubkeyFromNamesValue(getNamesEntry(map, nip05Name));
+  if (direct) return direct;
+
+  for (const [key, value] of Object.entries(map)) {
+    const hexKey = pubkeyFromNamesValue(key);
+    if (hexKey) {
+      const label = typeof value === 'string' ? value.trim() : '';
+      if (label && label.toLowerCase() === nip05Name.toLowerCase()) return hexKey;
+    }
+  }
+  return null;
+}
+
+const lookupCache = new Map<string, string>();
+const lookupInflight = new Map<string, Promise<string | null>>();
+
+/**
+ * Resolve `local@domain` to a hex pubkey via `/.well-known/nostr.json`.
+ * Returns null when the address is malformed or not listed.
+ */
+export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
+  const split = splitNip05Identifier(nip05);
+  if (!split) return null;
+  const key = nip05.trim().toLowerCase();
+  const cached = lookupCache.get(key);
+  if (cached) return cached;
+
+  let pending = lookupInflight.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const full = await fetchWellKnown(split.domain);
+      let hex = pubkeyFromWellKnown(full, split.name);
+      if (!hex) {
+        const scoped = await fetchWellKnown(split.domain, split.name);
+        hex = pubkeyFromWellKnown(scoped, split.name);
+      }
+      if (hex) lookupCache.set(key, hex);
+      return hex;
+    })().finally(() => {
+      lookupInflight.delete(key);
+    });
+    lookupInflight.set(key, pending);
+  }
+  return pending;
+}
+
 /** Verify NIP-05; caches successful results. */
 export async function verifyNip05(nip05: string, pubkey: string): Promise<VerifyNip05Result> {
   const key = `${nip05.trim().toLowerCase()}|${pubkey.trim().toLowerCase()}`;

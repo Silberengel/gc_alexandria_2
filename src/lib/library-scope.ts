@@ -2,7 +2,13 @@ import { nip19, type Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { isNewerReplaceable } from './nostr/replaceable';
 
-const LIBRARY_KINDS = new Set<number>([KIND.PUBLICATION, KIND.SECTION, KIND.WIKI, KIND.SPEC]);
+const LIBRARY_KINDS = new Set<number>([
+  KIND.PUBLICATION,
+  KIND.SECTION,
+  KIND.WIKI,
+  KIND.SPEC,
+  KIND.LONG_FORM
+]);
 
 export const LIBRARY_KIND_TAGS = [...LIBRARY_KINDS].map(String);
 
@@ -117,6 +123,7 @@ export function addressPath(coord: string): string | null {
   const d = encodeURIComponent(parsed.d);
   if (parsed.kind === KIND.SPEC) return `/spec/d/${d}/p/${npub}`;
   if (parsed.kind === KIND.WIKI) return `/wiki/d/${d}/p/${npub}`;
+  if (parsed.kind === KIND.LONG_FORM) return `/article/d/${d}/p/${npub}`;
   return `/publication/d/${d}/p/${npub}`;
 }
 

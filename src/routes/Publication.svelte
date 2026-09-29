@@ -8,6 +8,7 @@
   import EventCard from '$lib/components/EventCard.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import CommentThread from '$lib/components/CommentThread.svelte';
+  import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
@@ -55,7 +56,7 @@
     scopedProgressForIndex,
     warmIndexTree
   } from '$lib/index-scope';
-  import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
+  import { nestComments, fetchThreadEvents, fetchWorkResponses, threadNodeKey, type WorkResponses } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
@@ -143,6 +144,8 @@
   let editions = $state<Event[]>([]);
   let ratings = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
+  let workQuotes = $state<Event[]>([]);
+  let sectionResponses = $state<Record<string, WorkResponses>>({});
   let highlights = $state<Event[]>([]);
   let editionLabels = $state<Event[]>([]);
   let editionBookmarks = $state<Event[]>([]);
@@ -311,6 +314,19 @@
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
   const mutedHighlights = $derived(filterMuted(highlights, $muteState));
   const visibleEditions = $derived(filterPageEvents(editions, pageFilter));
+  const editionResponses = $derived.by((): WorkResponses => {
+    const q = pageFilter.trim().toLowerCase();
+    const thread = visibleComments;
+    const quotes = filterMuted(workQuotes, $muteState);
+    const highs = mutedHighlights;
+    if (!q) return { thread, quotes, highlights: highs };
+    const match = (e: Event) => e.content.toLowerCase().includes(q);
+    return {
+      thread: thread.filter(match),
+      quotes: quotes.filter(match),
+      highlights: highs.filter(match)
+    };
+  });
   const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
@@ -621,7 +637,7 @@
     ] = await Promise.all([
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
-      fetchThreadEvents(target, 80),
+      fetchWorkResponses(target, 80),
       relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#A': bookKeys, limit: 80 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], '#a': bookKeys, limit: 80 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], '#a': bookKeys, limit: 40 }], 5000, 4),
@@ -645,8 +661,10 @@
     const ratingById = new Map<string, Event>();
     for (const e of [...rA, ...rA2]) ratingById.set(e.id, e);
     ratings = [...ratingById.values()];
-    comments = threadEvents;
+    comments = threadEvents.thread;
+    workQuotes = threadEvents.quotes;
     const hById = new Map<string, Event>();
+    for (const e of threadEvents.highlights) hById.set(e.id, e);
     for (const e of highlightByBook) hById.set(e.id, e);
     for (const batch of highlightBatches) {
       for (const e of batch) hById.set(e.id, e);
@@ -2757,8 +2775,10 @@
 
   async function loadSectionComments(section: Event): Promise<void> {
     const a = eventAddress(section);
-    if (sectionComments[a]) return;
-    sectionComments = { ...sectionComments, [a]: await fetchThreadEvents(section, 40) };
+    if (sectionResponses[a] || sectionComments[a]) return;
+    const hit = await fetchWorkResponses(section, 40);
+    sectionResponses = { ...sectionResponses, [a]: hit };
+    sectionComments = { ...sectionComments, [a]: hit.thread };
   }
 
   function rememberPos(pos: number, section: Event): void {
@@ -2974,6 +2994,11 @@
         ...sectionComments,
         [a]: [...(sectionComments[a] ?? []), signed]
       };
+      const prev = sectionResponses[a] ?? { thread: [], quotes: [], highlights: [] };
+      sectionResponses = {
+        ...sectionResponses,
+        [a]: { ...prev, thread: [...prev.thread, signed] }
+      };
       sectionCommentText = { ...sectionCommentText, [a]: '' };
       sectionCommentComposeOpen = { ...sectionCommentComposeOpen, [a]: false };
     }
@@ -3165,32 +3190,11 @@
       />
 
       <section id="edition-comments" class="edition-open-section edition-comments-section reading-width">
-        <h2 class="section-title">Comments</h2>
-        {#if thread.length}
-          <ul class="thread-list">
-            {#each thread as node (threadNodeKey(node))}
-              <CommentThread {node} target={event} bind:replyOpenId focusId={urlFocusComment} />
-            {/each}
-          </ul>
-        {:else}
-          <p class="muted">No comments yet.</p>
-        {/if}
-        {#if $session.pubkey && !replyOpenId && commentComposeOpen}
-          <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
-            <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
-            <div class="compose-actions">
-              <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
-              <button
-                class="btn"
-                type="button"
-                onclick={() => {
-                  commentComposeOpen = false;
-                  commentText = '';
-                }}>Cancel</button
-              >
-            </div>
-          </form>
-        {/if}
+        <WorkCommentsPanel
+          target={event}
+          responses={editionResponses}
+          focusId={urlFocusComment}
+        />
       </section>
     {:else}
       <div class="reader-layout">
@@ -3366,15 +3370,14 @@
                     {/if}
                     {#if sectionCommentsOpen[sectionKey]}
                       <div class="section-comments bible-verse-comments">
-                        {#if sectionComments[sectionKey]?.length}
-                          <ul class="thread-list">
-                            {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [verse.id]) as node (threadNodeKey(node))}
-                              <CommentThread {node} target={verse} bind:replyOpenId />
-                            {/each}
-                          </ul>
-                        {:else}
-                          <p class="muted">No comments yet.</p>
-                        {/if}
+                        <WorkCommentsPanel
+                          target={verse}
+                          responses={sectionResponses[sectionKey] ?? {
+                            thread: sectionComments[sectionKey] ?? [],
+                            quotes: [],
+                            highlights: []
+                          }}
+                        />
                       </div>
                     {/if}
                   {:else}
@@ -3441,15 +3444,14 @@
                     </span>
                     {#if sectionCommentsOpen[sectionKey]}
                       <div class="section-comments bible-verse-comments">
-                        {#if sectionComments[sectionKey]?.length}
-                          <ul class="thread-list">
-                            {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [verse.id]) as node (threadNodeKey(node))}
-                              <CommentThread {node} target={verse} bind:replyOpenId />
-                            {/each}
-                          </ul>
-                        {:else}
-                          <p class="muted">No comments yet.</p>
-                        {/if}
+                        <WorkCommentsPanel
+                          target={verse}
+                          responses={sectionResponses[sectionKey] ?? {
+                            thread: sectionComments[sectionKey] ?? [],
+                            quotes: [],
+                            highlights: []
+                          }}
+                        />
                       </div>
                     {/if}
                   {/if}
@@ -3639,6 +3641,7 @@
                         <EventBody
                           event={{ ...section, content: parts.text }}
                           quotes={quotesFor(section)}
+                          dedupeHeroImage={Boolean(showHero)}
                         />
                       {/if}
                       {#if parts.note}
@@ -3647,7 +3650,11 @@
                     </div>
                   {:else}
                     <div>
-                      <EventBody event={section} quotes={quotesFor(section)} />
+                      <EventBody
+                        event={section}
+                        quotes={quotesFor(section)}
+                        dedupeHeroImage={Boolean(showHero)}
+                      />
                     </div>
                   {/if}
                 {:else}
@@ -3706,70 +3713,14 @@
                 {/if}
                 {#if sectionCommentsOpen[sectionKey] && !(event && section.id === event.id)}
                   <div class="section-comments">
-                    {#if sectionComments[sectionKey]?.length}
-                      <ul class="thread-list">
-                        {#each nestComments(filterMuted(sectionComments[sectionKey] ?? [], $muteState), $muteState, [section.id]) as node (threadNodeKey(node))}
-                          <CommentThread {node} target={section} bind:replyOpenId />
-                        {/each}
-                      </ul>
-                    {:else}
-                      <p class="muted">No comments yet.</p>
-                    {/if}
-                    {#if $session.pubkey && !replyOpenId && sectionCommentComposeOpen[sectionKey]}
-                      <form
-                        class="compose"
-                        onsubmit={(e) => {
-                          e.preventDefault();
-                          void postSectionComment(section);
-                        }}
-                      >
-                        <textarea
-                          value={sectionCommentText[sectionKey] ?? ''}
-                          oninput={(e) => {
-                            sectionCommentText = {
-                              ...sectionCommentText,
-                              [sectionKey]: (e.currentTarget as HTMLTextAreaElement).value
-                            };
-                          }}
-                          rows="3"
-                          placeholder="Write a comment on this section"
-                        ></textarea>
-                        <div class="compose-actions">
-                          <button
-                            class="btn btn-primary"
-                            type="submit"
-                            disabled={!(sectionCommentText[sectionKey] ?? '').trim()}
-                            >Post</button
-                          >
-                          <button
-                            class="btn"
-                            type="button"
-                            onclick={() => {
-                              sectionCommentComposeOpen = {
-                                ...sectionCommentComposeOpen,
-                                [sectionKey]: false
-                              };
-                              sectionCommentText = { ...sectionCommentText, [sectionKey]: '' };
-                            }}>Cancel</button
-                          >
-                        </div>
-                      </form>
-                    {:else if $session.pubkey && !replyOpenId}
-                      <button
-                        class="btn"
-                        type="button"
-                        onclick={() => {
-                          sectionCommentComposeOpen = {
-                            ...sectionCommentComposeOpen,
-                            [sectionKey]: true
-                          };
-                        }}>Leave a comment</button
-                      >
-                    {:else if !$session.pubkey}
-                      <button class="btn" type="button" onclick={() => openLoginDialog()}
-                        >Sign in to comment</button
-                      >
-                    {/if}
+                    <WorkCommentsPanel
+                      target={section}
+                      responses={sectionResponses[sectionKey] ?? {
+                        thread: sectionComments[sectionKey] ?? [],
+                        quotes: [],
+                        highlights: []
+                      }}
+                    />
                   </div>
                 {/if}
               </article>

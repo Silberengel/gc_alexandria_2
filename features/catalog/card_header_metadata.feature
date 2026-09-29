@@ -5,7 +5,7 @@ Feature: Publication and wiki card metadata
   So that I can search those terms and still credit Gutenberg, Open Library, and Wikipedia
 
   Background:
-    Given these fields apply to kind 30040, 30818, and 30817 cards and headers
+    Given these fields apply to kind 30040, 30818, 30817, and 30023 cards and headers
     And i and l tags appear only on the full-page header, never on search, shelf, landing, or bookshelf cards
 
   Scenario: Field sources and clicks
@@ -22,7 +22,8 @@ Feature: Publication and wiki card metadata
     And source is the first s-tag, else the first source-tag, omitted if neither; it opens that URL and not /search
     And clicking author or subject field links still opens /search; other card chrome opens the edition or wiki page
     And publication cards are labeled Publication with book-style covers
-    And wiki and spec cards are labeled Wiki or Spec with parchment-style covers so they are easy to tell apart
+    And wiki and spec cards are labeled Wiki or Spec with parchment-style or blueprint covers so they are easy to tell apart
+    And kind 30023 long-form cards are labeled Article with magazine-style covers and Markdown bodies
 
   Scenario: Identifier and language stay on the full page
     Given an event has i or l tags
@@ -38,14 +39,15 @@ Feature: Publication and wiki card metadata
     Then I see the cover beside the bibliographic block on a wide viewport
     And on a narrow screen the cover stacks above the bibliographic block
     And I see titles, authors with roles when present, the Nostr publisher badge, and summary
-    And type, imprint, version, section count, and release date appear as labeled facts (not search chips)
+    And type, imprint, version, section count, release date, and Sources appear as labeled facts in a table across the row
+    And Sources covers the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
     And language appears as a labeled fact with a search link when present
+    And subject t-tags appear under Topics as plain search links (no leading #)
+    And Language and Topics share one row when either is present
     And the Details accordion stacks label-above-value on a narrow screen so long ids and relay URLs wrap without horizontal scroll
-    And Details has a more menu to copy the pointer and open the event on njump.me or jumble.imwald.eu
+    And Details has a heart reaction count button and a more menu to copy the pointer and open the event on njump.me or jumble.imwald.eu
     And that copied naddr or nevent always includes the relay the event was found on (then stack defaults)
-    And I see a Sources section for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
     And a non-URL source string is a plain source label
-    And subject t-tags appear under Topics as #links
     And shelf and Read actions are grouped separately from those labels
     And L NIP-32 namespace tags are not shown as the language
     When I opened that page from a shelf or search card that already showed the edition

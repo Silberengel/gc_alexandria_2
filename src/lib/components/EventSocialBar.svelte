@@ -3,11 +3,18 @@
   import type { Event } from 'nostr-tools';
   import HeartButton from './HeartButton.svelte';
   import CommentThread from './CommentThread.svelte';
+  import WorkResponseItem from './WorkResponseItem.svelte';
   import { session } from '$lib/stores/session';
   import { signAndPublish } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
-  import { fetchThreadEvents, nestComments, threadNodeKey, type ThreadNode } from '$lib/comments';
-  import { muteState } from '$lib/mute';
+  import {
+    fetchWorkResponses,
+    nestComments,
+    threadNodeKey,
+    type ThreadNode,
+    type WorkResponses
+  } from '$lib/comments';
+  import { muteState, filterMuted } from '$lib/mute';
   import { openLoginDialog } from '$lib/stores/login-ui';
 
   interface Props {
@@ -24,16 +31,27 @@
   let replyText = $state('');
   let posting = $state(false);
   let thread = $state<ThreadNode[]>([]);
+  let quotes = $state<Event[]>([]);
+  let highlights = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
   let threadLoaded = $state(false);
 
   const signedIn = $derived(!!$session.pubkey);
   const canReply = $derived(signedIn);
 
+  $effect(() => {
+    if (!allowReply) return;
+    threadLoaded = false;
+    void event.id;
+    void ensureThread();
+  });
+
   async function ensureThread(): Promise<void> {
     if (threadLoaded) return;
-    const events = await fetchThreadEvents(event, 30);
-    thread = nestComments(events, $muteState, [event.id]);
+    const hit: WorkResponses = await fetchWorkResponses(event, 40);
+    thread = nestComments(hit.thread, $muteState, [event.id]);
+    quotes = filterMuted(hit.quotes, $muteState);
+    highlights = filterMuted(hit.highlights, $muteState);
     threadLoaded = true;
   }
 
@@ -107,6 +125,22 @@
     <ul class="thread-list event-social-thread">
       {#each thread as node (threadNodeKey(node))}
         <CommentThread {node} target={event} bind:replyOpenId />
+      {/each}
+    </ul>
+  {/if}
+  {#if allowReply && quotes.length}
+    <h3 class="work-comments-subhead">Quotes</h3>
+    <ul class="thread-list work-response-list">
+      {#each quotes as q (q.id)}
+        <WorkResponseItem event={q} />
+      {/each}
+    </ul>
+  {/if}
+  {#if allowReply && highlights.length}
+    <h3 class="work-comments-subhead">Highlights</h3>
+    <ul class="thread-list work-response-list">
+      {#each highlights as h (h.id)}
+        <WorkResponseItem event={h} />
       {/each}
     </ul>
   {/if}

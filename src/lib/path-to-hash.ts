@@ -10,7 +10,7 @@ import { isDouayPassagePath } from './douay-passage';
 const POINTER = '(?:naddr|nevent|note)1[02-9ac-hj-np-z]+';
 
 const SPA_PREFIX =
-  /^\/(?:search|settings|about|start|contact|p\/|publication\/|wiki\/|spec\/)/i;
+  /^\/(?:search|settings|about|start|contact|booklists|p\/|publication\/|wiki\/|spec\/|article\/)/i;
 
 /** Collapse typed pointer segments used by some external linkers. */
 export function normalizeExternalSpaPath(pathname: string): string {
@@ -19,7 +19,7 @@ export function normalizeExternalSpaPath(pathname: string): string {
   path = path.replace(/\/{2,}/g, '/');
   // /publication/naddr/naddr1… → /publication/naddr1…
   path = path.replace(
-    new RegExp(`^/(publication|wiki|spec)/(?:naddr|nevent|note)/(${POINTER})/?$`, 'i'),
+    new RegExp(`^/(publication|wiki|spec|article)/(?:naddr|nevent|note)/(${POINTER})/?$`, 'i'),
     '/$1/$2'
   );
   if (path.length > 1) path = path.replace(/\/+$/, '');
@@ -31,7 +31,10 @@ export function isSpaPathname(pathname: string): boolean {
   if (path === '/') return false;
   // Real static assets (js/css/images) — leave alone
   if (/\.[a-z0-9]{1,8}$/i.test(path) && !/\.html?$/i.test(path)) return false;
-  if (SPA_PREFIX.test(path) || new RegExp(`^/(publication|wiki|spec)/${POINTER}$`, 'i').test(path)) {
+  if (
+    SPA_PREFIX.test(path) ||
+    new RegExp(`^/(publication|wiki|spec|article)/${POINTER}$`, 'i').test(path)
+  ) {
     return true;
   }
   return isDouayPassagePath(path);

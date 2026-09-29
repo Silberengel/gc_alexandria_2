@@ -96,7 +96,7 @@ Feature: Search
   Scenario: A wikilink d-tag search is explicit
     When I open /search?d={slug} from a wikilink
     Then the lookup is #d equal to the normalized slug
-    And kinds include 30040, 30041, 30818, 30817, and 30045
+    And kinds include 30040, 30041, 30818, 30817, 30023, and 30045
     And full-text mention hits may still appear
     And publication cards with that d-tag appear first among publications
     And the wiki card with that d-tag appears first among wiki and spec cards, ahead of mention-only hits
@@ -132,12 +132,15 @@ Feature: Search
     When I click a publication result card
     Then I open that edition at /publication/d/{d}/p/{npub}
     When I click a wiki or spec result card
-    Then I open that page at /wiki/d/{d}/p/{npub}
+    Then I open that page at /wiki/d/{d}/p/{npub} or /spec/d/{d}/p/{npub}
+    When I click a kind 30023 long-form result card
+    Then I open that page at /article/d/{d}/p/{npub}
+    And that card is labeled Article with a magazine-style cover (not wiki parchment or spec blueprint)
 
   Scenario: Search results are ordered
     When a search has more matching cards than one page
     Then later-arriving cards fill remaining slots up to the paging caps
-    And publication cards are ordered above wiki and spec cards
+    And publication cards are ordered above wiki, spec, and article cards
     And within that, cards whose d-tag equals the query slug (for ?d= / wikilink search) are ordered above other matches
     And within that, publication cards with at least two sections are ordered above publications with fewer
     And within that, higher GrapeRank authors are ordered above lower or unknown when scores are available

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { coverFullImageUrl, coverImageUrl, gutenbergCoverUrl, readerSectionHeroFullUrl, readerSectionHeroUrl, sectionHeroImageUrl } from './cover';
+import {
+  coverFullImageUrl,
+  coverImageUrl,
+  eventHeroImageUrls,
+  gutenbergCoverUrl,
+  readerSectionHeroFullUrl,
+  readerSectionHeroUrl,
+  sectionHeroImageUrl,
+  stripEarlyDuplicateHeroImage
+} from './cover';
 
 function ev(tags: string[][], id = 'a'.repeat(64)): Event {
   return {
@@ -92,5 +101,36 @@ describe('readerSectionHeroFullUrl', () => {
     expect(readerSectionHeroFullUrl(gutenberg, gutenberg)).toBe(
       'https://www.gutenberg.org/cache/epub/45631/pg45631.cover.medium.jpg'
     );
+  });
+});
+
+describe('stripEarlyDuplicateHeroImage', () => {
+  const hero = 'https://i.nostr.build/cover.webp';
+  const thumb = 'https://i.nostr.build/thumb/cover.webp';
+
+  it('removes a leading body image that matches the hero', () => {
+    const html = `<p><img src="${hero}" alt=""></p><p>Hello</p>`;
+    expect(stripEarlyDuplicateHeroImage(html, [thumb])).toBe('<p>Hello</p>');
+  });
+
+  it('removes a cover after a short lede paragraph', () => {
+    const html = `<p>Intro text.</p><p><img src="${hero}" alt="cover"></p><p>More</p>`;
+    expect(stripEarlyDuplicateHeroImage(html, [hero])).toBe('<p>Intro text.</p><p>More</p>');
+  });
+
+  it('keeps a matching image deeper in the article', () => {
+    const html = `<p>One.</p><p>Two.</p><p><img src="${hero}" alt=""></p>`;
+    expect(stripEarlyDuplicateHeroImage(html, [hero])).toBe(html);
+  });
+
+  it('keeps a different early image', () => {
+    const html = `<p><img src="https://example.com/other.jpg" alt=""></p>`;
+    expect(stripEarlyDuplicateHeroImage(html, [hero])).toBe(html);
+  });
+
+  it('lists hero candidates from the image tag', () => {
+    const urls = eventHeroImageUrls(ev([['image', hero]]));
+    expect(urls).toContain(hero);
+    expect(urls).toContain(thumb);
   });
 });

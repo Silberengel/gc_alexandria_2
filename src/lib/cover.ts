@@ -95,6 +95,121 @@ function heroUrlKey(url: string): string {
   }
 }
 
+/** Match keys for a cover URL, including i.nostr.build thumb ↔ full variants. */
+export function heroImageMatchKeys(url: string): string[] {
+  const keys = new Set<string>();
+  const add = (raw: string) => {
+    const t = raw.trim();
+    if (!t) return;
+    keys.add(heroUrlKey(t));
+    try {
+      const u = new URL(t);
+      if (u.hostname === 'i.nostr.build') {
+        const p = u.pathname || '/';
+        if (p.startsWith('/thumb/')) {
+          u.pathname = p.slice('/thumb'.length) || '/';
+          keys.add(heroUrlKey(u.toString()));
+        } else if (p !== '/thumb' && !p.startsWith('/thumb/')) {
+          keys.add(heroUrlKey(toNostrBuildThumbUrl(t)));
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+  add(url);
+  return [...keys];
+}
+
+function decodeBasicEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function imgSrcFromTag(tag: string): string | null {
+  const m = tag.match(/\bsrc\s*=\s*(["'])(.*?)\1/i) ?? tag.match(/\bsrc\s*=\s*([^\s>]+)/i);
+  if (!m?.[1]) return null;
+  const raw = (m[2] ?? m[1]).trim();
+  if (!raw) return null;
+  return decodeBasicEntities(raw);
+}
+
+/**
+ * Drop an early body `<img>` that duplicates the hero/cover so the page does not
+ * show the same plate twice (common when long-form content repeats the `image` tag).
+ * Removes the first matching image when it appears before more than one prior block.
+ */
+export function stripEarlyDuplicateHeroImage(
+  html: string,
+  heroUrls: Array<string | undefined | null>
+): string {
+  const keys = new Set<string>();
+  for (const u of heroUrls) {
+    if (!u?.trim()) continue;
+    for (const k of heroImageMatchKeys(u)) keys.add(k);
+  }
+  if (!html || !keys.size) return html;
+
+  const imgRe = /<img\b[^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = imgRe.exec(html)) !== null) {
+    const src = imgSrcFromTag(match[0]);
+    if (!src) continue;
+    const srcKeys = heroImageMatchKeys(src);
+    if (!srcKeys.some((k) => keys.has(k))) continue;
+
+    const before = html.slice(0, match.index);
+    const blocksBefore = (before.match(/<\/(?:p|h[1-6]|blockquote|ul|ol|pre|table|div|section)>/gi) ?? [])
+      .length;
+    // Allow a short lede (one block) before the repeated cover; further down, keep it.
+    if (blocksBefore > 1) return html;
+
+    let start = match.index;
+    let end = match.index + match[0].length;
+
+    // Unwrap a surrounding <a>…</a> that only wraps this image.
+    const openA = before.match(/<a\b[^>]*>\s*$/i);
+    if (openA) {
+      const after = html.slice(end);
+      const closeA = after.match(/^\s*<\/a>/i);
+      if (closeA) {
+        start = match.index - openA[0].length;
+        end = end + closeA[0].length;
+      }
+    }
+
+    // Drop an otherwise-empty <p>/<figure>/<div> wrapper.
+    const before2 = html.slice(0, start);
+    const after2 = html.slice(end);
+    const openWrap = before2.match(/<(p|figure|div)(\s[^>]*)?>\s*$/i);
+    if (openWrap) {
+      const closeWrap = after2.match(new RegExp(`^\\s*</${openWrap[1]}>`, 'i'));
+      if (closeWrap) {
+        start = start - openWrap[0].length;
+        end = end + closeWrap[0].length;
+      }
+    }
+
+    return `${html.slice(0, start)}${html.slice(end)}`.replace(/^\s+/, '');
+  }
+  return html;
+}
+
+/** Remote cover URLs that the reading header may show as a hero. */
+export function eventHeroImageUrls(event: Event): string[] {
+  const urls = [
+    sectionHeroFullImageUrl(event),
+    sectionHeroImageUrl(event),
+    coverFullImageUrl(event),
+    coverImageUrl(event)
+  ];
+  return [...new Set(urls.filter((u): u is string => Boolean(u?.trim())))];
+}
+
 /**
  * Hero for a reading-pane section. Nested indexes/sections that repeat the
  * top-level edition image are omitted — that double-hero is redundant.

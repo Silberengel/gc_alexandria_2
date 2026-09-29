@@ -5,7 +5,9 @@ Feature: Profile page
   So that badges open a person, not a search dump
 
   Background:
-    Given /p/{npub}, /p/{nprofile}, and /p/{hex-pubkey} open the same profile
+    Given /p/{npub}, /p/{nprofile}, /p/{hex-pubkey}, and /p/{nip05} open the same profile
+    And /p/{id}/{kind} filters the produced list to that kind when kind is a valid Nostr kind (0–65535)
+    And /p/{id}/{not-a-kind} is rejected (not a profile page)
     And kind 0 is fetched from profile relays (profiles.nostr1.com, indexer.coracle.social, thecitadel.nostr1.com), never from Mercury
     And when signed in those queries also include my inbox, outbox, favorites, and local relays
     And kind 0 fields come from tags first, then JSON content, then are deduped
@@ -49,7 +51,7 @@ Feature: Profile page
     Then I still see the pubkey and omit missing fields
 
   Scenario: /p/ lists what they produced and touched
-    Given that pubkey signed a 30040, 30818, or 30817
+    Given that pubkey signed a 30040, 30818, 30817, or 30023
     And another such event credits them with a p-tag
     And they have labeled, bookmarked, highlighted, or commented on a publication or wiki, or rated a publication
     When I open /p/ for that pubkey
@@ -59,3 +61,16 @@ Feature: Profile page
     And a section or subindex interaction is shown as the parent publication when known
     And a work can appear in both lists
     And this is not a literary author-name catalog
+
+  Scenario: Kind-filtered profile and blog share link
+    When I open /p/{npub}/30023 or /p/{nip05}/30023 (e.g. roland@pareto.space)
+    Then the profile header still shows above
+    And below it I see only that pubkey's kind 30023 long-form events as a blog feed (date, title, excerpt, cover)
+    And I can copy a shareable blog link that prefers the NIP-05 form when known
+    And a "View the full profile" control returns to /p/{id}
+    When I open /p/{npub}
+    Then a "View the blog" control on the filter row opens /p/{npub}/30023
+    When I open /p/{npub}/30040
+    Then below the header I see only kind 30040 events in the usual cards
+    When I open /p/{npub}/abc or /p/{npub}/99999
+    Then I see a not-found page for the invalid kind

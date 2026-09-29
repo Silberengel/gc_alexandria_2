@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, MISSING_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nestComments, threadNodeKey } from './comments';
+import { nestComments, threadNodeKey, isQuoteOfTarget, referencesTarget } from './comments';
 import { commentDraft } from './drafts';
 import {
   DEFAULT_LIKE_REACTION_CONTENT,
@@ -191,6 +191,29 @@ describe('comments nest', () => {
     expect(tree).toHaveLength(1);
     expect(tree[0]?.event?.id).toBe(root.id);
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+  });
+
+  it('recognizes kind 1 q-tag quotes of a work', () => {
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', 'jane-eyre']]
+    });
+    const quote = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [['q', edition.id]]
+    });
+    const reply = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [['e', edition.id, '', 'root']]
+    });
+    expect(isQuoteOfTarget(quote, edition)).toBe(true);
+    expect(isQuoteOfTarget(reply, edition)).toBe(false);
+    expect(referencesTarget(quote, edition)).toBe(true);
+    expect(referencesTarget(reply, edition)).toBe(true);
   });
 
   it('nests a kind 1 reply under a kind 1111 parent', () => {

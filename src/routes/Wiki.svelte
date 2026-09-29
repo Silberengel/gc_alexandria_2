@@ -4,11 +4,11 @@
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
-  import CommentThread from '$lib/components/CommentThread.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
+  import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import { KIND } from '$lib/constants';
   import { libraryDocumentPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
@@ -16,7 +16,7 @@
   import { normalizeDTag } from '$lib/dtag';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
-  import { wikiStack, socialStack } from '$lib/nostr/selector';
+  import { wikiStack, documentStack } from '$lib/nostr/selector';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
@@ -25,15 +25,10 @@
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { nestComments, fetchThreadEvents, threadNodeKey } from '$lib/comments';
-  import { commentDraft } from '$lib/drafts';
-  import { signAndPublish } from '$lib/sign';
-  import { session } from '$lib/stores/session';
-  import { openLoginDialog } from '$lib/stores/login-ui';
+  import { fetchWorkResponses, type WorkResponses } from '$lib/comments';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
-  import { publicationCoordinateLookupKeys } from '$lib/publication-coordinate';
   import type { Event } from 'nostr-tools';
 
   interface Props {
@@ -44,28 +39,43 @@
 
   let event = $state<Event | null>(null);
   let versions = $state<Event[]>([]);
-  let comments = $state<Event[]>([]);
-  let highlights = $state<Event[]>([]);
+  let responses = $state<WorkResponses>({ thread: [], quotes: [], highlights: [] });
   let error = $state(false);
   let deferredByList = $state<string[]>([]);
   let forwarding = $state(false);
-  let commentText = $state('');
-  let replyOpenId = $state<string | null>(null);
-  let commentComposeOpen = $state(false);
   let pageFilter = $state('');
   let loading = $state(true);
   let articlePane = $state<HTMLElement | undefined>();
-  /** Route kind from URL prefix — wiki and spec share this page but never the same address. */
+  /** Route kind from URL prefix — wiki, spec, and article share this page but never the same address. */
   let routeKind = $state<number>(KIND.WIKI);
   const pageFind = createPageFindController();
 
   const isSpecRoute = $derived(routeKind === KIND.SPEC);
-  const surfaceLabel = $derived(isSpecRoute ? 'Spec' : 'Wiki');
-  const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
-  const mutedHighlights = $derived(filterMuted(highlights, $muteState));
+  const isArticleRoute = $derived(routeKind === KIND.LONG_FORM);
+  const surfaceLabel = $derived(
+    isSpecRoute ? 'Spec' : isArticleRoute ? 'Article' : 'Wiki'
+  );
+
+  function stackForArticleKind(kind: number): string[] {
+    return kind === KIND.LONG_FORM ? documentStack() : wikiStack();
+  }
+
+  function isArticleKind(kind: number): boolean {
+    return kind === KIND.WIKI || kind === KIND.SPEC || kind === KIND.LONG_FORM;
+  }
+  const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
   const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
   const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
-  const thread = $derived(event ? nestComments(visibleComments, $muteState, [event.id]) : []);
+  const panelResponses = $derived.by((): WorkResponses => {
+    const q = pageFilter.trim().toLowerCase();
+    if (!q) return responses;
+    const match = (e: Event) => e.content.toLowerCase().includes(q);
+    return {
+      thread: responses.thread.filter(match),
+      quotes: responses.quotes.filter(match),
+      highlights: responses.highlights.filter(match)
+    };
+  });
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );
@@ -84,7 +94,9 @@
   }
 
   function routeKindFromHash(hashPath: string): number {
-    return /^\/spec(\/|$)/i.test(hashPath) ? KIND.SPEC : KIND.WIKI;
+    if (/^\/spec(\/|$)/i.test(hashPath)) return KIND.SPEC;
+    if (/^\/article(\/|$)/i.test(hashPath)) return KIND.LONG_FORM;
+    return KIND.WIKI;
   }
 
   /** Sync only — landing/search already put this in memory. Never scan Cache Storage here. */
@@ -136,7 +148,7 @@
       return fromMercury;
     }
     const wHits = await relayPool.query(
-      wikiStack(),
+      stackForArticleKind(kind),
       [filter],
       4000,
       5,
@@ -163,7 +175,7 @@
       queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
       return;
     }
-    void comments;
+    void responses;
     if (id === commentFocusApplied) return;
     let attempts = 20;
     let timer = 0;
@@ -284,21 +296,8 @@
   }
 
   async function loadSocial(target: Event): Promise<void> {
-    const addr = eventAddress(target);
-    const highlightAddrs = [...new Set(publicationCoordinateLookupKeys(addr))].slice(0, 20);
-    const [threadEvents, highlightsHit] = await Promise.all([
-      fetchThreadEvents(target, 40),
-      highlightAddrs.length
-        ? relayPool.query(
-            socialStack(),
-            [{ kinds: [KIND.HIGHLIGHT], '#a': highlightAddrs, limit: 40 }],
-            4000,
-            2
-          )
-        : Promise.resolve([] as Event[])
-    ]);
-    comments = threadEvents;
-    highlights = highlightsHit;
+    const hit = await fetchWorkResponses(target, 60);
+    responses = hit;
   }
 
   $effect(() => {
@@ -307,7 +306,8 @@
     const hashPath = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '').split('?')[0] : '';
     const kind = routeKindFromHash(hashPath);
     routeKind = kind;
-    const prefix = kind === KIND.SPEC ? 'spec' : 'wiki';
+    const prefix =
+      kind === KIND.SPEC ? 'spec' : kind === KIND.LONG_FORM ? 'article' : 'wiki';
     const hashDnpub = hashPath.match(new RegExp(`^\\/${prefix}\\/d\\/([^/]+)\\/p\\/([^/]+)\\/?$`, 'i'));
     const hashDonly = hashPath.match(new RegExp(`^\\/${prefix}\\/d\\/([^/]+)\\/?$`, 'i'));
     const hashPointer = hashPath.match(
@@ -326,9 +326,7 @@
 
     let cancelled = false;
     versions = [];
-    comments = [];
-    highlights = [];
-    replyOpenId = null;
+    responses = { thread: [], quotes: [], highlights: [] };
     error = false;
     forwarding = false;
     deferredByList = seedDeferrersFromUrl();
@@ -380,8 +378,7 @@
           }
           // Pointer kind wins over the URL prefix so a wiki naddr under /spec (or vice versa)
           // canonicalizes to the correct surface.
-          const pointerKind =
-            decoded.kind === KIND.SPEC || decoded.kind === KIND.WIKI ? decoded.kind : kind;
+          const pointerKind = isArticleKind(decoded.kind) ? decoded.kind : kind;
           let fetched: Event | null = null;
           if (decoded.id) {
             fetched = memoryGetEvent(decoded.id) ?? (await fetchById(decoded.id));
@@ -393,7 +390,7 @@
               }));
           }
           if (cancelled) return;
-          if (!fetched || (fetched.kind !== KIND.WIKI && fetched.kind !== KIND.SPEC)) {
+          if (!fetched || !isArticleKind(fetched.kind)) {
             if (!event) error = true;
             return;
           }
@@ -411,7 +408,7 @@
           const filter = { kinds: [kind], '#d': [dTag], limit: 50 };
           const [m, w] = await Promise.all([
             mercuryFilter(filter),
-            relayPool.query(wikiStack(), [filter], 8000)
+            relayPool.query(stackForArticleKind(kind), [filter], 8000)
           ]);
           const byId = new Map<string, Event>();
           for (const e of [...m, ...w]) {
@@ -440,21 +437,6 @@
       cancelled = true;
     };
   });
-
-  async function postComment(): Promise<void> {
-    if (!event) return;
-    if (!$session.pubkey) {
-      openLoginDialog();
-      return;
-    }
-    if (!commentText.trim()) return;
-    const signed = await signAndPublish(commentDraft(event, commentText.trim()));
-    if (signed) {
-      comments = [...comments, signed];
-      commentText = '';
-      commentComposeOpen = false;
-    }
-  }
 </script>
 
 <TopBar />
@@ -503,40 +485,9 @@
       {/if}
       <DetailsPanel {event} />
     </article>
-    <section class="card reading-width" style="margin-top:1rem">
-      <h2 class="section-title">Comments</h2>
-      {#if thread.length}
-        <ul class="thread-list">
-          {#each thread as node (threadNodeKey(node))}
-            <CommentThread {node} target={event} bind:replyOpenId focusId={urlFocusComment} />
-          {/each}
-        </ul>
-      {:else}
-        <p class="muted">No comments yet.</p>
-      {/if}
-      {#if $session.pubkey && !replyOpenId && commentComposeOpen}
-        <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
-          <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
-          <div class="compose-actions">
-            <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
-            <button
-              class="btn"
-              type="button"
-              onclick={() => {
-                commentComposeOpen = false;
-                commentText = '';
-              }}>Cancel</button
-            >
-          </div>
-        </form>
-      {:else if $session.pubkey && !replyOpenId}
-        <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
-          >Leave a comment</button
-        >
-      {:else if !$session.pubkey}
-        <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
-      {/if}
-    </section>
+    <div class="card reading-width" style="margin-top:1rem">
+      <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} />
+    </div>
   {:else}
     <p class="loading-hint">Page is loading...</p>
   {/if}

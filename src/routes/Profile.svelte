@@ -12,7 +12,7 @@
   import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
-  import { countReadsByAuthor, hexPubkey } from '$lib/search';
+  import { countReadsByAuthor } from '$lib/search';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
@@ -55,15 +55,31 @@
   import { editionMetadata } from '$lib/publication-metadata';
   import { publicationPath } from '$lib/metadata';
   import { link } from 'svelte-spa-router';
+  import ErrorPage from '$lib/components/ErrorPage.svelte';
+  import ProfileBlogFeed from '$lib/components/ProfileBlogFeed.svelte';
+  import {
+    parseKindParam,
+    decodeProfileIdSegment,
+    resolveProfilePubkey,
+    profileKindHeading,
+    profileKindPath,
+    eventChronologySec
+  } from '$lib/profile-route';
 
   interface Props {
-    params?: { id?: string };
+    params?: { id?: string; kind?: string };
   }
 
   let { params = {} }: Props = $props();
 
   let pubkey = $state('');
   let npub = $state('');
+  /** Path id as opened (npub or nip05) — used for shareable kind URLs. */
+  let profilePathId = $state('');
+  let kindFilter = $state<number | null>(null);
+  let kindInvalid = $state(false);
+  let resolveFailed = $state(false);
+  let resolving = $state(false);
   let profile = $state<Event | null>(null);
   /** Immediate paint from badge thumb cache when kind-0 is not yet in event-memory. */
   let warmName = $state('');
@@ -96,8 +112,26 @@
     isOwnProfile ? $readingPrefs.concurrent : READING_CONCURRENT_DEFAULT
   );
   const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
-  const visibleProduced = $derived(filterPageEvents(filterMuted(produced, $muteState), pageFilter));
-  const visibleInteracted = $derived(filterPageEvents(filterMuted(interacted, $muteState), pageFilter));
+  const isBlogMode = $derived(kindFilter === KIND.LONG_FORM);
+  const isKindFiltered = $derived(kindFilter != null);
+  const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
+  const profileShareId = $derived(profilePathId || npub || pubkey);
+  const blogPath = $derived(
+    profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : ''
+  );
+  const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
+  const filteredProduced = $derived.by(() => {
+    let list = filterMuted(produced, $muteState);
+    if (kindFilter != null) list = list.filter((e) => e.kind === kindFilter);
+    if (isBlogMode) {
+      return [...list].sort((a, b) => eventChronologySec(b) - eventChronologySec(a));
+    }
+    return list;
+  });
+  const visibleProduced = $derived(filterPageEvents(filteredProduced, pageFilter));
+  const visibleInteracted = $derived(
+    isKindFiltered ? [] : filterPageEvents(filterMuted(interacted, $muteState), pageFilter)
+  );
   const pagedProduced = $derived(visibleProduced.slice((producedPage - 1) * pageSize, producedPage * pageSize));
   const pagedInteracted = $derived(
     visibleInteracted.slice((interactedPage - 1) * pageSize, interactedPage * pageSize)
@@ -210,7 +244,8 @@
       if (
         item.kind === KIND.PUBLICATION ||
         item.kind === KIND.WIKI ||
-        item.kind === KIND.SPEC
+        item.kind === KIND.SPEC ||
+        item.kind === KIND.LONG_FORM
       ) {
         out.set(item.id, item);
       }
@@ -297,78 +332,106 @@
     }
   }
 
-  /** Reload when the hash `/p/:id` changes — spa-router reuses this component. */
+  /** Reload when the hash `/p/:id` or `/p/:id/:kind` changes — spa-router reuses this component. */
   $effect(() => {
     const raw = params.id ?? '';
+    const kindRaw = params.kind;
     let cancelled = false;
 
-    let nextPk = '';
-    try {
-      const decoded = nip19.decode(raw);
-      if (decoded.type === 'npub') nextPk = decoded.data;
-      else if (decoded.type === 'nprofile') nextPk = decoded.data.pubkey;
-    } catch {
-      nextPk = hexPubkey(raw) ?? raw;
-    }
-    nextPk = nextPk.trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(nextPk)) {
-      pubkey = '';
-      npub = '';
-      profile = null;
-      warmName = '';
-      warmPicture = '';
-      resetProfileListings();
-      return;
+    kindInvalid = false;
+    resolveFailed = false;
+    profilePathId = decodeProfileIdSegment(raw);
+
+    if (kindRaw !== undefined) {
+      const parsed = parseKindParam(kindRaw);
+      if (parsed === null) {
+        kindFilter = null;
+        kindInvalid = true;
+        pubkey = '';
+        npub = '';
+        profile = null;
+        warmName = '';
+        warmPicture = '';
+        resolving = false;
+        resetProfileListings();
+        return;
+      }
+      kindFilter = parsed;
+    } else {
+      kindFilter = null;
     }
 
-    pubkey = nextPk;
-    try {
-      npub = nip19.npubEncode(nextPk);
-    } catch {
-      npub = nextPk;
-    }
+    const filterKind = kindFilter;
+    pubkey = '';
+    npub = '';
     profile = null;
     warmName = '';
     warmPicture = '';
-
-    // 1) Instant header from event-memory / badge thumb / session metadata.
-    const warmMeta =
-      memoryFindMetadata(nextPk) ??
-      pickLatestReplaceable(session.getMetadata(), KIND.METADATA, nextPk);
-    if (warmMeta) {
-      applyProfileMeta(warmMeta);
-    } else {
-      const thumb = peekProfileThumb(nextPk);
-      if (thumb) {
-        warmName = thumb.name;
-        warmPicture = thumb.picture;
-      }
-    }
-
-    // 2) Medium-term page snapshot — paint listings before relays answer.
-    const memSnap = peekProfilePageSnapshot(nextPk);
-    if (memSnap) applyPageSnapshot(memSnap);
-    else resetProfileListings();
-
-    const authoredFilter = {
-      kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
-      authors: [nextPk],
-      limit: 80
-    };
-    const creditedFilter = {
-      kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC],
-      '#p': [nextPk],
-      limit: 40
-    };
-    const paymentFilter = { kinds: [KIND.PAYMENT], authors: [nextPk], limit: 10 };
-    const statusFilter = {
-      kinds: [KIND.STATUS],
-      authors: [nextPk],
-      '#d': ['general', 'music'],
-      limit: 10
-    };
+    resetProfileListings();
+    resolving = true;
 
     void (async () => {
+      const nextPk = await resolveProfilePubkey(raw);
+      if (cancelled) return;
+      if (!nextPk || !/^[0-9a-f]{64}$/.test(nextPk)) {
+        resolving = false;
+        resolveFailed = true;
+        return;
+      }
+
+      pubkey = nextPk;
+      resolving = false;
+      try {
+        npub = nip19.npubEncode(nextPk);
+      } catch {
+        npub = nextPk;
+      }
+
+      // Prefer a verified NIP-05 in the path for shareable blog URLs.
+      if (!profilePathId.includes('@')) {
+        profilePathId = npub || nextPk;
+      }
+
+      // 1) Instant header from event-memory / badge thumb / session metadata.
+      const warmMeta =
+        memoryFindMetadata(nextPk) ??
+        pickLatestReplaceable(session.getMetadata(), KIND.METADATA, nextPk);
+      if (warmMeta) {
+        applyProfileMeta(warmMeta);
+      } else {
+        const thumb = peekProfileThumb(nextPk);
+        if (thumb) {
+          warmName = thumb.name;
+          warmPicture = thumb.picture;
+        }
+      }
+
+      // 2) Medium-term page snapshot — paint listings before relays answer.
+      const memSnap = peekProfilePageSnapshot(nextPk);
+      if (memSnap) applyPageSnapshot(memSnap);
+
+      const authoredKinds =
+        filterKind != null
+          ? [filterKind]
+          : [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM];
+      const authoredFilter = {
+        kinds: authoredKinds,
+        authors: [nextPk],
+        limit: 80
+      };
+      const creditedFilter = {
+        kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM],
+        '#p': [nextPk],
+        limit: 40
+      };
+      const paymentFilter = { kinds: [KIND.PAYMENT], authors: [nextPk], limit: 10 };
+      const statusFilter = {
+        kinds: [KIND.STATUS],
+        authors: [nextPk],
+        '#d': ['general', 'music'],
+        limit: 10
+      };
+
       let snap = memSnap;
       if (!snap) {
         snap = await cacheGetProfilePageSnapshot(nextPk);
@@ -390,25 +453,64 @@
         pickLatestReplaceable(kind0Hits, KIND.METADATA, nextPk) ?? kind0Hits[0] ?? null;
       if (fresh) applyProfileMeta(fresh);
 
+      // Prefer nip05 from kind-0 for shareable paths when the URL used npub.
+      if (fresh && !decodeProfileIdSegment(raw).includes('@')) {
+        const nip = parseKind0(fresh).nip05List[0];
+        if (nip) profilePathId = nip;
+      }
+
       // Within TTL: keep the cached page; only kind-0 was refreshed above.
-      if (profilePageSnapshotFresh(snap)) return;
+      // Kind-filtered views always re-query so arbitrary kinds are not missed.
+      if (profilePageSnapshotFresh(snap) && filterKind == null) return;
 
       let statusEventsAcc: Event[] = snap?.statusEvents ?? [];
       let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
 
       // 4) Everything else in parallel; paint as each group finishes.
-      const docsP = Promise.all([
-        relayPool.query(documentStack(), [authoredFilter], 8000, 5, undefined, { priority: true }),
-        mercuryFilter(creditedFilter).then(async (m) =>
-          m.length ? m : relayPool.query(documentStack(), [creditedFilter], 8000, 5, undefined, { priority: true })
-        )
-      ]).then(([authored, credited]) => {
-        if (cancelled) return;
-        const byId = new Map<string, Event>();
-        for (const e of [...authored, ...credited]) byId.set(e.id, e);
-        produced = omitNested([...byId.values()]);
-        rememberEvents(produced);
-      });
+      const docsP =
+        filterKind != null
+          ? (() => {
+              const docKinds = [
+                KIND.PUBLICATION,
+                KIND.WIKI,
+                KIND.SPEC,
+                KIND.LONG_FORM,
+                KIND.SECTION
+              ];
+              const relays = (docKinds as number[]).includes(filterKind)
+                ? documentStack()
+                : [...new Set([...socialStack(), ...documentStack()])];
+              return relayPool
+                .query(relays, [authoredFilter], 8000, 5, undefined, { priority: true })
+                .then((authored) => {
+                  if (cancelled) return;
+                  const byId = new Map<string, Event>();
+                  for (const e of untrack(() => produced)) {
+                    if (e.kind === filterKind) byId.set(e.id, e);
+                  }
+                  for (const e of authored) byId.set(e.id, e);
+                  produced = [...byId.values()];
+                  rememberEvents(produced);
+                });
+            })()
+          : Promise.all([
+              relayPool.query(documentStack(), [authoredFilter], 8000, 5, undefined, {
+                priority: true
+              }),
+              mercuryFilter(creditedFilter).then(async (m) =>
+                m.length
+                  ? m
+                  : relayPool.query(documentStack(), [creditedFilter], 8000, 5, undefined, {
+                      priority: true
+                    })
+              )
+            ]).then(([authored, credited]) => {
+              if (cancelled) return;
+              const byId = new Map<string, Event>();
+              for (const e of [...authored, ...credited]) byId.set(e.id, e);
+              produced = omitNested([...byId.values()]);
+              rememberEvents(produced);
+            });
 
       const statusP = Promise.all([
         relayPool.query(socialStack(), [statusFilter], 5000, 4),
@@ -434,67 +536,117 @@
         payments = paymentRows(parseKind0(profile), paymentEventsAcc, profile);
       });
 
-      const readsP = countReadsByAuthor(nextPk).then((n) => {
-        if (!cancelled) readCount = n;
-      });
+      const readsP =
+        filterKind != null
+          ? Promise.resolve()
+          : countReadsByAuthor(nextPk).then((n) => {
+              if (!cancelled) readCount = n;
+            });
 
-      const queueP = relayPool
-        .query(socialStack(), [{ kinds: [KIND.READING_QUEUE], authors: [nextPk], limit: 5 }], 4000, 2)
-        .then(async (queueHits) => {
-          if (cancelled) return;
-          const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
-          const own =
-            !!get(session).pubkey && get(session).pubkey!.toLowerCase() === nextPk.toLowerCase();
-          readingEntries =
-            own && get(readingPrefs).localOnly ? get(localReadingQueue) : parseReadingQueue(queueEv);
-          const titleMap = new Map<string, string>();
-          const editionMap = new Map<string, Event>();
-          const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
-          await Promise.all(
-            activeReadingEntries(readingEntries, n).map(async (entry) => {
-              const pub = await fetchByAddress(entry.a);
-              if (cancelled || !pub) return;
-              rememberEvents([pub]);
-              editionMap.set(entry.a, pub);
-              titleMap.set(entry.a, editionMetadata(pub).titles[0] || 'Untitled');
-            })
-          );
-          if (cancelled) return;
-          readingTitles = titleMap;
-          readingEditions = editionMap;
-        });
+      const queueP =
+        filterKind != null
+          ? Promise.resolve()
+          : relayPool
+              .query(
+                socialStack(),
+                [{ kinds: [KIND.READING_QUEUE], authors: [nextPk], limit: 5 }],
+                4000,
+                2
+              )
+              .then(async (queueHits) => {
+                if (cancelled) return;
+                const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
+                const own =
+                  !!get(session).pubkey &&
+                  get(session).pubkey!.toLowerCase() === nextPk.toLowerCase();
+                readingEntries =
+                  own && get(readingPrefs).localOnly
+                    ? get(localReadingQueue)
+                    : parseReadingQueue(queueEv);
+                const titleMap = new Map<string, string>();
+                const editionMap = new Map<string, Event>();
+                const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
+                await Promise.all(
+                  activeReadingEntries(readingEntries, n).map(async (entry) => {
+                    const pub = await fetchByAddress(entry.a);
+                    if (cancelled || !pub) return;
+                    rememberEvents([pub]);
+                    editionMap.set(entry.a, pub);
+                    titleMap.set(entry.a, editionMetadata(pub).titles[0] || 'Untitled');
+                  })
+                );
+                if (cancelled) return;
+                readingTitles = titleMap;
+                readingEditions = editionMap;
+              });
 
-      const interactP = Promise.all([
-        relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }], 8000, 4),
-        relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 5 }], 5000, 4),
-        relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], authors: [nextPk], limit: 40 }], 8000, 4),
-        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], authors: [nextPk], limit: 40 }], 8000, 4),
-        relayPool.query(socialStack(), [{ kinds: [KIND.COMMENT], authors: [nextPk], limit: 40 }], 8000, 4),
-        relayPool.query(socialStack(), [{ kinds: [KIND.RATING], authors: [nextPk], limit: 40 }], 8000, 4)
-      ]).then(async ([labels, bookmarks, dirs, highs, comms, rates]) => {
-        if (cancelled) return;
-        const interactionEvents = [
-          ...labels.filter(isListPublicationLabelEvent),
-          ...bookmarks,
-          ...dirs,
-          ...highs,
-          ...comms,
-          ...rates
-        ];
-        const works = await resolveInteracted(interactionEvents);
-        if (cancelled) return;
-        interacted = works;
-        rememberEvents(works);
-        const markMap = interactionMarksFromEvents(interactionEvents);
-        const byWork = new Map<string, InteractionMark[]>();
-        for (const work of works) {
-          byWork.set(work.id, marksForPublication(markMap, work));
-        }
-        marksByWork = byWork;
-      });
+      const interactP =
+        filterKind != null
+          ? Promise.resolve()
+          : Promise.all([
+              relayPool.query(
+                socialStack(),
+                [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }],
+                8000,
+                4
+              ),
+              relayPool.query(
+                socialStack(),
+                [{ kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 5 }],
+                5000,
+                4
+              ),
+              relayPool.query(
+                documentStack(),
+                [{ kinds: [KIND.DIRECTORY], authors: [nextPk], limit: 40 }],
+                8000,
+                4
+              ),
+              relayPool.query(
+                socialStack(),
+                [{ kinds: [KIND.HIGHLIGHT], authors: [nextPk], limit: 40 }],
+                8000,
+                4
+              ),
+              relayPool.query(
+                socialStack(),
+                [{ kinds: [KIND.COMMENT], authors: [nextPk], limit: 40 }],
+                8000,
+                4
+              ),
+              relayPool.query(
+                socialStack(),
+                [{ kinds: [KIND.RATING], authors: [nextPk], limit: 40 }],
+                8000,
+                4
+              )
+            ]).then(async ([labels, bookmarks, dirs, highs, comms, rates]) => {
+              if (cancelled) return;
+              const interactionEvents = [
+                ...labels.filter(isListPublicationLabelEvent),
+                ...bookmarks,
+                ...dirs,
+                ...highs,
+                ...comms,
+                ...rates
+              ];
+              const works = await resolveInteracted(interactionEvents);
+              if (cancelled) return;
+              interacted = works;
+              rememberEvents(works);
+              const markMap = interactionMarksFromEvents(interactionEvents);
+              const byWork = new Map<string, InteractionMark[]>();
+              for (const work of works) {
+                byWork.set(work.id, marksForPublication(markMap, work));
+              }
+              marksByWork = byWork;
+            });
 
       await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP]);
       if (cancelled) return;
+
+      // Kind-filtered views skip the full-page snapshot write (partial listings).
+      if (filterKind != null) return;
 
       const marksObj: Record<string, string[]> = {};
       for (const [id, marks] of marksByWork) marksObj[id] = [...marks];
@@ -517,17 +669,69 @@
       cancelled = true;
     };
   });
+
+  let shareCopied = $state(false);
+  let shareTimer = 0;
+
+  async function copyKindLink(): Promise<void> {
+    if (kindFilter == null) return;
+    const path = profileKindPath(profilePathId || npub || pubkey, kindFilter);
+    const url = `${window.location.origin}/#${path}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      shareCopied = true;
+      clearTimeout(shareTimer);
+      shareTimer = window.setTimeout(() => {
+        shareCopied = false;
+      }, 2000);
+    } catch {
+      /* ignore */
+    }
+  }
 </script>
 
 <TopBar />
-<main class="shell">
-  <header class="page-header">
-    <p class="page-kicker">Reader</p>
-    <h1>Profile</h1>
-  </header>
-  <PageFilter bind:value={pageFilter} />
-  {#if pubkey}
-    <div class="card profile-card" style="margin-bottom:1rem">
+<main class="shell" class:profile-blog-shell={isBlogMode}>
+  {#if kindInvalid}
+    <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
+  {:else if resolveFailed}
+    <ErrorPage title="Profile not found" message="This address could not be resolved to a pubkey." />
+  {:else}
+    <header class="page-header" class:profile-blog-page-header={isBlogMode}>
+      <p class="page-kicker">{isBlogMode ? 'Blog' : 'Reader'}</p>
+      <h1>
+        {#if isBlogMode}
+          {fields.title || warmName || 'Blog'}
+        {:else if isKindFiltered}
+          {kindHeading}
+        {:else}
+          Profile
+        {/if}
+      </h1>
+    </header>
+    {#if !isKindFiltered || isBlogMode}
+      <div class="profile-filter-row">
+        {#if !isKindFiltered}
+          <PageFilter bind:value={pageFilter} />
+        {:else}
+          <span class="profile-filter-row-spacer" aria-hidden="true"></span>
+        {/if}
+        {#if profileShareId}
+          {#if isBlogMode}
+            <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link
+              >View the full profile</a
+            >
+          {:else}
+            <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+    {#if resolving && !pubkey}
+      <p class="loading-hint">Looking up profile…</p>
+    {/if}
+    {#if pubkey}
+    <div class="card profile-card" class:profile-card-blog={isBlogMode} style="margin-bottom:1rem">
       <div class="profile-hero">
         {#if fields.banner && isAllowedHref(fields.banner)}
           <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
@@ -557,7 +761,13 @@
       <div class="profile-header">
         <div class="profile-header-text">
           <div class="profile-title-row">
-            <h2>{displayTitle}</h2>
+            <h2>
+              {#if isKindFiltered}
+                <a class="profile-title-link" href={`#/p/${npub || pubkey}`} use:link>{displayTitle}</a>
+              {:else}
+                {displayTitle}
+              {/if}
+            </h2>
             {#if grapevineRank != null || viewerFollows || readCount > 0}
               <div class="profile-badges">
                 {#if grapevineRank != null}
@@ -568,7 +778,7 @@
                 {#if viewerFollows}
                   <span class="profile-badge profile-badge-following">Following</span>
                 {/if}
-                {#if readCount > 0 && npub}
+                {#if readCount > 0 && npub && !isKindFiltered}
                   <a
                     class="profile-badge profile-read-link"
                     href={`#/search?read=${encodeURIComponent(npub)}`}
@@ -639,7 +849,7 @@
         </table>
       {/if}
     </div>
-    {#if profileActiveReading.length || readingEntries.length}
+    {#if !isKindFiltered && (profileActiveReading.length || readingEntries.length)}
       <section class="profile-reading" aria-label="Reading now">
         <h3 class="profile-reading-heading">
           Reading now
@@ -682,43 +892,81 @@
       </section>
     {/if}
   {/if}
-  {#if visibleProduced.length || visibleInteracted.length}
-    <div class="listing-toolbar listing-toolbar-section">
-      <ListingViewToggle label="Profile listings" />
-    </div>
-  {/if}
-  {#if $listingDensity === 'table'}
-    {#if allProfileListings.length}
-      <EventsTable events={allProfileListings} />
-    {/if}
-  {:else}
-    {#if visibleProduced.length}
-      <h2 class="section-title">Produced</h2>
-      <div class="card-grid card-grid-results">
-        {#each pagedProduced as event (event.id)}
-          <EventCard {event} />
-        {/each}
+
+  {#if isBlogMode && pubkey}
+    <section class="profile-blog" aria-label="Blog">
+      <div class="profile-blog-toolbar">
+        <h2 class="profile-blog-heading">Posts</h2>
+        <button class="btn profile-blog-share" type="button" onclick={() => void copyKindLink()}>
+          {shareCopied ? 'Link copied' : 'Copy blog link'}
+        </button>
       </div>
-      <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
-    {/if}
-    {#if visibleInteracted.length}
-      <h2 class="section-title">Interacted with</h2>
-      <div class="card-grid card-grid-results">
-        {#each pagedInteracted as event (event.id)}
-          <div class="interacted-card">
+      {#if visibleProduced.length}
+        <ProfileBlogFeed events={pagedProduced} />
+        <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
+      {:else}
+        <p class="muted profile-blog-empty">No long-form articles yet.</p>
+      {/if}
+    </section>
+  {:else if isKindFiltered && pubkey}
+    <section class="profile-kind-feed" aria-label={kindHeading}>
+      <div class="profile-blog-toolbar">
+        <h2 class="section-title" style="margin:0">{kindHeading}</h2>
+        <button class="btn profile-blog-share" type="button" onclick={() => void copyKindLink()}>
+          {shareCopied ? 'Link copied' : 'Copy link'}
+        </button>
+      </div>
+      {#if visibleProduced.length}
+        <div class="card-grid card-grid-results">
+          {#each pagedProduced as event (event.id)}
             <EventCard {event} />
-            {#if marksByWork.get(event.id)?.length}
-              <p class="interaction-marks muted">
-                {#each marksByWork.get(event.id) ?? [] as mark, i}
-                  {#if i > 0}<span>·</span>{/if}
-                  <span>{INTERACTION_MARK_LABELS[mark]}</span>
-                {/each}
-              </p>
-            {/if}
-          </div>
-        {/each}
+          {/each}
+        </div>
+        <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
+      {:else}
+        <p class="muted">Nothing of this kind yet.</p>
+      {/if}
+    </section>
+  {:else}
+    {#if visibleProduced.length || visibleInteracted.length}
+      <div class="listing-toolbar listing-toolbar-section">
+        <ListingViewToggle label="Profile listings" />
       </div>
-      <Pager page={interactedPage} total={visibleInteracted.length} {pageSize} onPage={(p) => (interactedPage = p)} />
     {/if}
+    {#if $listingDensity === 'table'}
+      {#if allProfileListings.length}
+        <EventsTable events={allProfileListings} />
+      {/if}
+    {:else}
+      {#if visibleProduced.length}
+        <h2 class="section-title">Produced</h2>
+        <div class="card-grid card-grid-results">
+          {#each pagedProduced as event (event.id)}
+            <EventCard {event} />
+          {/each}
+        </div>
+        <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
+      {/if}
+      {#if visibleInteracted.length}
+        <h2 class="section-title">Interacted with</h2>
+        <div class="card-grid card-grid-results">
+          {#each pagedInteracted as event (event.id)}
+            <div class="interacted-card">
+              <EventCard {event} />
+              {#if marksByWork.get(event.id)?.length}
+                <p class="interaction-marks muted">
+                  {#each marksByWork.get(event.id) ?? [] as mark, i}
+                    {#if i > 0}<span>·</span>{/if}
+                    <span>{INTERACTION_MARK_LABELS[mark]}</span>
+                  {/each}
+                </p>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <Pager page={interactedPage} total={visibleInteracted.length} {pageSize} onPage={(p) => (interactedPage = p)} />
+      {/if}
+    {/if}
+  {/if}
   {/if}
 </main>

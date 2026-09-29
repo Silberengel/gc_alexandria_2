@@ -104,6 +104,22 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).not.toContain('#713b32');
     expect(svg).not.toContain('WIKI');
   });
+
+  it('uses a magazine plate for long-form articles, distinct from wiki and spec', () => {
+    const article = {
+      ...ev([['title', 'Living Like God In France'], ['author', 'Silberengel'], ['d', 'living']]),
+      kind: 30023
+    };
+    const svg = coverPlaceholderSvg(article);
+    expect(svg).toContain('ARTICLE');
+    expect(svg).toContain('30023');
+    expect(svg).toContain('Living Like');
+    expect(svg).toContain('Silberengel');
+    expect(svg).toContain('Georgia');
+    expect(svg).not.toContain('>WIKI</');
+    expect(svg).not.toContain('>SPEC</');
+    expect(svg).not.toContain('#713b32');
+  });
 });
 
 describe('wrapWords', () => {

@@ -57,7 +57,8 @@
       event.kind === KIND.PUBLICATION ||
       event.kind === KIND.SECTION ||
       event.kind === KIND.WIKI ||
-      event.kind === KIND.SPEC
+      event.kind === KIND.SPEC ||
+      event.kind === KIND.LONG_FORM
     ) {
       return `${origin}/#${libraryDocumentPath(event)}`;
     }
