@@ -193,9 +193,7 @@
   /** Index/meta says there is no publishable text; keep the interactive page, hide Read. */
   let textUnavailable = $state(false);
   let loading = $state(true);
-  let commentText = $state('');
   let replyOpenId = $state<string | null>(null);
-  let commentComposeOpen = $state(false);
   let sectionCommentText = $state<Record<string, string>>({});
   let sectionComments = $state<Record<string, Event[]>>({});
   let sectionCommentsOpen = $state<Record<string, boolean>>({});
@@ -305,18 +303,6 @@
 
   function openCardReview(): void {
     ratingPanel?.openReviewEntry();
-  }
-
-  function openCardComment(): void {
-    if (!$session.pubkey) {
-      openLoginDialog();
-      return;
-    }
-    replyOpenId = null;
-    commentComposeOpen = true;
-    queueMicrotask(() => {
-      document.getElementById('edition-comments')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    });
   }
 
   const visibleComments = $derived(filterPageEvents(filterMuted(comments, $muteState), pageFilter));
@@ -3007,21 +2993,6 @@
     return () => root.removeEventListener('mouseup', onUp);
   });
 
-  async function postComment(): Promise<void> {
-    if (!event) return;
-    if (!$session.pubkey) {
-      openLoginDialog();
-      return;
-    }
-    if (!commentText.trim()) return;
-    const signed = await signAndPublish(commentDraft(event, commentText.trim()));
-    if (signed) {
-      comments = [...comments, signed];
-      commentText = '';
-      commentComposeOpen = false;
-    }
-  }
-
   async function postSectionComment(section: Event): Promise<void> {
     if (!$session.pubkey) {
       openLoginDialog();
@@ -3168,7 +3139,6 @@
         <div class="edition-actions">
           <ShelfActions publication={event} />
           {#if $session.pubkey}
-            <button class="btn" type="button" onclick={openCardComment}>Leave a comment</button>
             {#if cardPrimary === 'read'}
               <button class="btn" type="button" onclick={openCardReview}
                 >{hasMyReview ? 'Edit your review' : 'Write a review'}</button
