@@ -14,7 +14,8 @@ Feature: Mobile-first layout
     When I widen to a tablet, then a laptop or desktop
     Then the catalog gains columns and the top bar fills the width
     And I do not switch information architecture
-    And reading and wiki bodies keep a comfortable line length
+    And reading, wiki, profile, and other content shells keep the publication reading measure
+    And the home and search catalog shells stay wider so shelves and result grids can gain columns
     And on every width (phone through desktop) the table of contents is the same floating control: a quiet icon at the bottom-right over the text
     And that icon opens a fixed viewport panel in place and closes it again without covering the top bar
     And there is no separate sticky or sidebar ToC on wide screens — do not restore position:sticky desktop ToC rules

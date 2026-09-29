@@ -598,7 +598,7 @@
 
 <TopBar showSearch />
 
-<main class="shell landing-page">
+<main class="shell shell-wide landing-page">
   <header class="landing-hero">
     <div class="landing-hero-media">
       <img src="/screenshots/old_books.jpg" alt="" />

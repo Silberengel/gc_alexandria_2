@@ -21,8 +21,8 @@
   --text-muted: var(--ink-soft);
   --accent: var(--accent-strong);
   --border: var(--rule);
-  /* Match .shell so the reading pane fills available width and shrinks with the viewport. */
-  --max-read: 72rem;
+  /* Book-like measure shared by publication reader, wiki/articles, and reading-width blocks. */
+  --max-read: 760px;
   --radius: 0.65rem;
   /* Paper on paper — faint edge, whisper of lift */
   --border-soft: color-mix(in srgb, #5a4128 18%, transparent);
@@ -111,10 +111,16 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 .shell {
   flex: 1;
   width: 100%;
-  max-width: min(72rem, 100%);
+  /* Content pages (reader, wiki, profile, about…) share the book measure. */
+  max-width: min(var(--max-read), 100%);
   min-width: 0;
   margin: 0 auto;
   padding: 1.25rem 1rem 2.5rem;
+}
+
+/* Catalog surfaces need room for shelves and multi-column result grids. */
+.shell-wide {
+  max-width: min(72rem, 100%);
 }
 
 .settings-shell {
@@ -2300,9 +2306,8 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   box-sizing: border-box;
 }
 
-/* In-browser reader: a book-like measure, not a stretched canvas. */
+/* In-browser publication reader: slightly tighter type on the same measure. */
 .reader-layout .reading-body {
-  max-width: min(760px, 100%);
   font-size: 1.08rem;
   line-height: 1.65;
 }
@@ -4903,10 +4908,13 @@ mark.text-highlight.highlight-flash,
 }
 .profile-card {
   overflow: visible;
+  min-width: 0;
+  max-width: 100%;
 }
 .profile-hero {
   position: relative;
   margin: -0.15rem -0.15rem 0;
+  min-width: 0;
 }
 .profile-banner {
   width: 100%;
@@ -5082,6 +5090,18 @@ a.user-status-line:hover {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.profile-tag-list li {
+  min-width: 0;
+  max-width: 100%;
+}
+.profile-tag-list a {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .profile-npub {
   font-family: ui-monospace, monospace;
@@ -5153,17 +5173,17 @@ a.user-status-line:hover {
   word-break: break-all;
 }
 @media (min-width: 900px) {
-  .card-grid-results {
+  .shell-wide .card-grid-results {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .landing-feeds {
+  .shell-wide .landing-feeds {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
     gap: 2rem;
   }
 }
 @media (min-width: 1200px) {
-  .card-grid-results {
+  .shell-wide .card-grid-results {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -5418,9 +5438,6 @@ a.user-status-line:hover {
   margin-left: auto;
   text-decoration: none;
   white-space: nowrap;
-}
-.profile-blog-shell {
-  max-width: 46rem;
 }
 .profile-blog-page-header h1 {
   font-family: var(--display-font);

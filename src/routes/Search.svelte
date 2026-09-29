@@ -187,7 +187,7 @@
 </script>
 
 <TopBar />
-<main class="shell">
+<main class="shell shell-wide">
   <header class="page-header">
     <p class="page-kicker">Catalog</p>
     <h1>Search</h1>

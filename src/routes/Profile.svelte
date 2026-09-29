@@ -691,7 +691,7 @@
 </script>
 
 <TopBar />
-<main class="shell" class:profile-blog-shell={isBlogMode}>
+<main class="shell">
   {#if kindInvalid}
     <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
   {:else if resolveFailed}
