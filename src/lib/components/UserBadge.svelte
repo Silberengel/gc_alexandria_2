@@ -3,9 +3,6 @@
   import { link } from 'svelte-spa-router';
   import { nip19, type Event } from 'nostr-tools';
   import { KIND } from '$lib/constants';
-  import { relayPool } from '$lib/nostr/pool';
-  import { profileStack } from '$lib/nostr/selector';
-  import { cachePutEvent } from '$lib/nostr/cache';
   import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
   import {
     peekProfileThumb,
@@ -15,39 +12,7 @@
   import { pickLatestReplaceable } from '$lib/nostr/replaceable';
   import { muteState, isMutedAuthor } from '$lib/mute';
   import { session } from '$lib/stores/session';
-
-  /** Shared in-flight kind-0 fetches so badge grids do not N+1 the same pubkey. */
-  const metadataInflight = new Map<string, Promise<Event | null>>();
-
-  function ensureMetadata(pubkey: string): Promise<Event | null> {
-    const pk = pubkey.trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(pk)) return Promise.resolve(null);
-    const mem = memoryFindMetadata(pk);
-    if (mem) return Promise.resolve(mem);
-    const pending = metadataInflight.get(pk);
-    if (pending) return pending;
-    const job = (async () => {
-      try {
-        const fetched = await relayPool.query(
-          profileStack(),
-          [{ kinds: [0], authors: [pk], limit: 1 }],
-          4000
-        );
-        const meta =
-          pickLatestReplaceable(fetched, KIND.METADATA, pk) ?? fetched[0] ?? null;
-        if (meta) {
-          void cachePutEvent(meta);
-          rememberEvents([meta]);
-          rememberProfileFromKind0(meta);
-        }
-        return meta;
-      } finally {
-        metadataInflight.delete(pk);
-      }
-    })();
-    metadataInflight.set(pk, job);
-    return job;
-  }
+  import { ensureMetadata } from '$lib/ensure-metadata';
 
   interface Props {
     pubkey: string;

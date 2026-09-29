@@ -19,6 +19,8 @@
     content?: string;
     kind?: number;
     embedDepth?: number;
+    /** When false, skip fetching/painting naddr/nevent/note cards (e.g. Quotes lists). */
+    showEmbeds?: boolean;
     quotes?: Array<string | HighlightQuote>;
     /**
      * When false, keep body images even if they match the event cover
@@ -32,6 +34,7 @@
     content = '',
     kind,
     embedDepth = 0,
+    showEmbeds = true,
     quotes = [],
     dedupeHeroImage = true
   }: Props = $props();
@@ -66,6 +69,7 @@
     const whole = wholeDocument;
     const q = quotes;
     const heroes = heroUrls;
+    const embeds = showEmbeds && embedDepth <= 1;
     let cancelled = false;
     bodyPending = true;
     segments = [];
@@ -87,9 +91,10 @@
           segments = next;
           bodyPending = false;
         }
+        if (!embeds) return;
         await Promise.all(
           next.map(async (seg, i) => {
-            if (seg.type !== 'ref' || embedDepth > 1) return;
+            if (seg.type !== 'ref') return;
             if (seg.kind === 'naddr' && seg.naddr) {
               found[i] = await fetchByAddress(
                 `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
@@ -115,7 +120,7 @@
             return;
           }
           next[i] = seg;
-          if (embedDepth > 1) return;
+          if (!embeds) return;
           if (seg.kind === 'naddr' && seg.naddr) {
             found[i] = await fetchByAddress(
               `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
@@ -199,6 +204,8 @@
       {#if seg.pubkey}
         <UserBadge pubkey={seg.pubkey} compact />
       {/if}
+    {:else if !showEmbeds}
+      <!-- Quotes already sit under the work — omit redundant event cards. -->
     {:else if embedDepth > 1}
       <span class="muted">Embedded event</span>
     {:else if resolved[i]}
