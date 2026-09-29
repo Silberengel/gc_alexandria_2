@@ -626,12 +626,6 @@
         {:else}
           <span class="landing-hero-status-spacer" aria-hidden="true"></span>
         {/if}
-        <p class="landing-hero-crosslink">
-          <a href="https://biblestr.imwald.eu/" target="_blank" rel="noopener noreferrer">
-            <img class="landing-hero-crosslink-icon" src="/biblestr-icon.png" alt="" width="18" height="18" />
-            Biblestr
-          </a>
-        </p>
       </div>
     </div>
   </header>
@@ -640,13 +634,23 @@
     <section class="landing-section landing-guides">
       <div class="landing-section-heading">
         <h2 class="section-title">Guides</h2>
-        <p class="landing-section-hint">Curated bookshelves from GitCitadel</p>
+        <p class="landing-section-hint">Curated bookshelves and topical-library clients from GitCitadel</p>
       </div>
       <nav class="guide-links" aria-label="Starter guides">
         {#each visibleGuides as guide, i (guide.d)}
           {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
           <a href={guide.href} use:link>{guide.title}</a>
         {/each}
+        <span class="guide-links-sep" aria-hidden="true">·</span>
+        <a
+          class="guide-links-external"
+          href="https://biblestr.imwald.eu/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img class="guide-links-icon" src="/biblestr-icon.png" alt="" width="16" height="16" />
+          Biblestr
+        </a>
       </nav>
     </section>
   {/if}
