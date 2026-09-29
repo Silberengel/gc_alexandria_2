@@ -10,18 +10,15 @@
   interface Props {
     event: Event;
     embedDepth?: number;
-    /** Compact search-list row. */
-    density?: 'full' | 'list';
   }
 
-  let { event, density = 'full' }: Props = $props();
+  let { event }: Props = $props();
 
   const preview = $derived(eventPreview(event));
   const media = $derived(uniqueMedia(event));
-  const isList = $derived(density === 'list');
 </script>
 
-<article class="card generic-card" class:generic-card-list={isList}>
+<article class="card generic-card">
   <CopyPointerButton {event} class="generic-card-copy" />
   <p class="generic-card-kind muted">{preview.kindLine}</p>
   <h3 class="generic-card-title">{preview.headline}</h3>
@@ -37,23 +34,21 @@
       {/each}
     </div>
   {/if}
-  {#if !isList}
-    {#each [...preview.imageUrls, ...media.filter((m) => m.type === 'image').map((m) => m.url)]
-      .filter((u, i, arr) => arr.indexOf(u) === i)
-      .slice(0, 4) as url}
-      {#if isAllowedMediaUrl(url)}
-        <img class="generic-media" src={url} alt="" loading="lazy" />
-      {/if}
-    {/each}
-    {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}
-      {#if item.type === 'video' && isAllowedMediaUrl(item.url)}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video class="generic-media" src={item.url} controls></video>
-      {:else if item.type === 'audio' && isAllowedMediaUrl(item.url)}
-        <audio src={item.url} controls></audio>
-      {/if}
-    {/each}
-  {/if}
+  {#each [...preview.imageUrls, ...media.filter((m) => m.type === 'image').map((m) => m.url)]
+    .filter((u, i, arr) => arr.indexOf(u) === i)
+    .slice(0, 4) as url}
+    {#if isAllowedMediaUrl(url)}
+      <img class="generic-media" src={url} alt="" loading="lazy" />
+    {/if}
+  {/each}
+  {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}
+    {#if item.type === 'video' && isAllowedMediaUrl(item.url)}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video class="generic-media" src={item.url} controls></video>
+    {:else if item.type === 'audio' && isAllowedMediaUrl(item.url)}
+      <audio src={item.url} controls></audio>
+    {/if}
+  {/each}
   {#if preview.summary && preview.summary !== preview.body}
     <p class="generic-card-summary muted">{preview.summary}</p>
   {/if}

@@ -3,7 +3,7 @@
   import { link, replace } from 'svelte-spa-router';
   import { KIND } from '$lib/constants';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { cardMeta, displayTitle, libraryDocumentPath, publicationPath } from '$lib/metadata';
+  import { cardMeta, displayTitle, hasPublicationSection, libraryDocumentPath, publicationPath } from '$lib/metadata';
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchContainingPublication } from '$lib/landing';
@@ -106,7 +106,6 @@
   const shareUrl = $derived(
     isSection && sectionEdition ? readerShareUrl(sectionEdition, event) : ''
   );
-  const summary = $derived(meta.summary?.trim() ?? '');
   const kindLabel = $derived(
     event.kind === KIND.SPEC
       ? 'Spec'
@@ -125,6 +124,10 @@
       : ''
   );
   const isRow = $derived(variant === 'row');
+  const isFullPublication = $derived(
+    event.kind === KIND.PUBLICATION && hasPublicationSection(event)
+  );
+  const showStatusBadge = $derived(!isRow && event.kind === KIND.PUBLICATION);
   const cardAvg = $derived(
     typeof ratingAverageProp === 'number' && Number.isFinite(ratingAverageProp)
       ? ratingAverageProp
@@ -232,6 +235,11 @@
         {#if isSection && sectionResolveBusy && !sectionEdition}
           <p class="muted pub-card-section-hint">Finding edition…</p>
         {/if}
+        {#if showStatusBadge}
+          <span class="pub-card-status">
+            {isFullPublication ? 'Full publication' : 'Library card'}
+          </span>
+        {/if}
       </div>
     </div>
     {#if showMeta && meta.defers}
@@ -250,8 +258,6 @@
           >
         {/if}
       </div>
-    {:else if showMeta && summary}
-      <p class="muted pub-card-summary">{summary}</p>
     {/if}
   </div>
 {/if}

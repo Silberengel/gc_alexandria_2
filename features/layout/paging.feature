@@ -6,11 +6,9 @@ Feature: Card paging
 
   Background:
     Given full card lists show 48 per page (3-column grid, no orphan row), current page only, loading when they enter view
-    And compact grid pages at 96 mini-cards
     And table view pages at 240 rows
     And search results stop at 100
     And each shelf shows at most 48 covers in full view
-    And each shelf compact grid shows at most 96 mini-cards
     And the highlight list has at most 10 entries
     And the rating list has at most 10 entries
     And What we are discussing shows at most 10 comments

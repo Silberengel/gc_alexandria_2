@@ -2,6 +2,8 @@
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
   import Pager from './Pager.svelte';
+  import Cover from './Cover.svelte';
+  import UserBadge from './UserBadge.svelte';
   import {
     LISTING_PAGE_SIZE_TABLE,
     listingTableRow,
@@ -9,7 +11,6 @@
     type ListingTableColumn
   } from '$lib/listing-table';
   import { warmNavEvent } from '$lib/nav-warm';
-  import CopyPointerButton from './CopyPointerButton.svelte';
 
   interface Props {
     events: Event[];
@@ -70,6 +71,7 @@
     <table class="listing-table">
       <thead>
         <tr>
+          <th scope="col" class="listing-table-cover-col"><span class="sr-only">Cover</span></th>
           <th scope="col" aria-sort={ariaSort('title')}>
             <button type="button" class="listing-table-sort" onclick={() => toggleSort('title')}>
               Title{#if sortColumn === 'title'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
@@ -80,12 +82,24 @@
               Author{#if sortColumn === 'author'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
             </button>
           </th>
-          <th scope="col" class="listing-table-copy-col"><span class="sr-only">Copy</span></th>
+          <th scope="col" aria-sort={ariaSort('pubkey')}>
+            <button type="button" class="listing-table-sort" onclick={() => toggleSort('pubkey')}>
+              Publisher{#if sortColumn === 'pubkey'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
+            </button>
+          </th>
         </tr>
       </thead>
       <tbody>
         {#each paged as row (row.id)}
+          {@const ev = byId.get(row.id)}
           <tr>
+            <td class="listing-table-cover-col">
+              {#if ev}
+                <span class="listing-table-cover">
+                  <Cover event={ev} />
+                </span>
+              {/if}
+            </td>
             <td title={row.titleFull !== row.title ? row.titleFull : undefined}>
               {#if row.href}
                 <a href={row.href} use:link onpointerdown={() => warmRow(row.id)}>{row.title}</a>
@@ -96,10 +110,8 @@
             <td title={row.authorFull !== row.author ? row.authorFull : undefined}>
               {row.author || '—'}
             </td>
-            <td class="listing-table-copy-col">
-              {#if byId.get(row.id)}
-                <CopyPointerButton event={byId.get(row.id)!} />
-              {/if}
+            <td class="listing-table-publisher-col" title={row.pubkey}>
+              <UserBadge pubkey={row.pubkey} />
             </td>
           </tr>
         {/each}

@@ -1416,12 +1416,6 @@ select:hover {
   color: var(--ink);
   background: color-mix(in srgb, var(--ink-soft) 14%, transparent);
 }
-.listing-list {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.55rem;
-  min-width: 0;
-}
 .listing-row {
   display: flex;
   align-items: center;
@@ -1551,6 +1545,27 @@ a.listing-row:hover,
 }
 .listing-table-sort:hover {
   color: var(--accent);
+}
+.listing-table-cover-col {
+  width: 2.6rem;
+  padding-right: 0.25rem;
+  vertical-align: middle;
+}
+.listing-table-cover {
+  display: block;
+  width: 2.15rem;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.listing-table-cover .cover-frame,
+.listing-table-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .listing-table-clip {
   max-width: 14rem;
@@ -1960,11 +1975,13 @@ a.listing-row:hover,
   overflow: hidden;
   min-width: 0;
   max-width: 100%;
-  height: 400px;
-  max-height: 400px;
+  height: 250px;
+  max-height: 250px;
   box-sizing: border-box;
   padding: 0.75rem;
   padding-right: 2.5rem;
+  /* Cover fills the padded content box (2:3). */
+  --pub-card-cover-h: calc(250px - 1.5rem);
 }
 .pub-card:has(.event-more-menu-open) {
   overflow: visible;
@@ -1977,15 +1994,16 @@ a.listing-row:hover,
   gap: 0.85rem;
   min-width: 0;
   min-height: 0;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   overflow: hidden;
 }
 
 .pub-card-cover {
   position: relative;
-  flex: 0 0 6.75rem;
-  width: 6.75rem;
-  max-width: 38%;
+  flex: 0 0 auto;
+  height: var(--pub-card-cover-h);
+  width: calc(var(--pub-card-cover-h) * 2 / 3);
+  max-width: 48%;
   aspect-ratio: 2 / 3;
   align-self: flex-start;
   border-radius: 0.35rem;
@@ -2089,44 +2107,22 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   overflow: hidden;
 }
 
-.pub-card-readable {
-  margin: 0 0 0.45rem;
+.pub-card-status {
+  margin: auto 0 0;
+  padding-top: 0.35rem;
+  max-width: 100%;
   font-family: var(--ui-font);
-  font-size: var(--text-meta);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1.3;
-  -webkit-line-clamp: 1;
-  line-clamp: 1;
-}
-.pub-card-readable-yes {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text));
-}
-.pub-card-readable-no {
-  color: var(--ink-soft);
-  font-weight: 550;
-}
-
-.pub-card-summary {
-  margin: 0;
-  margin-top: auto;
-  width: 100%;
-  min-height: 0;
-  flex: 1 1 auto;
-  font-family: var(--reading-font);
-  font-size: var(--text-body);
-  line-height: var(--leading-body);
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
-  line-clamp: 6;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--text-muted) 78%, transparent);
+  text-align: left;
+  align-self: flex-start;
+  flex: 0 0 auto;
+  white-space: nowrap;
   overflow: hidden;
-}
-
-.pub-card-section .pub-card-summary {
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  text-overflow: ellipsis;
 }
 
 .pub-card-section-hint {
@@ -3256,13 +3252,6 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.generic-card-list .generic-card-body {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 .generic-card-empty {
   font-style: italic;
   margin: 0.35rem 0 0;
@@ -3339,6 +3328,44 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   width: 2.5rem;
   text-align: right;
   white-space: nowrap;
+}
+.listing-table-publisher-col {
+  width: 2.25rem;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.listing-table-publisher-col .userbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+/* Mobile: avatar only. */
+.listing-table-publisher-col .userbadge span {
+  display: none;
+}
+.listing-table-publisher-col .userbadge-avatar {
+  width: 1.35rem;
+  height: 1.35rem;
+  flex-shrink: 0;
+}
+@media (min-width: 640px) {
+  .listing-table-publisher-col {
+    width: auto;
+  }
+  .listing-table-publisher-col .userbadge {
+    gap: 0.35rem;
+  }
+  .listing-table-publisher-col .userbadge span {
+    display: inline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 .sr-only {
   position: absolute;
@@ -5054,11 +5081,6 @@ a.user-status-line:hover {
     box-shadow: 0 0.25rem 0.85rem color-mix(in srgb, var(--text) 18%, transparent);
   }
 }
-@media (min-width: 640px) {
-  .listing-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 @media (min-width: 900px) {
   .reader-layout {
     grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
@@ -5086,9 +5108,6 @@ a.user-status-line:hover {
 }
 @media (min-width: 1200px) {
   .card-grid-results {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .listing-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

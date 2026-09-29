@@ -5,8 +5,6 @@ import type { ListingDensity } from './stores/listing-density';
 
 /** Full detailed cards (multiple of 3 columns). */
 export const LISTING_PAGE_SIZE_FULL = 48;
-/** Compact mini-card grids (multiple of 3 columns). */
-export const LISTING_PAGE_SIZE_COMPACT = 96;
 /** Table rows (multiple of 3 for layout parity with card grids). */
 export const LISTING_PAGE_SIZE_TABLE = 240;
 export const LISTING_PAGE_SIZE_DEFAULT = LISTING_PAGE_SIZE_FULL;
@@ -14,7 +12,6 @@ export const LISTING_TABLE_CELL_MAX = 100;
 
 export function listingPageSize(density: ListingDensity): number {
   if (density === 'table') return LISTING_PAGE_SIZE_TABLE;
-  if (density === 'list') return LISTING_PAGE_SIZE_COMPACT;
   return LISTING_PAGE_SIZE_FULL;
 }
 
@@ -33,12 +30,13 @@ export function cropListingCell(value: string, max = LISTING_TABLE_CELL_MAX): st
   return `${s.slice(0, Math.max(0, max - 1))}…`;
 }
 
-export type ListingTableColumn = 'title' | 'author';
+export type ListingTableColumn = 'title' | 'author' | 'pubkey';
 
 export type ListingTableRow = {
   id: string;
   title: string;
   author: string;
+  pubkey: string;
   titleFull: string;
   authorFull: string;
   href: string;
@@ -56,10 +54,12 @@ export function listingTableRow(event: Event): ListingTableRow {
   const meta = cardMeta(event);
   const titleFull = displayTitle(event);
   const authorFull = meta.authors.join(', ');
+  const pubkey = event.pubkey.toLowerCase();
   return {
     id: event.id,
     title: cropListingCell(titleFull),
     author: cropListingCell(authorFull),
+    pubkey,
     titleFull,
     authorFull,
     href: eventHref(event) ?? ''

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
+import { parseStoredListingDensity } from './stores/listing-density';
 
 const mem = new Map<string, string>();
 
@@ -20,20 +21,24 @@ beforeAll(() => {
 });
 
 describe('listingDensity', () => {
-  it('persists full, list, and table choices', async () => {
+  it('persists full and table choices', async () => {
     mem.clear();
     const { listingDensity } = await import('./stores/listing-density');
-    listingDensity.set('list');
-    expect(get(listingDensity)).toBe('list');
-    expect(localStorage.getItem('alexandria-listing-density')).toBe('list');
     listingDensity.set('table');
     expect(get(listingDensity)).toBe('table');
     expect(localStorage.getItem('alexandria-listing-density')).toBe('table');
     listingDensity.set('full');
     expect(get(listingDensity)).toBe('full');
     listingDensity.toggle();
-    expect(get(listingDensity)).toBe('list');
-    listingDensity.toggle();
     expect(get(listingDensity)).toBe('table');
+    listingDensity.toggle();
+    expect(get(listingDensity)).toBe('full');
+  });
+
+  it('maps legacy compact-grid preference to full', () => {
+    expect(parseStoredListingDensity('list')).toBe('full');
+    expect(parseStoredListingDensity('table')).toBe('table');
+    expect(parseStoredListingDensity('full')).toBe('full');
+    expect(parseStoredListingDensity(null)).toBe('full');
   });
 });

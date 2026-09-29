@@ -245,13 +245,9 @@
   {#if $listingDensity === 'table'}
     <EventsTable events={visible} />
   {:else}
-    <div
-      class:card-grid={$listingDensity === 'full'}
-      class:card-grid-results={$listingDensity === 'full'}
-      class:listing-list={$listingDensity === 'list'}
-    >
+    <div class="card-grid card-grid-results">
       {#each paged as event (event.id)}
-        <EventCard {event} density={$listingDensity} />
+        <EventCard {event} />
       {/each}
     </div>
     <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />

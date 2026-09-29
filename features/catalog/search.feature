@@ -31,12 +31,11 @@ Feature: Search
     And publication covers show the book-icon badge when that index has a/e tags (merges keep the richer tag set so thin search hits do not hide it)
     And each card has a more menu to copy its nevent or naddr and open it on njump.me or jumble.imwald.eu
     And unfamiliar kinds show a kind line, a title only when a title tag is present (≤100, plaintext), author, and plaintext body from content (≤250, markup stripped)
-    And full, compact-grid, and table layout icon buttons switch density (persisted with home and profile)
-    And in full view those cards are horizontal, with the full cover on the left, summary when present, and up to three per row on a wide screen
-    And result cards are cropped to at most 500px tall
-    And in compact grid view results are compact cells in that same responsive column count
-    And full cards page at 48, compact at 96, table at 240
-    And in table view results are a sortable text table with no pictures, paging at 240
+    And full and table layout icon buttons switch density (persisted with home and profile)
+    And in full view those cards are horizontal, with the full cover on the left, and up to three per row on a wide screen
+    And result cards are cropped to at most 250px tall
+    And full cards page at 48, table at 240
+    And in table view results are a sortable Title/Author/Publisher table with small cover thumbnails, paging at 240
     And I do not see bookshelves, landing highlights, What we are discussing, subject buttons, or label buttons
 
   Scenario: Typeahead uses Mercury suggest

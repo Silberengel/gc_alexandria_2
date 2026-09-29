@@ -694,27 +694,19 @@
   {:else}
     {#if visibleProduced.length}
       <h2 class="section-title">Produced</h2>
-      <div
-        class:card-grid={$listingDensity === 'full'}
-        class:card-grid-results={$listingDensity === 'full'}
-        class:listing-list={$listingDensity === 'list'}
-      >
+      <div class="card-grid card-grid-results">
         {#each pagedProduced as event (event.id)}
-          <EventCard {event} density={$listingDensity} />
+          <EventCard {event} />
         {/each}
       </div>
       <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
     {/if}
     {#if visibleInteracted.length}
       <h2 class="section-title">Interacted with</h2>
-      <div
-        class:card-grid={$listingDensity === 'full'}
-        class:card-grid-results={$listingDensity === 'full'}
-        class:listing-list={$listingDensity === 'list'}
-      >
+      <div class="card-grid card-grid-results">
         {#each pagedInteracted as event (event.id)}
           <div class="interacted-card">
-            <EventCard {event} density={$listingDensity} />
+            <EventCard {event} />
             {#if marksByWork.get(event.id)?.length}
               <p class="interaction-marks muted">
                 {#each marksByWork.get(event.id) ?? [] as mark, i}

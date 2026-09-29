@@ -8,15 +8,13 @@
   import UserBadge from './UserBadge.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import { eventPreview } from '$lib/event-preview';
-  import type { ListingDensity } from '$lib/stores/listing-density';
 
   interface Props {
     event: Event;
     embedDepth?: number;
-    density?: ListingDensity;
   }
 
-  let { event, embedDepth = 0, density = 'full' }: Props = $props();
+  let { event, embedDepth = 0 }: Props = $props();
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -32,25 +30,7 @@
   const preview = $derived(eventPreview(event));
 </script>
 
-{#if density === 'list'}
-  {#if isPubLike}
-    <PublicationCard {event} variant="row" />
-  {:else if isNoteLike}
-    <article class="card generic-card generic-card-list note-card-list">
-      <CopyPointerButton {event} class="generic-card-copy" />
-      <p class="generic-card-kind muted">{preview.kindLine}</p>
-      <h3 class="generic-card-title">{preview.headline}</h3>
-      <p class="generic-card-by muted">
-        by <UserBadge pubkey={event.pubkey} />
-      </p>
-      {#if preview.body}
-        <p class="generic-card-body muted">{preview.body}</p>
-      {/if}
-    </article>
-  {:else}
-    <GenericCard {event} {embedDepth} density="list" />
-  {/if}
-{:else if isPubLike}
+{#if isPubLike}
   <PublicationCard {event} />
 {:else if event.kind === KIND.PICTURE}
   <div class="result-card-wrap">

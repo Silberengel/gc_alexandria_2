@@ -23,9 +23,8 @@ describe('cropText', () => {
 });
 
 describe('listingPageSize', () => {
-  it('uses 48 full, 96 compact, 240 table (multiples of 3)', () => {
+  it('uses 48 full, 240 table (multiples of 3)', () => {
     expect(listingPageSize('full')).toBe(48);
-    expect(listingPageSize('list')).toBe(96);
     expect(listingPageSize('table')).toBe(240);
   });
 });
@@ -46,11 +45,11 @@ describe('listing table rows', () => {
     const row = listingTableRow(event);
     expect(row.title.length).toBe(100);
     expect(row.author.length).toBe(100);
-    expect(row.titleFull).toBe(long);
-    expect(row.authorFull).toBe(long);
+    expect(row.title.endsWith('…')).toBe(true);
+    expect(row.author.endsWith('…')).toBe(true);
   });
 
-  it('maps title and author only', () => {
+  it('maps title, author, and pubkey', () => {
     const event = ev({
       kind: 30040,
       pubkey: 'aa'.repeat(32),
@@ -63,15 +62,16 @@ describe('listing table rows', () => {
     const row = listingTableRow(event);
     expect(row.title).toBe('Republic');
     expect(row.author).toBe('Plato');
+    expect(row.pubkey).toBe('aa'.repeat(32));
     expect(row.href).toContain('/publication/');
   });
 
-  it('sorts by title and author', () => {
+  it('sorts by title, author, and pubkey', () => {
     const a = listingTableRow(
       ev({
         id: '11'.repeat(32),
         kind: 30040,
-        pubkey: 'aa'.repeat(32),
+        pubkey: 'bb'.repeat(32),
         tags: [
           ['title', 'Beta'],
           ['author', 'Zeno']
@@ -82,7 +82,7 @@ describe('listing table rows', () => {
       ev({
         id: '22'.repeat(32),
         kind: 30040,
-        pubkey: 'bb'.repeat(32),
+        pubkey: 'aa'.repeat(32),
         tags: [
           ['title', 'Alpha'],
           ['author', 'Aristotle']
@@ -93,6 +93,10 @@ describe('listing table rows', () => {
     expect(sortListingRows([a, b], 'author', 'asc').map((r) => r.author)).toEqual([
       'Aristotle',
       'Zeno'
+    ]);
+    expect(sortListingRows([a, b], 'pubkey', 'asc').map((r) => r.pubkey)).toEqual([
+      'aa'.repeat(32),
+      'bb'.repeat(32)
     ]);
   });
 });

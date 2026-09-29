@@ -5,9 +5,8 @@
   import LandingRefRow from '$lib/components/LandingRefRow.svelte';
   import LandingRatingRow from '$lib/components/LandingRatingRow.svelte';
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
-  import PublicationCard from '$lib/components/PublicationCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
-  import { LISTING_PAGE_SIZE_COMPACT, LISTING_PAGE_SIZE_FULL } from '$lib/listing-table';
+  import { LISTING_PAGE_SIZE_FULL } from '$lib/listing-table';
   import {
     LANDING_FEED_LIMIT,
     landingCoverSeed,
@@ -687,14 +686,7 @@
                 {/if}
               </h2>
             </div>
-            {#if $listingDensity === 'list'}
-              <div class="listing-list">
-                {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
-                  <PublicationCard event={pub} variant="row" />
-                {/each}
-              </div>
-            {:else}
-              <div class="shelf-track shelf-track-reading" use:shelfWheel>
+            <div class="shelf-track shelf-track-reading" use:shelfWheel>
                 <div class="shelf-bar">
                   {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
                     {@const tipTitle = coverTitle(pub)}
@@ -741,7 +733,6 @@
                   {/each}
                 </div>
               </div>
-            {/if}
           </section>
           <LandingFollowsReading />
         </div>
@@ -758,13 +749,6 @@
             {/if}
           </h2>
         </div>
-        {#if $listingDensity === 'list'}
-          <div class="listing-list">
-            {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_COMPACT) as pub (pub.id)}
-              <PublicationCard event={pub} variant="row" />
-            {/each}
-          </div>
-        {:else}
           <div class="shelf-track" use:shelfWheel>
             <div class="shelf-bar">
               {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
@@ -785,7 +769,6 @@
               {/each}
             </div>
           </div>
-        {/if}
       </section>
       {/if}
     {/each}

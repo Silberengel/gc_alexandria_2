@@ -33,24 +33,6 @@
   <button
     type="button"
     class="listing-view-btn"
-    class:active={$listingDensity === 'list'}
-    aria-pressed={$listingDensity === 'list'}
-    aria-label="Compact grid"
-    title="Compact grid"
-    onclick={() => setMode('list')}
-  >
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <line x1="8" y1="6" x2="21" y2="6" />
-      <line x1="8" y1="12" x2="21" y2="12" />
-      <line x1="8" y1="18" x2="21" y2="18" />
-      <line x1="3" y1="6" x2="3.01" y2="6" />
-      <line x1="3" y1="12" x2="3.01" y2="12" />
-      <line x1="3" y1="18" x2="3.01" y2="18" />
-    </svg>
-  </button>
-  <button
-    type="button"
-    class="listing-view-btn"
     class:active={$listingDensity === 'table'}
     aria-pressed={$listingDensity === 'table'}
     aria-label="Table view"

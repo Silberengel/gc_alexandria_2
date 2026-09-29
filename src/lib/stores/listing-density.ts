@@ -1,18 +1,22 @@
 import { get, writable } from 'svelte/store';
 
-/** Full = detailed cards / cover shelves; list = compact grid; table = sortable text table. */
-export type ListingDensity = 'full' | 'list' | 'table';
+/** Full = detailed cards / cover shelves; table = sortable text table. */
+export type ListingDensity = 'full' | 'table';
 
 const STORAGE_KEY = 'alexandria-listing-density';
 
+/** Normalize a stored preference (legacy `list` compact-grid → full). */
+export function parseStoredListingDensity(raw: string | null): ListingDensity {
+  if (raw === 'table') return 'table';
+  return 'full';
+}
+
 function read(): ListingDensity {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === 'list' || raw === 'table') return raw;
+    return parseStoredListingDensity(localStorage.getItem(STORAGE_KEY));
   } catch {
-    /* ignore */
+    return 'full';
   }
-  return 'full';
 }
 
 function createListingDensityStore() {
@@ -34,7 +38,7 @@ function createListingDensityStore() {
       persist(next);
     },
     toggle() {
-      const order: ListingDensity[] = ['full', 'list', 'table'];
+      const order: ListingDensity[] = ['full', 'table'];
       const cur = get(store);
       persist(order[(order.indexOf(cur) + 1) % order.length]!);
     }

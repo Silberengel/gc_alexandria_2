@@ -20,5 +20,4 @@ Feature: Mobile-first layout
     And tapping or clicking outside the open ToC closes it
     And Highlights and What we are discussing sit in two columns
     And in full view search result cards grow to two, then up to three columns on a wide screen
-    And compact grid listings use that same one / two / three column rhythm
-    And full/compact/table layout icon buttons are available on home, search, and profile listings
+    And full/table layout icon buttons are available on home, search, and profile listings
