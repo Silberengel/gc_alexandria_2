@@ -304,15 +304,15 @@
         </p>
 
         {@render metaTable(true)}
-
-        {#if meta.summary}
-          <p class="edition-summary" class:edition-summary-rule={!children}>{meta.summary}</p>
-        {/if}
-
-        {#if children}
-          {@render children()}
-        {/if}
       </div>
     </div>
+
+    {#if meta.summary}
+      <p class="edition-summary" class:edition-summary-rule={!children}>{meta.summary}</p>
+    {/if}
+
+    {#if children}
+      {@render children()}
+    {/if}
   </div>
 {/if}

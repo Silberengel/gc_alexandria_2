@@ -51,7 +51,7 @@ export async function resolveProfilePubkey(rawId: string): Promise<string | null
 
 /** Friendly heading for a kind-filtered profile listing. */
 export function profileKindHeading(kind: number): string {
-  if (kind === KIND.LONG_FORM) return 'Blog';
+  if (kind === KIND.LONG_FORM) return 'Articles';
   if (kind === KIND.PUBLICATION) return 'Publications';
   if (kind === KIND.WIKI) return 'Wiki pages';
   if (kind === KIND.SPEC) return 'Specifications';

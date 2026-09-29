@@ -38,8 +38,8 @@ describe('decodeProfileIdSegment', () => {
 });
 
 describe('profileKindHeading', () => {
-  it('labels long-form as Blog', () => {
-    expect(profileKindHeading(KIND.LONG_FORM)).toBe('Blog');
+  it('labels long-form as Articles', () => {
+    expect(profileKindHeading(KIND.LONG_FORM)).toBe('Articles');
     expect(profileKindHeading(42)).toBe('Kind 42');
   });
 });

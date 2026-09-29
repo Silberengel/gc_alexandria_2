@@ -56,14 +56,12 @@
   import { publicationPath } from '$lib/metadata';
   import { link } from 'svelte-spa-router';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
-  import ProfileBlogFeed from '$lib/components/ProfileBlogFeed.svelte';
   import {
     parseKindParam,
     decodeProfileIdSegment,
     resolveProfilePubkey,
     profileKindHeading,
-    profileKindPath,
-    eventChronologySec
+    profileKindPath
   } from '$lib/profile-route';
 
   interface Props {
@@ -114,20 +112,12 @@
     isOwnProfile ? $readingPrefs.concurrent : READING_CONCURRENT_DEFAULT
   );
   const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
-  const isBlogMode = $derived(kindFilter === KIND.LONG_FORM);
   const isKindFiltered = $derived(kindFilter != null);
   const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
   const profileShareId = $derived(profilePathId || npub || pubkey);
-  const blogPath = $derived(
-    profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : ''
-  );
-  const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
   const filteredProduced = $derived.by(() => {
     let list = filterMuted(produced, $muteState);
     if (kindFilter != null) list = list.filter((e) => e.kind === kindFilter);
-    if (isBlogMode) {
-      return [...list].sort((a, b) => eventChronologySec(b) - eventChronologySec(a));
-    }
     return list;
   });
   const visibleProduced = $derived(filterPageEvents(filteredProduced, pageFilter));
@@ -387,7 +377,7 @@
         npub = nextPk;
       }
 
-      // Prefer a verified NIP-05 in the path for shareable blog URLs.
+      // Prefer a verified NIP-05 in the path for shareable kind URLs.
       if (!profilePathId.includes('@')) {
         profilePathId = npub || nextPk;
       }
@@ -698,41 +688,20 @@
   {:else if resolveFailed}
     <ErrorPage title="Profile not found" message="This address could not be resolved to a pubkey." />
   {:else}
-    <header class="page-header" class:profile-blog-page-header={isBlogMode}>
-      <p class="page-kicker">{isBlogMode ? 'Blog' : 'Reader'}</p>
-      <h1>
-        {#if isBlogMode}
-          {fields.title || warmName || 'Blog'}
-        {:else if isKindFiltered}
-          {kindHeading}
-        {:else}
-          Profile
-        {/if}
-      </h1>
+    <header class="page-header">
+      <p class="page-kicker">Reader</p>
+      <h1>{isKindFiltered ? kindHeading : 'Profile'}</h1>
     </header>
-    {#if !isKindFiltered || isBlogMode}
+    {#if !isKindFiltered}
       <div class="profile-filter-row">
-        {#if !isKindFiltered}
-          <PageFilter bind:value={pageFilter} />
-        {:else}
-          <span class="profile-filter-row-spacer" aria-hidden="true"></span>
-        {/if}
-        {#if profileShareId}
-          {#if isBlogMode}
-            <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link
-              >View the full profile</a
-            >
-          {:else}
-            <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
-          {/if}
-        {/if}
+        <PageFilter bind:value={pageFilter} />
       </div>
     {/if}
     {#if resolving && !pubkey}
       <p class="loading-hint">Looking up profile…</p>
     {/if}
     {#if pubkey}
-    <div class="card profile-card" class:profile-card-blog={isBlogMode}>
+    <div class="card profile-card">
       <div class="profile-hero">
         {#if fields.banner && isAllowedHref(fields.banner)}
           <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
@@ -894,26 +863,11 @@
     {/if}
   {/if}
 
-  {#if isBlogMode && pubkey}
-    <section class="profile-blog" aria-label="Blog">
-      <div class="profile-blog-toolbar">
-        <h2 class="profile-blog-heading">Posts</h2>
-        <button class="btn profile-blog-share" type="button" onclick={() => void copyKindLink()}>
-          {shareCopied ? 'Link copied' : 'Copy blog link'}
-        </button>
-      </div>
-      {#if visibleProduced.length}
-        <ProfileBlogFeed events={pagedProduced} />
-        <Pager page={producedPage} total={visibleProduced.length} {pageSize} onPage={(p) => (producedPage = p)} />
-      {:else}
-        <p class="muted profile-blog-empty">No long-form articles yet.</p>
-      {/if}
-    </section>
-  {:else if isKindFiltered && pubkey}
+  {#if isKindFiltered && pubkey}
     <section class="profile-kind-feed" aria-label={kindHeading}>
-      <div class="profile-blog-toolbar">
+      <div class="profile-kind-toolbar">
         <h2 class="section-title" style="margin:0">{kindHeading}</h2>
-        <button class="btn profile-blog-share" type="button" onclick={() => void copyKindLink()}>
+        <button class="btn profile-kind-share" type="button" onclick={() => void copyKindLink()}>
           {shareCopied ? 'Link copied' : 'Copy link'}
         </button>
       </div>

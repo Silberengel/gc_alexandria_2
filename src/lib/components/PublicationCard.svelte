@@ -99,8 +99,8 @@
     event.kind === KIND.WIKI || event.kind === KIND.SPEC || event.kind === KIND.LONG_FORM
   );
   const isSection = $derived(event.kind === KIND.SECTION);
-  /** Teaser on wiki/spec/article cards (book publication cards stay compact). */
-  const summary = $derived(isArticle ? (meta.summary?.trim() ?? '') : '');
+  /** Teaser beside the cover on full listing cards. */
+  const summary = $derived(meta.summary?.trim() ?? '');
   /** Fallback: section d-path — Publication route promotes it to the parent reader. */
   const href = $derived(
     isSection && sectionEdition
