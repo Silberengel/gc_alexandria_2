@@ -9,6 +9,7 @@
     formatPublicationType,
     type ProvenanceChip
   } from '$lib/publication-metadata';
+  import { normalizeSubjectTag } from '$lib/metadata';
   import { KIND } from '$lib/constants';
   import { coverFullImageUrl, coverImageUrl } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
@@ -148,13 +149,16 @@
               <dd>
                 <ul class="edition-topic-list">
                   {#each meta.subjects.slice(0, 12) as subject}
-                    <li>
-                      <a
-                        class="edition-topic"
-                        href={`#/search?subject=${encodeURIComponent(subject)}`}
-                        use:link
-                      >{subject}</a>
-                    </li>
+                    {@const topic = normalizeSubjectTag(subject)}
+                    {#if topic}
+                      <li>
+                        <a
+                          class="edition-topic"
+                          href={`#/search?subject=${encodeURIComponent(topic)}`}
+                          use:link
+                        >{topic}</a>
+                      </li>
+                    {/if}
                   {/each}
                 </ul>
               </dd>

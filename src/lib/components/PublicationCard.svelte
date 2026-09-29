@@ -99,6 +99,8 @@
     event.kind === KIND.WIKI || event.kind === KIND.SPEC || event.kind === KIND.LONG_FORM
   );
   const isSection = $derived(event.kind === KIND.SECTION);
+  /** Teaser on wiki/spec/article cards (book publication cards stay compact). */
+  const summary = $derived(isArticle ? (meta.summary?.trim() ?? '') : '');
   /** Fallback: section d-path — Publication route promotes it to the parent reader. */
   const href = $derived(
     isSection && sectionEdition
@@ -117,7 +119,7 @@
           ? 'Article'
           : event.kind === KIND.SECTION
             ? 'Section'
-            : 'Publication'
+            : 'Library Card'
   );
   const authorByline = $derived(
     meta.authors.length
@@ -131,7 +133,8 @@
   const isFullPublication = $derived(
     event.kind === KIND.PUBLICATION && hasPublicationSection(event)
   );
-  const showStatusBadge = $derived(!isRow && event.kind === KIND.PUBLICATION);
+  /** Only full editions get a status badge; plain library cards stay unmarked. */
+  const showStatusBadge = $derived(!isRow && isFullPublication);
   const cardAvg = $derived(
     typeof ratingAverageProp === 'number' && Number.isFinite(ratingAverageProp)
       ? ratingAverageProp
@@ -220,6 +223,9 @@
             <CardMeta {event} showTitles={false} showSubjects={false} />
           </div>
         {/if}
+        {#if showMeta && summary}
+          <p class="muted pub-card-summary">{summary}</p>
+        {/if}
         {#if showCardRating}
           <a
             class="pub-card-rating"
@@ -240,9 +246,7 @@
           <p class="muted pub-card-section-hint">Finding edition…</p>
         {/if}
         {#if showStatusBadge}
-          <span class="pub-card-status">
-            {isFullPublication ? 'Full publication' : 'Library card'}
-          </span>
+          <span class="pub-card-status">Full publication available</span>
         {/if}
       </div>
     </div>

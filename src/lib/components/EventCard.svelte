@@ -6,8 +6,10 @@
   import PictureCard from './PictureCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import UserBadge from './UserBadge.svelte';
+  import EventBody from './EventBody.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import { eventPreview } from '$lib/event-preview';
+  import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
 
   interface Props {
     event: Event;
@@ -23,12 +25,11 @@
       event.kind === KIND.SPEC ||
       event.kind === KIND.LONG_FORM
   );
-  const isNoteLike = $derived(
-    event.kind === KIND.HIGHLIGHT ||
-      event.kind === KIND.COMMENT ||
-      event.kind === KIND.TEXT_NOTE
-  );
+  /** Short notes and NIP-22 comments — thread-style, not listing cards. */
+  const isThreadNote = $derived(event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE);
   const preview = $derived(eventPreview(event));
+  const relative = $derived(formatRelativeTime(event.created_at));
+  const absolute = $derived(formatAbsoluteTime(event.created_at));
 </script>
 
 {#if isPubLike}
@@ -43,7 +44,23 @@
     <CopyPointerButton {event} class="generic-card-copy" />
     <VideoCard {event} />
   </div>
-{:else if isNoteLike}
+{:else if isThreadNote}
+  <div class="thread-node thread-embed-note">
+    <div class="thread-head">
+      <UserBadge pubkey={event.pubkey} />
+      {#if relative}
+        <time
+          class="thread-time muted"
+          datetime={new Date(event.created_at * 1000).toISOString()}
+          title={absolute}>{relative}</time
+        >
+      {/if}
+    </div>
+    <div class="thread-body">
+      <EventBody {event} embedDepth={embedDepth + 1} />
+    </div>
+  </div>
+{:else if event.kind === KIND.HIGHLIGHT}
   <article class="card note-card">
     <CopyPointerButton {event} class="generic-card-copy" />
     <p class="generic-card-kind muted">{preview.kindLine}</p>

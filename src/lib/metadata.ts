@@ -30,21 +30,34 @@ export type CardMeta = {
   kind: number;
 };
 
-/** Drop a leading # so Topics never re-show hashtag chrome (t-tag values sometimes include it). */
+/** Drop leading hashtag chrome (ASCII #, fullwidth ＃) so Topics never show `#tag`. */
 export function normalizeSubjectTag(raw: string): string {
-  return raw.trim().replace(/^#+/u, '').trim();
+  return raw.trim().replace(/^[#＃]+/u, '').trim();
+}
+
+/**
+ * Split a raw `t` tag into topic tokens. Some clients pack several hashtags into one
+ * tag value (`"Nostr #ebooks #devs"`); treat whitespace/comma-separated pieces separately.
+ */
+export function splitSubjectTagValue(raw: string): string[] {
+  const pieces = raw
+    .trim()
+    .split(/[\s,]+/u)
+    .map((p) => normalizeSubjectTag(p))
+    .filter(Boolean);
+  return pieces;
 }
 
 export function subjectTagsFromEvent(event: Event): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of tagValue(event, 't')) {
-    const s = normalizeSubjectTag(raw);
-    if (!s) continue;
-    const key = s.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(s);
+    for (const s of splitSubjectTagValue(raw)) {
+      const key = s.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
   }
   return out;
 }

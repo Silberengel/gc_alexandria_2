@@ -115,6 +115,8 @@ export const KIND = {
   RELAY_LIST: 10002,
   BLOCKED: 10006,
   FAVORITE: 10012,
+  /** NIP-30 user emoji list (pointers to kind 30030 packs). */
+  USER_EMOJI_LIST: 10030,
   LOCAL: 10432,
   COMMENT: 1111,
   LABEL: 1985,
@@ -130,6 +132,8 @@ export const KIND = {
   /** NKBIP-04 directory index (bookshelf folders). */
   DIRECTORY: 30045,
   FOLLOW_SET: 30000,
+  /** NIP-30 emoji pack (addressable). */
+  EMOJI_SET: 30030,
   STATUS: 30315,
   RATING: 34259,
   WIKI: 30818,

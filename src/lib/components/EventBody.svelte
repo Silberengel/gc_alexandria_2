@@ -13,6 +13,10 @@
     type ContentSegment
   } from '$lib/nostr-refs';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
+  import {
+    expandCustomEmojiPlaceholders,
+    prepareContentWithEmojis
+  } from '$lib/emoji-content';
 
   interface Props {
     event?: Event;
@@ -70,6 +74,7 @@
     const q = quotes;
     const heroes = heroUrls;
     const embeds = showEmbeds && embedDepth <= 1;
+    const ev = event;
     let cancelled = false;
     bodyPending = true;
     segments = [];
@@ -81,9 +86,14 @@
       const maybeDedupe = (html: string) =>
         heroes.length ? stripEarlyDuplicateHeroImage(html, heroes) : html;
 
+      const { text: emojiReady, slots: emojiSlots } = await prepareContentWithEmojis(src, ev);
+      const withEmojis = (html: string) => expandCustomEmojiPlaceholders(html, emojiSlots);
+
       if (whole) {
-        const { text, refs } = protectNostrRefsForMarkup(src);
-        const rendered = maybeDedupe(markHighlights(await renderWithFallback(k, text, tags), q));
+        const { text, refs } = protectNostrRefsForMarkup(emojiReady);
+        const rendered = withEmojis(
+          maybeDedupe(markHighlights(await renderWithFallback(k, text, tags), q))
+        );
         next = expandNostrRefPlaceholders(rendered, refs);
         // Paint the article immediately — embedded naddr/note fetches used to hold
         // "Page is loading…" until every ref resolved (and fought the relay pool).
@@ -108,7 +118,7 @@
         return;
       }
 
-      const segs = splitNostrRefs(src);
+      const segs = splitNostrRefs(emojiReady);
       next = [];
       await Promise.all(
         segs.map(async (seg, i) => {
@@ -116,7 +126,7 @@
             let rendered = await renderWithFallback(k, seg.text, tags);
             // Only the opening segment can hold a redundant cover plate.
             if (i === 0 && heroes.length) rendered = maybeDedupe(rendered);
-            next[i] = { type: 'html', html: markHighlights(rendered, q) };
+            next[i] = { type: 'html', html: withEmojis(markHighlights(rendered, q)) };
             return;
           }
           next[i] = seg;

@@ -5,9 +5,11 @@ import {
   cardMeta,
   hasPublicationSection,
   libraryDocumentPath,
+  normalizeSubjectTag,
   preferRicherEvent,
   sortSearchResults,
   specPath,
+  subjectTagsFromEvent,
   wikiPath
 } from './metadata';
 import { addressPath } from './library-scope';
@@ -93,6 +95,47 @@ describe('cardMeta summary', () => {
     expect(meta.summary).toBeUndefined();
     const { nip19 } = await import('nostr-tools');
     expect(meta.deferHref).toBe(`/wiki/d/preferred/p/${nip19.npubEncode(pk)}`);
+  });
+
+  it('keeps an explicit summary tag on long-form articles', () => {
+    const meta = cardMeta(
+      ev(
+        KIND.LONG_FORM,
+        [
+          ['title', 'Essay'],
+          ['d', 'essay'],
+          ['summary', 'A short blurb about the clans.']
+        ],
+        'Full body that is longer than the summary tag.'
+      )
+    );
+    expect(meta.summary).toContain('short blurb');
+  });
+});
+
+describe('subject tags', () => {
+  it('strips leading # so topic chips are not double-hashtagged', () => {
+    expect(normalizeSubjectTag('#nostr')).toBe('nostr');
+    expect(normalizeSubjectTag('##Bitcoin')).toBe('Bitcoin');
+    expect(normalizeSubjectTag('＃politics')).toBe('politics');
+    expect(normalizeSubjectTag('  #politics  ')).toBe('politics');
+    expect(
+      subjectTagsFromEvent(
+        ev(KIND.LONG_FORM, [
+          ['t', '#nostr'],
+          ['t', 'nostr'],
+          ['t', '#Bitcoin']
+        ])
+      )
+    ).toEqual(['nostr', 'Bitcoin']);
+  });
+
+  it('splits packed hashtag strings in a single t-tag', () => {
+    expect(
+      subjectTagsFromEvent(
+        ev(KIND.LONG_FORM, [['t', 'Nostr #ebooks #devs']])
+      )
+    ).toEqual(['Nostr', 'ebooks', 'devs']);
   });
 });
 
