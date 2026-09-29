@@ -81,7 +81,11 @@
   import { viewerReadingEntries } from '$lib/viewer-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { isLibraryCopyPubkey } from '$lib/hex';
-  import { readerSectionHeroFullUrl, readerSectionHeroUrl } from '$lib/cover';
+  import {
+    eventHeroImageUrls,
+    readerSectionHeroFullUrl,
+    readerSectionHeroUrl
+  } from '$lib/cover';
   import { coverPlaceholderUrl } from '$lib/cover-fallback';
   import { isRemoteImageMissing } from '$lib/image-reachable';
   import { openMediaViewer } from '$lib/stores/media-viewer';
@@ -116,6 +120,7 @@
     isPlaceholderSection,
     isUnreadableMeta,
     mergePublicationSections,
+    missingRootLeafAddresses,
     orderPublicationSections,
     naddrFor,
     parseToc,
@@ -290,6 +295,8 @@
   }
 
   const addr = $derived(event ? eventAddress(event) : '');
+  /** Publication cover URLs — nested bodies strip early images that repeat this plate. */
+  const publicationHeroUrls = $derived(event ? eventHeroImageUrls(event) : []);
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
   const ratingAgg = $derived(aggregateRating(visibleRatings));
   const cardAvgStars = $derived(ratingAgg.count ? ratingAgg.average * 5 : 0);
@@ -533,7 +540,9 @@
       return;
     }
     if (adoptFlushTimer) return;
-    adoptFlushTimer = window.setTimeout(() => flush(false, false), 600);
+    // Reorder on the coalesced flush too — otherwise stream pages stack after a
+    // late-arriving edition intro and leave it stranded mid-pane until idle ends.
+    adoptFlushTimer = window.setTimeout(() => flush(true, false), 600);
   }
 
   const PAINT_STEP = 40;
@@ -799,6 +808,22 @@
     const editionAddr = eventAddress(edition);
     const naddr = naddrFor(edition);
 
+    /** Mercury /stream often omits edition-level 30041 leaves that still appear in the ToC. */
+    async function withRootLeaves(have: Event[]): Promise<Event[]> {
+      const missing = missingRootLeafAddresses(edition, have);
+      if (!missing.length || signal?.aborted) return have;
+      const fetched = (
+        await poolMap(missing.slice(0, 40), 4, async (coord) => {
+          if (signal?.aborted) return null;
+          const hit = await fetchByAddress(coord);
+          if (hit) onBatch?.([hit]);
+          return hit;
+        })
+      ).filter((e): e is Event => !!e);
+      if (!fetched.length) return have;
+      return mergePublicationSections(have, fetched);
+    }
+
     // Instant reopen: we already streamed this book into Cache Storage earlier.
     try {
       const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
@@ -808,8 +833,8 @@
       if (hasLeaves) {
         rememberEvents(cached);
         onBatch?.(cached);
-        // Full snapshot with real leaves → paint from cache.
-        if (snap.complete) return cached;
+        // Full snapshot with real leaves → paint from cache (still fill root intros).
+        if (snap.complete) return withRootLeaves(cached);
         if (!isMercuryUnavailable() && !isMercuryPublicationMissing(naddr)) {
           try {
             const fresh = await mercuryPublicationStream(
@@ -822,16 +847,17 @@
               },
               { maxEvents: 50_000 }
             );
-            if (signal?.aborted) return mergePublicationSections(cached, fresh);
+            if (signal?.aborted) return withRootLeaves(mergePublicationSections(cached, fresh));
             if (fresh.length) {
-              void cachePutPublicationStream(editionAddr, fresh, { complete: true });
-              return mergePublicationSections(cached, fresh);
+              const merged = await withRootLeaves(mergePublicationSections(cached, fresh));
+              void cachePutPublicationStream(editionAddr, merged, { complete: true });
+              return merged;
             }
           } catch {
             /* keep cached paint */
           }
         }
-        return cached;
+        return withRootLeaves(cached);
       }
       // Indexes-only or empty snapshot: discard sticky complete and re-walk.
       if (cached.length) {
@@ -848,10 +874,10 @@
       const seeded = await loadSeedsForEdition(edition, { signal, onBatch });
       if (signal?.aborted) return seeded ?? [];
       if (seeded && seeded.some((e) => e.kind !== KIND.PUBLICATION)) {
-        return seeded;
+        return withRootLeaves(seeded);
       }
       // Plan indexes + verses: seeded may be all PUBLICATION plan nodes plus verse leaves.
-      if (seeded && seeded.length) return seeded;
+      if (seeded && seeded.length) return withRootLeaves(seeded);
     } catch {
       /* seed miss — fall through */
     }
@@ -887,9 +913,10 @@
     }
     if (signal?.aborted) return streamed;
     if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
-      // Only mark complete when the stream finished without abort (partial = keep warming).
-      void cachePutPublicationStream(editionAddr, streamed, { complete: true });
-      return streamed;
+      // Stream has leaves but may still omit edition-level intro sections.
+      const merged = await withRootLeaves(streamed);
+      void cachePutPublicationStream(editionAddr, merged, { complete: true });
+      return merged;
     }
     // Structure-only Mercury (e.g. Intro/OT/NT), empty stream, or citadel-only: walk a-tags.
     const walked = await fallbackSections(edition, {
@@ -898,7 +925,7 @@
       onHit: (hit) => onBatch?.([hit])
     });
     if (signal?.aborted) return streamed;
-    const merged = mergePublicationSections(streamed, walked);
+    const merged = await withRootLeaves(mergePublicationSections(streamed, walked));
     if (merged.some((e) => e.kind !== KIND.PUBLICATION)) {
       void cachePutPublicationStream(editionAddr, merged, { complete: true });
     }
@@ -1671,6 +1698,18 @@
       // otherwise read=1 can stick on "Publication is loading..." with an empty pane.
       adoptSections([edition], edition);
       readingBusy = false;
+
+      // Edition intro sections appear in the ToC from a-tags, but Mercury /stream often
+      // omits them — fetch immediately so they paint before nested index pages arrive.
+      const rootLeaves = missingRootLeafAddresses(edition, [edition]);
+      if (rootLeaves.length) {
+        void poolMap(rootLeaves.slice(0, 24), 4, (coord) => fetchByAddress(coord)).then((hits) => {
+          const found = hits.filter((e): e is Event => !!e);
+          if (!found.length || event?.id !== edition.id || !reading) return;
+          rememberEvents(found);
+          scheduleAdopt(found, edition, true);
+        });
+      }
 
       if (signal.aborted) {
         // Route-effect re-entry aborted the first controller; start a fresh stream.
@@ -3768,6 +3807,7 @@
                           event={{ ...section, content: parts.text }}
                           quotes={quotesFor(section)}
                           dedupeHeroImage={Boolean(showHero)}
+                          dedupeHeroUrls={publicationHeroUrls}
                         />
                       {/if}
                       {#if parts.note}
@@ -3780,6 +3820,7 @@
                         event={section}
                         quotes={quotesFor(section)}
                         dedupeHeroImage={Boolean(showHero)}
+                        dedupeHeroUrls={publicationHeroUrls}
                       />
                     </div>
                   {/if}

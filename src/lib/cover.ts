@@ -95,6 +95,32 @@ function heroUrlKey(url: string): string {
   }
 }
 
+/** Generic asset stems — too common to use as cross-host identity. */
+const GENERIC_HERO_STEM =
+  /^(cover|image|img|photo|hero|thumb|avatar|logo|banner|default|untitled|header|picture|pic|media|file|asset|attachment)$/i;
+
+/**
+ * Distinctive filename stem so the same plate on two hosts still matches
+ * (e.g. blog…/laeserin_logo-iPPO3wF.png ↔ git…/laeserin_logo.png).
+ */
+function heroBasenameFingerprint(url: string): string | null {
+  try {
+    const u = new URL(url);
+    let path = u.pathname || '/';
+    path = path.replace(/\/thumb\//gi, '/');
+    const base = path.split('/').filter(Boolean).pop() || '';
+    let stem = base.replace(/\.[a-z0-9]+$/i, '');
+    // Vite / CDN content hashes: name-AbCdEf12 or name.a1b2c3d4
+    stem = stem.replace(/-[a-zA-Z0-9_]{6,14}$/, '');
+    stem = stem.replace(/\.[a-f0-9]{8,16}$/i, '');
+    stem = stem.trim().toLowerCase();
+    if (stem.length < 8 || GENERIC_HERO_STEM.test(stem)) return null;
+    return `name:${stem}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Match keys for a cover URL, including i.nostr.build thumb ↔ full variants. */
 export function heroImageMatchKeys(url: string): string[] {
   const keys = new Set<string>();
@@ -102,6 +128,8 @@ export function heroImageMatchKeys(url: string): string[] {
     const t = raw.trim();
     if (!t) return;
     keys.add(heroUrlKey(t));
+    const finger = heroBasenameFingerprint(t);
+    if (finger) keys.add(finger);
     try {
       const u = new URL(t);
       if (u.hostname === 'i.nostr.build') {
@@ -109,8 +137,13 @@ export function heroImageMatchKeys(url: string): string[] {
         if (p.startsWith('/thumb/')) {
           u.pathname = p.slice('/thumb'.length) || '/';
           keys.add(heroUrlKey(u.toString()));
+          const f2 = heroBasenameFingerprint(u.toString());
+          if (f2) keys.add(f2);
         } else if (p !== '/thumb' && !p.startsWith('/thumb/')) {
-          keys.add(heroUrlKey(toNostrBuildThumbUrl(t)));
+          const thumb = toNostrBuildThumbUrl(t);
+          keys.add(heroUrlKey(thumb));
+          const f2 = heroBasenameFingerprint(thumb);
+          if (f2) keys.add(f2);
         }
       }
     } catch {
@@ -138,6 +171,63 @@ function imgSrcFromTag(tag: string): string | null {
   return decodeBasicEntities(raw);
 }
 
+function heroMatchKeySet(heroUrls: Array<string | undefined | null>): Set<string> {
+  const keys = new Set<string>();
+  for (const u of heroUrls) {
+    if (!u?.trim()) continue;
+    for (const k of heroImageMatchKeys(u)) keys.add(k);
+  }
+  return keys;
+}
+
+/** First ~two blank-line blocks (or 8KB) — same “early” window as body dedupe. */
+function earlyContentWindow(content: string): string {
+  const text = content.replace(/^\uFEFF/, '');
+  const parts = text.split(/\n\s*\n/);
+  if (parts.length <= 2) return text.slice(0, 8000);
+  return parts.slice(0, 2).join('\n\n').slice(0, 8000);
+}
+
+/** Image URLs that appear near the start of raw markdown / HTML / AsciiDoc. */
+export function extractEarlyContentImageUrls(content: string): string[] {
+  if (!content?.trim()) return [];
+  const window = earlyContentWindow(content);
+  const found: string[] = [];
+  const push = (raw: string | undefined) => {
+    const t = raw?.trim();
+    if (t) found.push(decodeBasicEntities(t));
+  };
+
+  for (const m of window.matchAll(/!\[[^\]]*\]\((?:<)?([^)\s>]+)(?:>)?/g)) push(m[1]);
+  for (const m of window.matchAll(/<img\b[^>]*>/gi)) push(imgSrcFromTag(m[0]) ?? undefined);
+  for (const m of window.matchAll(/image::([^\s\[]+)/gi)) push(m[1]);
+  for (const m of window.matchAll(
+    /^(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?\S*)?)\s*$/gim
+  )) {
+    push(m[1]);
+  }
+  for (const m of window.matchAll(/^(https?:\/\/(?:i\.)?nostr\.build\/\S+)\s*$/gim)) {
+    push(m[1]);
+  }
+  return found;
+}
+
+/**
+ * True when raw body content already opens with the cover/hero plate — the reader
+ * should hide the decorative hero and keep the content image.
+ */
+export function contentHasEarlyHeroImage(
+  content: string,
+  heroUrls: Array<string | undefined | null>
+): boolean {
+  const keys = heroMatchKeySet(heroUrls);
+  if (!content?.trim() || !keys.size) return false;
+  for (const src of extractEarlyContentImageUrls(content)) {
+    if (heroImageMatchKeys(src).some((k) => keys.has(k))) return true;
+  }
+  return false;
+}
+
 /**
  * Drop an early body `<img>` that duplicates the hero/cover so the page does not
  * show the same plate twice (common when long-form content repeats the `image` tag).
@@ -147,11 +237,7 @@ export function stripEarlyDuplicateHeroImage(
   html: string,
   heroUrls: Array<string | undefined | null>
 ): string {
-  const keys = new Set<string>();
-  for (const u of heroUrls) {
-    if (!u?.trim()) continue;
-    for (const k of heroImageMatchKeys(u)) keys.add(k);
-  }
+  const keys = heroMatchKeySet(heroUrls);
   if (!html || !keys.size) return html;
 
   const imgRe = /<img\b[^>]*>/gi;
@@ -223,7 +309,7 @@ export function readerSectionHeroUrl(section: Event, edition: Event | null | und
   if (hero) {
     if (!edition || section.id === edition.id) return hero;
     const top = sectionHeroImageUrl(edition) ?? coverImageUrl(edition);
-    if (top && heroUrlKey(top) === heroUrlKey(hero)) return undefined;
+    if (top && heroUrlsMatch(top, hero)) return undefined;
     return hero;
   }
   // No explicit image tag — edition root still shows Gutenberg/imeta covers.
@@ -241,9 +327,14 @@ export function readerSectionHeroFullUrl(
   if (explicit) {
     if (!edition || section.id === edition.id) return explicit;
     const top = sectionHeroFullImageUrl(edition) ?? coverFullImageUrl(edition);
-    if (top && heroUrlKey(top) === heroUrlKey(explicit)) return undefined;
+    if (top && heroUrlsMatch(top, explicit)) return undefined;
     return explicit;
   }
   if (edition && section.id === edition.id) return coverFullImageUrl(section);
   return undefined;
+}
+
+function heroUrlsMatch(a: string, b: string): boolean {
+  const keysB = new Set(heroImageMatchKeys(b));
+  return heroImageMatchKeys(a).some((k) => keysB.has(k));
 }

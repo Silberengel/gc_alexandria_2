@@ -144,6 +144,11 @@ function isPublicationIndexKind(kind: number | undefined): boolean {
   return kind === KIND.PUBLICATION;
 }
 
+/** Leaf under a 30040 index — any a/e child whose kind is not 30040. */
+export function isPublicationSectionKind(kind: number | undefined): boolean {
+  return kind != null && kind !== KIND.PUBLICATION;
+}
+
 function tocAddressFromItem(
   o: Record<string, unknown>,
   fallbackKind?: number,
@@ -402,9 +407,10 @@ function partitionRootTags(publication: Event): TocEntry[] {
         title: d ? humanizeHeading(d) : 'Section',
         address: tag[1],
         depth: 0,
-        index: parsed?.kind === KIND.PUBLICATION,
+        index: isPublicationIndexKind(parsed?.kind),
         kind: parsed?.kind
       };
+      // Any a-tag that is not kind 30040 is a section leaf.
       if (entry.index) indexes.push(entry);
       else sections.push(entry);
     } else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
@@ -460,6 +466,41 @@ function rootLeafEntries(publication: Event): TocEntry[] {
     pos: i - out.length,
     title: entry.title === 'Section' ? `Section ${i + 1}` : entry.title
   }));
+}
+
+/**
+ * Direct non-30040 a-tag addresses on an edition.
+ * Mercury /stream often omits these while /toc client-side still lists them.
+ */
+export function rootLeafAddresses(edition: Event): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of edition.tags) {
+    if (tag[0] !== 'a' || !tag[1]) continue;
+    const parsed = parseAddress(tag[1]);
+    if (!parsed || parsed.kind === KIND.PUBLICATION) continue;
+    const key = tag[1].toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag[1]);
+  }
+  return out;
+}
+
+/** Root leaf a-tags not yet present in `have` (by address). */
+export function missingRootLeafAddresses(edition: Event, have: readonly Event[]): string[] {
+  const haveKeys = new Set<string>();
+  for (const event of have) {
+    for (const key of publicationCoordinateLookupKeys(eventAddress(event))) {
+      haveKeys.add(key.toLowerCase());
+    }
+  }
+  return rootLeafAddresses(edition).filter((addr) => {
+    for (const key of publicationCoordinateLookupKeys(addr)) {
+      if (haveKeys.has(key.toLowerCase())) return false;
+    }
+    return true;
+  });
 }
 
 export function parseToc(raw: unknown[] | null, publication: Event): TocEntry[] {
@@ -647,6 +688,9 @@ function bibleSortKey(event: Event): [number, number, number] {
  * Document order: depth-first walk of a/e tags from the edition root through
  * loaded indexes. Mercury /stream pages arrive unordered; ToC is often
  * indexes-only — tag order on each parent is the authoritative sequence.
+ * When a parent lists both section leaves (any non-30040 a/e child) and
+ * nested indexes (30040), leaves are visited first (stable among themselves),
+ * then subindexes — matching {@link partitionRootTags}.
  * Optional `limit` stops the walk early so huge corpora do not freeze the UI.
  */
 export function orderPublicationSections(
@@ -668,9 +712,21 @@ export function orderPublicationSections(
 
   const tocRank = new Map<string, number>();
   for (const entry of opts?.toc ?? []) {
-    if (entry.address) tocRank.set(entry.address.toLowerCase(), entry.pos);
+    if (entry.address) {
+      for (const key of publicationCoordinateLookupKeys(entry.address)) {
+        tocRank.set(key.toLowerCase(), entry.pos);
+      }
+    }
     if (entry.id) tocRank.set(entry.id.toLowerCase(), entry.pos);
   }
+
+  const rankOf = (event: Event): number => {
+    for (const key of publicationCoordinateLookupKeys(eventAddress(event))) {
+      const hit = tocRank.get(key.toLowerCase());
+      if (hit != null) return hit;
+    }
+    return tocRank.get(event.id.toLowerCase()) ?? 1_000_000_000;
+  };
 
   const resolveChild = (tag: string[]): Event | undefined => {
     if (tag[0] === 'a' && tag[1]) {
@@ -686,6 +742,36 @@ export function orderPublicationSections(
     return undefined;
   };
 
+  /** Direct children: any non-30040 leaf first, then nested 30040 indexes. */
+  const childrenInPaintOrder = (parent: Event): Event[] => {
+    const leaves: Event[] = [];
+    const indexes: Event[] = [];
+    const seenChild = new Set<string>();
+    for (const tag of parent.tags) {
+      const child = resolveChild(tag);
+      if (!child || seenChild.has(child.id)) continue;
+      seenChild.add(child.id);
+      if (child.kind === KIND.PUBLICATION) indexes.push(child);
+      else leaves.push(child);
+    }
+    return [...leaves, ...indexes];
+  };
+
+  const comparePaintOrder = (a: Event, b: Event, indexHint: Map<string, number>): number => {
+    const ra = rankOf(a);
+    const rb = rankOf(b);
+    if (ra !== rb) return ra - rb;
+    const ka = a.kind === KIND.PUBLICATION ? 1 : 0;
+    const kb = b.kind === KIND.PUBLICATION ? 1 : 0;
+    if (ka !== kb) return ka - kb;
+    const ba = bibleSortKey(a);
+    const bb = bibleSortKey(b);
+    for (let i = 0; i < 3; i++) {
+      if (ba[i]! !== bb[i]!) return ba[i]! - bb[i]!;
+    }
+    return (indexHint.get(a.id) ?? 0) - (indexHint.get(b.id) ?? 0);
+  };
+
   const limit = opts?.limit != null && opts.limit > 0 ? opts.limit : Infinity;
   const ordered: Event[] = [];
   const seen = new Set<string>();
@@ -694,26 +780,25 @@ export function orderPublicationSections(
     seen.add(event.id);
     ordered.push(event);
     if (ordered.length >= limit) return;
-    for (const tag of event.tags) {
+    for (const child of childrenInPaintOrder(event)) {
       if (ordered.length >= limit) return;
-      const child = resolveChild(tag);
-      if (child) visit(child);
+      visit(child);
     }
   };
 
-  const root =
-    opts?.root && byId.has(opts.root.id.toLowerCase())
-      ? byId.get(opts.root.id.toLowerCase())!
-      : null;
-  if (root) visit(root);
-
-  if (ordered.length >= limit) {
-    const rest: Event[] = [];
-    for (const event of list) {
-      if (!seen.has(event.id)) rest.push(event);
+  // Prefer the walkable (a-tag-rich) copy of the edition — catalog roots are often thin.
+  let root: Event | null = null;
+  if (opts?.root) {
+    for (const key of publicationCoordinateLookupKeys(eventAddress(opts.root))) {
+      const hit = byAddr.get(key.toLowerCase());
+      if (hit) {
+        root = hit;
+        break;
+      }
     }
-    return [...ordered, ...rest];
+    root ??= byId.get(opts.root.id.toLowerCase()) ?? null;
   }
+  if (root) visit(root);
 
   const leftoverIndex = new Map<string, number>();
   const leftovers: Event[] = [];
@@ -723,24 +808,7 @@ export function orderPublicationSections(
     leftoverIndex.set(event.id, i);
     leftovers.push(event);
   }
-
-  leftovers.sort((a, b) => {
-    const ra =
-      tocRank.get(eventAddress(a).toLowerCase()) ??
-      tocRank.get(a.id.toLowerCase()) ??
-      1_000_000_000;
-    const rb =
-      tocRank.get(eventAddress(b).toLowerCase()) ??
-      tocRank.get(b.id.toLowerCase()) ??
-      1_000_000_000;
-    if (ra !== rb) return ra - rb;
-    const ka = bibleSortKey(a);
-    const kb = bibleSortKey(b);
-    for (let i = 0; i < 3; i++) {
-      if (ka[i]! !== kb[i]!) return ka[i]! - kb[i]!;
-    }
-    return (leftoverIndex.get(a.id) ?? 0) - (leftoverIndex.get(b.id) ?? 0);
-  });
+  leftovers.sort((a, b) => comparePaintOrder(a, b, leftoverIndex));
 
   return [...ordered, ...leftovers];
 }

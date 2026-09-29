@@ -27,10 +27,15 @@
     showEmbeds?: boolean;
     quotes?: Array<string | HighlightQuote>;
     /**
-     * When false, keep body images even if they match the event cover
-     * (e.g. section hero was already suppressed as a duplicate of the edition).
+     * When false, skip the event’s own cover URLs for early-body dedupe
+     * (still applies {@link dedupeHeroUrls} when provided).
      */
     dedupeHeroImage?: boolean;
+    /**
+     * Extra cover URLs to strip from early body HTML — e.g. the publication
+     * hero when rendering a nested section that repeats the same plate.
+     */
+    dedupeHeroUrls?: string[];
   }
 
   let {
@@ -40,13 +45,18 @@
     embedDepth = 0,
     showEmbeds = true,
     quotes = [],
-    dedupeHeroImage = true
+    dedupeHeroImage = true,
+    dedupeHeroUrls = []
   }: Props = $props();
 
   const source = $derived(event?.content ?? content);
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
-  const heroUrls = $derived(event && dedupeHeroImage ? eventHeroImageUrls(event) : []);
+  const heroUrls = $derived.by(() => {
+    const urls: string[] = [...dedupeHeroUrls];
+    if (dedupeHeroImage && event) urls.push(...eventHeroImageUrls(event));
+    return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
+  });
   /** Full-document render for markup kinds — splitting first breaks AsciiDoc listings/tables. */
   const wholeDocument = $derived(
     sourceKind === KIND.SECTION ||

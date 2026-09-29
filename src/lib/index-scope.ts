@@ -174,18 +174,18 @@ export function buildIndexScopedToc(edition: Event): TocEntry[] {
   );
 }
 
-/** True when this index paints verses directly (no nested 30040 children). */
+/** True when this index paints non-30040 leaves directly (no nested 30040 children). */
 export function isLeafIndex(event: Event): boolean {
   if (event.kind !== KIND.PUBLICATION) return false;
-  let hasSection = false;
+  let hasLeaf = false;
   let hasPub = false;
   for (const coord of childAddresses(event)) {
     const parsed = parseAddress(coord);
     if (!parsed) continue;
-    if (parsed.kind === KIND.SECTION) hasSection = true;
     if (parsed.kind === KIND.PUBLICATION) hasPub = true;
+    else hasLeaf = true;
   }
-  return hasSection && !hasPub;
+  return hasLeaf && !hasPub;
 }
 
 /**
@@ -280,21 +280,34 @@ export function collectIndexPaintEvents(index: Event): Event[] {
   push(index);
   const planDay = isPlanDayD(firstTag(index, 'd') ?? '');
   if (!isLeafIndex(index) && !planDay) {
+    // Intermediate indexes: only direct non-30040 leaves, not nested 30040 trees.
     for (const childAddr of childAddresses(index)) {
       const hit = lookupAddress(childAddr);
-      if (hit?.kind === KIND.SECTION) push(hit);
+      if (hit && hit.kind !== KIND.PUBLICATION) push(hit);
     }
     return out;
   }
+  // Non-30040 leaves before nested indexes (tag order may list a 30040 ahead of leaves).
+  const leafHits: Event[] = [];
+  const indexHits: Event[] = [];
   for (const childAddr of childAddresses(index)) {
     const hit = lookupAddress(childAddr);
     if (!hit) continue;
+    if (hit.kind === KIND.PUBLICATION) indexHits.push(hit);
+    else leafHits.push(hit);
+  }
+  for (const hit of [...leafHits, ...indexHits]) {
     push(hit);
     if (hit.kind === KIND.PUBLICATION) {
+      const nestedLeaves: Event[] = [];
+      const nestedIndexes: Event[] = [];
       for (const nested of childAddresses(hit)) {
         const leaf = lookupAddress(nested);
-        if (leaf) push(leaf);
+        if (!leaf) continue;
+        if (leaf.kind === KIND.PUBLICATION) nestedIndexes.push(leaf);
+        else nestedLeaves.push(leaf);
       }
+      for (const leaf of [...nestedLeaves, ...nestedIndexes]) push(leaf);
     }
   }
   return out;
@@ -307,7 +320,7 @@ export function missingPaintAddresses(index: Event): string[] {
   if (!isLeafIndex(index) && !planDay) {
     for (const childAddr of childAddresses(index)) {
       const parsed = parseAddress(childAddr);
-      if (!parsed || parsed.kind !== KIND.SECTION) continue;
+      if (!parsed || parsed.kind === KIND.PUBLICATION) continue;
       if (!lookupAddress(childAddr)) missing.push(childAddr);
     }
     return missing;

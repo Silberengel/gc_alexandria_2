@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import {
+  contentHasEarlyHeroImage,
   coverFullImageUrl,
   coverImageUrl,
   eventHeroImageUrls,
@@ -86,6 +87,34 @@ describe('readerSectionHeroUrl', () => {
     expect(readerSectionHeroUrl(nested, edition)).toBeUndefined();
   });
 
+  it('hides a nested section when image matches via nostr.build thumb/full', () => {
+    const full = 'https://i.nostr.build/cover.webp';
+    const root = ev([['image', full], ['title', 'Mag']], '1'.repeat(64));
+    const leaf = ev(
+      [
+        ['image', 'https://i.nostr.build/thumb/cover.webp'],
+        ['title', 'Intro']
+      ],
+      '2'.repeat(64)
+    );
+    expect(readerSectionHeroUrl(leaf, root)).toBeUndefined();
+  });
+
+  it('hides a nested section when the same plate is hosted on different origins', () => {
+    const root = ev(
+      [['image', 'https://blog.imwald.eu/assets/laeserin_logo-iPPO3wF.png'], ['title', 'Mag']],
+      '1'.repeat(64)
+    );
+    const leaf = ev(
+      [
+        ['image', 'https://git.imwald.eu/silberengel/unfold/raw/branch/imwald/assets/laeserin_logo.png'],
+        ['title', 'Intro']
+      ],
+      '2'.repeat(64)
+    );
+    expect(readerSectionHeroUrl(leaf, root)).toBeUndefined();
+  });
+
   it('uses Gutenberg / cover sources on the edition root when image is absent', () => {
     const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave'], ['title', 'Twelve Years a Slave']]);
     expect(readerSectionHeroUrl(gutenberg, gutenberg)).toBe(
@@ -100,6 +129,34 @@ describe('readerSectionHeroFullUrl', () => {
     const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave']]);
     expect(readerSectionHeroFullUrl(gutenberg, gutenberg)).toBe(
       'https://www.gutenberg.org/cache/epub/45631/pg45631.cover.medium.jpg'
+    );
+  });
+});
+
+describe('contentHasEarlyHeroImage', () => {
+  const hero = 'https://i.nostr.build/cover.webp';
+  const thumb = 'https://i.nostr.build/thumb/cover.webp';
+
+  it('detects a leading markdown image matching the hero thumb', () => {
+    expect(contentHasEarlyHeroImage(`![](${hero})\n\nA Nostr magazine`, [thumb])).toBe(true);
+  });
+
+  it('detects a bare nostr.build URL on its own line', () => {
+    expect(contentHasEarlyHeroImage(`${hero}\n\nHello`, [thumb])).toBe(true);
+  });
+
+  it('detects an AsciiDoc image macro', () => {
+    expect(contentHasEarlyHeroImage(`image::${hero}[]\n\nIntro`, [hero])).toBe(true);
+  });
+
+  it('ignores a matching image deeper in the article', () => {
+    const body = `One.\n\nTwo.\n\n![](${hero})\n\nMore`;
+    expect(contentHasEarlyHeroImage(body, [hero])).toBe(false);
+  });
+
+  it('ignores a different early image', () => {
+    expect(contentHasEarlyHeroImage('![](https://example.com/other.jpg)\n\nHi', [hero])).toBe(
+      false
     );
   });
 });

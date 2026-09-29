@@ -11,6 +11,7 @@ import {
   isPlaceholderIndex,
   isPlaceholderSection,
   mergePublicationSections,
+  missingRootLeafAddresses,
   orderPublicationSections,
   parseToc,
   placeholderIndexEvent,
@@ -566,6 +567,243 @@ describe('orderPublicationSections', () => {
     const streamed = [v2, v1, ch1, book, root];
     const ordered = orderPublicationSections(streamed, { root });
     expect(ordered.map((e) => e.id)).toEqual([root.id, book.id, ch1.id, v1.id, v2.id]);
+  });
+
+  it('renders sections before nested indexes when a-tags list the index first', () => {
+    const pk = 'b'.repeat(64);
+    const intro = ev({
+      id: '1'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'intro'], ['title', 'Welcome']],
+      content: 'Hello magazine.'
+    });
+    const society = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'society'],
+        ['title', 'Society'],
+        ['a', `30041:${pk}:society-lead`]
+      ]
+    });
+    const lead = ev({
+      id: '3'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'society-lead'], ['title', 'Lead']],
+      content: 'Society lead.'
+    });
+    const root = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'newsroom'],
+        ['title', 'Newsroom'],
+        // Subindex listed before the section — paint must still prefer the section.
+        ['a', `30040:${pk}:society`],
+        ['a', `30041:${pk}:intro`]
+      ]
+    });
+    const ordered = orderPublicationSections([society, lead, intro, root], { root });
+    expect(ordered.map((e) => e.id)).toEqual([root.id, intro.id, society.id, lead.id]);
+  });
+
+  it('lists missing root leaf addresses omitted from a stream corpus', () => {
+    const pk = 'b'.repeat(64);
+    const introAddr = `30041:${pk}:a-nostr-magazine`;
+    const politicsAddr = `30040:${pk}:politics`;
+    const root = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'newsroom'],
+        ['title', 'Newsroom'],
+        ['a', politicsAddr],
+        ['a', introAddr]
+      ]
+    });
+    const politics = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'politics'], ['title', 'Politics']]
+    });
+    expect(missingRootLeafAddresses(root, [root, politics])).toEqual([introAddr]);
+    const intro = ev({
+      id: '1'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'a-nostr-magazine'], ['title', 'A Nostr magazine']]
+    });
+    expect(missingRootLeafAddresses(root, [root, politics, intro])).toEqual([]);
+  });
+
+  it('uses the a-tag-rich root and ToC ranks so intro stays before nested indexes', () => {
+    const pk = 'b'.repeat(64);
+    const npub = nip19.npubEncode(pk);
+    const intro = ev({
+      id: '1'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'intro'], ['title', 'A Nostr magazine']],
+      content: 'Welcome.'
+    });
+    const politicsBody = ev({
+      id: '9'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'politics-1'], ['title', 'Article']],
+      content: 'Politics body.'
+    });
+    const politics = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'politics'],
+        ['title', 'Politics'],
+        ['a', `30041:${pk}:politics-1`]
+      ]
+    });
+    // Thin catalog root (no children) — walk must use the rich replaceable instead.
+    const thinRoot = ev({
+      id: '5'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'newsroom'], ['title', 'Newsroom']]
+    });
+    const richRoot = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      created_at: 2,
+      tags: [
+        ['d', 'newsroom'],
+        ['title', 'Newsroom'],
+        ['a', `30040:${pk}:politics`],
+        ['a', `30041:${npub}:intro`]
+      ]
+    });
+    const toc = [
+      {
+        pos: -1,
+        title: 'A Nostr magazine',
+        address: `30041:${npub}:intro`,
+        depth: 0,
+        index: false,
+        kind: 30041
+      },
+      {
+        pos: 0,
+        title: 'Politics',
+        address: `30040:${pk}:politics`,
+        depth: 0,
+        index: true,
+        kind: 30040
+      }
+    ];
+    // Stream arrival order dumps politics first; intro last.
+    const ordered = orderPublicationSections(
+      [politicsBody, politics, thinRoot, intro, richRoot],
+      { root: thinRoot, toc }
+    );
+    expect(ordered.map((e) => e.id).slice(0, 4)).toEqual([
+      richRoot.id,
+      intro.id,
+      politics.id,
+      politicsBody.id
+    ]);
+  });
+
+  it('renders long-form leaves before nested indexes (newsroom 30023 headline)', () => {
+    const pk = 'b'.repeat(64);
+    const headline = ev({
+      id: '1'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      tags: [['d', 'nostr-curated-headline'], ['title', 'A Nostr magazine']],
+      content: 'Hello and welcome.'
+    });
+    const politics = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'category-politics'], ['title', 'Politics']]
+    });
+    const economy = ev({
+      id: '3'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'category-economy'], ['title', 'Economy']]
+    });
+    const root = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'newsroom-magazine-on-imwald-by-laeserin'],
+        ['title', 'Nostr, Curated Thoughtfully'],
+        // On-wire order: indexes before the 30023 headline leaf.
+        ['a', `30040:${pk}:category-politics`],
+        ['a', `30040:${pk}:category-economy`],
+        ['a', `30023:${pk}:nostr-curated-headline`]
+      ]
+    });
+    const ordered = orderPublicationSections([politics, economy, headline, root], { root });
+    expect(ordered.map((e) => e.id)).toEqual([root.id, headline.id, politics.id, economy.id]);
+  });
+
+  it('treats any non-30040 a-tag as a section leaf ahead of indexes', () => {
+    const pk = 'b'.repeat(64);
+    const wiki = ev({
+      id: '1'.repeat(64),
+      kind: 30818,
+      pubkey: pk,
+      tags: [['d', 'intro-wiki'], ['title', 'Wiki intro']]
+    });
+    const weird = ev({
+      id: '2'.repeat(64),
+      kind: 31923,
+      pubkey: pk,
+      tags: [['d', 'custom-leaf'], ['title', 'Custom leaf']]
+    });
+    const article = ev({
+      id: '3'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      tags: [['d', 'intro-article'], ['title', 'Article intro']]
+    });
+    const chapter = ev({
+      id: '5'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'chapter-1'], ['title', 'Chapter 1']]
+    });
+    const root = ev({
+      id: '6'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'book'],
+        ['title', 'Book'],
+        ['a', `30040:${pk}:chapter-1`],
+        ['a', `30818:${pk}:intro-wiki`],
+        ['a', `31923:${pk}:custom-leaf`],
+        ['a', `30023:${pk}:intro-article`]
+      ]
+    });
+    const ordered = orderPublicationSections([chapter, wiki, weird, article, root], { root });
+    expect(ordered.map((e) => e.id)).toEqual([
+      root.id,
+      wiki.id,
+      weird.id,
+      article.id,
+      chapter.id
+    ]);
   });
 
   it('sorts orphan bible verses by chapter then verse', () => {
