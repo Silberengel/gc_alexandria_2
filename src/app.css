@@ -1961,7 +1961,7 @@ a.listing-row:hover,
   box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
 }
 .pub-card:has(.event-more-menu-open) {
-  overflow: visible;
+  /* Menu is position:fixed — keep the 250px crop; don't unclamp card media. */
   z-index: 70;
 }
 
@@ -3213,12 +3213,12 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .note-card {
   position: relative;
   padding-right: 2.5rem;
-  max-height: 500px;
+  max-height: 250px;
   overflow: hidden;
 }
 .generic-card:has(.event-more-menu-open),
 .note-card:has(.event-more-menu-open) {
-  overflow: visible;
+  /* Menu is position:fixed — keep the height crop; don't unclamp card media. */
   z-index: 70;
 }
 .generic-card-copy {
@@ -3271,11 +3271,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 }
 .result-card-wrap {
   position: relative;
-  max-height: 500px;
+  max-height: 250px;
   overflow: hidden;
 }
 .result-card-wrap:has(.event-more-menu-open) {
-  overflow: visible;
+  /* Menu is position:fixed — keep the height crop; don't unclamp card media. */
   z-index: 70;
 }
 .result-card-wrap .generic-card-copy {

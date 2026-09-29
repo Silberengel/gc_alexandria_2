@@ -6,6 +6,7 @@ import {
   ensureMissingSectionPlaceholders,
   expandTocFromSections,
   copyPointerForEvent,
+  pointerHintRelays,
   humanizeHeading,
   isPlaceholderIndex,
   isPlaceholderSection,
@@ -20,6 +21,7 @@ import {
   tocPathKeys,
   tocEntryKey
 } from './publication-load';
+import { noteEventSource } from './nostr/event-sources';
 import { firstTag } from './nostr/verify';
 import { nip19 } from 'nostr-tools';
 
@@ -63,6 +65,42 @@ describe('copyPointerForEvent', () => {
     expect(noteDecoded.type).toBe('nevent');
     if (noteDecoded.type === 'nevent') {
       expect(noteDecoded.data.relays?.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('puts the relay the event was found on first in naddr and nevent hints', () => {
+    const pk = 'b'.repeat(64);
+    const sectionId = 'e'.repeat(64);
+    const noteId = 'f'.repeat(64);
+    const foundOn = 'wss://nostr.land';
+    const section = ev({
+      id: sectionId,
+      kind: 30041,
+      pubkey: pk,
+      tags: [['d', 'ch-found'], ['title', 'Found']]
+    });
+    const note = ev({
+      id: noteId,
+      kind: 1,
+      pubkey: pk,
+      tags: []
+    });
+    noteEventSource(sectionId, foundOn);
+    noteEventSource(noteId, foundOn);
+
+    expect(pointerHintRelays(section)[0]).toBe(foundOn);
+    const naddr = nip19.decode(copyPointerForEvent(section).text);
+    expect(naddr.type).toBe('naddr');
+    if (naddr.type === 'naddr') {
+      expect(naddr.data.relays?.[0]).toBe(foundOn);
+      expect(naddr.data.relays).toContain('wss://thecitadel.nostr1.com');
+    }
+
+    expect(pointerHintRelays(note)[0]).toBe(foundOn);
+    const nevent = nip19.decode(copyPointerForEvent(note).text);
+    expect(nevent.type).toBe('nevent');
+    if (nevent.type === 'nevent') {
+      expect(nevent.data.relays?.[0]).toBe(foundOn);
     }
   });
 });

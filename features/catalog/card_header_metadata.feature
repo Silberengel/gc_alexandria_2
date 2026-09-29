@@ -42,6 +42,7 @@ Feature: Publication and wiki card metadata
     And language appears as a labeled fact with a search link when present
     And the Details accordion stacks label-above-value on a narrow screen so long ids and relay URLs wrap without horizontal scroll
     And Details has a more menu to copy the pointer and open the event on njump.me or jumble.imwald.eu
+    And that copied naddr or nevent always includes the relay the event was found on (then stack defaults)
     And I see a Sources section for the source URL and every i-tag (ISBN is searchable/copyable; Open Library, Gutenberg, Wikidata and similar resolve to external links)
     And a non-URL source string is a plain source label
     And subject t-tags appear under Topics as #links

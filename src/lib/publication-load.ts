@@ -2,6 +2,7 @@ import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
 import { KIND, DOCUMENT_SEARCH_RELAYS, MERCURY_WSS, WIKI_RELAYS } from './constants';
 import { parseAddress } from './library-scope';
+import { eventSources } from './nostr/event-sources';
 import { firstTag, eventAddress } from './nostr/verify';
 import { coverTitle, humanizeTag } from './cover-fallback';
 import { displayTitle, publicationSectionCount } from './metadata';
@@ -45,11 +46,8 @@ export function naddrFor(event: Event): string {
   });
 }
 
-/**
- * Relay hints for share pointers. njump (and most clients) look up naddr/nevent
- * on those relays; an empty list yields “no event found” for Citadel editions.
- */
-export function pointerHintRelays(event: Event): string[] {
+/** Kind-based fallbacks when an event has not yet been observed on a live relay. */
+function pointerDefaultRelays(event: Event): string[] {
   if (event.kind === KIND.WIKI) {
     return [...WIKI_RELAYS, DOCUMENT_SEARCH_RELAYS[0]];
   }
@@ -62,6 +60,26 @@ export function pointerHintRelays(event: Event): string[] {
     return [DOCUMENT_SEARCH_RELAYS[0], MERCURY_WSS];
   }
   return [DOCUMENT_SEARCH_RELAYS[0], 'wss://theforest.nostr1.com'];
+}
+
+/**
+ * Relay hints for share pointers. Prefer relays that actually returned the event
+ * (search / pool / Mercury), then kind-based stack defaults so njump and peers
+ * still have somewhere to look when provenance is empty.
+ */
+export function pointerHintRelays(event: Event): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const url of [...eventSources(event.id), ...pointerDefaultRelays(event)]) {
+    const trimmed = url.trim().replace(/\/+$/, '');
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 /** Clipboard target for a section/event: naddr when addressable, else nevent. */
