@@ -2268,6 +2268,13 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   box-sizing: border-box;
 }
 
+/* In-browser reader: a book-like measure, not a stretched canvas. */
+.reader-layout .reading-body {
+  max-width: min(760px, 100%);
+  font-size: 1.08rem;
+  line-height: 1.65;
+}
+
 .event-body,
 .reader-section {
   min-width: 0;
@@ -4458,6 +4465,8 @@ mark.text-highlight.highlight-flash,
 }
 .bible-flow {
   position: relative;
+  font-size: 1.08rem;
+  line-height: 1.65;
 }
 .bible-run-heading {
   display: block;
@@ -4501,7 +4510,7 @@ mark.text-highlight.highlight-flash,
   align-self: center;
 }
 .bible-run-text {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.75rem;
   white-space: pre-wrap;
 }
 .bible-preamble-text {
@@ -5097,7 +5106,7 @@ a.user-status-line:hover {
 }
 @media (min-width: 900px) {
   .reader-layout {
-    grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 9.5rem) minmax(0, 1fr);
     align-items: start;
   }
   .toc {

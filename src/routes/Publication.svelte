@@ -283,10 +283,10 @@
         (r) => ratingHasScore(r) && r.pubkey.toLowerCase() === $session.pubkey!.toLowerCase()
       )
   );
-  /** Card primary CTA: sign-in > read (when readable) > edit/write review (catalog-only). */
+  /** Card primary CTA: read when readable; else sign-in / edit / write review (catalog-only). */
   const cardPrimary = $derived.by((): 'signin' | 'edit' | 'read' | 'write' => {
-    if (!$session.pubkey) return 'signin';
     if (canRead) return 'read';
+    if (!$session.pubkey) return 'signin';
     if (hasMyReview) return 'edit';
     return 'write';
   });
@@ -3099,6 +3099,19 @@
             {:else}
               <button class="btn btn-primary" type="button" onclick={openCardReview}
                 >Write a review</button
+              >
+            {/if}
+          {:else if cardPrimary === 'read'}
+            <button class="btn" type="button" onclick={() => openLoginDialog()}
+              >Sign in to interact with this publication</button
+            >
+            {#if canContinue}
+              <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
+                >Continue reading</button
+              >
+            {:else}
+              <button class="btn btn-primary" type="button" onclick={() => void startReading()}
+                >Read the publication</button
               >
             {/if}
           {:else}
