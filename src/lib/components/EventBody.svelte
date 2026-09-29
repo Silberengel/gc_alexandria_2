@@ -23,7 +23,7 @@
     content?: string;
     kind?: number;
     embedDepth?: number;
-    /** When false, skip fetching/painting naddr/nevent/note cards (e.g. Quotes lists). */
+    /** When false, skip fetching/painting embedded naddr/nevent/note lines. */
     showEmbeds?: boolean;
     quotes?: Array<string | HighlightQuote>;
     /**
@@ -196,8 +196,8 @@
 </script>
 
 {#snippet embedCard(hit: Event)}
-  {#await import('./EventCard.svelte') then mod}
-    <mod.default event={hit} embedDepth={embedDepth + 1} />
+  {#await import('./EmbedEventLine.svelte') then mod}
+    <mod.default event={hit} />
   {/await}
 {/snippet}
 
@@ -215,7 +215,7 @@
         <UserBadge pubkey={seg.pubkey} compact />
       {/if}
     {:else if !showEmbeds}
-      <!-- Quotes already sit under the work — omit redundant event cards. -->
+      <!-- Caller asked to omit embedded event cards. -->
     {:else if embedDepth > 1}
       <span class="muted">Embedded event</span>
     {:else if resolved[i]}

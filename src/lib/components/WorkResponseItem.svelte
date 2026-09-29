@@ -33,7 +33,7 @@
     <p class="work-response-quote">“{excerpt}”</p>
   {:else if excerpt}
     <div class="work-response-body">
-      <EventBody {event} showEmbeds={false} />
+      <EventBody {event} />
     </div>
   {/if}
   <div class="thread-actions">

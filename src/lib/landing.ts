@@ -392,12 +392,32 @@ export function warmLandingRef(event: Event, referenced: Event[]): void {
   if (paint) warmNavEvent(paint);
 }
 
-/** Path to the work page top (no deep-link query). */
-export function pathForRef(event: Event, referenced: Event[]): string | null {
+/**
+ * Library work a landing interaction opens, when that event is present and renderable.
+ * Address-only a-tags (orphans) return null so we do not link to missing pages.
+ */
+export function landingRefTarget(event: Event, referenced: Event[]): Event | null {
   const work = referencedLibraryAddress(event);
   const section = referencedSectionAddress(event);
   const top = topLevelPublicationAddress(section ?? work, referenced);
-  return addressPath(top ?? work ?? '');
+  const coord = top ?? work;
+  if (!coord) return null;
+  const parsed = parseAddress(coord);
+  // Section coordinates map to /publication/… and 404 without a real edition.
+  if (!parsed || parsed.kind === KIND.SECTION) return null;
+  const hit = referenced.find((e) => eventAddress(e) === coord);
+  if (!hit || !isRenderableCatalogEvent(hit)) return null;
+  return hit;
+}
+
+export function landingRefHasRenderableTarget(event: Event, referenced: Event[]): boolean {
+  return landingRefTarget(event, referenced) != null;
+}
+
+/** Path to the work page top (no deep-link query). */
+export function pathForRef(event: Event, referenced: Event[]): string | null {
+  const target = landingRefTarget(event, referenced);
+  return target ? addressPath(eventAddress(target)) : null;
 }
 
 /** Path that opens/scrolls to this highlight, review, or comment on the work page. */

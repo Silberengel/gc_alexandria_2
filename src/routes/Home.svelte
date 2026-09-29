@@ -10,6 +10,7 @@
   import {
     LANDING_FEED_LIMIT,
     landingCoverSeed,
+    landingRefHasRenderableTarget,
     loadCachedLanding,
     loadViewerShelves,
     mergeLandingShelves,
@@ -208,9 +209,21 @@
     visibleShelves.some((s) => isViewerBoundShelfId(s.id))
   );
   const showLandingSpinner = $derived(landingBusy || shelfBusy || $session.loading);
-  const visibleHighlights = $derived(filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT));
-  const visibleComments = $derived(filterMuted(comments, $muteState).slice(0, LANDING_FEED_LIMIT));
-  const visibleRatings = $derived(filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT));
+  const visibleHighlights = $derived(
+    filterMuted(highlights, $muteState)
+      .filter((e) => landingRefHasRenderableTarget(e, referenced))
+      .slice(0, LANDING_FEED_LIMIT)
+  );
+  const visibleComments = $derived(
+    filterMuted(comments, $muteState)
+      .filter((e) => landingRefHasRenderableTarget(e, referenced))
+      .slice(0, LANDING_FEED_LIMIT)
+  );
+  const visibleRatings = $derived(
+    filterMuted(ratings, $muteState)
+      .filter((e) => landingRefHasRenderableTarget(e, referenced))
+      .slice(0, LANDING_FEED_LIMIT)
+  );
   const visibleSubjects = $derived(subjects);
   const visibleLabels = $derived(labels);
   const visibleGuides = $derived(guideChips);

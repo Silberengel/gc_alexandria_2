@@ -3547,6 +3547,88 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   margin: 0.25rem 0 0.35rem;
   min-width: 0;
 }
+
+/* One-line card for quoted / embedded events (naddr, nevent, note). */
+.embed-event-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0.45rem 0;
+  padding: 0.35rem 0.55rem 0.35rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 62%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--rule));
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--paper-light) 88%, var(--surface-2));
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  line-height: 1.35;
+  overflow: hidden;
+}
+a.embed-event-line:hover,
+a.embed-event-line:focus-visible {
+  background: color-mix(in srgb, var(--accent) 8%, var(--paper-light));
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--rule));
+  border-left-color: var(--accent);
+}
+.embed-event-line-static {
+  cursor: default;
+}
+.embed-event-thumb {
+  flex: 0 0 1.35rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.embed-event-thumb .cover-frame,
+.embed-event-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.embed-event-kind {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.embed-event-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-family: var(--display-font);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.embed-event-sep {
+  flex: 0 0 auto;
+}
+.embed-event-by {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.embed-event-by .userbadge {
+  display: inline-flex;
+  max-width: 100%;
+}
+.event-body .embed-event-line {
+  margin-block: 0.55rem;
+}
 .thread-list,
 .thread-children {
   list-style: none;

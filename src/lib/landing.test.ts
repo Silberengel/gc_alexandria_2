@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { preferLive, subjectsFromPublications, orderShelfCovers, landingCoverSeed, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves } from './landing';
+import { preferLive, subjectsFromPublications, orderShelfCovers, landingCoverSeed, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves, landingRefHasRenderableTarget } from './landing';
 import { orderLandingShelves, dedupeLandingShelfEvents } from './shelves';
 import type { Event } from 'nostr-tools';
 import type { LandingShelfSnap } from './nostr/cache';
@@ -251,5 +251,48 @@ describe('referenced work titles', () => {
     const params = new URLSearchParams(href.slice(q + 1));
     expect(params.get('section')).toBe(secAddr);
     expect(params.get('quote')).toBe('It was a cold winter morning on the moor.');
+  });
+
+  it('hides interactions whose library target was never resolved', () => {
+    const pubkey = '1'.repeat(64);
+    const pubAddr = `30040:${pubkey}:ghost-book`;
+    const comment = {
+      ...ev([]),
+      kind: 1111,
+      tags: [
+        ['A', pubAddr],
+        ['K', '30040']
+      ]
+    };
+    const highlight = {
+      ...ev([]),
+      id: 'e'.repeat(64),
+      kind: 9802,
+      content: 'orphan quote',
+      tags: [['a', pubAddr]]
+    };
+    const rating = {
+      ...ev([]),
+      id: 'f'.repeat(64),
+      kind: 34259,
+      tags: [
+        ['a', pubAddr],
+        ['k', '30040']
+      ]
+    };
+    expect(landingRefHasRenderableTarget(comment, [])).toBe(false);
+    expect(landingRefHasRenderableTarget(highlight, [])).toBe(false);
+    expect(landingRefHasRenderableTarget(rating, [])).toBe(false);
+    expect(pathForRef(comment, [])).toBeNull();
+    expect(focusHrefForRef(highlight, [])).toBeNull();
+
+    const publication = ev([
+      ['d', 'ghost-book'],
+      ['title', 'Ghost Book']
+    ]);
+    publication.pubkey = pubkey;
+    publication.kind = 30040;
+    expect(landingRefHasRenderableTarget(comment, [publication])).toBe(true);
+    expect(pathForRef(comment, [publication])).toContain('/publication/d/ghost-book/');
   });
 });

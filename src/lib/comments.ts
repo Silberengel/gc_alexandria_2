@@ -258,10 +258,28 @@ export function qTagMatchesTarget(raw: string, target: Event): boolean {
   return false;
 }
 
-/** Kind 1 note that quotes this work via a `q` tag (NIP-18). */
+const CONTENT_EVENT_REF = /(?:nostr:)?(n(?:addr|event|ote)1[02-9ac-hj-np-z]+)/gi;
+
+/** True when note content embeds this work as naddr / nevent / note. */
+export function contentEmbedsTarget(event: Event, target: Event): boolean {
+  const text = event.content ?? '';
+  if (!text) return false;
+  CONTENT_EVENT_REF.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CONTENT_EVENT_REF.exec(text)) !== null) {
+    if (qTagMatchesTarget(m[1]!, target)) return true;
+  }
+  return false;
+}
+
+/**
+ * Kind 1 note that quotes this work: NIP-18 `q` tag, or an embedded
+ * naddr/nevent/note of the OP in the content (shown as a card in the body).
+ */
 export function isQuoteOfTarget(event: Event, target: Event): boolean {
   if (event.kind !== KIND.TEXT_NOTE) return false;
-  return event.tags.some((t) => t[0] === 'q' && t[1] && qTagMatchesTarget(t[1], target));
+  if (event.tags.some((t) => t[0] === 'q' && t[1] && qTagMatchesTarget(t[1], target))) return true;
+  return contentEmbedsTarget(event, target);
 }
 
 /** Kind 1111 / kind 1 / 9802 that points at this work with e/E and/or a/A (or q). */
@@ -280,9 +298,9 @@ export function referencesTarget(event: Event, target: Event): boolean {
 }
 
 export type WorkResponses = {
-  /** Kind 1111 and kind 1 replies/notes that reference the work (excluding q-tag quotes). */
+  /** Kind 1111 and kind 1 replies/notes that reference the work (excluding quotes). */
   thread: Event[];
-  /** Kind 1 notes with a q-tag pointing at this work. */
+  /** Kind 1 notes that quote this work (`q` tag or embedded OP pointer in content). */
   quotes: Event[];
   /** Kind 9802 highlights of this work. */
   highlights: Event[];

@@ -216,6 +216,36 @@ describe('comments nest', () => {
     expect(referencesTarget(reply, edition)).toBe(true);
   });
 
+  it('treats kind 1 notes that embed the OP naddr as quotes', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'b'.repeat(64);
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', 'project-alexandria']]
+    });
+    const naddr = nip19.naddrEncode({
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      identifier: 'project-alexandria'
+    });
+    const share = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      content: `Getting closer.\n\nnostr:${naddr}`,
+      tags: [['a', `${KIND.LONG_FORM}:${pk}:project-alexandria`]]
+    });
+    const bareReply = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      content: 'Nice article.',
+      tags: [['e', edition.id, '', 'root']]
+    });
+    expect(isQuoteOfTarget(share, edition)).toBe(true);
+    expect(isQuoteOfTarget(bareReply, edition)).toBe(false);
+  });
+
   it('nests a kind 1 reply under a kind 1111 parent', () => {
     const rootId = '1'.repeat(64);
     const editionId = 'a'.repeat(64);

@@ -33,14 +33,40 @@ export type EmojiShortcodeMatch = {
 
 const PLACEHOLDER_RE = /\uE000EMOJI(\d+)\uE000/g;
 
+/** NIP-30 shortcodes used in HTML attrs — reject markup / entity metacharacters. */
+const SAFE_EMOJI_SHORTCODE = /^[a-zA-Z0-9_][a-zA-Z0-9_+-]{0,63}$/;
+
+/** Escape a value for a double-quoted HTML attribute (ampersand first). */
+export function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function normalizeEmojiUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!isAllowedMediaUrl(trimmed)) return null;
+  // Reject values that would be ambiguous or break out of HTML attributes.
+  if (/[\s"'<>\\]/.test(trimmed)) return null;
+  try {
+    // Re-serialize so query separators are stable before attribute escaping.
+    return new URL(trimmed).href;
+  } catch {
+    return null;
+  }
+}
+
 export function emojiInfosFromTags(tags: string[][] = []): EmojiInfo[] {
   const out: EmojiInfo[] = [];
   const seen = new Set<string>();
   for (const tag of tags) {
     if (tag[0] !== 'emoji' || tag.length < 3) continue;
     const shortcode = (tag[1] ?? '').trim();
-    const url = (tag[2] ?? '').trim();
-    if (!shortcode || !url || !isAllowedMediaUrl(url)) continue;
+    if (!SAFE_EMOJI_SHORTCODE.test(shortcode)) continue;
+    const url = normalizeEmojiUrl(tag[2] ?? '');
+    if (!url) continue;
     const key = shortcode.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -204,9 +230,10 @@ export function expandCustomEmojiPlaceholders(html: string, slots: readonly Emoj
   if (!slots.length || !html) return html;
   return html.replace(PLACEHOLDER_RE, (_full, num) => {
     const info = slots[Number(num)];
-    if (!info || !isAllowedMediaUrl(info.url)) return `:${num}:`;
-    const code = info.shortcode.replace(/"/g, '');
-    const src = info.url.replace(/"/g, '&quot;');
+    const url = info ? normalizeEmojiUrl(info.url) : null;
+    if (!info || !url) return `:${num}:`;
+    const code = escapeHtmlAttr(info.shortcode);
+    const src = escapeHtmlAttr(url);
     return `<img class="content-emoji" src="${src}" alt=":${code}:" title=":${code}:" loading="lazy" decoding="async" />`;
   });
 }
@@ -229,8 +256,10 @@ export function contentNeedsAuthorEmojiLookup(
 function addEmojis(map: Map<string, EmojiInfo>, list: EmojiInfo[]): void {
   for (const e of list) {
     const sc = e.shortcode?.trim();
-    const url = e.url?.trim();
-    if (sc && url && isAllowedMediaUrl(url)) map.set(sc.toLowerCase(), { shortcode: sc, url });
+    if (!sc || !SAFE_EMOJI_SHORTCODE.test(sc)) continue;
+    const url = normalizeEmojiUrl(e.url ?? '');
+    if (!url) continue;
+    map.set(sc.toLowerCase(), { shortcode: sc, url });
   }
 }
 

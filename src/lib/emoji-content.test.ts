@@ -46,6 +46,29 @@ describe('emoji-content', () => {
     expect(html).toContain('alt=":nostopus_roger:"');
   });
 
+  it('escapes shortcode and url for HTML attributes', () => {
+    const html = expandCustomEmojiPlaceholders('\uE000EMOJI0\uE000', [
+      {
+        shortcode: 'test&#34;onload&#34;test',
+        url: 'https://example.com/e.png?x=1&y=2'
+      }
+    ]);
+    expect(html).toContain('alt=":test&amp;#34;onload&amp;#34;test:"');
+    expect(html).toContain('title=":test&amp;#34;onload&amp;#34;test:"');
+    expect(html).toContain('src="https://example.com/e.png?x=1&amp;y=2"');
+    expect(html).not.toMatch(/\sonload=/i);
+  });
+
+  it('rejects emoji tags with unsafe shortcodes or non-http urls', () => {
+    expect(
+      emojiInfosFromTags([
+        ['emoji', 'test&#34;onload&#34;test', 'https://example.com/e.png'],
+        ['emoji', 'ok', 'https://example.com/e.png" onload="alert(1)'],
+        ['emoji', 'fine', 'https://example.com/fine.png']
+      ])
+    ).toEqual([{ shortcode: 'fine', url: 'https://example.com/fine.png' }]);
+  });
+
   it('matches known custom codes longer than the heuristic cap', () => {
     const long = 'a'.repeat(30);
     const hits = findEmojiShortcodes(`x:${long}:y`, [long]);
