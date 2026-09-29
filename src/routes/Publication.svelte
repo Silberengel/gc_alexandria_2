@@ -38,7 +38,7 @@
   import { documentStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, firstTag, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
-  import { cacheFindByAddress, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
+  import { cacheFindByAddress, cacheGetCompletePublication, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { loadSeedsForEdition, editionHasLocalSeeds } from '$lib/nostr/seed-load';
   import {
@@ -641,8 +641,26 @@
     return out.length ? out : [[]];
   }
 
+  /** Contents from a finished cache snapshot — no Mercury /meta or /toc. */
+  function tocFromCachedEvents(edition: Event, events: Event[]): TocEntry[] {
+    const fromTags = expandTocFromSections(parseToc(null, edition), events);
+    if (fromTags.some((entry) => !entry.root)) return fromTags;
+    const built = enrichToc(
+      [],
+      events.filter((event) => event.id !== edition.id)
+    );
+    return built.length ? built : fromTags;
+  }
+
   async function prefetchTree(target: Event, signal: AbortSignal): Promise<void> {
     try {
+      const cached = await cacheGetCompletePublication(eventAddress(target));
+      if (signal.aborted) return;
+      if (cached) {
+        rememberEvents(cached.events);
+        toc = tocFromCachedEvents(target, cached.events);
+        return;
+      }
       const naddr = naddrFor(target);
       const meta = await mercuryPublicationMeta(naddr, signal);
       if (signal.aborted) return;
@@ -1044,6 +1062,12 @@
     if (toc.length) return;
     if (isIndexScopedEdition(edition)) {
       toc = buildIndexScopedToc(edition);
+      return;
+    }
+    const cached = await cacheGetCompletePublication(eventAddress(edition));
+    if (cached) {
+      rememberEvents(cached.events);
+      toc = tocFromCachedEvents(edition, cached.events);
       return;
     }
     try {
@@ -1602,7 +1626,15 @@
         focusPaintWindow(resumePos as number, 'jump');
       }
 
-      // ToC after first paint — never blank the pane waiting on Mercury /toc.
+      // ToC after first paint — cache first, then Mercury /toc.
+      if (!toc.length) {
+        const cachedToc = await cacheGetCompletePublication(eventAddress(edition));
+        if (cachedToc && focusKey === key && event === edition) {
+          rememberEvents(cachedToc.events);
+          toc = tocFromCachedEvents(edition, cachedToc.events);
+          adoptSections(sectionCorpus, edition);
+        }
+      }
       if (!toc.length) {
         try {
           const rawToc = await mercuryPublicationToc(naddrFor(edition));
@@ -2520,8 +2552,15 @@
 
       let streamed: Event[] = [];
       const naddr = naddrFor(edition);
+      const cachedTree = await cacheGetCompletePublication(eventAddress(edition));
+      if (cachedTree) {
+        rememberEvents(cachedTree.events);
+        streamed = cachedTree.events;
+      }
       const skipMercury =
-        isMercuryUnavailable() || isMercuryPublicationMissing(naddr);
+        streamed.length > 0 ||
+        isMercuryUnavailable() ||
+        isMercuryPublicationMissing(naddr);
       try {
         if (!skipMercury) {
           if (Number.isFinite(entry.pos)) {

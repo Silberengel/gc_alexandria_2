@@ -2,7 +2,7 @@ import type { Event } from 'nostr-tools';
 import { naddrFor } from './publication-load';
 import { eventAddress } from './nostr/verify';
 import { fetchByAddress, fetchById } from './nostr/fetch';
-import { cachePutEvent, cachePutPublicationStream } from './nostr/cache';
+import { cacheGetCompletePublication, cachePutEvent, cachePutPublicationStream } from './nostr/cache';
 import { mercuryPublicationStream } from './nostr/mercury';
 import { rememberEvents } from './nostr/event-memory';
 import type { ReadingQueueEntry } from './reading-queue';
@@ -26,6 +26,8 @@ export function warmReadingQueueCache(entries: ReadingQueueEntry[]): void {
   warmInFlight = (async () => {
     try {
       for (const entry of slice) {
+        const cached = await cacheGetCompletePublication(entry.a);
+        if (cached) continue;
         const pub = await fetchByAddress(entry.a);
         if (!pub) continue;
         rememberEvents([pub]);

@@ -244,6 +244,19 @@ export async function cacheGetPublicationStream(editionAddress: string): Promise
   return (await cacheGetPublicationStreamSnapshot(editionAddress)).events;
 }
 
+/**
+ * A finished read of this edition is already in Cache Storage.
+ * Callers must paint from this snapshot and not contact Mercury or relays.
+ */
+export async function cacheGetCompletePublication(
+  editionAddress: string
+): Promise<PublicationStreamSnapshot | null> {
+  const snap = await cacheGetPublicationStreamSnapshot(editionAddress);
+  if (!snap.complete || !snap.events.length) return null;
+  if (!snap.events.some((event) => event.kind !== KIND.PUBLICATION)) return null;
+  return snap;
+}
+
 /** Drop the landing snapshot (viewer-bound shelves/feeds) without wiping the rest of the event cache. */
 export async function cacheClearLandingSnapshot(): Promise<void> {
   try {
