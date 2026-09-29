@@ -1949,8 +1949,16 @@ a.listing-row:hover,
   box-sizing: border-box;
   padding: 0.75rem;
   padding-right: 2.5rem;
+  /* Book tile — quiet frame so the cover carries the weight. */
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--rule) 42%, transparent);
+  background: color-mix(in srgb, var(--paper-light) 40%, var(--paper));
+  box-shadow: 0 1px 4px rgb(60 40 25 / 7%);
   /* Cover fills the padded content box (2:3). */
   --pub-card-cover-h: calc(250px - 1.5rem);
+}
+:root.dark .pub-card {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
 }
 .pub-card:has(.event-more-menu-open) {
   overflow: visible;
