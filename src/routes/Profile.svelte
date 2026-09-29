@@ -89,7 +89,8 @@
   let marksByWork = $state<Map<string, InteractionMark[]>>(new Map());
   let statusGeneral = $state<UserStatus | null>(null);
   let statusMusic = $state<UserStatus | null>(null);
-  let payments = $state<ReturnType<typeof paymentRows>>([]);
+  /** Kind 10133 payment events — kept across kind-0 refreshes so targets do not flash away. */
+  let paymentEvents = $state<Event[]>([]);
   let pageFilter = $state('');
   let producedPage = $state(1);
   let interactedPage = $state(1);
@@ -101,6 +102,7 @@
   let readingEditions = $state<Map<string, Event>>(new Map());
 
   const fields = $derived(parseKind0(profile));
+  const payments = $derived(paymentRows(fields, paymentEvents, profile));
   const displayTitle = $derived(fields.title || warmName || 'Unknown');
   const displayPicture = $derived(fields.picture || warmPicture);
   const pageSize = $derived(listingPageSize($listingDensity));
@@ -274,7 +276,6 @@
     const prevPicture = untrack(() => warmPicture);
     warmName = parsed.title || prevName;
     warmPicture = parsed.picture || prevPicture;
-    payments = paymentRows(parsed, [], meta);
   }
 
   function resetProfileListings(): void {
@@ -283,7 +284,7 @@
     marksByWork = new Map();
     statusGeneral = null;
     statusMusic = null;
-    payments = [];
+    paymentEvents = [];
     readCount = 0;
     readingEntries = [];
     readingTitles = new Map();
@@ -311,8 +312,7 @@
     const statuses = selectUserStatuses(snap.statusEvents);
     statusGeneral = statuses.general;
     statusMusic = statuses.music;
-    const metaEv = snap.profile ?? untrack(() => profile);
-    payments = paymentRows(parseKind0(metaEv), snap.paymentEvents, metaEv);
+    paymentEvents = [...snap.paymentEvents];
     readCount = snap.readCount;
     const ownLocal =
       !!get(session).pubkey &&
@@ -531,9 +531,10 @@
       ]).then(([paySocial, payProfile]) => {
         if (cancelled) return;
         const payById = new Map<string, Event>();
+        for (const e of untrack(() => paymentEvents)) payById.set(e.id, e);
         for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
         paymentEventsAcc = [...payById.values()];
-        payments = paymentRows(parseKind0(profile), paymentEventsAcc, profile);
+        paymentEvents = paymentEventsAcc;
       });
 
       const readsP =
