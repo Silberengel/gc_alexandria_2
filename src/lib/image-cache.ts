@@ -10,6 +10,8 @@ const CACHE_NAME = 'alexandria-images-v1';
 const memory = new Map<string, string>();
 const inflight = new Map<string, Promise<string>>();
 
+const MAX_MEMORY = 150;
+
 function normalizeUrl(url: string): string {
   const t = url.trim();
   if (!t) return '';
@@ -27,6 +29,26 @@ function isHttpUrl(url: string): boolean {
 function isInlineUrl(url: string): boolean {
   const t = url.trim();
   return t.startsWith('data:') || t.startsWith('blob:');
+}
+
+function revokeBlob(obj: string): void {
+  try {
+    if (obj.startsWith('blob:')) URL.revokeObjectURL(obj);
+  } catch {
+    /* ignore */
+  }
+}
+
+function touchMemory(key: string, obj: string): void {
+  if (memory.has(key)) memory.delete(key);
+  memory.set(key, obj);
+  while (memory.size > MAX_MEMORY) {
+    const oldest = memory.keys().next().value;
+    if (oldest == null) break;
+    const dropped = memory.get(oldest);
+    memory.delete(oldest);
+    if (dropped) revokeBlob(dropped);
+  }
 }
 
 async function openImageCache(): Promise<Cache | null> {
@@ -59,7 +81,10 @@ export function peekCachedImageSrc(url: string): string | null {
   const key = normalizeUrl(url);
   if (!key) return null;
   if (isInlineUrl(key)) return key;
-  return memory.get(key) ?? null;
+  const hit = memory.get(key);
+  if (!hit) return null;
+  touchMemory(key, hit);
+  return hit;
 }
 
 /**
@@ -73,7 +98,10 @@ export async function cachedImageSrc(url: string): Promise<string> {
   if (!isHttpUrl(key)) return key;
 
   const mem = memory.get(key);
-  if (mem) return mem;
+  if (mem) {
+    touchMemory(key, mem);
+    return mem;
+  }
 
   const pending = inflight.get(key);
   if (pending) return pending;
@@ -83,7 +111,7 @@ export async function cachedImageSrc(url: string): Promise<string> {
       const cached = await readCachedBlob(key);
       if (cached && cached.size > 0) {
         const obj = blobToObjectUrl(cached);
-        memory.set(key, obj);
+        touchMemory(key, obj);
         return obj;
       }
 
@@ -110,7 +138,7 @@ export async function populateImageCache(url: string): Promise<void> {
   try {
     const existing = await readCachedBlob(key);
     if (existing && existing.size > 0) {
-      memory.set(key, blobToObjectUrl(existing));
+      touchMemory(key, blobToObjectUrl(existing));
     }
   } catch {
     /* ignore */
@@ -132,11 +160,7 @@ export function prefetchImages(urls: Iterable<string>): void {
 /** @internal tests */
 export function resetImageCacheMemoryForTests(): void {
   for (const obj of memory.values()) {
-    try {
-      if (obj.startsWith('blob:')) URL.revokeObjectURL(obj);
-    } catch {
-      /* ignore */
-    }
+    revokeBlob(obj);
   }
   memory.clear();
   inflight.clear();

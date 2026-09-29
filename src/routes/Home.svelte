@@ -278,18 +278,23 @@
   $effect(() => {
     if (!$session.pubkey) return;
     const queue = readingShelfEntries;
+    let cancelled = false;
     for (const entry of queue) {
       if (readingEditions.has(entry.a)) continue;
       const addr = entry.a;
       void (async () => {
         const hit = await fetchByAddress(addr);
-        if (!hit) return;
+        if (cancelled || !hit) return;
+        if (!readingShelfEntries.some((e) => e.a === addr)) return;
         rememberEvents([hit]);
         void cachePutEvent(hit);
         readingEditions = new Map(readingEditions).set(addr, hit);
       })();
     }
     warmReadingQueueCache(queue);
+    return () => {
+      cancelled = true;
+    };
   });
 
   function apply(view: LandingView, replaceShelves = false): void {

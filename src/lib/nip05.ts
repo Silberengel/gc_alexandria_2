@@ -87,6 +87,18 @@ export function verifyNip05AgainstWellKnown(
 
 const cache = new Map<string, VerifyNip05Result>();
 const inflight = new Map<string, Promise<VerifyNip05Result>>();
+const MAX_VERIFY_CACHE = 200;
+const MAX_LOOKUP_CACHE = 200;
+
+function touchCache<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
+    if (oldest == null) break;
+    map.delete(oldest);
+  }
+}
 
 async function fetchWellKnown(
   domain: string,
@@ -164,7 +176,11 @@ export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
   const split = splitNip05Identifier(nip05);
   if (!split) return null;
   const key = nip05.trim().toLowerCase();
-  if (lookupCache.has(key)) return lookupCache.get(key) ?? null;
+  if (lookupCache.has(key)) {
+    const hit = lookupCache.get(key) ?? null;
+    touchCache(lookupCache, key, hit, MAX_LOOKUP_CACHE);
+    return hit;
+  }
 
   let pending = lookupInflight.get(key);
   if (!pending) {
@@ -175,7 +191,7 @@ export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
         const scoped = await fetchWellKnown(split.domain, split.name);
         hex = pubkeyFromWellKnown(scoped, split.name);
       }
-      lookupCache.set(key, hex);
+      touchCache(lookupCache, key, hex, MAX_LOOKUP_CACHE);
       return hex;
     })().finally(() => {
       lookupInflight.delete(key);
@@ -189,13 +205,16 @@ export async function lookupNip05Pubkey(nip05: string): Promise<string | null> {
 export async function verifyNip05(nip05: string, pubkey: string): Promise<VerifyNip05Result> {
   const key = `${nip05.trim().toLowerCase()}|${pubkey.trim().toLowerCase()}`;
   const hit = cache.get(key);
-  if (hit?.isVerified) return hit;
+  if (hit?.isVerified) {
+    touchCache(cache, key, hit, MAX_VERIFY_CACHE);
+    return hit;
+  }
 
   let pending = inflight.get(key);
   if (!pending) {
     pending = verifyOnce(nip05, pubkey).then((result) => {
       inflight.delete(key);
-      if (result.isVerified) cache.set(key, result);
+      if (result.isVerified) touchCache(cache, key, result, MAX_VERIFY_CACHE);
       return result;
     });
     inflight.set(key, pending);

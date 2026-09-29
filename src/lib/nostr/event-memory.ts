@@ -11,6 +11,25 @@ const byAddr = new Map<string, Event>();
 /** Newest kind-0 per pubkey — badges remount without waiting on profile relays. */
 const byMetaPubkey = new Map<string, Event>();
 
+const MAX_BY_ID = 4_000;
+const MAX_BY_ADDR = 6_000;
+const MAX_META = 1_500;
+
+function trimMap<K, V>(map: Map<K, V>, max: number): void {
+  if (map.size <= max) return;
+  const drop = map.size - max;
+  let i = 0;
+  for (const key of map.keys()) {
+    map.delete(key);
+    if (++i >= drop) break;
+  }
+}
+
+function touchMap<K, V>(map: Map<K, V>, key: K, value: V): void {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+}
+
 function addrKey(kind: number, pubkey: string, d: string): string {
   return `${kind}:${pubkey.toLowerCase()}:${normalizeDTag(d) || d}`;
 }
@@ -21,13 +40,13 @@ export function rememberEvents(events: Event[]): void {
     const id = event.id.toLowerCase();
     const prev = byId.get(id);
     // Same id: keep the richer tag set (search sources often disagree on a/e completeness).
-    if (!prev) byId.set(id, event);
-    else byId.set(id, preferRicherEvent(prev, event));
+    if (!prev) touchMap(byId, id, event);
+    else touchMap(byId, id, preferRicherEvent(prev, event));
 
     const pk = event.pubkey.toLowerCase();
     if (event.kind === 0) {
       const cur = byMetaPubkey.get(pk);
-      if (!cur || isNewerReplaceable(event, cur)) byMetaPubkey.set(pk, event);
+      if (!cur || isNewerReplaceable(event, cur)) touchMap(byMetaPubkey, pk, event);
     }
 
     const d = firstTag(event, 'd');
@@ -36,7 +55,7 @@ export function rememberEvents(events: Event[]): void {
       const key = addrKey(event.kind, pk, variant);
       const cur = byAddr.get(key);
       if (!cur) {
-        byAddr.set(key, event);
+        touchMap(byAddr, key, event);
         continue;
       }
       // Reader walks need a/e tags — never let a thin catalog card replace a richer index.
@@ -44,23 +63,34 @@ export function rememberEvents(events: Event[]): void {
         const curSecs = publicationSectionCount(cur);
         const nextSecs = publicationSectionCount(event);
         if (nextSecs > curSecs) {
-          byAddr.set(key, event);
+          touchMap(byAddr, key, event);
           continue;
         }
         if (nextSecs < curSecs) continue;
       }
-      if (isNewerReplaceable(event, cur)) byAddr.set(key, event);
-      else if (cur.id.toLowerCase() === id) byAddr.set(key, preferRicherEvent(cur, event));
+      if (isNewerReplaceable(event, cur)) touchMap(byAddr, key, event);
+      else if (cur.id.toLowerCase() === id) touchMap(byAddr, key, preferRicherEvent(cur, event));
     }
   }
+  trimMap(byId, MAX_BY_ID);
+  trimMap(byAddr, MAX_BY_ADDR);
+  trimMap(byMetaPubkey, MAX_META);
 }
 
 export function memoryGetEvent(id: string): Event | null {
-  return byId.get(id.toLowerCase()) ?? null;
+  const key = id.toLowerCase();
+  const hit = byId.get(key);
+  if (!hit) return null;
+  touchMap(byId, key, hit);
+  return hit;
 }
 
 export function memoryFindMetadata(pubkey: string): Event | null {
-  return byMetaPubkey.get(pubkey.trim().toLowerCase()) ?? null;
+  const pk = pubkey.trim().toLowerCase();
+  const hit = byMetaPubkey.get(pk);
+  if (!hit) return null;
+  touchMap(byMetaPubkey, pk, hit);
+  return hit;
 }
 
 export function memoryFindByAddress(kind: number, pubkey: string, d: string): Event | null {
@@ -71,23 +101,33 @@ export function memoryFindByAddress(kind: number, pubkey: string, d: string): Ev
   if (d) wanted.add(d);
 
   let best: Event | null = null;
+  let bestKey: string | null = null;
   for (const variant of wanted) {
-    const hit = byAddr.get(addrKey(kind, pk, variant));
+    const key = addrKey(kind, pk, variant);
+    const hit = byAddr.get(key);
     if (!hit) continue;
     if (!best) {
       best = hit;
+      bestKey = key;
       continue;
     }
     if (kind === KIND.PUBLICATION) {
       const bestSecs = publicationSectionCount(best);
       const hitSecs = publicationSectionCount(hit);
       if (hitSecs !== bestSecs) {
-        if (hitSecs > bestSecs) best = hit;
+        if (hitSecs > bestSecs) {
+          best = hit;
+          bestKey = key;
+        }
         continue;
       }
     }
-    if (isNewerReplaceable(hit, best)) best = hit;
+    if (isNewerReplaceable(hit, best)) {
+      best = hit;
+      bestKey = key;
+    }
   }
+  if (best && bestKey) touchMap(byAddr, bestKey, best);
   return best;
 }
 
@@ -118,4 +158,11 @@ export function memoryFindBibleChapter(
     if (!best) best = ev;
   }
   return best;
+}
+
+/** @internal tests */
+export function resetEventMemoryForTests(): void {
+  byId.clear();
+  byAddr.clear();
+  byMetaPubkey.clear();
 }

@@ -370,14 +370,6 @@ export function isViewerBoundShelfId(id: string): boolean {
   return id === 'mine' || id === 'follows' || id.startsWith('folder:');
 }
 
-export function bookmarkHasPublication(bookmark: Event | null, publication: Event): boolean {
-  if (!bookmark) return false;
-  const { addresses, eventIds } = publicationTargets(bookmark);
-  if (eventIds.includes(publication.id.toLowerCase())) return true;
-  const addr = eventAddress(publication);
-  return addresses.includes(addr);
-}
-
 export function withBookmarkTag(
   bookmark: Event | null,
   publication: Event,

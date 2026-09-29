@@ -1,59 +1,48 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Router, { location } from 'svelte-spa-router';
-  import Home from './routes/Home.svelte';
-  import Search from './routes/Search.svelte';
-  import Publication from './routes/Publication.svelte';
-  import Wiki from './routes/Wiki.svelte';
-  import Profile from './routes/Profile.svelte';
-  import Settings from './routes/Settings.svelte';
-  import About from './routes/About.svelte';
-  import Booklists from './routes/Booklists.svelte';
-  import StartRedirect from './routes/StartRedirect.svelte';
-  import Contact from './routes/Contact.svelte';
-  import DouayPassage from './routes/DouayPassage.svelte';
-  import NotFound from './routes/NotFound.svelte';
+  import { wrap } from 'svelte-spa-router/wrap';
   import { scheduleDeletionSweep } from './lib/deletions';
   import { session } from './lib/stores/session';
   import MediaViewer from './lib/components/MediaViewer.svelte';
 
   const routes = {
-    '/': Home,
-    '/search': Search,
-    '/settings': Settings,
-    '/about': About,
-    '/booklists': Booklists,
-    '/start': StartRedirect,
-    '/contact': Contact,
-    '/p/:id/:kind': Profile,
-    '/p/:id': Profile,
-    '/publication/d/:d/p/:npub': Publication,
-    '/publication/d/:d': Publication,
-    '/publication/naddr/:naddr': Publication,
-    '/publication/nevent/:naddr': Publication,
-    '/publication/note/:naddr': Publication,
-    '/publication/:naddr': Publication,
-    '/wiki/d/:d/p/:npub': Wiki,
-    '/wiki/d/:d': Wiki,
-    '/wiki/naddr/:naddr': Wiki,
-    '/wiki/nevent/:naddr': Wiki,
-    '/wiki/note/:naddr': Wiki,
-    '/wiki/:naddr': Wiki,
-    '/spec/d/:d/p/:npub': Wiki,
-    '/spec/d/:d': Wiki,
-    '/spec/naddr/:naddr': Wiki,
-    '/spec/nevent/:naddr': Wiki,
-    '/spec/note/:naddr': Wiki,
-    '/spec/:naddr': Wiki,
-    '/article/d/:d/p/:npub': Wiki,
-    '/article/d/:d': Wiki,
-    '/article/naddr/:naddr': Wiki,
-    '/article/nevent/:naddr': Wiki,
-    '/article/note/:naddr': Wiki,
-    '/article/:naddr': Wiki,
+    '/': wrap({ asyncComponent: () => import('./routes/Home.svelte') }),
+    '/search': wrap({ asyncComponent: () => import('./routes/Search.svelte') }),
+    '/settings': wrap({ asyncComponent: () => import('./routes/Settings.svelte') }),
+    '/about': wrap({ asyncComponent: () => import('./routes/About.svelte') }),
+    '/booklists': wrap({ asyncComponent: () => import('./routes/Booklists.svelte') }),
+    '/start': wrap({ asyncComponent: () => import('./routes/StartRedirect.svelte') }),
+    '/contact': wrap({ asyncComponent: () => import('./routes/Contact.svelte') }),
+    '/p/:id/:kind': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),
+    '/p/:id': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),
+    '/publication/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/publication/d/:d': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/publication/naddr/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/publication/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/publication/note/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/publication/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    '/wiki/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/wiki/d/:d': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/wiki/naddr/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/wiki/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/wiki/note/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/wiki/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/d/:d': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/naddr/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/note/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/spec/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/d/:d': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/naddr/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/note/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
+    '/article/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
     /** Biblestr-compatible Douay: `/luke/9?verses=46-50` (after library routes). */
-    '/:book/:chapter': DouayPassage,
-    '*': NotFound
+    '/:book/:chapter': wrap({ asyncComponent: () => import('./routes/DouayPassage.svelte') }),
+    '*': wrap({ asyncComponent: () => import('./routes/NotFound.svelte') })
   };
 
   /** Path-only — query changes (?section=, ?read=) must not reset an in-progress deep scroll. */

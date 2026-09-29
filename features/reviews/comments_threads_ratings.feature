@@ -8,7 +8,7 @@ Feature: Comments, threads, and ratings
     Given an edition has a kind 1111 comment targeted at that 30040, with a reply
     And kind 1 notes that e-tag the edition or a comment in the thread are shown too
     And kind 1 notes that q-tag the edition appear under Quotes, not nested as replies
-    And kind 9802 highlights of the edition appear under Highlights
+    And kind 9802 highlights of the edition are marked inline in the edition/section body (not listed under Comments)
     And those response lookups use social and document relays (plus inbox/outbox when signed in)
     When I open that edition
     Then I see the root and its reply nested on the edition page before Read
@@ -24,7 +24,7 @@ Feature: Comments, threads, and ratings
     When I open that edition's Comments section
     Then I see the kind 1111 / kind 1 thread
     And Quotes lists those q-tag notes under their own subheader (not nested as replies)
-    And Highlights lists those 9802 events under their own subheader
+    And those 9802 highlights are marked inline in the edition/section body, not listed under Comments
     And those lookups use the social stack plus document relays and, when signed in, my inbox and outbox
     When I am reading a section
     Then the bottom of that section has a more menu with highlight, copy pointer, njump.me, jumble.imwald.eu, and comment actions

@@ -57,7 +57,7 @@ Feature: Wiki
     And below that I see kind 1111 threads for that article
     And kind 1 replies that e-tag or a-tag the article or those comments
     And kind 1 notes that q-tag the article appear under Quotes
-    And kind 9802 highlights for this article are listed under Highlights and marked inline in the body with a highlighter avatar
+    And kind 9802 highlights for this article are marked inline in the body with a highlighter avatar
     And I do not see a separate Highlights list under the article
     And I do not see kind 34259 ratings
     When I type into the page filter

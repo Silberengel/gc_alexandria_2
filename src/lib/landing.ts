@@ -419,11 +419,6 @@ export function focusHrefForRef(event: Event, referenced: Event[]): string | nul
   return qs ? `${path}?${qs}` : path;
 }
 
-/** @deprecated Prefer {@link pathForRef} (title) or {@link focusHrefForRef} (View …). */
-export function hrefForRef(event: Event, referenced: Event[]): string | null {
-  return focusHrefForRef(event, referenced);
-}
-
 async function fetchParentsOfAddresses(addrs: string[]): Promise<Event[]> {
   const unique = [...new Set(addrs.map((a) => a.trim()).filter(Boolean))].slice(0, 40);
   if (!unique.length) return [];

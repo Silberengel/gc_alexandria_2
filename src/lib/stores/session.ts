@@ -1,4 +1,4 @@
-import { writable, derived, get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND, LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
@@ -590,8 +590,6 @@ function createSessionStore() {
 }
 
 export const session = createSessionStore();
-
-export const isSignedIn = derived(session, ($s) => !!$s.pubkey);
 
 declare global {
   interface Window {

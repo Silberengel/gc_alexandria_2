@@ -105,11 +105,6 @@ export function resolveMarkup(kind: number, content = '', tags?: string[][]): Ma
   return 'markdown';
 }
 
-/** Kind-only default when tags and body are not available. */
-export function markupForKind(kind: number): MarkupFormat {
-  return resolveMarkup(kind);
-}
-
 export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown'): string {
   const hrefFor = (slug: string) => `#/search?d=${encodeURIComponent(slug)}`;
 

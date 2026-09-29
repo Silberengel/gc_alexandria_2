@@ -5,7 +5,7 @@ import { compareAuthorsByGrapevine, type GrapevineTrustContext } from './grapevi
 import { parseAddress } from './library-scope';
 import { looksLikeNativeAsciidoc } from './markup';
 import { firstTag, tagValue } from './nostr/verify';
-import { indexSlug, normalizeDTag } from './dtag';
+import { normalizeDTag } from './dtag';
 import { coverImageUrl } from './cover';
 import {
   isDeferralPlaceholderContent,
@@ -155,17 +155,6 @@ export function hexPubkey(input: string): string | null {
     return null;
   }
   return null;
-}
-
-export function searchAuthorSlug(name: string): string {
-  return indexSlug(name);
-}
-
-export function countSections(event: Event, sections: Event[]): number {
-  const addr = `${KIND.PUBLICATION}:${event.pubkey}:${firstTag(event, 'd') ?? ''}`;
-  return sections.filter((s) =>
-    s.tags.some((t) => t[0] === 'a' && t[1] === addr)
-  ).length;
 }
 
 /** Count walkable child pointers on a 30040 (`a`/`A`/`e`/`E`). */

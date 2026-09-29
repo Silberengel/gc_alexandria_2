@@ -9,9 +9,20 @@
 
 const missingByUrl = new Map<string, boolean>();
 const inflight = new Map<string, Promise<boolean>>();
+const MAX_MEMORY = 500;
 
 /** Hosts that soft-404 with HTTP 200 + `x-status: 404` (must be readable via CORS). */
 const SOFT_404_HOST_RE = /(^|\.)nostr\.build$/i;
+
+function touchMissing(key: string, missing: boolean): void {
+  if (missingByUrl.has(key)) missingByUrl.delete(key);
+  missingByUrl.set(key, missing);
+  while (missingByUrl.size > MAX_MEMORY) {
+    const oldest = missingByUrl.keys().next().value;
+    if (oldest == null) break;
+    missingByUrl.delete(oldest);
+  }
+}
 
 function normalizeUrl(url: string): string {
   const t = url.trim();
@@ -37,7 +48,11 @@ function needsCorsProbe(url: string): boolean {
 
 /** Sync session memory — `true` = known missing, `false` = known ok, else unprobed. */
 export function peekImageMissing(url: string): boolean | undefined {
-  return missingByUrl.get(normalizeUrl(url));
+  const key = normalizeUrl(url);
+  if (!missingByUrl.has(key)) return undefined;
+  const hit = missingByUrl.get(key)!;
+  touchMissing(key, hit);
+  return hit;
 }
 
 /**
@@ -47,11 +62,15 @@ export function peekImageMissing(url: string): boolean | undefined {
 export async function isRemoteImageMissing(url: string): Promise<boolean> {
   const key = normalizeUrl(url);
   if (!key || !isHttpUrl(key)) return false;
-  if (missingByUrl.has(key)) return missingByUrl.get(key)!;
+  if (missingByUrl.has(key)) {
+    const hit = missingByUrl.get(key)!;
+    touchMissing(key, hit);
+    return hit;
+  }
 
   // Skip Gutenberg / imwald / etc. — CORS probe only creates console noise.
   if (!needsCorsProbe(key)) {
-    missingByUrl.set(key, false);
+    touchMissing(key, false);
     return false;
   }
 
@@ -71,7 +90,7 @@ export async function isRemoteImageMissing(url: string): Promise<boolean> {
       }
       const soft404 = res.headers.get('x-status')?.trim() === '404';
       const missing = !res.ok || soft404;
-      missingByUrl.set(key, missing);
+      touchMissing(key, missing);
       return missing;
     } catch {
       return false;

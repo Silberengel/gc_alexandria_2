@@ -5,11 +5,12 @@ import {
   takePendingNavEvent,
   warmNavEvent
 } from './nav-warm';
-import { memoryFindByAddress } from './nostr/event-memory';
+import { memoryFindByAddress, resetEventMemoryForTests } from './nostr/event-memory';
 
 const store = new Map<string, string>();
 
 beforeEach(() => {
+  resetEventMemoryForTests();
   store.clear();
   Object.defineProperty(globalThis, 'sessionStorage', {
     configurable: true,

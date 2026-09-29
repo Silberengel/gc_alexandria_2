@@ -34,6 +34,8 @@
   let pageFilter = $state('');
   let page = $state(1);
   let lastKey = '';
+  /** Bumps on each new hash search; drops stale onUpdate paints. */
+  let searchGen = 0;
   /** Active query shown under the Search heading (empty when no params). */
   let searchTerm = $state('');
   let searchKind = $state('');
@@ -91,6 +93,7 @@
     searchKind = described.kind;
     if (key === lastKey) return;
     lastKey = key;
+    const runGen = ++searchGen;
     resultScope = 'all';
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
@@ -117,6 +120,7 @@
     }
     page = 1;
     const onUpdate = (r: { events: Event[]; loading: boolean }) => {
+      if (runGen !== searchGen) return;
       events = r.events;
       loading = r.loading;
     };

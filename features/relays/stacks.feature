@@ -36,7 +36,8 @@ Feature: Centralized relay selection
     When several searches run at once
     Then they share pooled connections
     And the site does not open a WebSocket per query
-    And NIP-01 filters are batched
+    And identical in-flight queries are coalesced (one Promise per filter identity)
+    And each NIP-01 filter is still sent as its own REQ per relay (not multi-filter REQs)
     And unresponsive or warning relays are backed off
     And healthy relays, Mercury HTTP, and cache still proceed
 

@@ -147,11 +147,3 @@ export async function loadFollowsReading(opts: {
   }
   return rows;
 }
-
-/** Test helper — expose active-entry parsing without network. */
-export function activeEntriesFromQueue(
-  queue: Event,
-  concurrent = ACTIVE_PER_FOLLOW
-): ReadingQueueEntry[] {
-  return activeReadingEntries(parseReadingQueue(queue), concurrent);
-}

@@ -43,14 +43,6 @@ export function commentParentId(event: Event): string | null {
   return eTags[0]?.[1]?.toLowerCase() ?? null;
 }
 
-export function commentRootAddress(event: Event): string | null {
-  return firstTag(event, 'A') ?? firstTag(event, 'a') ?? null;
-}
-
-export function commentTargetsAddress(event: Event, address: string): boolean {
-  return event.tags.some((t) => (t[0] === 'A' || t[0] === 'a') && t[1] === address);
-}
-
 /** Parent ids referenced by thread events that are not yet in `have`. */
 export function missingCommentParentIds(
   events: Event[],

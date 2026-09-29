@@ -1839,17 +1839,6 @@ a.listing-row:hover,
 .verse-styling-switch.on .verse-styling-thumb {
   transform: translate(1.05rem, -50%);
 }
-.edition-block {
-  margin: 0.1rem 0 0;
-}
-.edition-block-label {
-  margin: 0 0 0.3rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
 .edition-topic-list,
 .edition-source-list {
   list-style: none;
@@ -3874,8 +3863,7 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   align-items: center;
   gap: 0.35rem;
 }
-.edition-page-read .read-btn,
-.edition-page-read .export-btn {
+.edition-page-read .read-btn {
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--text) 10%, transparent),
     0 0.35rem 0.85rem color-mix(in srgb, var(--text) 12%, transparent);
@@ -3889,37 +3877,6 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
     padding-right: 7rem;
   }
 }
-.edition-export-wrap {
-  position: relative;
-}
-.edition-export-wrap .export-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-}
-.edition-export-wrap .export-error,
-.edition-export-wrap .export-status {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  right: 0;
-  z-index: 21;
-  max-width: min(18rem, calc(100vw - 2rem));
-  margin: 0;
-  padding: 0.45rem 0.6rem;
-  border-radius: 0.4rem;
-  background: var(--paper-light);
-  font-size: 0.8rem;
-  line-height: 1.35;
-  box-shadow: 0 0.35rem 0.85rem color-mix(in srgb, var(--text) 12%, transparent);
-}
-.edition-export-wrap .export-error {
-  border: 1px solid color-mix(in srgb, #a33 40%, var(--border));
-  color: #8b2e2e;
-}
-.edition-export-wrap .export-status {
-  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--text-muted));
-  color: var(--text);
-}
 .menu-heading {
   padding: 0.35rem 0.85rem 0.2rem;
   font-size: 0.72rem;
@@ -3927,47 +3884,6 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
-}
-.export-icon {
-  display: block;
-}
-.export-spinner {
-  display: block;
-  width: 1rem;
-  height: 1rem;
-  border: 2px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
-  border-top-color: var(--text);
-  border-radius: 50%;
-  animation: export-spin 0.7s linear infinite;
-}
-@keyframes export-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.btn.btn-icon.export-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.4rem;
-  min-width: 2.4rem;
-  height: 2.4rem;
-  padding: 0;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  border-color: transparent;
-  color: var(--text-muted);
-}
-.export-btn.export-busy-btn:disabled {
-  opacity: 1;
-  color: var(--text);
-  cursor: wait;
-}
-.export-btn:hover:not(:disabled),
-.export-btn:focus-visible {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--border) 70%, var(--text-muted));
-  background: color-mix(in srgb, var(--surface-2) 40%, var(--surface));
 }
 .contact-actions {
   display: flex;
@@ -5512,11 +5428,6 @@ a.user-status-line:hover {
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.15;
-}
-.profile-blog-dek {
-  margin: 0.35rem 0 0;
-  font-size: 1.05rem;
-  max-width: 36rem;
 }
 .profile-card-blog {
   border: 0;

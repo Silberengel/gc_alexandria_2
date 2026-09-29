@@ -68,9 +68,6 @@ export const GRAPEVINE_SCORES_RELAY_URL = 'wss://straycat.brainstorm.social/rela
 
 export const GRAPEVINE_SCORES_STAGING_RELAY_URL = 'wss://nip85-staging.nosfabrica.com';
 
-/** Protocol / Brainstorm floor (omit-value cases). App Trust-filter default is higher. */
-export const GRAPEVINE_RANK_CUTOFF = 2;
-
 /** Default GrapeRank minimum for Trust filter and Brainstorm `filter:rank:gte:`. */
 export const GRAPEVINE_RANK_MIN_DEFAULT = 10;
 

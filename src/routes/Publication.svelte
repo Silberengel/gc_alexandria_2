@@ -183,6 +183,10 @@
   let scopedAtEditionTop = false;
   /** Bumps when the scoped pane target changes; drops stale in-flight paints. */
   let scopedPaintGen = 0;
+  /** Bumps when social fetch starts for a new edition; drops stale assignments. */
+  let socialGen = 0;
+  /** Bumps when hero probe set changes; drops stale probe marks. */
+  let heroProbeGen = 0;
   let error = $state(false);
   /** Full-page error after the user pressed Read and no text could be loaded. */
   let unreadable = $state(false);
@@ -214,13 +218,15 @@
   /** Heroes that passed reachability probe (nostr.build soft-404 check). */
   let confirmedHeroUrls = $state(new Set<string>());
 
-  function markHeroBroken(url: string): void {
+  function markHeroBroken(url: string, gen: number): void {
+    if (gen !== heroProbeGen) return;
     const key = url.trim();
     if (!key || brokenHeroUrls.has(key)) return;
     brokenHeroUrls = new Set(brokenHeroUrls).add(key);
   }
 
-  function markHeroConfirmed(url: string): void {
+  function markHeroConfirmed(url: string, gen: number): void {
+    if (gen !== heroProbeGen) return;
     const key = url.trim();
     if (!key || confirmedHeroUrls.has(key)) return;
     confirmedHeroUrls = new Set(confirmedHeroUrls).add(key);
@@ -235,18 +241,20 @@
   }
 
   /** Prefer HEAD; treat HTTP errors and nostr.build `x-status: 404` as broken. */
-  async function probeHeroReachable(url: string): Promise<void> {
+  async function probeHeroReachable(url: string, gen: number): Promise<void> {
+    if (gen !== heroProbeGen) return;
     if (!url || brokenHeroUrls.has(url) || confirmedHeroUrls.has(url)) return;
-    if (await isRemoteImageMissing(url)) markHeroBroken(url);
-    else markHeroConfirmed(url);
+    if (await isRemoteImageMissing(url)) markHeroBroken(url, gen);
+    else markHeroConfirmed(url, gen);
   }
 
   /** Svelte action: probe reachability when a hero `<img>` mounts. */
   function probeHero(_node: HTMLImageElement, url: string) {
-    void probeHeroReachable(url);
+    const gen = heroProbeGen;
+    void probeHeroReachable(url, gen);
     return {
       update(next: string) {
-        void probeHeroReachable(next);
+        void probeHeroReachable(next, heroProbeGen);
       }
     };
   }
@@ -347,6 +355,7 @@
   $effect(() => {
     const root = event;
     const list = sections;
+    const gen = ++heroProbeGen;
     const urls = new Set<string>();
     if (root) {
       const u = readerSectionHeroUrl(root, root);
@@ -356,7 +365,10 @@
       const u = readerSectionHeroUrl(section, root);
       if (u && isAllowedMediaUrl(u)) urls.add(u);
     }
-    for (const url of urls) void probeHeroReachable(url);
+    for (const url of urls) void probeHeroReachable(url, gen);
+    return () => {
+      if (gen === heroProbeGen) heroProbeGen++;
+    };
   });
 
   $effect(() => {
@@ -532,6 +544,8 @@
   }
 
   const PAINT_STEP = 40;
+  /** Idle auto-fill stops here so the whole book is not mounted up front; scroll / Show more still extend. */
+  const IDLE_PAINT_CAP = 120;
 
   /**
    * First resume jump: mount a window around `index`.
@@ -616,18 +630,22 @@
   }
 
   async function fetchSocial(target: Event): Promise<void> {
+    const editionId = target.id;
+    const gen = ++socialGen;
+    const stillHere = () => gen === socialGen && event?.id === editionId;
     const a = eventAddress(target);
     const ratingKeys = publicationRatingATagsForQuery(target);
     const sectionAddrs = target.tags
       .filter((t) => t[0] === 'a' && t[1])
       .flatMap((t) => publicationCoordinateLookupKeys(t[1]!));
-    const highlightAddrs = [...new Set([a, ...sectionAddrs, ...publicationCoordinateLookupKeys(a)])];
     const bookKeys = [...new Set(publicationCoordinateLookupKeys(a))];
+    // Section-only highlight addrs — book/root coords already come from fetchWorkResponses.
+    const bookKeySet = new Set(bookKeys);
+    const sectionHighlightAddrs = [...new Set(sectionAddrs)].filter((k) => !bookKeySet.has(k));
     const [
       rA,
       rA2,
       threadEvents,
-      highlightByBook,
       labelHits,
       bookmarkHits,
       directoryHits,
@@ -638,7 +656,6 @@
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
       fetchWorkResponses(target, 80),
-      relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#A': bookKeys, limit: 80 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], '#a': bookKeys, limit: 80 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], '#a': bookKeys, limit: 40 }], 5000, 4),
       relayPool.query(documentStack(), [{ kinds: [KIND.DIRECTORY], '#a': bookKeys, limit: 40 }], 5000, 4),
@@ -654,10 +671,18 @@
         5000,
         4
       ),
-      ...chunk(highlightAddrs, 20).map((batch) =>
-        relayPool.query(socialStack(), [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }], 5000, 4)
-      )
+      ...(sectionHighlightAddrs.length
+        ? chunk(sectionHighlightAddrs, 20).map((batch) =>
+            relayPool.query(
+              socialStack(),
+              [{ kinds: [KIND.HIGHLIGHT], '#a': batch, limit: 80 }],
+              5000,
+              4
+            )
+          )
+        : [])
     ]);
+    if (!stillHere()) return;
     const ratingById = new Map<string, Event>();
     for (const e of [...rA, ...rA2]) ratingById.set(e.id, e);
     ratings = [...ratingById.values()];
@@ -665,7 +690,6 @@
     workQuotes = threadEvents.quotes;
     const hById = new Map<string, Event>();
     for (const e of threadEvents.highlights) hById.set(e.id, e);
-    for (const e of highlightByBook) hById.set(e.id, e);
     for (const batch of highlightBatches) {
       for (const e of batch) hById.set(e.id, e);
     }
@@ -686,6 +710,7 @@
     } catch {
       /* deletions optional */
     }
+    if (!stillHere()) return;
     editionReads = filterDeletedEvents(readCandidates);
   }
 
@@ -2099,6 +2124,20 @@
       commentFocusApplied = '';
       replyOpenId = null;
       sectionsLoading = false;
+      socialGen++;
+      ratings = [];
+      comments = [];
+      workQuotes = [];
+      highlights = [];
+      sectionResponses = {};
+      editionLabels = [];
+      editionBookmarks = [];
+      editionDirectories = [];
+      editionReads = [];
+      editionReadingQueues = [];
+      heroProbeGen++;
+      brokenHeroUrls = new Set();
+      confirmedHeroUrls = new Set();
       cancelTree();
       cancelPrefetch();
       error = false;
@@ -2851,9 +2890,8 @@
   });
 
   /**
-   * Keep growing the painted window until the whole corpus is mounted.
-   * First paint stays small for speed; idle ticks finish the book without requiring
-   * the reader to reach the bottom / mash "Show more".
+   * Grow the painted window on idle up to IDLE_PAINT_CAP sections.
+   * First paint stays small for speed; near-end scroll and "Show more" still extend further.
    * Douay / reading plans paint one index only — never grow into the full Bible.
    */
   $effect(() => {
@@ -2861,7 +2899,9 @@
     if (isIndexScopedEdition(event)) return;
     void corpusCount;
     void paintEnd;
+    void paintOrigin;
     if (paintEnd >= corpusCount || corpusCount <= 0) return;
+    if (paintEnd - paintOrigin >= IDLE_PAINT_CAP) return;
     let cancelled = false;
     const schedule =
       typeof requestIdleCallback === 'function'
@@ -2875,8 +2915,10 @@
     const tick = () => {
       handle = 0;
       if (cancelled || !reading) return;
-      if (paintEnd < sectionCorpus.length) {
-        extendPaint();
+      if (paintEnd >= sectionCorpus.length) return;
+      if (paintEnd - paintOrigin >= IDLE_PAINT_CAP) return;
+      extendPaint();
+      if (paintEnd - paintOrigin < IDLE_PAINT_CAP && paintEnd < sectionCorpus.length) {
         handle = schedule(tick) as number;
       }
     };
@@ -3507,7 +3549,7 @@
                           loading="lazy"
                           use:probeHero={showHero && heroUrl ? heroUrl : ''}
                           onerror={() => {
-                            if (showHero && heroUrl) markHeroBroken(heroUrl);
+                            if (showHero && heroUrl) markHeroBroken(heroUrl, heroProbeGen);
                           }}
                         />
                       </button>
@@ -3549,7 +3591,7 @@
                           alt=""
                           loading="lazy"
                           use:probeHero={heroUrl}
-                          onerror={() => markHeroBroken(heroUrl)}
+                          onerror={() => markHeroBroken(heroUrl, heroProbeGen)}
                         />
                       </button>
                     </figure>

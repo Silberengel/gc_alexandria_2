@@ -115,7 +115,7 @@ Feature: In-browser reader
     Then I return near the last position
     When I refresh while reading
     Then I stay in the reader (via read=1) near that position
-    And the reader paints a window around the focused section immediately, then keeps expanding until the whole stream is mounted
+    And the reader paints a window around the focused section immediately, then idle-expands up to a capped window (near-end scroll and Show more keep extending until the whole stream is mounted)
     And a complete Cache Storage stream snapshot is preferred over re-running Mercury
     And earlier chapters become available by scrolling up (or as idle fill expands the window backward on demand)
 

@@ -36,8 +36,3 @@ export function eventSources(eventId: string): string[] {
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
-export function formatEventSources(eventId: string, fallback = ''): string {
-  const list = eventSources(eventId);
-  if (!list.length) return fallback;
-  return list.join('\n');
-}

@@ -23,6 +23,20 @@ function usableRelays(urls: string[], max: number): string[] {
     .slice(0, max);
 }
 
+function queryIdentityKey(
+  relays: string[],
+  filters: Filter[],
+  timeoutMs: number,
+  maxRelays: number
+): string {
+  return JSON.stringify({
+    relays: [...relays].map((r) => r.toLowerCase()).sort(),
+    filters,
+    timeoutMs,
+    maxRelays
+  });
+}
+
 class RelayPool {
   private pool = new SimplePool();
   private signedIn = false;
@@ -32,6 +46,8 @@ class RelayPool {
    */
   private activeQueries = 0;
   private queryWaiters: Array<() => void> = [];
+  /** Identical in-flight REQs share one Promise (social + comments often overlap). */
+  private inflight = new Map<string, Promise<Event[]>>();
   private static readonly MAX_PARALLEL_QUERIES = 8;
   /**
    * Default fan-out per REQ. Parallel across these hosts, but keep the count modest —
@@ -76,6 +92,8 @@ class RelayPool {
    * as each relay answers (callers can paint before the slowest EOSE).
    * Pass `priority: true` for navigation (wiki/publication) so Home background work
    * cannot hold the last slots for minutes.
+   * Identical in-flight queries are coalesced (shared Promise); late `onBatch` after
+   * the soft timeout is ignored.
    */
   async query(
     relays: string[],
@@ -90,13 +108,23 @@ class RelayPool {
       const cleanFilters = normalizeRelayFilters(filters);
       if (!wssRelays.length || !cleanFilters.length) return [];
 
-      return await this.withQuerySlot(async () => {
+      // Coalesce only when callers do not need their own progressive onBatch.
+      const coalesceKey = onBatch
+        ? null
+        : queryIdentityKey(wssRelays, cleanFilters, timeoutMs, maxRelays);
+      if (coalesceKey) {
+        const pending = this.inflight.get(coalesceKey);
+        if (pending) return pending.then((events) => [...events]);
+      }
+
+      const job = this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
         const pool = this.pool;
         const hardCapMs = Math.max(timeoutMs + 2000, 5000);
+        let acceptBatches = true;
 
         const emit = (): void => {
-          if (!onBatch || !byId.size) return;
+          if (!acceptBatches || !onBatch || !byId.size) return;
           try {
             onBatch([...byId.values()]);
           } catch {
@@ -111,6 +139,7 @@ class RelayPool {
               for (const filter of cleanFilters) {
                 try {
                   const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
+                  if (!acceptBatches) continue;
                   let added = false;
                   for (const event of batch) {
                     const v = ingestEvent(event);
@@ -145,6 +174,7 @@ class RelayPool {
               hardCapTimer = setTimeout(() => {
                 if (raceDone) return;
                 raceDone = true;
+                acceptBatches = false;
                 console.warn(
                   '[alexandria:pool] query hard-cap',
                   hardCapMs,
@@ -159,6 +189,7 @@ class RelayPool {
           events = [...byId.values()];
         } finally {
           if (hardCapTimer) clearTimeout(hardCapTimer);
+          acceptBatches = false;
         }
         try {
           await cachePutMany(events);
@@ -167,6 +198,15 @@ class RelayPool {
         }
         return events;
       }, opts?.priority === true);
+
+      if (coalesceKey) {
+        this.inflight.set(coalesceKey, job);
+        void job.finally(() => {
+          if (this.inflight.get(coalesceKey) === job) this.inflight.delete(coalesceKey);
+        });
+      }
+
+      return job;
     } catch {
       return [];
     }

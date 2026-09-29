@@ -46,6 +46,8 @@
   let pageFilter = $state('');
   let loading = $state(true);
   let articlePane = $state<HTMLElement | undefined>();
+  /** Bumps on each wiki route paint; drops stale social/deferrer assignments. */
+  let wikiPaintGen = 0;
   /** Route kind from URL prefix — wiki, spec, and article share this page but never the same address. */
   let routeKind = $state<number>(KIND.WIKI);
   const pageFind = createPageFindController();
@@ -242,15 +244,17 @@
     return deferrerPubkeys([...byId.values()], target, seeds);
   }
 
-  async function paintWiki(fetched: Event): Promise<void> {
+  async function paintWiki(fetched: Event, gen: number): Promise<void> {
     // Paint immediately — never leave "Page is loading…" waiting on deference I/O.
     rememberEvents([fetched]);
     event = fetched;
     loading = false;
     if (await forwardDeference(fetched)) return;
+    if (gen !== wikiPaintGen || event?.id !== fetched.id) return;
     // Social + deferrers after first paint — waiting on them left the page stuck under rate limits.
-    void loadSocial(fetched);
+    void loadSocial(fetched, gen);
     void loadDeferrers(fetched).then((deferrers) => {
+      if (gen !== wikiPaintGen || event?.id !== fetched.id) return;
       deferredByList = deferrers;
     });
   }
@@ -295,8 +299,9 @@
     return true;
   }
 
-  async function loadSocial(target: Event): Promise<void> {
+  async function loadSocial(target: Event, gen: number): Promise<void> {
     const hit = await fetchWorkResponses(target, 60);
+    if (gen !== wikiPaintGen || event?.id !== target.id) return;
     responses = hit;
   }
 
@@ -325,6 +330,7 @@
     const naddr = isBech32Pointer(naddrRaw) ? naddrRaw : '';
 
     let cancelled = false;
+    const paintGen = ++wikiPaintGen;
     versions = [];
     responses = { thread: [], quotes: [], highlights: [] };
     error = false;
@@ -335,7 +341,7 @@
     const warm = dTag && pubkey ? warmArticle(pubkey, dTag, kind) : null;
 
     if (warm) {
-      void paintWiki(warm);
+      void paintWiki(warm, paintGen);
     } else {
       event = null;
       loading = true;
@@ -357,15 +363,15 @@
             (await cacheFindByAddress(kind, pubkey, slug));
           if (cancelled) return;
           if (cached) {
-            await paintWiki(cached);
+            await paintWiki(cached, paintGen);
             return;
           }
           const fetched = await loadArticleByAuthorD(pubkey, dTag, kind, (early) => {
-            if (!cancelled) void paintWiki(early);
+            if (!cancelled) void paintWiki(early, paintGen);
           });
           if (cancelled) return;
           if (fetched) {
-            if (!event || event.id !== fetched.id) await paintWiki(fetched);
+            if (!event || event.id !== fetched.id) await paintWiki(fetched, paintGen);
           } else if (!cancelled && !event) error = true;
           return;
         }
@@ -386,7 +392,7 @@
             fetched =
               warmArticle(decoded.pubkey, decoded.d, pointerKind) ??
               (await loadArticleByAuthorD(decoded.pubkey, decoded.d, pointerKind, (early) => {
-                if (!cancelled) void paintWiki(early);
+                if (!cancelled) void paintWiki(early, paintGen);
               }));
           }
           if (cancelled) return;
@@ -400,7 +406,7 @@
             replace(path);
             return;
           }
-          await paintWiki(fetched);
+          await paintWiki(fetched, paintGen);
           return;
         }
 
@@ -435,6 +441,7 @@
 
     return () => {
       cancelled = true;
+      if (paintGen === wikiPaintGen) wikiPaintGen++;
     };
   });
 </script>

@@ -1,4 +1,4 @@
-import { derived, get, writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { isNewerReplaceable, pickLatestReplaceable } from './nostr/replaceable';
@@ -11,8 +11,6 @@ export type MuteState = {
 const empty: MuteState = { pubkeys: new Set(), eventIds: new Set() };
 
 export const muteState = writable<MuteState>(empty);
-
-export const muteReady = writable(true);
 
 function collectTags(tags: string[][], pubkeys: Set<string>, eventIds: Set<string>): void {
   for (const tag of tags) {
@@ -153,8 +151,6 @@ export async function decryptPrivateMuteTags(event: Event): Promise<string[][]> 
   }
   return [];
 }
-
-export const mutedPubkeys = derived(muteState, ($s) => $s.pubkeys);
 
 /** Newest event of `kind` (NIP-01 created_at, then lowest id). */
 export function latestReplaceable(events: Event[], kind: number): Event | null {

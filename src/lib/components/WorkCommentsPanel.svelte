@@ -41,7 +41,6 @@
     filterMuted([...responses.thread, ...localThread], $muteState)
   );
   const quotes = $derived(filterMuted(responses.quotes, $muteState));
-  const highlights = $derived(filterMuted(responses.highlights, $muteState));
   const thread = $derived(nestComments(threadEvents, $muteState, [target.id]));
 
   async function postComment(): Promise<void> {
@@ -99,19 +98,9 @@
 
   {#if quotes.length}
     <h3 class="work-comments-subhead">Quotes</h3>
-    <p class="muted work-comments-lede">Kind 1 notes that quote this work.</p>
+    <p class="muted work-comments-lede">Notes that quote this work.</p>
     <ul class="thread-list work-response-list">
       {#each quotes as event (event.id)}
-        <WorkResponseItem {event} />
-      {/each}
-    </ul>
-  {/if}
-
-  {#if highlights.length}
-    <h3 class="work-comments-subhead">Highlights</h3>
-    <p class="muted work-comments-lede">Kind 9802 highlights of this work.</p>
-    <ul class="thread-list work-response-list">
-      {#each highlights as event (event.id)}
         <WorkResponseItem {event} />
       {/each}
     </ul>

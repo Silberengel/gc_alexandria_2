@@ -76,10 +76,11 @@ Feature: Client event cache
     And when search or an edition page loads events, kind 5s targeting those ids and addresses are fetched and applied
     And the sweep does not flood the relay pool
 
-  Scenario: Sign-in metadata is one batch
+  Scenario: Sign-in metadata is phased, not one Mercury batch
     When I complete sign-in
-    Then one authors=me filter loads kinds 3, 10000, 10002, 10003, 10006, 10012, 10133, 10432, 1985, 30000, and 30315 from Mercury and the document stack
-    And kind 16374 (reading queue) is loaded with a dedicated authors=me shelf query alongside bookmarks and directories, not crowded into the general limit:100 social batch
-    And kind 0 is loaded separately from the profile relay stack, not Mercury
-    And every valid event from that batch is written to the client cache
+    Then a boot pass loads relay lists (10002/10012/10006/10432) from the social stack and kind 0 from the profile stack
+    And a follow-up pass loads list kinds from document + social stacks, with a dedicated shelf query for bookmarks/directories/reading queue
+    And kind 16374 (reading queue) is loaded with that dedicated authors=me shelf query alongside bookmarks and directories, not crowded into the general limit:100 social batch
+    And kind 0 is loaded from the profile relay stack, not Mercury
+    And every valid event from those queries is written to the client cache
     And mute, relay lists, bookmarks, labels, payments, follow lists, and follow sets are not fetched one list at a time

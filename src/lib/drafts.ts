@@ -3,7 +3,6 @@ import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import { nip10ReplyTags, nip22TagsForTarget, shouldReplyWithKind1 } from './comments';
 import { ratingTags } from './ratings';
 import { eventAddress } from './nostr/verify';
-import { withBookmarkTag } from './shelves';
 import { slugifyPublicationLabel } from './publication-lists';
 
 const TRACKER_PARAMETERS = new Set([
@@ -32,12 +31,6 @@ export function publicationLabelDraft(
   };
 }
 
-export function booklistLabelDraft(
-  publication: Event
-): { kind: number; content: string; tags: string[][] } {
-  return publicationLabelDraft(publication, NIP32_BOOKLIST_LABEL);
-}
-
 export function deletionDraft(target: Event): { kind: number; content: string; tags: string[][] } {
   return {
     kind: KIND.DELETION,
@@ -46,18 +39,6 @@ export function deletionDraft(target: Event): { kind: number; content: string; t
       ['e', target.id],
       ['k', String(target.kind)]
     ]
-  };
-}
-
-export function bookmarkDraft(
-  existing: Event | null,
-  publication: Event,
-  add: boolean
-): { kind: number; content: string; tags: string[][] } {
-  return {
-    kind: KIND.BOOKMARK,
-    content: existing?.content ?? '',
-    tags: withBookmarkTag(existing, publication, add)
   };
 }
 

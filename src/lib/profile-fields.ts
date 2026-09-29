@@ -1,5 +1,4 @@
 import type { Event } from 'nostr-tools';
-import { selectUserStatuses } from './nip38-user-status';
 import { firstTag } from './nostr/verify';
 
 export type ProfileFields = {
@@ -339,12 +338,6 @@ export function paymentRows(kind0: ProfileFields, paymentEvents: Event[], profil
     }
   }
   return rows;
-}
-
-export function activeStatus(events: Event[]): Event | null {
-  const { general, music } = selectUserStatuses(events);
-  const hit = general ?? music;
-  return hit?.event ?? null;
 }
 
 /** Display label for payment type column. */

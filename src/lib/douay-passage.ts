@@ -6,7 +6,7 @@ import { nip19, type Event } from 'nostr-tools';
 import { LIBRARY_GC_PUBLISHING_PUBKEY } from './constants';
 import { DOUAY_EDITION_D, douayBookBySlug, isDouayBookSlug, type DouayBook } from './douay-canon';
 import { memoryFindBibleChapter } from './nostr/event-memory';
-import { eventAddress, firstTag } from './nostr/verify';
+import { firstTag } from './nostr/verify';
 
 export type VerseRange = { start: number; end: number };
 
@@ -101,10 +101,6 @@ export function verseInRange(event: Event, range: VerseRange | null | undefined)
   if (!/^\d+$/.test(s)) return false;
   const n = Number(s);
   return n >= range.start && n <= range.end;
-}
-
-export function chapterSectionAddress(chapter: Event): string {
-  return eventAddress(chapter);
 }
 
 export { isDouayBookSlug, DOUAY_EDITION_D };

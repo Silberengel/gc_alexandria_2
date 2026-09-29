@@ -13,8 +13,19 @@ export type ProfileThumb = { name: string; picture: string };
 
 const LS_KEY = 'alexandria-profile-thumbs';
 const MAX_LS = 200;
+const MAX_MEMORY = 400;
 
 const memory = new Map<string, ProfileThumb>();
+
+function touchMemory(pk: string, thumb: ProfileThumb): void {
+  if (memory.has(pk)) memory.delete(pk);
+  memory.set(pk, thumb);
+  while (memory.size > MAX_MEMORY) {
+    const oldest = memory.keys().next().value;
+    if (oldest == null) break;
+    memory.delete(oldest);
+  }
+}
 
 function kind0Value(event: Event, tagName: string, jsonKeys: string[]): string {
   const tagged = firstTag(event, tagName)?.trim();
@@ -77,14 +88,17 @@ export function peekProfileThumb(pubkey: string): ProfileThumb | null {
   const pk = pubkey.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pk)) return null;
   const mem = memory.get(pk);
-  if (mem) return mem;
+  if (mem) {
+    touchMemory(pk, mem);
+    return mem;
+  }
   const fromLs = readLs()[pk];
   if (fromLs && typeof fromLs.name === 'string') {
     const thumb: ProfileThumb = {
       name: fromLs.name,
       picture: typeof fromLs.picture === 'string' ? toNostrBuildThumbUrl(fromLs.picture) : ''
     };
-    memory.set(pk, thumb);
+    touchMemory(pk, thumb);
     return thumb;
   }
   return null;
@@ -97,7 +111,7 @@ export function rememberProfileThumb(pubkey: string, thumb: ProfileThumb): void 
     name: thumb.name || fallbackName(pk),
     picture: thumb.picture ? toNostrBuildThumbUrl(thumb.picture) : ''
   };
-  memory.set(pk, next);
+  touchMemory(pk, next);
   const all = readLs();
   all[pk] = next;
   writeLs(all);

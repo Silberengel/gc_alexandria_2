@@ -32,26 +32,34 @@
   let posting = $state(false);
   let thread = $state<ThreadNode[]>([]);
   let quotes = $state<Event[]>([]);
-  let highlights = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
   let threadLoaded = $state(false);
+  /** Bumps when the target event changes; drops stale thread paints. */
+  let threadGen = 0;
 
   const signedIn = $derived(!!$session.pubkey);
   const canReply = $derived(signedIn);
 
   $effect(() => {
     if (!allowReply) return;
+    const targetId = event.id;
+    const gen = ++threadGen;
     threadLoaded = false;
-    void event.id;
-    void ensureThread();
+    thread = [];
+    quotes = [];
+    replyOpen = false;
+    replyOpenId = null;
+    void ensureThread(targetId, gen);
   });
 
-  async function ensureThread(): Promise<void> {
-    if (threadLoaded) return;
-    const hit: WorkResponses = await fetchWorkResponses(event, 40);
-    thread = nestComments(hit.thread, $muteState, [event.id]);
+  async function ensureThread(targetId: string, gen: number): Promise<void> {
+    if (threadLoaded && gen === threadGen) return;
+    const target = event;
+    if (target.id !== targetId) return;
+    const hit: WorkResponses = await fetchWorkResponses(target, 40);
+    if (gen !== threadGen || event.id !== targetId) return;
+    thread = nestComments(hit.thread, $muteState, [targetId]);
     quotes = filterMuted(hit.quotes, $muteState);
-    highlights = filterMuted(hit.highlights, $muteState);
     threadLoaded = true;
   }
 
@@ -61,7 +69,7 @@
       return;
     }
     replyOpen = !replyOpen;
-    if (replyOpen) void ensureThread();
+    if (replyOpen) void ensureThread(event.id, threadGen);
   }
 
   async function sendRootReply(): Promise<void> {
@@ -133,14 +141,6 @@
     <ul class="thread-list work-response-list">
       {#each quotes as q (q.id)}
         <WorkResponseItem event={q} />
-      {/each}
-    </ul>
-  {/if}
-  {#if allowReply && highlights.length}
-    <h3 class="work-comments-subhead">Highlights</h3>
-    <ul class="thread-list work-response-list">
-      {#each highlights as h (h.id)}
-        <WorkResponseItem event={h} />
       {/each}
     </ul>
   {/if}

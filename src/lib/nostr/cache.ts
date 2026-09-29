@@ -35,6 +35,7 @@ const LANDING_SNAPSHOT_KEY = '/snapshot/landing';
 const PUBLICATION_STREAM_PREFIX = '/snapshot/publication-stream/';
 const SEARCH_KEYS_META = 'alexandria-search-keys';
 const MAX_SEARCH_SNAPSHOTS = 24;
+const MAX_PROFILE_PAGE_SNAPSHOTS = 32;
 /** Soft cap for publication stream snapshots (Douay seed is ~38k). */
 const MAX_PUBLICATION_STREAM_EVENTS = 50_000;
 
@@ -239,11 +240,6 @@ export async function cacheClearPublicationStream(editionAddress: string): Promi
   }
 }
 
-/** Sections previously streamed for this edition, if any. */
-export async function cacheGetPublicationStream(editionAddress: string): Promise<Event[]> {
-  return (await cacheGetPublicationStreamSnapshot(editionAddress)).events;
-}
-
 /**
  * A finished read of this edition is already in Cache Storage.
  * Callers must paint from this snapshot and not contact Mercury or relays.
@@ -431,6 +427,16 @@ function profilePageKey(pubkey: string): string {
   return `${PROFILE_PAGE_PREFIX}${pubkey.trim().toLowerCase()}`;
 }
 
+function touchProfilePageMemory(pk: string, snap: ProfilePageSnapshot): void {
+  if (profilePageMemory.has(pk)) profilePageMemory.delete(pk);
+  profilePageMemory.set(pk, snap);
+  while (profilePageMemory.size > MAX_PROFILE_PAGE_SNAPSHOTS) {
+    const oldest = profilePageMemory.keys().next().value;
+    if (oldest == null) break;
+    profilePageMemory.delete(oldest);
+  }
+}
+
 function cloneProfilePageSnapshot(snap: ProfilePageSnapshot): ProfilePageSnapshot {
   return {
     ...snap,
@@ -456,7 +462,10 @@ export function profilePageSnapshotFresh(
 export function peekProfilePageSnapshot(pubkey: string): ProfilePageSnapshot | null {
   const pk = pubkey.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pk)) return null;
-  return profilePageMemory.get(pk) ?? null;
+  const mem = profilePageMemory.get(pk);
+  if (!mem) return null;
+  touchProfilePageMemory(pk, mem);
+  return mem;
 }
 
 export async function cacheGetProfilePageSnapshot(
@@ -465,7 +474,10 @@ export async function cacheGetProfilePageSnapshot(
   const pk = pubkey.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pk)) return null;
   const mem = profilePageMemory.get(pk);
-  if (mem) return cloneProfilePageSnapshot(mem);
+  if (mem) {
+    touchProfilePageMemory(pk, mem);
+    return cloneProfilePageSnapshot(mem);
+  }
   try {
     const cache = await openCache();
     const key = profilePageKey(pk);
@@ -496,7 +508,7 @@ export async function cacheGetProfilePageSnapshot(
       readingEditions: ingestList(raw.readingEditions, true),
       readCount: typeof raw.readCount === 'number' ? raw.readCount : 0
     };
-    profilePageMemory.set(pk, snap);
+    touchProfilePageMemory(pk, snap);
     rememberEvents([
       ...(snap.profile ? [snap.profile] : []),
       ...snap.produced,
@@ -527,7 +539,7 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
     readingEditions: snap.readingEditions.slice(0, 40),
     readCount: snap.readCount
   };
-  profilePageMemory.set(pk, body);
+  touchProfilePageMemory(pk, body);
   try {
     const cache = await openCache();
     const key = profilePageKey(pk);
@@ -698,17 +710,4 @@ export async function clearEventCache(): Promise<void> {
   } catch {
     /* ignore */
   }
-}
-
-export async function cacheCover(url: string, blob: Blob): Promise<void> {
-  const cache = await openCache();
-  await cache.put(`/cover/${encodeURIComponent(url)}`, new Response(blob));
-}
-
-export async function getCachedCover(url: string): Promise<string | null> {
-  const cache = await openCache();
-  const res = await cache.match(`/cover/${encodeURIComponent(url)}`);
-  if (!res) return null;
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
 }

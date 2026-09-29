@@ -407,13 +407,6 @@ export function pickScopedOpenIndex(
   return leaves[0] ?? null;
 }
 
-export function nextLeafIndex(edition: Event, toc: TocEntry[], current: Event): Event | null {
-  const leaves = listLeafIndexes(edition, toc);
-  const i = leaves.findIndex((e) => e.id.toLowerCase() === current.id.toLowerCase());
-  if (i < 0 || i + 1 >= leaves.length) return null;
-  return leaves[i + 1] ?? null;
-}
-
 /**
  * Fetch nested kind-30040 indexes only (not verses) so the contents tree can deepen
  * for editions without local seed shards (e.g. Quran on relays/Mercury).
