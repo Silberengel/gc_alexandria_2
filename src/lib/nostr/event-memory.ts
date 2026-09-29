@@ -5,14 +5,20 @@ import { preferRicherEvent, publicationSectionCount } from '../metadata';
 import { isNewerReplaceable } from './replaceable';
 import { firstTag } from './verify';
 
-/** Session-local index of events already shown in the UI (shelves, search, etc.). */
+/**
+ * Session-local index of events already shown in the UI (shelves, search, seeds).
+ * Caps must fit a full Douay tree (~38k) plus a reading-plan index — trimming below
+ * that silently drops Genesis verses while later books survive, so plan days paint
+ * as headings with no text.
+ */
 const byId = new Map<string, Event>();
 const byAddr = new Map<string, Event>();
 /** Newest kind-0 per pubkey — badges remount without waiting on profile relays. */
 const byMetaPubkey = new Map<string, Event>();
 
-const MAX_BY_ID = 4_000;
-const MAX_BY_ADDR = 6_000;
+/** Match Cache Storage publication-stream cap (see cache.ts MAX_PUBLICATION_STREAM_EVENTS). */
+const MAX_BY_ID = 50_000;
+const MAX_BY_ADDR = 55_000;
 const MAX_META = 1_500;
 
 function trimMap<K, V>(map: Map<K, V>, max: number): void {

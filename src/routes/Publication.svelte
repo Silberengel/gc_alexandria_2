@@ -1051,6 +1051,38 @@
     replace(qs ? `${path}?${qs}` : path);
   }
 
+  /**
+   * Keep ?section= / ?pos= aligned with the painted scoped leaf.
+   * ToC jumps used to leave a stale deep-link section in the hash; endJump → applyUrlFocus
+   * then snapped every click back to that day (e.g. always Day 3).
+   */
+  function syncScopedReaderQuery(leaf: Event | null, pos?: number): void {
+    const q = new URLSearchParams($querystring ?? '');
+    q.set('read', '1');
+    q.delete('quote');
+    q.delete('book');
+    q.delete('chapter');
+    q.delete('verse');
+    q.delete('verses');
+    q.delete('comment');
+    q.delete('rating');
+    if (leaf) {
+      const section = eventAddress(leaf) || leaf.id;
+      q.set('section', section);
+      if (pos != null && Number.isFinite(pos) && pos >= 0) q.set('pos', String(Math.floor(pos)));
+      else q.delete('pos');
+    } else {
+      q.delete('section');
+      q.delete('pos');
+    }
+    const qs = q.toString();
+    const path = hashPathOnly();
+    const next = qs ? `${path}?${qs}` : path;
+    const cur = `${hashPathOnly()}${($querystring ?? '').length ? `?${$querystring}` : ''}`;
+    if (next === cur) return;
+    replace(next);
+  }
+
   /** True when the URL already describes the painted reader pane (avoid reload loops). */
   function urlMatchesPainted(focus: ReturnType<typeof focusFromUrl>): boolean {
     if (!reading) return false;
@@ -1346,8 +1378,8 @@
     readingBusy = false;
     jumpLabel = '';
     flushPendingScopedRepaint();
-    // Deep-link focus may have been deferred while jumpBusy was true.
-    queueMicrotask(() => applyUrlFocus());
+    // Do not applyUrlFocus here — a stale ?section= from Continue/resume would reopen that
+    // day and undo the ToC jump. jumpTo syncs the hash; the querystring effect reconciles.
   }
 
   /** Replace the pane with one plan day or Douay chapter (and its verses only). */
@@ -2753,6 +2785,7 @@
         (entry.address ?? '').toLowerCase() === rootAddr;
       if (isRoot) {
         paintScopedEditionTop(edition);
+        syncScopedReaderQuery(null);
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
         return;
       }
@@ -2783,6 +2816,8 @@
           network: !(await editionHasLocalSeeds(edition)) && isReadingPlanEdition(edition)
         });
         if (gen !== jumpGen || event !== edition) return;
+        const prog = scopedProgressForIndex(edition, toc, leaf);
+        syncScopedReaderQuery(leaf, prog?.pos);
         window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
         endJump(gen);

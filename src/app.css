@@ -5173,8 +5173,8 @@ a.user-status-line:hover {
   word-break: break-all;
 }
 @media (min-width: 900px) {
-  /* Reading shells (~760px) and catalog shells both get two columns. */
-  .card-grid-results {
+  /* Catalog shells only — reading/wiki/profile stay single-column on the 760px measure. */
+  .shell-wide .card-grid-results {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .shell-wide .landing-feeds {
@@ -5184,7 +5184,6 @@ a.user-status-line:hover {
   }
 }
 @media (min-width: 1200px) {
-  /* Three columns only where the shell is wide enough (Home / Search). */
   .shell-wide .card-grid-results {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
