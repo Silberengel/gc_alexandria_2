@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
-import { KIND, DOCUMENT_SEARCH_RELAYS, MERCURY_WSS, WIKI_RELAYS } from './constants';
+import { KIND, DOCUMENT_SEARCH_RELAYS, MERCURY_WSS, SOCIAL_RELAYS, WIKI_RELAYS } from './constants';
 import { parseAddress } from './library-scope';
 import { eventSources } from './nostr/event-sources';
 import { firstTag, eventAddress } from './nostr/verify';
@@ -60,7 +60,7 @@ function pointerDefaultRelays(event: Event): string[] {
   ) {
     return [DOCUMENT_SEARCH_RELAYS[0], MERCURY_WSS];
   }
-  return [DOCUMENT_SEARCH_RELAYS[0], 'wss://theforest.nostr1.com'];
+  return [DOCUMENT_SEARCH_RELAYS[0], SOCIAL_RELAYS[0]];
 }
 
 /**

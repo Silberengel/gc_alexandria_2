@@ -1,9 +1,21 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const fileEnv = loadEnv(mode, process.cwd(), '');
+  const mercuryHttp = (fileEnv.VITE_MERCURY_HTTP || '').trim();
+  let mercuryTarget = 'https://mercury-relay.imwald.eu';
+  if (mercuryHttp) {
+    try {
+      mercuryTarget = new URL(mercuryHttp).origin;
+    } catch {
+      mercuryTarget = 'https://mercury-relay.imwald.eu';
+    }
+  }
+
+  return {
   plugins: [
     svelte(),
     VitePWA({
@@ -91,7 +103,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/mercury': {
-        target: 'https://mercury-relay.imwald.eu',
+        target: mercuryTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/mercury/, ''),
         configure: (proxy) => {
@@ -125,4 +137,5 @@ export default defineConfig({
       }
     }
   }
+  };
 });

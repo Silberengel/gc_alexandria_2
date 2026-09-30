@@ -9,7 +9,16 @@ import {
 import { indexSlug } from '../dtag';
 
 const MAX_RELAY_LIMIT = 100;
-const MERCURY_HOST = 'mercury-relay.imwald.eu';
+
+function relayHostname(url: string): string | null {
+  try {
+    return new URL(url.trim()).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+const MERCURY_HOST = relayHostname(MERCURY_WSS) ?? '';
 
 function readOnlyKey(url: string): string {
   return url.replace(/\/+$/, '').toLowerCase();
@@ -18,14 +27,16 @@ function readOnlyKey(url: string): string {
 /** Hosts that never accept EVENT publish (index / feed / search only). */
 const READ_ONLY_HOSTS = new Set(
   [
-    MERCURY_HOST,
-    'aggr.nostr.land',
-    'search-staging.brainstorm.world',
-    'straycat.brainstorm.social',
-    'nip85-staging.nosfabrica.com',
-    'feeds.nostrarchives.com',
-    'search.nostrarchives.com'
-  ].map((h) => h.toLowerCase())
+    MERCURY_WSS,
+    AGGR_RELAY,
+    BRAINSTORM_SEARCH_RELAY_URL,
+    GRAPEVINE_SCORES_RELAY_URL,
+    GRAPEVINE_SCORES_STAGING_RELAY_URL,
+    'wss://feeds.nostrarchives.com',
+    'wss://search.nostrarchives.com'
+  ]
+    .map((url) => relayHostname(url))
+    .filter((host): host is string => !!host)
 );
 
 /** Read-only WebSocket relays — never used for publish (index/search/aggregate only). */
@@ -40,14 +51,6 @@ export const READ_ONLY_WSS = new Set(
     'wss://search.nostrarchives.com'
   ].map(readOnlyKey)
 );
-
-function relayHostname(url: string): string | null {
-  try {
-    return new URL(url.trim()).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
 
 /** True for index/feed/search relays that reject EVENT publishes. */
 export function isReadOnlyRelay(url: string): boolean {
