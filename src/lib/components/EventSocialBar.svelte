@@ -2,10 +2,11 @@
   import type { Snippet } from 'svelte';
   import type { Event } from 'nostr-tools';
   import HeartButton from './HeartButton.svelte';
+  import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
   import WorkResponseItem from './WorkResponseItem.svelte';
   import { session } from '$lib/stores/session';
-  import { signAndPublish } from '$lib/sign';
+  import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import {
     fetchWorkResponses,
@@ -16,6 +17,7 @@
   } from '$lib/comments';
   import { muteState, filterMuted } from '$lib/mute';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import LoadingHint from './LoadingHint.svelte';
 
   interface Props {
     event: Event;
@@ -31,6 +33,8 @@
   let replyText = $state('');
   let posting = $state(false);
   let thread = $state<ThreadNode[]>([]);
+  /** Flat thread events, including ones just written to cache. */
+  let threadSource = $state<Event[]>([]);
   let quotes = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
   let threadLoaded = $state(false);
@@ -46,6 +50,7 @@
     const gen = ++threadGen;
     threadLoaded = false;
     thread = [];
+    threadSource = [];
     quotes = [];
     replyOpen = false;
     replyOpenId = null;
@@ -58,8 +63,18 @@
     if (target.id !== targetId) return;
     const hit: WorkResponses = await fetchWorkResponses(target, 40);
     if (gen !== threadGen || event.id !== targetId) return;
-    thread = nestComments(hit.thread, $muteState, [targetId]);
+    const localOnly = threadSource.filter(
+      (existing) => !hit.thread.some((remote) => remote.id === existing.id)
+    );
+    threadSource = [...hit.thread, ...localOnly];
+    thread = nestComments(threadSource, $muteState, [targetId]);
     quotes = filterMuted(hit.quotes, $muteState);
+    threadLoaded = true;
+  }
+
+  function showPublished(published: Event): void {
+    threadSource = [...threadSource.filter((existing) => existing.id !== published.id), published];
+    thread = nestComments(threadSource, $muteState, [event.id]);
     threadLoaded = true;
   }
 
@@ -76,16 +91,11 @@
     if (!canReply || posting || !replyText.trim()) return;
     posting = true;
     try {
-      const signed = await signAndPublish(commentDraft(event, replyText.trim()));
-      if (signed) {
-        thread = [
-          ...thread,
-          { event: signed, placeholder: null, children: [] }
-        ];
-        replyText = '';
-        replyOpen = false;
-        threadLoaded = true;
-      }
+      const published = await publishComment(commentDraft(event, replyText.trim()));
+      if (!published) return;
+      showPublished(published);
+      replyText = '';
+      replyOpen = false;
     } finally {
       posting = false;
     }
@@ -122,17 +132,26 @@
       </button>
     {/if}
     {@render actions?.()}
+    {#if allowReply}
+      <CopyPointerButton {event} class="thread-more" />
+    {/if}
   </div>
+  <div class="event-social-rest">
   {#if allowReply && canReply && replyOpen}
     <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendRootReply(); }}>
       <textarea bind:value={replyText} rows="2" placeholder="Write a reply"></textarea>
-      <button class="btn btn-primary" type="submit" disabled={posting || !replyText.trim()}>Post</button>
+      <button class="btn btn-primary" type="submit" disabled={posting || !replyText.trim()}
+        >{posting ? 'Posting…' : 'Post'}</button
+      >
     </form>
+  {/if}
+  {#if allowReply && replyOpen && !threadLoaded}
+    <LoadingHint message="Loading replies…" compact />
   {/if}
   {#if allowReply && thread.length}
     <ul class="thread-list event-social-thread">
       {#each thread as node (threadNodeKey(node))}
-        <CommentThread {node} target={event} bind:replyOpenId />
+        <CommentThread {node} target={event} bind:replyOpenId onPublished={showPublished} />
       {/each}
     </ul>
   {/if}
@@ -144,4 +163,5 @@
       {/each}
     </ul>
   {/if}
+  </div>
 </div>

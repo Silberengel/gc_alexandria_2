@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import LoadingHint from './LoadingHint.svelte';
   import QRCode from 'qrcode';
   import { generateSecretKey, getPublicKey } from 'nostr-tools';
   import { createNostrConnectURI } from 'nostr-tools/nip46';
@@ -293,7 +294,9 @@
           <button class="btn" type="button" onclick={startPomegranate}>Pomegranate</button>
         </div>
       {:else if panel === 'extension'}
-        <p class="muted">{status ?? 'Connecting…'}</p>
+        {#if pending}
+          <LoadingHint message={status ?? 'Connecting…'} compact />
+        {/if}
         {#if error}<p class="login-error">{error}</p>{/if}
         <button class="btn" type="button" onclick={() => (panel = 'menu')}>Back</button>
       {:else if panel === 'amber'}
@@ -306,7 +309,7 @@
           </a>
         {/if}
         {#if waitingForAmber && !error}
-          <p class="muted login-status">Waiting for Amber / signer…</p>
+          <LoadingHint message="Waiting for Amber / signer…" compact />
         {/if}
         <button class="btn btn-primary" type="button" onclick={openInAmber}>Open Amber</button>
         <button class="btn" type="button" onclick={() => void copyConnection()}>Copy connection string</button>
@@ -329,7 +332,11 @@
             {pending ? 'Connecting…' : 'Connect bunker'}
           </button>
         </form>
-        {#if status}<p class="muted login-status">{status}</p>{/if}
+        {#if status && pending}
+          <LoadingHint message={status} compact />
+        {:else if status}
+          <p class="muted login-status">{status}</p>
+        {/if}
         {#if error}<p class="login-error">{error}</p>{/if}
         <button class="btn" type="button" onclick={() => { stopAmberWait(); panel = 'menu'; error = null; }}>
           Back
@@ -362,7 +369,11 @@
             Continue with token
           </button>
         {/if}
-        {#if status}<p class="muted login-status">{status}</p>{/if}
+        {#if status && pending}
+          <LoadingHint message={status} compact />
+        {:else if status}
+          <p class="muted login-status">{status}</p>
+        {/if}
         {#if error}<p class="login-error">{error}</p>{/if}
         <button
           class="btn"

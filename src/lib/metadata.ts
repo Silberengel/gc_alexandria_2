@@ -199,11 +199,14 @@ export function preferRicherEvent(a: Event, b: Event): Event {
   return b;
 }
 
-/** Search kind tier: publications first, then wiki/spec/article, then everything else. */
+/** Search kind tier: library cards, specs, wikis, profiles, articles, then the rest. */
 export function searchKindTier(kind: number): number {
   if (kind === KIND.PUBLICATION) return 0;
-  if (kind === KIND.WIKI || kind === KIND.SPEC || kind === KIND.LONG_FORM) return 1;
-  return 2;
+  if (kind === KIND.SPEC) return 1;
+  if (kind === KIND.WIKI) return 2;
+  if (kind === KIND.METADATA) return 3;
+  if (kind === KIND.LONG_FORM) return 4;
+  return 5;
 }
 
 /** True when the event's d-tag equals the normalized query slug (or a variant). */

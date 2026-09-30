@@ -2,6 +2,7 @@
   import { replace } from 'svelte-spa-router';
   import TopBar from '$lib/components/TopBar.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { session } from '$lib/stores/session';
   import { CONTACT_A_TAG, KIND, REPO_OWNER_HEX } from '$lib/constants';
   import { GITCITADEL_HEX } from '$lib/hex';
@@ -16,6 +17,7 @@
   let error = $state('');
   let success = $state('');
   let issueHref = $state('');
+  let sending = $state(false);
 
   $effect(() => {
     if (!$session.pubkey && !$session.loading) {
@@ -36,20 +38,25 @@
       error = 'Subject and body are required.';
       return;
     }
-    const signed = await signAndPublish({
-      kind: KIND.ISSUE,
-      content: `Subject: ${subject}\n\n${body}`,
-      tags: [
-        ['a', CONTACT_A_TAG],
-        ['p', REPO_OWNER_HEX]
-      ]
-    });
-    if (!signed) {
-      error = 'Could not sign or publish the issue.';
-      return;
+    sending = true;
+    try {
+      const signed = await signAndPublish({
+        kind: KIND.ISSUE,
+        content: `Subject: ${subject}\n\n${body}`,
+        tags: [
+          ['a', CONTACT_A_TAG],
+          ['p', REPO_OWNER_HEX]
+        ]
+      });
+      if (!signed) {
+        error = 'Could not sign or publish the issue.';
+        return;
+      }
+      issueHref = `${ISSUES_BASE}/${nip19.noteEncode(signed.id)}`;
+      success = 'Issue published. Thank you.';
+    } finally {
+      sending = false;
     }
-    issueHref = `${ISSUES_BASE}/${nip19.noteEncode(signed.id)}`;
-    success = 'Issue published. Thank you.';
   }
 </script>
 
@@ -73,6 +80,7 @@
     <form class="card" onsubmit={submit}>
       <label>Subject<input type="text" bind:value={subject} required /></label>
       <label style="display:block;margin-top:1rem">Body<textarea rows="8" bind:value={body} required></textarea></label>
+      {#if sending}<LoadingHint message="Sending…" compact />{/if}
       {#if error}<p class="contact-form-error">{error}</p>{/if}
       {#if success}
         <p class="contact-form-success">{success}</p>
@@ -80,7 +88,9 @@
           <p><a href={issueHref} target="_blank" rel="noopener">{issueHref}</a></p>
         {/if}
       {/if}
-      <button class="btn btn-primary" type="submit" style="margin-top:1rem">Send</button>
+      <button class="btn btn-primary" type="submit" style="margin-top:1rem" disabled={sending}>
+        {sending ? 'Sending…' : 'Send'}
+      </button>
     </form>
   </main>
 {/if}

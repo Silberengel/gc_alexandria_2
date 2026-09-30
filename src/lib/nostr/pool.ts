@@ -262,19 +262,45 @@ class RelayPool {
     }
   }
 
-  /** Never throws — failed publishes are ignored. */
-  async publish(relays: string[], event: Event): Promise<void> {
-    if (!this.signedIn) return;
+  /**
+   * How many relays accepted the event.
+   * Resolves on the first OK so the UI can paint immediately, or when every relay has rejected.
+   * Never throws.
+   */
+  async publish(relays: string[], event: Event): Promise<number> {
+    if (!this.signedIn) return 0;
     try {
       const wssRelays = writeWebSocketRelays(relays);
-      if (!wssRelays.length) return;
-      // SimplePool.publish returns Promise[] — settle each so rejects stay quiet.
+      if (!wssRelays.length) return 0;
+      // SimplePool.publish returns Promise[] — one per relay, fulfilled on OK.
       const pubs = this.pool.publish(wssRelays, event);
-      await Promise.allSettled(
-        pubs.map((p) => Promise.resolve(p).then(() => undefined, () => undefined))
-      );
+      if (!pubs.length) return 0;
+      return await new Promise<number>((resolve) => {
+        let accepted = 0;
+        let pending = pubs.length;
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          resolve(accepted);
+        };
+        for (const pub of pubs) {
+          void Promise.resolve(pub).then(
+            () => {
+              accepted += 1;
+              pending -= 1;
+              if (accepted > 0) finish();
+              else if (pending <= 0) finish();
+            },
+            () => {
+              pending -= 1;
+              if (pending <= 0 && accepted === 0) finish();
+            }
+          );
+        }
+      });
     } catch {
-      /* ignore */
+      return 0;
     }
   }
 

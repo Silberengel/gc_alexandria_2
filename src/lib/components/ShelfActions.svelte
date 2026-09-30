@@ -240,7 +240,10 @@
           listsOpen = false;
         }}
       >
-        Add to your bookshelf
+        {#if shelfLoading}
+          <span class="jump-busy-spinner" aria-hidden="true"></span>
+        {/if}
+        {shelfLoading ? 'Loading bookshelves…' : 'Add to your bookshelf'}
       </button>
       {#if shelfOpen}
         <ul

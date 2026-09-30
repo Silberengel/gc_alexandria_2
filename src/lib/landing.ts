@@ -18,7 +18,7 @@ import { displayTitle } from './metadata';
 import { filterRenderableCatalogEvents, isRenderableCatalogEvent } from './catalog-visibility';
 import { refreshDeletionsFor } from './deletions';
 import { followPubkeysFromMetadata } from './mute';
-import { compareReplaceableNewestFirst, pruneToLatestReplaceables } from './nostr/replaceable';
+import { compareReplaceableNewestFirst, pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { newestRatingPerPublication, PUBLICATION_RATING_MARKS } from './ratings';
 import {
   cacheGetLandingSnapshot,
@@ -171,7 +171,7 @@ function mergeEvents(...lists: Event[][]): Event[] {
   for (const list of lists) {
     for (const event of list) byId.set(event.id, event);
   }
-  return [...byId.values()];
+  return pruneToLatestReplaceables([...byId.values()]);
 }
 
 /**
@@ -466,9 +466,9 @@ async function enrichPublicationParents(byAddr: Map<string, Event>, hops = 3): P
     let added = 0;
     for (const parent of parents) {
       const addr = eventAddress(parent);
-      if (byAddr.has(addr)) continue;
-      byAddr.set(addr, parent);
-      added += 1;
+      const prev = byAddr.get(addr);
+      putNewest(byAddr, addr, parent);
+      if (!prev) added += 1;
     }
     if (!added) break;
   }
@@ -488,7 +488,7 @@ export async function resolveTopLevelShelfEvents(
   });
   if (!pubs.length) return [];
   const byAddr = new Map<string, Event>();
-  for (const e of pubs) byAddr.set(eventAddress(e), e);
+  for (const e of pubs) putNewest(byAddr, eventAddress(e), e);
   await enrichPublicationParents(byAddr);
   const pool = [...byAddr.values()];
   // Only confirmed roots in this pool — nested chapters whose parents never arrived stay out.
@@ -558,13 +558,13 @@ export async function resolveReferenced(events: Event[], known: Event[]): Promis
     for (const addr of libraryAddresses(event)) needed.add(addr);
   }
   const byAddr = new Map<string, Event>();
-  for (const event of known) byAddr.set(eventAddress(event), event);
+  for (const event of known) putNewest(byAddr, eventAddress(event), event);
 
   const missing = [...needed].filter((addr) => !byAddr.has(addr)).slice(0, 40);
   if (missing.length) {
     const fetched = await poolMap(missing, 3, fetchByAddress);
     for (const event of fetched) {
-      if (event) byAddr.set(eventAddress(event), event);
+      if (event) putNewest(byAddr, eventAddress(event), event);
     }
   }
 
@@ -575,7 +575,7 @@ export async function resolveReferenced(events: Event[], known: Event[]): Promis
   const parents = await poolMap(children.slice(0, 12), 2, fetchContainingPublication);
   for (const event of parents) {
     if (!event) continue;
-    byAddr.set(eventAddress(event), event);
+    putNewest(byAddr, eventAddress(event), event);
     needed.add(eventAddress(event));
   }
 
@@ -633,7 +633,7 @@ async function resolveShelfPublications(
 ): Promise<Map<string, Event>> {
   const byAddr = new Map<string, Event>();
   for (const event of known) {
-    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+    if (event.kind === KIND.PUBLICATION) putNewest(byAddr, eventAddress(event), event);
   }
 
   const maxAddrs = opts?.maxAddrs ?? 24;
@@ -690,7 +690,7 @@ async function resolveShelfPublications(
           }
         }
       }
-      if (event?.kind === KIND.PUBLICATION) byAddr.set(addr, event);
+      if (event?.kind === KIND.PUBLICATION) putNewest(byAddr, addr, event);
     }
 
     type AuthorGroup = { pubkey: string; ds: string[]; hintRelays: string[]; curator: boolean };
@@ -729,7 +729,7 @@ async function resolveShelfPublications(
       };
       try {
         for (const event of await mercuryFilter(filter)) {
-          if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+          if (event.kind === KIND.PUBLICATION) putNewest(byAddr, eventAddress(event), event);
         }
       } catch {
         /* mercury soft-fail */
@@ -745,7 +745,7 @@ async function resolveShelfPublications(
           5
         );
         for (const event of ws) {
-          if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+          if (event.kind === KIND.PUBLICATION) putNewest(byAddr, eventAddress(event), event);
         }
       } catch {
         /* relay soft-fail */
@@ -767,7 +767,7 @@ async function resolveShelfPublications(
         const event = byId.get(membership.eventId);
         if (event?.kind === KIND.PUBLICATION) {
           membership.address = eventAddress(event);
-          byAddr.set(membership.address, event);
+          putNewest(byAddr, membership.address, event);
         }
       }
     } catch {

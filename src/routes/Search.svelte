@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
   import Pager from '$lib/components/Pager.svelte';
@@ -234,7 +235,7 @@
     </div>
     <ListingViewToggle label="Search results" />
   </div>
-  {#if loading}<p class="muted">{events.length ? 'Updating…' : 'Searching…'}</p>{/if}
+  {#if loading}<LoadingHint message={events.length ? 'Updating…' : 'Searching…'} />{/if}
   {#if !loading && visible.length === 0}
     <p class="muted">
       {#if resultScope === 'mine'}

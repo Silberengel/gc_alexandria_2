@@ -50,6 +50,8 @@ Feature: Wiki
     And when the body repeats that same hero image near the top, the body copy is not shown again
     And search and profile cards for it use the same wiki/spec card layout labeled Article
     And the generated cover is a magazine plate (not wiki parchment or spec blueprint)
+    And a kind 30023 with a t-tag recipe, recipes, zapcooking, chefstr, foodstr, or nostrcooking, or a client tag Zap Cooking, uses a recipe-book placeholder instead of that magazine plate
+    And a Zap Cooking client recipe lists https://zap.cooking/recipe/{its naddr} as a header source
 
   Scenario: Wiki page shows header, body, and interactions
     When I open a wiki article

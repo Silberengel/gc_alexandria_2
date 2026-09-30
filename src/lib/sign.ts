@@ -1,7 +1,10 @@
 import type { Event } from 'nostr-tools';
 import { ALEXANDRIA_CLIENT } from './constants';
+import { cacheGetEvent } from './nostr/cache';
+import { memoryGetEvent } from './nostr/event-memory';
 import { ingestEvent } from './nostr/verify';
 import { session } from './stores/session';
+import { showPublishResult } from './stores/toast';
 import { Nip07Signer } from './signers/nip07';
 import type { BunkerSigner } from './signers/bunker';
 
@@ -104,10 +107,10 @@ export async function signUnsigned(partial: {
   }
 }
 
+/** True when at least one relay accepted the event. */
 export async function publishSigned(event: Event): Promise<boolean> {
   try {
-    await session.publish(event);
-    return true;
+    return await session.publish(event);
   } catch {
     return false;
   }
@@ -123,4 +126,28 @@ export async function signAndPublish(partial: {
   // session.publish adopts locally before relays; always treat a successful sign as adopted.
   await publishSigned(signed);
   return signed;
+}
+
+/**
+ * Sign a comment, publish it, and return the cached copy when at least one relay writes.
+ * Shows a success or failure toast. Returns null when signing or every relay fails.
+ */
+export async function publishComment(partial: {
+  kind: number;
+  content: string;
+  tags: string[][];
+}): Promise<Event | null> {
+  const signed = await signUnsigned(partial);
+  if (!signed) {
+    showPublishResult(false);
+    return null;
+  }
+  const wrote = await publishSigned(signed);
+  if (!wrote) {
+    showPublishResult(false);
+    return null;
+  }
+  const cached = (await cacheGetEvent(signed.id)) ?? memoryGetEvent(signed.id) ?? signed;
+  showPublishResult(true);
+  return cached;
 }

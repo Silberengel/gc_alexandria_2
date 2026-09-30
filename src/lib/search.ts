@@ -5,6 +5,8 @@ import { fetchBrainstormNip50Events } from './brainstorm-search';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { filterDeletedEvents, refreshDeletionsFor } from './deletions';
 import { filterRenderableCatalogEvents } from './catalog-visibility';
+import { ensureMetadata } from './ensure-metadata';
+import { lookupNip05Pubkey, splitNip05Identifier } from './nip05';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText, searchSnapshotFresh, searchSnapshotMatchesViewer } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
@@ -19,6 +21,7 @@ import { hasKnownRank } from './nip85-trusted-assertions';
 import { hexPubkey, npubFromInput, preferRicherEvent, publicationSectionCount, sortSearchResults } from './metadata';
 import { followPubkeysFromMetadata, muteState } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
+import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { isTopLevel30040, eventAddress } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
 import { fetchByAddresses, fetchByIds } from './nostr/fetch';
@@ -62,7 +65,7 @@ function mergeById(events: Event[]): Event[] {
     const prev = byId.get(event.id);
     byId.set(event.id, prev ? preferRicherEvent(prev, event) : event);
   }
-  return [...byId.values()];
+  return pruneToLatestReplaceables([...byId.values()]);
 }
 
 export function identifierHints(query: string): string[] {
@@ -119,12 +122,56 @@ function preferLive(live: Event[], cached: Event[]): Event[] {
   return live.length ? live : cached;
 }
 
+/** Kind-0 profiles have no d-tag, so the catalog filter would drop them after they paint. */
+function profilePins(events: Event[]): Event[] {
+  const byPubkey = new Map<string, Event>();
+  for (const event of events) {
+    if (event?.kind !== KIND.METADATA || !event.id || !event.pubkey) continue;
+    const pk = event.pubkey.toLowerCase();
+    const prev = byPubkey.get(pk);
+    if (!prev || event.created_at >= prev.created_at) byPubkey.set(pk, event);
+  }
+  return [...byPubkey.values()];
+}
+
+/** Kind-0 events whose content or tags contain the query (about text, NIP-05, name). */
+export function profilesMatchingQuery(events: Event[], query: string): Event[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  return events.filter((event) => {
+    if (event.kind !== KIND.METADATA) return false;
+    const hay = `${event.content}\n${event.tags.map((tag) => tag.join('\t')).join('\n')}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
+/**
+ * Catalog cards plus matching profiles, in search kind order
+ * (library, spec, wiki, profile, article, then the rest).
+ */
+export function composeSearchResults(events: Event[], pins: Event[] = []): Event[] {
+  const kept = pruneToLatestReplaceables(filterDeletedEvents(events));
+  const catalog = filterRenderableCatalogEvents(kept);
+  const pinned = profilePins(pins);
+  const pinIds = new Set(pinned.map((event) => event.id));
+  const merged = [...pinned, ...catalog.filter((event) => !pinIds.has(event.id))];
+  const counts = new Map(merged.map((event) => [event.id, publicationSectionCount(event)]));
+  return sortSearchResults(merged, counts);
+}
+
+async function resolveProfileForNip05(query: string): Promise<Event | null> {
+  if (!splitNip05Identifier(query)) return null;
+  const pubkey = await lookupNip05Pubkey(query);
+  if (!pubkey) return null;
+  return ensureMetadata(pubkey);
+}
+
 async function finishWithGrapevine(
   key: string,
   live: Event[],
   cached: Event[],
   onUpdate: (r: SearchResult) => void,
-  opts?: { exactD?: string }
+  opts?: { exactD?: string; pins?: Event[] }
 ): Promise<Event[]> {
   const merged = preferLive(live, cached);
   try {
@@ -154,7 +201,7 @@ async function finishWithGrapevine(
   if (ctx.trustFilterEnabled && anyKnown) {
     events = events.filter((e) => !shouldHideEventByGrapevine(e, ctx));
   }
-  events = events.slice(0, 100);
+  events = composeSearchResults(events.slice(0, 100), opts?.pins ?? []).slice(0, 100);
   rememberEvents(events);
   void cachePutSearchSnapshot(key, events, session.getPubkey());
   void cachePutMany(events);
@@ -181,7 +228,11 @@ async function paintCached(
     onUpdate({ events: [], loading: true, done: false });
     return { events: [], fresh: false };
   }
-  const cached = filterRenderableCatalogEvents(filterDeletedEvents(snap?.events ?? []));
+  const raw = filterDeletedEvents(snap?.events ?? []);
+  const cached = composeSearchResults(
+    raw,
+    raw.filter((event) => event.kind === KIND.METADATA)
+  );
   const fresh = searchSnapshotFresh(snap, undefined, viewer);
   rememberEvents(cached);
   onUpdate({ events: cached, loading: !fresh, done: fresh });
@@ -209,13 +260,29 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
     return;
   }
 
-  const key = `q:${normalizeSearchKey(q)}`;
+  // q2: older q: snapshots dropped matching profiles after they had already painted.
+  const key = `q2:${normalizeSearchKey(q)}`;
   const { events: cached, fresh } = await paintCached(key, onUpdate);
 
   const profileNpub = npubFromInput(q);
   if (profileNpub) {
     onUpdate({ events: cached, loading: false, done: true });
     return;
+  }
+
+  if (splitNip05Identifier(q)) {
+    if (fresh && cached.some((event) => event.kind === KIND.METADATA)) return;
+    if (fresh) {
+      const profile = await resolveProfileForNip05(q);
+      if (profile) {
+        const events = composeSearchResults(cached, [profile]);
+        rememberEvents(events);
+        void cachePutSearchSnapshot(key, events, session.getPubkey());
+        void cachePutMany([profile]);
+        onUpdate({ events, loading: false, done: true });
+      }
+      return;
+    }
   }
 
   if (fresh) return;
@@ -251,7 +318,7 @@ async function fetchByIdOrAuthor(hex: string): Promise<Event[]> {
   ]);
   const byId = new Map<string, Event>();
   for (const e of [...m1, ...m2, ...w1, ...w2, ...s1, ...s2]) byId.set(e.id, e);
-  const events = [...byId.values()];
+  const events = pruneToLatestReplaceables([...byId.values()]);
   await cachePutMany(events);
   return events;
 }
@@ -278,7 +345,7 @@ async function fetchBech32(
     ]);
     const byId = new Map<string, Event>();
     for (const e of [...m, ...w, ...s]) byId.set(e.id, e);
-    return [...byId.values()];
+    return pruneToLatestReplaceables([...byId.values()]);
   }
   return [];
 }
@@ -341,9 +408,14 @@ async function fanOutSearch(
       const prev = byId.get(e.id);
       byId.set(e.id, prev ? preferRicherEvent(prev, e) : e);
     }
-    const events = rankEvents(filterDeletedEvents([...byId.values()]), grapevineContext());
+    const events = rankEvents(
+      filterDeletedEvents(pruneToLatestReplaceables([...byId.values()])),
+      grapevineContext()
+    );
     onUpdate({ events: events.slice(0, 100), loading: true, done: false });
   };
+
+  const profilePromise = resolveProfileForNip05(q);
 
   await Promise.all(
     tasks.map((t) =>
@@ -354,7 +426,14 @@ async function fanOutSearch(
     )
   );
 
-  await finishWithGrapevine(key, [...byId.values()], cached, onUpdate);
+  const profile = await profilePromise;
+  if (profile) merge([profile]);
+  const pins = profilePins([
+    ...(profile ? [profile] : []),
+    ...profilesMatchingQuery([...byId.values()], q)
+  ]);
+
+  await finishWithGrapevine(key, [...byId.values()], cached, onUpdate, { pins });
 }
 
 export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult) => void): Promise<void> {
@@ -588,7 +667,7 @@ export async function searchByDTag(d: string): Promise<Event[]> {
   ]);
   const byId = new Map<string, Event>();
   for (const e of [...m, ...w]) byId.set(e.id, e);
-  return [...byId.values()];
+  return pruneToLatestReplaceables([...byId.values()]);
 }
 
 export async function searchBySubject(t: string): Promise<Event[]> {
@@ -676,7 +755,7 @@ async function resolvePublicationsFromLabelEvents(events: Event[]): Promise<Even
     const hit = m[0] ?? w[0];
     if (hit) results.set(hit.id, hit);
   }
-  return [...results.values()];
+  return pruneToLatestReplaceables([...results.values()]);
 }
 
 /** Explicit 30045 bookshelf lookup — no fan-out. Optional `npub` scopes to one author. */

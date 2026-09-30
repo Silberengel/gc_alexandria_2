@@ -11,7 +11,7 @@
   } from '$lib/publication-metadata';
   import { normalizeSubjectTag } from '$lib/metadata';
   import { KIND } from '$lib/constants';
-  import { coverFullImageUrl, coverImageUrl } from '$lib/cover';
+  import { contentHeroFullUrl, contentHeroThumbUrl, coverFullImageUrl, coverImageUrl } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { isAllowedHref } from '$lib/markup';
@@ -35,13 +35,16 @@
   let { event, sections = [], ratingAverage, ratingCount = 0, children }: Props = $props();
   const meta = $derived(editionMetadata(event));
   const isLongForm = $derived(event.kind === KIND.LONG_FORM);
+  const summaryBesideCover = $derived(event.kind === KIND.WIKI || event.kind === KIND.SPEC);
   const showVerseStyling = $derived(offersVerseStyling(event, sections));
   const showCardRating = $derived(
     typeof ratingAverage === 'number' && Number.isFinite(ratingAverage) && ratingCount > 0
   );
 
-  const remoteCover = $derived(coverImageUrl(event));
-  const fullCover = $derived(coverFullImageUrl(event) ?? remoteCover);
+  const contentHero = $derived(contentHeroThumbUrl(event, sections));
+  const contentHeroFull = $derived(contentHeroFullUrl(event, sections));
+  const remoteCover = $derived(contentHero ?? coverImageUrl(event));
+  const fullCover = $derived(contentHeroFull ?? coverFullImageUrl(event) ?? remoteCover);
   const generatedCover = $derived(coverPlaceholderUrl(event));
   const heroSrc = $derived(remoteCover || generatedCover);
   const showGeneratedHero = $derived(!remoteCover);
@@ -250,7 +253,7 @@
   <div class="edition-header">
     <div class="edition-hero">
       <div class="edition-cover">
-        <Cover {event} enlargeOnClick />
+        <Cover {event} {sections} enlargeOnClick />
       </div>
       <div class="edition-meta">
         <h1>
@@ -304,10 +307,14 @@
         </p>
 
         {@render metaTable(true)}
+
+        {#if summaryBesideCover && meta.summary}
+          <p class="edition-summary edition-summary-beside">{meta.summary}</p>
+        {/if}
       </div>
     </div>
 
-    {#if meta.summary}
+    {#if meta.summary && !summaryBesideCover}
       <p class="edition-summary" class:edition-summary-rule={!children}>{meta.summary}</p>
     {/if}
 

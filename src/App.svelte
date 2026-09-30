@@ -5,6 +5,7 @@
   import { scheduleDeletionSweep } from './lib/deletions';
   import { session } from './lib/stores/session';
   import MediaViewer from './lib/components/MediaViewer.svelte';
+  import PublishToast from './lib/components/PublishToast.svelte';
 
   const routes = {
     '/': wrap({ asyncComponent: () => import('./routes/Home.svelte') }),
@@ -71,3 +72,4 @@
 
 <Router {routes} />
 <MediaViewer />
+<PublishToast />

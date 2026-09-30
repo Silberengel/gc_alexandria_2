@@ -4,6 +4,7 @@ import { KIND } from './constants';
 import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
 import { publicationTargetsFromDirectory } from './bookshelf';
+import { pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { firstTag, eventAddress } from './nostr/verify';
 
 export type ShelfId = 'mine' | 'follows' | 'network';
@@ -101,7 +102,7 @@ export function dedupeLandingShelfEvents<
   const seen = new Set<string>();
   const out: T[] = [];
   for (const shelf of orderLandingShelves(shelves)) {
-    const listable = shelf.events.filter(isRenderableCatalogEvent);
+    const listable = pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent);
     const owned = isViewerOwnedShelfId(shelf.id);
     if (owned) {
       for (const event of listable) {
@@ -248,7 +249,7 @@ export function collapseSameCoverEditions(events: Event[]): Event[] {
 export function topLevelShelfEvents(events: Event[], known: Event[] = events): Event[] {
   const byAddr = new Map<string, Event>();
   for (const event of [...known, ...events]) {
-    if (event.kind === KIND.PUBLICATION) byAddr.set(eventAddress(event), event);
+    if (event.kind === KIND.PUBLICATION) putNewest(byAddr, eventAddress(event), event);
   }
   const pool = [...byAddr.values()];
   const out = new Map<string, Event>();
@@ -256,7 +257,7 @@ export function topLevelShelfEvents(events: Event[], known: Event[] = events): E
     if (event.kind !== KIND.PUBLICATION) continue;
     const top = promoteToTopLevel(event, pool);
     if (!isRenderableCatalogEvent(top)) continue;
-    out.set(eventAddress(top), top);
+    putNewest(out, eventAddress(top), top);
   }
   return collapseSameCoverEditions([...out.values()]);
 }

@@ -20,10 +20,12 @@ Feature: Publication and wiki card metadata
     And summary is the summary-tag, else a short content excerpt, omitted if neither
     And card and header summaries are plain text with AsciiDoc and Markdown markup stripped
     And source is the first s-tag, else the first source-tag, omitted if neither; it opens that URL and not /search
+    And a kind 30023 from the Zap Cooking client also lists https://zap.cooking/recipe/{its naddr} as a source
     And clicking author or subject field links still opens /search; other card chrome opens the edition or wiki page
     And publication cards are labeled Publication with book-style covers
     And wiki and spec cards are labeled Wiki or Spec with parchment-style or blueprint covers so they are easy to tell apart
     And kind 30023 long-form cards are labeled Article with magazine-style covers and Markdown bodies
+    And a kind 30023 tagged recipe, recipes, zapcooking, chefstr, foodstr, or nostrcooking, or client Zap Cooking, uses a recipe-book cover when no image is present
 
   Scenario: Identifier and language stay on the full page
     Given an event has i or l tags

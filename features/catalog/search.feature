@@ -20,6 +20,8 @@ Feature: Search
     And a top-level 30040 is one not referenced by another 30040's a-tag
     And a subindex is a 30040 that is referenced by another 30040's a-tag
     And kind 30040 results prefer top-level hits and show subindexes only when no top-level 30040 matched
+    And replaceable events (kinds 0, 3, and 10000–19999) keep only the newest per kind and pubkey
+    And addressable events (kinds 30000–39999) keep only the newest per kind, pubkey, and d-tag
     And when GrapeRank scores are available, search ranks by section boost, then author GrapeRank, then newest created_at
     And when the Trust filter is on and scores hydrated, authors below the GrapeRank minimum are hidden (self and follows never; unknown-rank follows-of-follows soft-pass)
 
@@ -136,11 +138,12 @@ Feature: Search
     When I click a kind 30023 long-form result card
     Then I open that page at /article/d/{d}/p/{npub}
     And that card is labeled Article with a magazine-style cover (not wiki parchment or spec blueprint)
+    And a recipe article (t-tag recipe, recipes, zapcooking, chefstr, foodstr, or nostrcooking, or client Zap Cooking) uses a recipe-book cover when no image is present
 
   Scenario: Search results are ordered
     When a search has more matching cards than one page
     Then later-arriving cards fill remaining slots up to the paging caps
-    And publication cards are ordered above wiki, spec, and article cards
+    And library cards are ordered above specs, then wikis, then profiles, then articles, then other cards
     And within that, cards whose d-tag equals the query slug (for ?d= / wikilink search) are ordered above other matches
     And within that, publication cards with at least two sections are ordered above publications with fewer
     And within that, higher GrapeRank authors are ordered above lower or unknown when scores are available

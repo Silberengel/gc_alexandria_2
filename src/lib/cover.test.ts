@@ -60,6 +60,50 @@ describe('sectionHeroImageUrl', () => {
     expect(sectionHeroImageUrl(ev([['d', 'pg141-mansfield-park']]))).toBeUndefined();
     expect(sectionHeroImageUrl(ev([['s', 'https://www.gutenberg.org/ebooks/141']]))).toBeUndefined();
   });
+
+  it('does not treat content images as an image tag', () => {
+    const event = ev([]);
+    event.content = '![plate](https://example.com/from-content.jpg)';
+    expect(sectionHeroImageUrl(event)).toBeUndefined();
+  });
+});
+
+describe('content hero fallback', () => {
+  it('uses the first content image when the OP has no image tag', () => {
+    const event = ev([['title', 'Notes']]);
+    event.content = '![first](https://example.com/first.jpg)\n\n![second](https://example.com/second.jpg)';
+    expect(readerSectionHeroUrl(event, event)).toBe('https://example.com/first.jpg');
+    expect(readerSectionHeroFullUrl(event, event)).toBe('https://example.com/first.jpg');
+  });
+
+  it('prefers an AsciiDoc image that appears before a later markdown image', () => {
+    const event = ev([['title', 'Notes']]);
+    event.content = 'image::https://example.com/ascii.png[Plate]\n\n![](https://example.com/later.jpg)';
+    expect(readerSectionHeroUrl(event, event)).toBe('https://example.com/ascii.png');
+  });
+
+  it('keeps the image tag ahead of a content image', () => {
+    const event = ev([['image', 'https://example.com/tag.jpg'], ['title', 'Notes']]);
+    event.content = '![](https://example.com/content.jpg)';
+    expect(readerSectionHeroUrl(event, event)).toBe('https://example.com/tag.jpg');
+  });
+
+  it('uses the first image in a later content section when the OP body has none', () => {
+    const op = ev([['title', 'Index']], '1'.repeat(64));
+    const chapter = ev([['title', 'Chapter']], '2'.repeat(64));
+    chapter.kind = 30041;
+    chapter.content = 'image::https://i.nostr.build/plate.webp[]';
+    expect(readerSectionHeroUrl(op, op, [op, chapter])).toBe('https://i.nostr.build/thumb/plate.webp');
+    expect(readerSectionHeroFullUrl(op, op, [op, chapter])).toBe('https://i.nostr.build/plate.webp');
+    expect(readerSectionHeroUrl(chapter, op, [op, chapter])).toBeUndefined();
+  });
+
+  it('still uses Gutenberg when the OP has no image tag and no content image', () => {
+    const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave'], ['title', 'Twelve Years a Slave']]);
+    expect(readerSectionHeroUrl(gutenberg, gutenberg)).toBe(
+      'https://www.gutenberg.org/cache/epub/45631/pg45631.cover.medium.jpg'
+    );
+  });
 });
 
 describe('readerSectionHeroUrl', () => {

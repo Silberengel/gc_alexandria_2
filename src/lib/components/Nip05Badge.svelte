@@ -45,6 +45,9 @@
 
 {#if nip05.trim()}
   <span class="nip05" class:nip05-verified={verified} class:nip05-checking={checking}>
+    {#if checking}
+      <span class="jump-busy-spinner nip05-spinner" title="Checking NIP-05" aria-hidden="true"></span>
+    {/if}
     {#if verified}
       <svg class="nip05-check" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
         <path

@@ -9,6 +9,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { KIND } from '$lib/constants';
   import { libraryDocumentPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
@@ -20,7 +21,7 @@
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
-  import { isNewerReplaceable } from '$lib/nostr/replaceable';
+  import { isNewerReplaceable, pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
   import { muteState, filterMuted } from '$lib/mute';
@@ -45,6 +46,7 @@
   let forwarding = $state(false);
   let pageFilter = $state('');
   let loading = $state(true);
+  let socialLoading = $state(false);
   let articlePane = $state<HTMLElement | undefined>();
   /** Bumps on each wiki route paint; drops stale social/deferrer assignments. */
   let wikiPaintGen = 0;
@@ -241,7 +243,7 @@
       const relayHits = await relayPool.query(wikiStack(), filters, 4000);
       for (const e of relayHits) byId.set(e.id, e);
     }
-    return deferrerPubkeys([...byId.values()], target, seeds);
+    return deferrerPubkeys(pruneToLatestReplaceables([...byId.values()]), target, seeds);
   }
 
   async function paintWiki(fetched: Event, gen: number): Promise<void> {
@@ -249,8 +251,12 @@
     rememberEvents([fetched]);
     event = fetched;
     loading = false;
+    socialLoading = true;
     if (await forwardDeference(fetched)) return;
-    if (gen !== wikiPaintGen || event?.id !== fetched.id) return;
+    if (gen !== wikiPaintGen || event?.id !== fetched.id) {
+      if (gen === wikiPaintGen) socialLoading = false;
+      return;
+    }
     // Social + deferrers after first paint — waiting on them left the page stuck under rate limits.
     void loadSocial(fetched, gen);
     void loadDeferrers(fetched).then((deferrers) => {
@@ -300,9 +306,13 @@
   }
 
   async function loadSocial(target: Event, gen: number): Promise<void> {
-    const hit = await fetchWorkResponses(target, 60);
-    if (gen !== wikiPaintGen || event?.id !== target.id) return;
-    responses = hit;
+    try {
+      const hit = await fetchWorkResponses(target, 60);
+      if (gen !== wikiPaintGen || event?.id !== target.id) return;
+      responses = hit;
+    } finally {
+      if (gen === wikiPaintGen) socialLoading = false;
+    }
   }
 
   $effect(() => {
@@ -333,6 +343,7 @@
     const paintGen = ++wikiPaintGen;
     versions = [];
     responses = { thread: [], quotes: [], highlights: [] };
+    socialLoading = false;
     error = false;
     forwarding = false;
     deferredByList = seedDeferrersFromUrl();
@@ -420,7 +431,7 @@
           for (const e of [...m, ...w]) {
             if (e.kind === kind) byId.set(e.id, e);
           }
-          const found = [...byId.values()];
+          const found = pruneToLatestReplaceables([...byId.values()]);
           if (cancelled) return;
           if (!found.length) {
             error = true;
@@ -451,7 +462,7 @@
   {#if error}
     <ErrorPage title={`${surfaceLabel} page not found`} />
   {:else if forwarding}
-    <p class="loading-hint">Opening the preferred version…</p>
+    <LoadingHint message="Opening the preferred version…" />
   {:else if versions.length}
     <header class="page-header">
       <p class="page-kicker">{surfaceLabel}</p>
@@ -493,9 +504,9 @@
       <DetailsPanel {event} />
     </article>
     <div class="card reading-width" style="margin-top:1rem">
-      <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} />
+      <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} loading={socialLoading} />
     </div>
   {:else}
-    <p class="loading-hint">Page is loading...</p>
+    <LoadingHint message="Page is loading..." />
   {/if}
 </main>

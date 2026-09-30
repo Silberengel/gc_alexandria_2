@@ -8,7 +8,7 @@ import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { mercuryFilter, isMercuryUnavailable } from './mercury';
 import { relayPool } from './pool';
-import { isNewerReplaceable } from './replaceable';
+import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
 import { documentStack, wikiStack } from './selector';
 
 export type FetchByAddressOpts = {
@@ -26,7 +26,7 @@ export function mergeById(...lists: Event[][]): Event[] {
       byId.set(event.id, prev ? preferRicherEvent(prev, event) : event);
     }
   }
-  return [...byId.values()];
+  return pruneToLatestReplaceables([...byId.values()]);
 }
 
 export async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {

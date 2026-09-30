@@ -8,6 +8,7 @@ import {
   pickLatestAddressable,
   pickLatestReplaceable,
   pruneToLatestReplaceables,
+  putNewest,
   replaceableCoord
 } from './replaceable';
 
@@ -100,6 +101,75 @@ describe('NIP-01 replaceable helpers', () => {
     const newQ = ev({ id: '2'.repeat(64), kind: 16374, pubkey: pk, created_at: 2 });
     const label = ev({ id: '3'.repeat(64), kind: 1985, pubkey: pk, created_at: 1 });
     const pruned = pruneToLatestReplaceables([oldQ, newQ, label]);
-    expect(pruned.map((e) => e.id).sort()).toEqual([newQ.id, label.id].sort());
+    expect(pruned.map((e) => e.id)).toEqual([newQ.id, label.id]);
+  });
+
+  it('collapses 10000-range events by kind and pubkey, and 30000-range events by d-tag', () => {
+    const pk = 'd'.repeat(64);
+    const other = 'e'.repeat(64);
+    const oldBookmark = ev({ id: '1'.repeat(64), kind: 10003, pubkey: pk, created_at: 1 });
+    const newBookmark = ev({ id: '2'.repeat(64), kind: 10003, pubkey: pk, created_at: 5 });
+    const theirBookmark = ev({ id: '3'.repeat(64), kind: 10003, pubkey: other, created_at: 1 });
+    const oldArticle = ev({
+      id: '4'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', '1731221508216'], ['title', 'Bavarian Pork Belly']]
+    });
+    const newArticle = ev({
+      id: '5'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      created_at: 20,
+      tags: [['d', '1731221508216'], ['title', 'Bavarian Pork Belly']]
+    });
+    const otherArticle = ev({
+      id: '6'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      created_at: 30,
+      tags: [['d', 'bone-broth'], ['title', 'Bone broth']]
+    });
+    const note = ev({ id: '7'.repeat(64), kind: 1, pubkey: pk, created_at: 1 });
+    const pruned = pruneToLatestReplaceables([
+      oldBookmark,
+      oldArticle,
+      note,
+      newArticle,
+      theirBookmark,
+      otherArticle,
+      newBookmark
+    ]);
+    expect(pruned.map((e) => e.id)).toEqual([
+      newBookmark.id,
+      newArticle.id,
+      note.id,
+      theirBookmark.id,
+      otherArticle.id
+    ]);
+  });
+
+  it('putNewest keeps the NIP-01 winner for a coordinate key', () => {
+    const pk = 'd'.repeat(64);
+    const older = ev({
+      id: '1'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      created_at: 1,
+      tags: [['d', 'pork']]
+    });
+    const newer = ev({
+      id: '2'.repeat(64),
+      kind: 30023,
+      pubkey: pk,
+      created_at: 2,
+      tags: [['d', 'pork']]
+    });
+    const map = new Map<string, Event>();
+    const key = `30023:${pk}:pork`;
+    putNewest(map, key, newer);
+    putNewest(map, key, older);
+    expect(map.get(key)?.id).toBe(newer.id);
   });
 });

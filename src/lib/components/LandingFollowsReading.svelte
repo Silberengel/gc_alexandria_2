@@ -1,6 +1,7 @@
 <script lang="ts">
   import { link } from 'svelte-spa-router';
   import BooklistAvatar from './BooklistAvatar.svelte';
+  import LoadingHint from './LoadingHint.svelte';
   import { followPubkeysFromMetadata, muteState } from '$lib/mute';
   import { session } from '$lib/stores/session';
   import { loadFollowsReading, type FollowsReadingRow } from '$lib/follows-reading';
@@ -67,7 +68,7 @@
       <a href="#/search?queue=follows" use:link>Your follows are reading</a>
     </h2>
     {#if busy && !rows.length}
-      <p class="muted landing-follows-reading-hint">Looking through follows…</p>
+      <LoadingHint message="Looking through follows…" compact />
     {:else if !rows.length}
       <p class="muted landing-follows-reading-hint">No reading activity from follows yet.</p>
     {:else}

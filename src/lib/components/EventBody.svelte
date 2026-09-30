@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
+  import LoadingHint from './LoadingHint.svelte';
   import { KIND } from '$lib/constants';
   import { renderWithFallback, markHighlights, type HighlightQuote } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
@@ -213,7 +214,7 @@
 
 <div class="event-body" bind:this={bodyEl}>
   {#if bodyPending}
-    <p class="loading-hint">{loadingLabel}</p>
+    <LoadingHint message={loadingLabel} />
   {/if}
   {#each segments as seg, i (i)}
     {#if seg.type === 'html'}

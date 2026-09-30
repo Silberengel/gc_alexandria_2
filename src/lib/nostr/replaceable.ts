@@ -82,18 +82,34 @@ export function pickLatestAddressable(
 
 /**
  * Keep regular events as-is; for each replaceable/addressable coord keep only the NIP-01 winner.
+ * The winner stays in the slot of the first event with that coord.
  */
-export function pruneToLatestReplaceables(events: Event[]): Event[] {
-  const winners = new Map<string, Event>();
-  const regular: Event[] = [];
+export function pruneToLatestReplaceables<T extends Event>(events: T[]): T[] {
+  const winners = new Map<string, T>();
   for (const event of events) {
     const coord = replaceableCoord(event);
-    if (!coord) {
-      regular.push(event);
-      continue;
-    }
+    if (!coord) continue;
     const prev = winners.get(coord);
     if (!prev || isNewerReplaceable(event, prev)) winners.set(coord, event);
   }
-  return [...regular, ...winners.values()];
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const event of events) {
+    const coord = replaceableCoord(event);
+    if (!coord) {
+      out.push(event);
+      continue;
+    }
+    if (seen.has(coord)) continue;
+    seen.add(coord);
+    const winner = winners.get(coord);
+    if (winner) out.push(winner);
+  }
+  return out;
+}
+
+/** Write `event` into `map` only when it is the NIP-01 winner for `key`. */
+export function putNewest(map: Map<string, Event>, key: string, event: Event): void {
+  const prev = map.get(key);
+  if (!prev || isNewerReplaceable(event, prev)) map.set(key, event);
 }

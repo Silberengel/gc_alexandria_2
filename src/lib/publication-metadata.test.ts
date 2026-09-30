@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Event } from 'nostr-tools';
+import { nip19, type Event } from 'nostr-tools';
 import {
   buildProvenanceChips,
   editionMetadata,
@@ -106,5 +106,53 @@ describe('publication metadata', () => {
   it('treats non-URL source labels as plain provenance text', () => {
     const chips = buildProvenanceChips('Bible', []);
     expect(chips).toEqual([{ label: 'Bible' }]);
+  });
+
+  it('adds a Zap Cooking recipe URL as a header source', () => {
+    const pubkey = 'b22fef18cbf5eeb5d79451ef9c4cda28efd47fa794a2bc7d04495ccb1bba6e1f';
+    const event = {
+      ...ev([
+        ['d', 'pickled-red-onions'],
+        ['title', 'Pickled Red Onions'],
+        ['client', 'Zap Cooking'],
+        ['t', 'recipe']
+      ]),
+      kind: 30023,
+      pubkey
+    };
+    const meta = editionMetadata(event);
+    const naddr = nip19.naddrEncode({ kind: 30023, pubkey, identifier: 'pickled-red-onions' });
+    const href = `https://zap.cooking/recipe/${naddr}`;
+    expect(meta.source).toBe(href);
+    expect(meta.provenance).toContainEqual({ label: 'zap.cooking', href });
+  });
+
+  it('keeps an existing source and still lists the Zap Cooking recipe', () => {
+    const event = {
+      ...ev([
+        ['d', 'onions'],
+        ['client', 'Zap Cooking'],
+        ['s', 'https://example.com/onions']
+      ]),
+      kind: 30023
+    };
+    const meta = editionMetadata(event);
+    expect(meta.source).toBe('https://example.com/onions');
+    expect(meta.provenance.map((chip) => chip.label)).toEqual(['example.com', 'zap.cooking']);
+    expect(meta.provenance[1]?.href).toMatch(/^https:\/\/zap\.cooking\/recipe\/naddr1/);
+  });
+
+  it('does not invent a Zap Cooking source for a recipe from another client', () => {
+    const event = {
+      ...ev([
+        ['d', 'onions'],
+        ['t', 'recipe'],
+        ['client', 'Alexandria']
+      ]),
+      kind: 30023
+    };
+    const meta = editionMetadata(event);
+    expect(meta.source).toBeUndefined();
+    expect(meta.provenance).toEqual([]);
   });
 });

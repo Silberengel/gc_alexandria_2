@@ -10,8 +10,9 @@
   import { muteState, filterMuted } from '$lib/mute';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { signAndPublish } from '$lib/sign';
+  import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
+  import LoadingHint from './LoadingHint.svelte';
 
   interface Props {
     target: Event;
@@ -22,6 +23,8 @@
     allowCompose?: boolean;
     /** Optional heading override (default Comments). */
     title?: string;
+    /** True while the parent is still fetching this thread. */
+    loading?: boolean;
   }
 
   let {
@@ -29,13 +32,15 @@
     responses,
     focusId = '',
     allowCompose = true,
-    title = 'Comments'
+    title = 'Comments',
+    loading = false
   }: Props = $props();
 
   let replyOpenId = $state<string | null>(null);
   let commentText = $state('');
   let commentComposeOpen = $state(false);
   let localThread = $state<Event[]>([]);
+  let posting = $state(false);
 
   const threadEvents = $derived(
     filterMuted([...responses.thread, ...localThread], $muteState)
@@ -43,17 +48,25 @@
   const quotes = $derived(filterMuted(responses.quotes, $muteState));
   const thread = $derived(nestComments(threadEvents, $muteState, [target.id]));
 
+  function showPublished(event: Event): void {
+    localThread = [...localThread.filter((e) => e.id !== event.id), event];
+  }
+
   async function postComment(): Promise<void> {
     if (!$session.pubkey) {
       openLoginDialog();
       return;
     }
-    if (!commentText.trim()) return;
-    const signed = await signAndPublish(commentDraft(target, commentText.trim()));
-    if (signed) {
-      localThread = [...localThread, signed];
+    if (!commentText.trim() || posting) return;
+    posting = true;
+    try {
+      const published = await publishComment(commentDraft(target, commentText.trim()));
+      if (!published) return;
+      showPublished(published);
       commentText = '';
       commentComposeOpen = false;
+    } finally {
+      posting = false;
     }
   }
 </script>
@@ -64,9 +77,11 @@
   {#if thread.length}
     <ul class="thread-list">
       {#each thread as node (threadNodeKey(node))}
-        <CommentThread {node} {target} bind:replyOpenId focusId={focusId} />
+        <CommentThread {node} {target} bind:replyOpenId focusId={focusId} onPublished={showPublished} />
       {/each}
     </ul>
+  {:else if loading}
+    <LoadingHint message="Loading comments…" compact />
   {:else}
     <p class="muted">No comments yet.</p>
   {/if}
@@ -76,7 +91,9 @@
       <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
         <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
         <div class="compose-actions">
-          <button class="btn btn-primary" type="submit" disabled={!commentText.trim()}>Post</button>
+          <button class="btn btn-primary" type="submit" disabled={posting || !commentText.trim()}
+          >{posting ? 'Posting…' : 'Post'}</button
+        >
           <button
             class="btn"
             type="button"

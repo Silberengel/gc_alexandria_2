@@ -3,6 +3,7 @@ import { KIND } from './constants';
 import { blurbMarkupForKind, cardBlurb } from './card-blurb';
 import { coverImageUrl } from './cover';
 import { humanizeTag } from './cover-fallback';
+import { zapCookingRecipeUrl } from './recipe';
 import { indexSlug } from './dtag';
 import { looksLikeNativeAsciidoc } from './markup';
 import { subjectTagsFromEvent } from './metadata';
@@ -328,7 +329,8 @@ export function editionMetadata(event: Event): EditionMetadata {
     ? cardBlurb(rawExcerpt, { markup, max: 480 }) || undefined
     : undefined;
 
-  const source = sourceS || sourceLegacy;
+  const zapCooking = zapCookingRecipeUrl(event);
+  const source = sourceS || sourceLegacy || zapCooking || undefined;
   const sectionCount = event.tags.filter((t) => {
     if (t[0] === 'e' && t[1]) return true;
     if (t[0] !== 'a' || !t[1]) return false;
@@ -360,6 +362,14 @@ export function editionMetadata(event: Event): EditionMetadata {
     affectedKinds,
     identifiers,
     sectionCount,
-    provenance: buildProvenanceChips(source, identifiers)
+    provenance: provenanceWithZapCooking(buildProvenanceChips(source, identifiers), zapCooking)
   };
+}
+
+function provenanceWithZapCooking(
+  chips: ProvenanceChip[],
+  zapCooking: string | null
+): ProvenanceChip[] {
+  if (!zapCooking || chips.some((chip) => chip.href === zapCooking)) return chips;
+  return [...chips, { label: 'zap.cooking', href: zapCooking }];
 }

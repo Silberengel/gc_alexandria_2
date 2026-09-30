@@ -14,6 +14,7 @@
     clearPublicationRatingAggregateCache
   } from '$lib/ratings';
   import EventSocialBar from './EventSocialBar.svelte';
+  import LoadingHint from './LoadingHint.svelte';
 
   interface Props {
     ratings: Event[];
@@ -24,9 +25,11 @@
     hideEntryCta?: boolean;
     /** Hide the average summary — shown prominently on the edition card instead. */
     hideSummary?: boolean;
+    /** True while ratings are still being fetched. */
+    loading?: boolean;
   }
 
-  let { ratings, publication, focusId = '', hideEntryCta = false, hideSummary = false }: Props = $props();
+  let { ratings, publication, focusId = '', hideEntryCta = false, hideSummary = false, loading = false }: Props = $props();
   let list = $state<Event[]>([]);
   let expanded = $state<Record<string, boolean>>({});
   let overflow = $state<Record<string, boolean>>({});
@@ -268,6 +271,8 @@
         </li>
       {/each}
     </ul>
+  {:else if loading}
+    <LoadingHint message="Loading ratings…" compact />
   {:else}
     <p class="muted">No ratings yet.</p>
   {/if}

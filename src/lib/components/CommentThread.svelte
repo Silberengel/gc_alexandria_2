@@ -4,12 +4,13 @@
   import EventBody from './EventBody.svelte';
   import CommentThread from './CommentThread.svelte';
   import { session } from '$lib/stores/session';
-  import { signAndPublish } from '$lib/sign';
+  import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import type { ThreadNode } from '$lib/comments';
   import { threadNodeKey } from '$lib/comments';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import HeartButton from './HeartButton.svelte';
+  import CopyPointerButton from './CopyPointerButton.svelte';
   import { openLoginDialog } from '$lib/stores/login-ui';
 
   interface Props {
@@ -19,9 +20,11 @@
     replyOpenId?: string | null;
     /** When set, highlight/scroll target for deep links (?comment=). */
     focusId?: string;
+    /** Insert a relay-accepted comment into the parent thread (from cache). */
+    onPublished?: (event: Event) => void;
   }
 
-  let { node, target, replyOpenId = $bindable(null), focusId = '' }: Props = $props();
+  let { node, target, replyOpenId = $bindable(null), focusId = '', onPublished }: Props = $props();
   let reply = $state('');
   let posting = $state(false);
 
@@ -38,12 +41,12 @@
     if (!reply.trim() || posting) return;
     posting = true;
     try {
-      const signed = await signAndPublish(commentDraft(target, reply.trim(), node.event));
-      if (signed) {
-        node.children = [...node.children, { event: signed, placeholder: null, children: [] }];
-        reply = '';
-        replyOpenId = null;
-      }
+      const published = await publishComment(commentDraft(target, reply.trim(), node.event));
+      if (!published) return;
+      if (onPublished) onPublished(published);
+      else node.children = [...node.children, { event: published, placeholder: null, children: [] }];
+      reply = '';
+      replyOpenId = null;
     } finally {
       posting = false;
     }
@@ -107,18 +110,21 @@
           </svg>
         {/if}
       </button>
+      <CopyPointerButton event={node.event} class="thread-more" />
     </div>
     {#if open && canReply}
       <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendReply(); }}>
         <textarea bind:value={reply} rows="3" placeholder="Write a reply"></textarea>
-        <button class="btn btn-primary" type="submit" disabled={posting || !reply.trim()}>Post</button>
+        <button class="btn btn-primary" type="submit" disabled={posting || !reply.trim()}
+          >{posting ? 'Posting…' : 'Post'}</button
+        >
       </form>
     {/if}
   {/if}
   {#if node.children.length}
     <ul class="thread-children">
       {#each node.children as child (threadNodeKey(child))}
-        <CommentThread node={child} {target} bind:replyOpenId {focusId} />
+        <CommentThread node={child} {target} bind:replyOpenId {focusId} {onPublished} />
       {/each}
     </ul>
   {/if}

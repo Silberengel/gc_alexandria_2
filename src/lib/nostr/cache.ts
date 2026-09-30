@@ -2,7 +2,7 @@ import type { Event } from 'nostr-tools';
 import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryFindByAddress, rememberEvents } from './event-memory';
-import { isNewerReplaceable } from './replaceable';
+import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
 import { firstTag, ingestEvent, ingestTrustedEvent } from './verify';
 
 const CACHE_NAME = 'alexandria-events-v1';
@@ -624,7 +624,7 @@ export async function cacheScanText(q: string, limit = 100): Promise<Event[]> {
     const hay = `${e.content}\n${e.tags.flat().join('\n')}`.toLowerCase();
     if (hay.includes(needle)) out.push(e);
   }
-  return out;
+  return pruneToLatestReplaceables(out);
 }
 
 export async function cacheScanByKind(kind: number, limit = 100): Promise<Event[]> {
@@ -638,7 +638,7 @@ export async function cacheScanByKind(kind: number, limit = 100): Promise<Event[
     const e = ingestEvent(await res.json());
     if (e && e.kind === kind) out.push(e);
   }
-  return out;
+  return pruneToLatestReplaceables(out);
 }
 
 /** Newest cached replaceable/addressable event for kind + author + d (NIP-01 #d variants). */

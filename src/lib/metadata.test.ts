@@ -163,7 +163,19 @@ describe('sortSearchResults', () => {
     const spec = ev(30817, [['d', 's']], '', '3'.repeat(64));
     const counts = new Map<string, number>();
     const sorted = sortSearchResults([wiki, spec, pub], counts);
-    expect(sorted.map((e) => e.kind)).toEqual([30040, 30818, 30817]);
+    expect(sorted.map((e) => e.kind)).toEqual([30040, 30817, 30818]);
+  });
+
+  it('orders library cards, specs, wikis, profiles, then articles', () => {
+    const article = ev(30023, [['d', 'a']], '', '4'.repeat(64));
+    const profile = ev(0, [], '', '5'.repeat(64));
+    const wiki = ev(30818, [['d', 'w']], '', '1'.repeat(64));
+    const pub = ev(30040, [['d', 'p']], '', '2'.repeat(64));
+    const spec = ev(30817, [['d', 's']], '', '3'.repeat(64));
+    const note = ev(1, [], '', '6'.repeat(64));
+    const counts = new Map<string, number>();
+    const sorted = sortSearchResults([note, article, profile, wiki, spec, pub], counts);
+    expect(sorted.map((e) => e.kind)).toEqual([30040, 30817, 30818, 0, 30023, 1]);
   });
 
   it('within a kind, prefers an exact d-tag match over other hits', () => {

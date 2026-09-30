@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { isRecipeArticle } from './recipe';
 import { firstTag, tagValue } from './nostr/verify';
 
 const GUTENBERG_PREFIX = /^pg\d+[-_.]*/i;
@@ -181,6 +182,58 @@ function specPaletteFor(event: Event): SpecPalette {
 function articlePaletteFor(event: Event): ArticlePalette {
   const key = firstTag(event, 'd') ?? event.id;
   return ARTICLE_PALETTE[hashKey(key) % ARTICLE_PALETTE.length]!;
+}
+
+/** Cookbook plate — cloth spine, cream board, saucepan. */
+function recipeBookSvg(event: Event): string {
+  const palettes = [
+    { cloth: '#6e3428', spine: '#4a221c', panel: '#f7f1e6', ink: '#2a1812', accent: '#8f3d2c', gold: '#c4a574' },
+    { cloth: '#3e4c34', spine: '#2a3424', panel: '#f4f0e4', ink: '#1c2418', accent: '#5c6e44', gold: '#c4b48a' },
+    { cloth: '#7a422c', spine: '#542c1c', panel: '#f8f2e8', ink: '#2c1810', accent: '#a85a38', gold: '#d4b48a' },
+    { cloth: '#5c3040', spine: '#3e2030', panel: '#f7f0ea', ink: '#2a141c', accent: '#8a4860', gold: '#d4b0a0' }
+  ] as const;
+  const key = firstTag(event, 'd') ?? event.id;
+  const palette = palettes[hashKey(key) % palettes.length]!;
+  const titleLines = wrapWords(coverTitle(event), 12, 4).map(escapeXml);
+  const authorLines = wrapWords(coverAuthor(event), 16, 2).map(escapeXml);
+  const titleSize = 17;
+  const titleLineH = 21;
+  const titleH = titleLines.length * titleLineH;
+  const titleY = Math.max(128, 118 + (88 - titleH) / 2);
+  const authorY = 248 - Math.max(0, authorLines.length - 1) * 15;
+
+  const titleTs = titleLines
+    .map(
+      (line, i) =>
+        `<text x="112" y="${titleY + i * titleLineH}" text-anchor="middle" font-size="${titleSize}" font-weight="700" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}">${line}</text>`
+    )
+    .join('');
+  const authorTs = authorLines
+    .map(
+      (line, i) =>
+        `<text x="112" y="${authorY + i * 15}" text-anchor="middle" font-size="12" font-style="italic" font-family="Georgia,'Times New Roman',serif" fill="${palette.ink}" fill-opacity="0.85">${line}</text>`
+    )
+    .join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
+<rect width="200" height="300" fill="${palette.cloth}"/>
+<rect width="22" height="300" fill="${palette.spine}"/>
+<line x1="22" y1="0" x2="22" y2="300" stroke="${palette.gold}" stroke-width="1" stroke-opacity="0.45"/>
+<rect x="34" y="16" width="150" height="268" rx="2" fill="${palette.panel}"/>
+<rect x="34" y="16" width="150" height="268" rx="2" fill="none" stroke="${palette.gold}" stroke-width="1.4"/>
+<rect x="42" y="24" width="134" height="252" fill="none" stroke="${palette.accent}" stroke-width="0.8" stroke-opacity="0.35"/>
+<g id="recipe-pot" fill="none" stroke="${palette.accent}" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M86 78h52" stroke-width="2"/>
+  <path d="M90 78v16c0 14 8 22 22 22s22-8 22-22V78" stroke-width="2.2"/>
+  <path d="M134 88h16" stroke-width="2.4"/>
+  <path d="M100 64c2-6 2-8 0-12" stroke-width="1.4"/>
+  <path d="M112 62c2-5 2-7 0-11" stroke-width="1.4"/>
+</g>
+${titleTs}
+${authorLines.length ? `<line x1="72" y1="${authorY - 14}" x2="152" y2="${authorY - 14}" stroke="${palette.accent}" stroke-width="1.2" stroke-opacity="0.45"/>` : ''}
+${authorTs}
+<text x="112" y="262" text-anchor="middle" font-size="11" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.28em" fill="${palette.accent}">RECIPE</text>
+</svg>`;
 }
 
 /** Warm parchment article card — large serif title. */
@@ -459,7 +512,9 @@ function titleBlock(
 export function coverPlaceholderSvg(event: Event): string {
   if (event.kind === KIND.SPEC) return specDocumentSvg(event);
   if (event.kind === KIND.WIKI) return wikiDocumentSvg(event);
-  if (event.kind === KIND.LONG_FORM) return magazineArticleSvg(event);
+  if (event.kind === KIND.LONG_FORM) {
+    return isRecipeArticle(event) ? recipeBookSvg(event) : magazineArticleSvg(event);
+  }
 
   const palette = bookPaletteFor(event);
   const id = (firstTag(event, 'd') ?? event.id).slice(0, 12).replace(/[^a-zA-Z0-9_-]/g, 'x');

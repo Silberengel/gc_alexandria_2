@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import LoadingHint from './LoadingHint.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { readingPrefs } from '$lib/stores/reading-prefs';
@@ -113,7 +114,7 @@
 {#if alreadyRead}
   <p class="muted reading-track-hint">Marked as read</p>
 {:else if !ready}
-  <p class="muted reading-track-hint">Loading text…</p>
+  <LoadingHint message="Loading text…" compact />
 {:else if entry}
   <div class="reading-track-row">
     <div class="reading-progress" role="progressbar" aria-valuenow={percent} aria-valuemin="0" aria-valuemax="100">

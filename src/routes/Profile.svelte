@@ -1,5 +1,6 @@
 <script lang="ts">
   import TopBar from '$lib/components/TopBar.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import Pager from '$lib/components/Pager.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
@@ -21,7 +22,7 @@
   import { cachePutEvent, cacheGetProfilePageSnapshot, cachePutProfilePageSnapshot, peekProfilePageSnapshot, profilePageSnapshotFresh, type ProfilePageSnapshot } from '$lib/nostr/cache';
   import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
   import { peekProfileThumb, rememberProfileFromKind0 } from '$lib/profile-cache';
-  import { pickLatestReplaceable, isNewerReplaceable } from '$lib/nostr/replaceable';
+  import { pickLatestReplaceable, isNewerReplaceable, pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
   import { publicationTargets, isListPublicationLabelEvent } from '$lib/nip32';
   import { publicationTargetsFromDirectory } from '$lib/bookshelf';
@@ -78,6 +79,7 @@
   let kindInvalid = $state(false);
   let resolveFailed = $state(false);
   let resolving = $state(false);
+  let listingsLoading = $state(false);
   let profile = $state<Event | null>(null);
   /** Immediate paint from badge thumb cache when kind-0 is not yet in event-memory. */
   let warmName = $state('');
@@ -120,8 +122,11 @@
   );
   const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
   const isKindFiltered = $derived(kindFilter != null);
+  const isBlogMode = $derived(kindFilter === KIND.LONG_FORM);
   const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
   const profileShareId = $derived(profilePathId || npub || pubkey);
+  const blogPath = $derived(profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : '');
+  const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
   const filteredProduced = $derived.by(() => {
     let list = filterMuted(produced, $muteState);
     if (kindFilter != null) list = list.filter((e) => e.kind === kindFilter);
@@ -249,7 +254,7 @@
         out.set(item.id, item);
       }
     }
-    return [...out.values()];
+    return pruneToLatestReplaceables([...out.values()]);
   }
 
   function applyProfileMeta(meta: Event | null): void {
@@ -295,8 +300,9 @@
 
   function applyPageSnapshot(snap: ProfilePageSnapshot): void {
     if (snap.profile) applyProfileMeta(snap.profile);
-    produced = omitNested(snap.produced);
-    interacted = snap.interacted;
+    produced = omitNested(pruneToLatestReplaceables(snap.produced));
+    interacted = pruneToLatestReplaceables(snap.interacted);
+    if (kindFilter == null && (produced.length || interacted.length)) listingsLoading = false;
     rememberEvents([...snap.produced, ...snap.interacted, ...snap.readingEditions]);
     const byWork = new Map<string, InteractionMark[]>();
     for (const [id, marks] of Object.entries(snap.marksByWork)) {
@@ -309,7 +315,7 @@
     const statuses = selectUserStatuses(snap.statusEvents);
     statusGeneral = statuses.general;
     statusMusic = statuses.music;
-    paymentEvents = [...snap.paymentEvents];
+    paymentEvents = pruneToLatestReplaceables([...snap.paymentEvents]);
     readCount = snap.readCount;
     const ownLocal =
       !!get(session).pubkey &&
@@ -350,6 +356,7 @@
         warmName = '';
         warmPicture = '';
         resolving = false;
+        listingsLoading = false;
         resetProfileListings();
         return;
       }
@@ -366,18 +373,21 @@
     warmPicture = '';
     resetProfileListings();
     resolving = true;
+    listingsLoading = false;
 
     void (async () => {
       const nextPk = await resolveProfilePubkey(raw);
       if (cancelled) return;
       if (!nextPk || !/^[0-9a-f]{64}$/.test(nextPk)) {
         resolving = false;
+        listingsLoading = false;
         resolveFailed = true;
         return;
       }
 
       pubkey = nextPk;
       resolving = false;
+      listingsLoading = true;
       try {
         npub = nip19.npubEncode(nextPk);
       } catch {
@@ -458,7 +468,10 @@
 
       // Within TTL: keep the cached page; only kind-0 was refreshed above.
       // Kind-filtered views always re-query so arbitrary kinds are not missed.
-      if (profilePageSnapshotFresh(snap) && filterKind == null) return;
+      if (profilePageSnapshotFresh(snap) && filterKind == null) {
+        listingsLoading = false;
+        return;
+      }
 
       let statusEventsAcc: Event[] = snap?.statusEvents ?? [];
       let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
@@ -486,7 +499,7 @@
                     if (e.kind === filterKind) byId.set(e.id, e);
                   }
                   for (const e of authored) byId.set(e.id, e);
-                  produced = [...byId.values()];
+                  produced = pruneToLatestReplaceables([...byId.values()]);
                   rememberEvents(produced);
                 });
             })()
@@ -505,7 +518,7 @@
               if (cancelled) return;
               const byId = new Map<string, Event>();
               for (const e of [...authored, ...credited]) byId.set(e.id, e);
-              produced = omitNested([...byId.values()]);
+              produced = omitNested(pruneToLatestReplaceables([...byId.values()]));
               rememberEvents(produced);
             });
 
@@ -516,7 +529,7 @@
         if (cancelled) return;
         const statusById = new Map<string, Event>();
         for (const e of [...statusSocial, ...statusProfile]) statusById.set(e.id, e);
-        statusEventsAcc = [...statusById.values()];
+        statusEventsAcc = pruneToLatestReplaceables([...statusById.values()]);
         const statuses = selectUserStatuses(statusEventsAcc);
         statusGeneral = statuses.general;
         statusMusic = statuses.music;
@@ -530,7 +543,7 @@
         const payById = new Map<string, Event>();
         for (const e of untrack(() => paymentEvents)) payById.set(e.id, e);
         for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
-        paymentEventsAcc = [...payById.values()];
+        paymentEventsAcc = pruneToLatestReplaceables([...payById.values()]);
         paymentEvents = paymentEventsAcc;
       });
 
@@ -642,6 +655,7 @@
 
       await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP]);
       if (cancelled) return;
+      listingsLoading = false;
 
       // Kind-filtered views skip the full-page snapshot write (partial listings).
       if (filterKind != null) return;
@@ -699,13 +713,24 @@
       <p class="page-kicker">Reader</p>
       <h1>{isKindFiltered ? kindHeading : 'Profile'}</h1>
     </header>
-    {#if !isKindFiltered}
+    {#if !isKindFiltered || isBlogMode}
       <div class="profile-filter-row">
-        <PageFilter bind:value={pageFilter} />
+        {#if !isKindFiltered}
+          <PageFilter bind:value={pageFilter} />
+        {:else}
+          <span class="profile-filter-row-spacer" aria-hidden="true"></span>
+        {/if}
+        {#if profileShareId}
+          {#if isBlogMode}
+            <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link>View the full profile</a>
+          {:else}
+            <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
+          {/if}
+        {/if}
       </div>
     {/if}
     {#if resolving && !pubkey}
-      <p class="loading-hint">Looking up profile…</p>
+      <LoadingHint message="Looking up profile…" />
     {/if}
     {#if pubkey}
     <div class="card profile-card">
@@ -853,7 +878,10 @@
                     {readingTitles.get(entry.a) || 'Untitled'}
                   </a>
                 {:else}
-                  <span class="profile-reading-title">{readingTitles.get(entry.a) || 'Loading…'}</span>
+                  <span class="profile-reading-title">
+                    <span class="jump-busy-spinner" aria-hidden="true"></span>
+                    {readingTitles.get(entry.a) || 'Loading…'}
+                  </span>
                 {/if}
                 <div
                   class="reading-progress"
@@ -883,7 +911,9 @@
           {shareCopied ? 'Link copied' : 'Copy link'}
         </button>
       </div>
-      {#if visibleProduced.length}
+      {#if listingsLoading && !visibleProduced.length}
+        <LoadingHint message="Loading publications…" />
+      {:else if visibleProduced.length}
         <div class="card-grid card-grid-results">
           {#each pagedProduced as event (event.id)}
             <EventCard {event} />
@@ -895,6 +925,9 @@
       {/if}
     </section>
   {:else}
+    {#if pubkey && listingsLoading && !visibleProduced.length && !visibleInteracted.length}
+      <LoadingHint message="Loading publications…" />
+    {/if}
     {#if visibleProduced.length || visibleInteracted.length}
       <div class="listing-toolbar listing-toolbar-section">
         <ListingViewToggle label="Profile listings" />

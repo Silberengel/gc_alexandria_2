@@ -544,9 +544,10 @@ function createSessionStore() {
     }
   }
 
-  async function publish(event: Event): Promise<void> {
-    // Cache + session metadata first so Reading now / shelves update as soon as Amber
-    // (or the extension) returns a signature — do not wait on write relays.
+  /** True when at least one write relay accepts the event. */
+  async function publish(event: Event): Promise<boolean> {
+    // Cache + session metadata first so a confirmed publish can paint from cache
+    // without another relay round-trip. Callers decide whether zero accepts is failure.
     try {
       await cachePutMany([event]);
     } catch {
@@ -554,12 +555,18 @@ function createSessionStore() {
     }
     rememberEvent(event);
     const relays = writeStack();
-    await Promise.race([
-      relayPool.publish(relays, event),
-      new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 8_000);
-      })
-    ]);
+    let timer = 0;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = window.setTimeout(() => resolve(false), 8_000);
+    });
+    try {
+      return await Promise.race([
+        relayPool.publish(relays, event).then((accepted) => accepted > 0),
+        timeout
+      ]);
+    } finally {
+      window.clearTimeout(timer);
+    }
   }
 
   function rememberEvent(event: Event): void {

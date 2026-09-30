@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { replace } from 'svelte-spa-router';
   import { douayPassagePublicationPath, parseDouayPassage } from '$lib/douay-passage';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
 
   /** Biblestr-shaped `/luke/9?verses=46-50` → Douay publication reader. */
   let { params = {} }: { params?: { book?: string; chapter?: string } } = $props();
@@ -20,4 +21,4 @@
   });
 </script>
 
-<p class="loading-hint" aria-live="polite">Opening passage…</p>
+<LoadingHint message="Opening passage…" />

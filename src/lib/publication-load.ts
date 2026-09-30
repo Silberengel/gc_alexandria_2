@@ -8,7 +8,7 @@ import { coverTitle, humanizeTag } from './cover-fallback';
 import { displayTitle, publicationSectionCount } from './metadata';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 import { bibleDisplay, isBibleSection } from './bible-verse';
-import { isNewerReplaceable } from './nostr/replaceable';
+import { isNewerReplaceable, pruneToLatestReplaceables } from './nostr/replaceable';
 
 /** Prefer the walkable index when thin catalog cards share a coordinate with a full tree. */
 function preferWalkableIndex(a: Event, b: Event): Event {
@@ -673,7 +673,7 @@ export function mergePublicationSections(...lists: Event[][]): Event[] {
       }
     }
   }
-  return dropSupersededPlaceholders([...byId.values()]);
+  return pruneToLatestReplaceables(dropSupersededPlaceholders([...byId.values()]));
 }
 
 /** Stable secondary key for bible leaves missing from the a-tag walk. */

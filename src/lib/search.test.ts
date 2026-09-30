@@ -59,6 +59,114 @@ describe('matchesPageFilter', () => {
   });
 });
 
+describe('composeSearchResults', () => {
+  it('keeps a kind-0 profile that the catalog filter would drop', async () => {
+    const { composeSearchResults } = await import('./search');
+    const pk = 'd'.repeat(64);
+    const profile = {
+      id: 'e'.repeat(64),
+      pubkey: pk,
+      created_at: 3,
+      kind: 0,
+      tags: [],
+      content: '{"name":"Laeserin","nip05":"laeserin@cordn.net"}',
+      sig: 'f'.repeat(128)
+    };
+    const untitled = {
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      created_at: 2,
+      kind: 30040,
+      tags: [],
+      content: '',
+      sig: 'c'.repeat(128)
+    };
+    const book = {
+      id: 'b'.repeat(64),
+      pubkey: pk,
+      created_at: 1,
+      kind: 30040,
+      tags: [
+        ['d', 'am-fluss'],
+        ['title', 'Am Fluss']
+      ],
+      content: '',
+      sig: 'c'.repeat(128)
+    };
+    const events = composeSearchResults([profile, untitled, book], [profile]);
+    expect(events.map((event) => event.kind)).toEqual([30040, 0]);
+  });
+});
+
+describe('profilesMatchingQuery', () => {
+  it('keeps a profile whose about text contains the query', async () => {
+    const { profilesMatchingQuery, composeSearchResults } = await import('./search');
+    const pk = 'd'.repeat(64);
+    const profile = {
+      id: 'e'.repeat(64),
+      pubkey: pk,
+      created_at: 3,
+      kind: 0,
+      tags: [],
+      content: '{"about":"Die Gedanken sind frei."}',
+      sig: 'f'.repeat(128)
+    };
+    const other = {
+      ...profile,
+      id: '1'.repeat(64),
+      content: '{"about":"Something else"}'
+    };
+    expect(profilesMatchingQuery([profile, other], 'Die Gedanken sind frei.')).toEqual([profile]);
+    const book = {
+      id: 'b'.repeat(64),
+      pubkey: pk,
+      created_at: 1,
+      kind: 30040,
+      tags: [
+        ['d', 'am-fluss'],
+        ['title', 'Am Fluss']
+      ],
+      content: '',
+      sig: 'c'.repeat(128)
+    };
+    expect(composeSearchResults([book], [profile]).map((event) => event.kind)).toEqual([30040, 0]);
+  });
+
+  it('keeps only the newest addressable article for the same author and d-tag', async () => {
+    const { composeSearchResults } = await import('./search');
+    const pk = 'd'.repeat(64);
+    const older = {
+      id: '1'.repeat(64),
+      pubkey: pk,
+      created_at: 10,
+      kind: 30023,
+      tags: [
+        ['d', '1731221508216'],
+        ['title', 'Bavarian Pork Belly']
+      ],
+      content: 'old',
+      sig: 'c'.repeat(128)
+    };
+    const newer = {
+      ...older,
+      id: '2'.repeat(64),
+      created_at: 20,
+      content: 'new'
+    };
+    const other = {
+      ...older,
+      id: '3'.repeat(64),
+      created_at: 15,
+      tags: [
+        ['d', 'bone-broth'],
+        ['title', 'Bone broth']
+      ]
+    };
+    const events = composeSearchResults([older, newer, other]);
+    expect(events.map((event) => event.id)).toEqual([newer.id, other.id]);
+  });
+});
+
 describe('preferTopLevelPublications', () => {
   it('hides nested 30040s when a top-level match exists', async () => {
     const { preferTopLevelPublications } = await import('./search');

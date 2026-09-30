@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { isBibleSection } from './bible-verse';
+import { KIND } from './constants';
 import { firstTag } from './nostr/verify';
 import { toNostrBuildThumbUrl } from './nostr-build';
 
@@ -73,16 +74,91 @@ export function coverImageUrl(event: Event): string | undefined {
 
 /** Explicit `image` tag for reader section/index heroes (no Gutenberg/imeta fallback). */
 export function sectionHeroImageUrl(event: Event): string | undefined {
-  const image = firstTag(event, 'image')?.trim();
-  if (image && DIRECT_IMAGE.test(image)) return toNostrBuildThumbUrl(image);
-  return undefined;
+  const image = explicitImageTag(event);
+  return image ? toNostrBuildThumbUrl(image) : undefined;
 }
 
 /** Full-size section/edition hero (no thumb rewrite). */
 export function sectionHeroFullImageUrl(event: Event): string | undefined {
+  return explicitImageTag(event);
+}
+
+function explicitImageTag(event: Event): string | undefined {
   const image = firstTag(event, 'image')?.trim();
   if (image && DIRECT_IMAGE.test(image)) return image;
   return undefined;
+}
+
+/** Kinds that show a publication hero. Notes must not lose their first image. */
+const CONTENT_HERO_KINDS = new Set<number>([
+  KIND.PUBLICATION,
+  KIND.WIKI,
+  KIND.SPEC,
+  KIND.LONG_FORM
+]);
+
+function isMarkupImageUrl(url: string): boolean {
+  if (!DIRECT_IMAGE.test(url)) return false;
+  if (/\.(?:webm|mp4|m4v|mov|mp3|ogg|wav|m4a|aac)(?:[?#]|$)/i.test(url)) return false;
+  return true;
+}
+
+function isBareImageUrl(url: string): boolean {
+  if (!isMarkupImageUrl(url)) return false;
+  if (/\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#]|$)/i.test(url)) return true;
+  return /^https?:\/\/(?:i\.)?nostr\.build\//i.test(url);
+}
+
+/**
+ * First image in document order: markdown, HTML, AsciiDoc, then a bare image URL.
+ */
+export function firstContentImageUrl(content: string | undefined | null): string | undefined {
+  if (!content?.trim()) return undefined;
+  type Hit = { index: number; url: string };
+  const hits: Hit[] = [];
+  const consider = (index: number | undefined, raw: string | undefined, bare = false) => {
+    if (index == null || index < 0) return;
+    const url = raw ? decodeBasicEntities(raw.trim()) : '';
+    if (!url) return;
+    if (bare ? !isBareImageUrl(url) : !isMarkupImageUrl(url)) return;
+    hits.push({ index, url });
+  };
+
+  for (const m of content.matchAll(/!\[[^\]]*\]\((?:<)?([^)\s>]+)(?:>)?/g)) consider(m.index, m[1]);
+  for (const m of content.matchAll(/<img\b[^>]*>/gi)) consider(m.index, imgSrcFromTag(m[0]) ?? undefined);
+  for (const m of content.matchAll(/image::?([^\s\[]+)/gi)) consider(m.index, m[1]);
+  for (const m of content.matchAll(
+    /^(https?:\/\/\S+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?\S*)?)\s*$/gim
+  )) {
+    consider(m.index, m[1], true);
+  }
+  for (const m of content.matchAll(/^(https?:\/\/(?:i\.)?nostr\.build\/\S+)\s*$/gim)) {
+    consider(m.index, m[1], true);
+  }
+  hits.sort((a, b) => a.index - b.index);
+  return hits[0]?.url;
+}
+
+/**
+ * When the OP has no `image` tag, the first image in its content, then in later
+ * content sections, stands in as the hero.
+ */
+export function contentHeroFullUrl(event: Event, sections: Event[] = []): string | undefined {
+  if (explicitImageTag(event)) return undefined;
+  if (!CONTENT_HERO_KINDS.has(event.kind)) return undefined;
+  const own = firstContentImageUrl(event.content);
+  if (own) return own;
+  for (const section of sections) {
+    if (!section?.content || section.id === event.id) continue;
+    const url = firstContentImageUrl(section.content);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+export function contentHeroThumbUrl(event: Event, sections: Event[] = []): string | undefined {
+  const full = contentHeroFullUrl(event, sections);
+  return full ? toNostrBuildThumbUrl(full) : undefined;
 }
 
 function heroUrlKey(url: string): string {
@@ -287,11 +363,14 @@ export function stripEarlyDuplicateHeroImage(
 
 /** Remote cover URLs that the reading header may show as a hero. */
 export function eventHeroImageUrls(event: Event): string[] {
+  const content = contentHeroFullUrl(event);
   const urls = [
     sectionHeroFullImageUrl(event),
     sectionHeroImageUrl(event),
     coverFullImageUrl(event),
-    coverImageUrl(event)
+    coverImageUrl(event),
+    content,
+    content ? toNostrBuildThumbUrl(content) : undefined
   ];
   return [...new Set(urls.filter((u): u is string => Boolean(u?.trim())))];
 }
@@ -299,38 +378,53 @@ export function eventHeroImageUrls(event: Event): string[] {
 /**
  * Hero for a reading-pane section. Nested indexes/sections that repeat the
  * top-level edition image are omitted — that double-hero is redundant.
- * Edition root falls back to the same cover sources as {@link coverImageUrl}
- * (image / imeta / Gutenberg) so Gutenberg plates match the info page.
+ * Edition root falls back to the first content image, then the same cover
+ * sources as {@link coverImageUrl} (image / imeta / Gutenberg).
  */
-export function readerSectionHeroUrl(section: Event, edition: Event | null | undefined): string | undefined {
+export function readerSectionHeroUrl(
+  section: Event,
+  edition: Event | null | undefined,
+  sections: Event[] = []
+): string | undefined {
   // Bible verse sections inherit the edition plate — never repeat it per verse.
   if (isBibleSection(section)) return undefined;
   const hero = sectionHeroImageUrl(section);
   if (hero) {
     if (!edition || section.id === edition.id) return hero;
-    const top = sectionHeroImageUrl(edition) ?? coverImageUrl(edition);
+    const top = sectionHeroImageUrl(edition) ?? contentHeroThumbUrl(edition, sections) ?? coverImageUrl(edition);
     if (top && heroUrlsMatch(top, hero)) return undefined;
     return hero;
   }
-  // No explicit image tag — edition root still shows Gutenberg/imeta covers.
-  if (edition && section.id === edition.id) return coverImageUrl(section);
+  const isOp = !edition || section.id === edition.id;
+  if (isOp) {
+    const fromContent = contentHeroThumbUrl(section, sections);
+    if (fromContent) return fromContent;
+    if (edition && section.id === edition.id) return coverImageUrl(section);
+  }
   return undefined;
 }
 
-/** Full-size hero for media viewer — edition root includes Gutenberg/imeta sources. */
+/** Full-size hero for media viewer — edition root includes content, Gutenberg, and imeta sources. */
 export function readerSectionHeroFullUrl(
   section: Event,
-  edition: Event | null | undefined
+  edition: Event | null | undefined,
+  sections: Event[] = []
 ): string | undefined {
   if (isBibleSection(section)) return undefined;
   const explicit = sectionHeroFullImageUrl(section);
   if (explicit) {
     if (!edition || section.id === edition.id) return explicit;
-    const top = sectionHeroFullImageUrl(edition) ?? coverFullImageUrl(edition);
+    const top =
+      sectionHeroFullImageUrl(edition) ?? contentHeroFullUrl(edition, sections) ?? coverFullImageUrl(edition);
     if (top && heroUrlsMatch(top, explicit)) return undefined;
     return explicit;
   }
-  if (edition && section.id === edition.id) return coverFullImageUrl(section);
+  const isOp = !edition || section.id === edition.id;
+  if (isOp) {
+    const fromContent = contentHeroFullUrl(section, sections);
+    if (fromContent) return fromContent;
+    if (edition && section.id === edition.id) return coverFullImageUrl(section);
+  }
   return undefined;
 }
 

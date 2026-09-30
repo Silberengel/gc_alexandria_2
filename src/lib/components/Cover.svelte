@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { coverFullImageUrl, coverImageUrl } from '$lib/cover';
+  import { contentHeroFullUrl, contentHeroThumbUrl, coverFullImageUrl, coverImageUrl } from '$lib/cover';
   import { coverAuthor, coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { hasPublicationSection, preferRicherEvent, libraryDocumentPath } from '$lib/metadata';
   import { cachedImageSrc, peekCachedImageSrc } from '$lib/image-cache';
@@ -23,6 +23,8 @@
     viewerHref?: string | null;
     /** Book-icon badge for readable editions (off by default — shelves/cards use text instead). */
     showReadableBadge?: boolean;
+    /** Loaded sections — the OP hero can use the first image in a content section. */
+    sections?: Event[];
   }
 
   let {
@@ -32,7 +34,8 @@
     captionOnHover = false,
     enlargeOnClick = false,
     viewerHref,
-    showReadableBadge = false
+    showReadableBadge = false,
+    sections = []
   }: Props = $props();
 
   let failedFor = $state<string | null>(null);
@@ -43,8 +46,8 @@
     const mem = memoryGetEvent(event.id);
     return mem ? preferRicherEvent(event, mem) : event;
   });
-  const remote = $derived(coverImageUrl(resolved));
-  const fullRemote = $derived(coverFullImageUrl(resolved));
+  const remote = $derived(contentHeroThumbUrl(resolved, sections) ?? coverImageUrl(resolved));
+  const fullRemote = $derived(contentHeroFullUrl(resolved, sections) ?? coverFullImageUrl(resolved));
   const placeholder = $derived(coverPlaceholderUrl(resolved));
   const broken = $derived(failedFor === event.id);
   const titleText = $derived(coverTitle(resolved));

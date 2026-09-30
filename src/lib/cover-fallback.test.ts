@@ -120,6 +120,45 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).not.toContain('>SPEC</');
     expect(svg).not.toContain('#713b32');
   });
+
+  it('uses a recipe-book plate for recipe, zapcooking, or Zap Cooking articles', () => {
+    const recipe = {
+      ...ev([['title', 'Pickled Red Onions'], ['author', 'Laeserin'], ['t', 'recipe'], ['d', 'onions']]),
+      kind: 30023
+    };
+    const byTopic = coverPlaceholderSvg(recipe);
+    expect(byTopic).toContain('>RECIPE</text>');
+    expect(byTopic).toContain('id="recipe-pot"');
+    expect(byTopic).toContain('Pickled Red');
+    expect(byTopic).not.toContain('>ARTICLE</text>');
+
+    const byClient = coverPlaceholderSvg({
+      ...ev([['title', 'Bone Broth'], ['client', 'Zap Cooking'], ['d', 'broth']]),
+      kind: 30023
+    });
+    expect(byClient).toContain('>RECIPE</text>');
+    expect(byClient).toContain('id="recipe-pot"');
+
+    const byZapTopic = coverPlaceholderSvg({
+      ...ev([['title', 'Stew'], ['t', 'zapcooking'], ['d', 'stew']]),
+      kind: 30023
+    });
+    expect(byZapTopic).toContain('id="recipe-pot"');
+
+    for (const topic of ['recipes', 'chefstr', 'foodstr', 'nostrcooking']) {
+      const svg = coverPlaceholderSvg({
+        ...ev([['title', 'Stew'], ['t', topic], ['d', topic]]),
+        kind: 30023
+      });
+      expect(svg).toContain('id="recipe-pot"');
+    }
+
+    const book = coverPlaceholderSvg({
+      ...ev([['title', 'Cookbook'], ['t', 'recipe'], ['d', 'cookbook']]),
+      kind: 30040
+    });
+    expect(book).not.toContain('id="recipe-pot"');
+  });
 });
 
 describe('wrapWords', () => {

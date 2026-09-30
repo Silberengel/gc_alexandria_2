@@ -7,6 +7,7 @@
     type PublicationDownloadFormat
   } from '$lib/publication-export';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
 
   interface Props {
@@ -100,9 +101,7 @@
     </dl>
   </details>
   {#if busy && formatLabel}
-    <p class="details-export-status" role="status" aria-live="polite">
-      Exporting {formatLabel}… This can take a minute.
-    </p>
+    <LoadingHint message="Exporting {formatLabel}… This can take a minute." compact />
   {:else if error}
     <p class="details-export-error" role="alert">{error}</p>
   {/if}

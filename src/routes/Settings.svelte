@@ -1,6 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import TopBar from '$lib/components/TopBar.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { appearance, type Scheme } from '$lib/stores/appearance';
   import { trust } from '$lib/stores/trust';
   import { readingPrefs } from '$lib/stores/reading-prefs';
@@ -253,6 +254,9 @@
         }}
       />
     </label>
+    {#if localOnlyBusy}
+      <LoadingHint message="Publishing your reading queue…" compact />
+    {/if}
   </section>
 
   <section class="settings-panel">

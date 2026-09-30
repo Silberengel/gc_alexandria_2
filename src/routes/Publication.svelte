@@ -9,6 +9,7 @@
   import EventBody from '$lib/components/EventBody.svelte';
   import CommentThread from '$lib/components/CommentThread.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import RatingPanel from '$lib/components/RatingPanel.svelte';
   import ShelfActions from '$lib/components/ShelfActions.svelte';
@@ -66,7 +67,7 @@
     fetchContainingPublication,
     fetchSuperindexes
   } from '$lib/landing';
-  import { signAndPublish } from '$lib/sign';
+  import { publishComment, signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { loadResume, saveResume } from '$lib/resume';
@@ -83,6 +84,8 @@
   import { isLibraryCopyPubkey } from '$lib/hex';
   import {
     eventHeroImageUrls,
+    contentHeroFullUrl,
+    contentHeroThumbUrl,
     readerSectionHeroFullUrl,
     readerSectionHeroUrl
   } from '$lib/cover';
@@ -190,6 +193,8 @@
   let scopedPaintGen = 0;
   /** Bumps when social fetch starts for a new edition; drops stale assignments. */
   let socialGen = 0;
+  let socialLoading = $state(false);
+  let sectionCommentsLoading = $state<Record<string, boolean>>({});
   /** Bumps when hero probe set changes; drops stale probe marks. */
   let heroProbeGen = 0;
   let error = $state(false);
@@ -296,7 +301,13 @@
 
   const addr = $derived(event ? eventAddress(event) : '');
   /** Publication cover URLs — nested bodies strip early images that repeat this plate. */
-  const publicationHeroUrls = $derived(event ? eventHeroImageUrls(event) : []);
+  const publicationHeroUrls = $derived.by(() => {
+    if (!event) return [];
+    const urls = eventHeroImageUrls(event);
+    const fromContent = contentHeroFullUrl(event, sections);
+    if (!fromContent) return urls;
+    return [...new Set([...urls, fromContent, contentHeroThumbUrl(event, sections)].filter((u): u is string => Boolean(u)))];
+  });
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
   const ratingAgg = $derived(aggregateRating(visibleRatings));
   const cardAvgStars = $derived(ratingAgg.count ? ratingAgg.average * 5 : 0);
@@ -358,7 +369,7 @@
     const gen = ++heroProbeGen;
     const urls = new Set<string>();
     if (root) {
-      const u = readerSectionHeroUrl(root, root);
+      const u = readerSectionHeroUrl(root, root, list);
       if (u && isAllowedMediaUrl(u)) urls.add(u);
     }
     for (const section of list) {
@@ -635,6 +646,8 @@
     const editionId = target.id;
     const gen = ++socialGen;
     const stillHere = () => gen === socialGen && event?.id === editionId;
+    socialLoading = true;
+    try {
     const a = eventAddress(target);
     const ratingKeys = publicationRatingATagsForQuery(target);
     const sectionAddrs = target.tags
@@ -714,6 +727,9 @@
     }
     if (!stillHere()) return;
     editionReads = filterDeletedEvents(readCandidates);
+    } finally {
+      if (stillHere()) socialLoading = false;
+    }
   }
 
   function chunk<T>(items: T[], size: number): T[][] {
@@ -2255,6 +2271,8 @@
       pendingScopedRepaint = false;
       readingBusy = false;
       socialGen++;
+      socialLoading = false;
+      sectionCommentsLoading = {};
       ratings = [];
       comments = [];
       workQuotes = [];
@@ -2954,9 +2972,14 @@
   async function loadSectionComments(section: Event): Promise<void> {
     const a = eventAddress(section);
     if (sectionResponses[a] || sectionComments[a]) return;
-    const hit = await fetchWorkResponses(section, 40);
-    sectionResponses = { ...sectionResponses, [a]: hit };
-    sectionComments = { ...sectionComments, [a]: hit.thread };
+    sectionCommentsLoading = { ...sectionCommentsLoading, [a]: true };
+    try {
+      const hit = await fetchWorkResponses(section, 40);
+      sectionResponses = { ...sectionResponses, [a]: hit };
+      sectionComments = { ...sectionComments, [a]: hit.thread };
+    } finally {
+      sectionCommentsLoading = { ...sectionCommentsLoading, [a]: false };
+    }
   }
 
   function rememberPos(pos: number, section: Event): void {
@@ -3154,20 +3177,19 @@
     const a = eventAddress(section);
     const text = (sectionCommentText[a] ?? '').trim();
     if (!text) return;
-    const signed = await signAndPublish(commentDraft(section, text));
-    if (signed) {
-      sectionComments = {
-        ...sectionComments,
-        [a]: [...(sectionComments[a] ?? []), signed]
-      };
-      const prev = sectionResponses[a] ?? { thread: [], quotes: [], highlights: [] };
-      sectionResponses = {
-        ...sectionResponses,
-        [a]: { ...prev, thread: [...prev.thread, signed] }
-      };
-      sectionCommentText = { ...sectionCommentText, [a]: '' };
-      sectionCommentComposeOpen = { ...sectionCommentComposeOpen, [a]: false };
-    }
+    const published = await publishComment(commentDraft(section, text));
+    if (!published) return;
+    sectionComments = {
+      ...sectionComments,
+      [a]: [...(sectionComments[a] ?? []), published]
+    };
+    const prev = sectionResponses[a] ?? { thread: [], quotes: [], highlights: [] };
+    sectionResponses = {
+      ...sectionResponses,
+      [a]: { ...prev, thread: [...prev.thread.filter((e) => e.id !== published.id), published] }
+    };
+    sectionCommentText = { ...sectionCommentText, [a]: '' };
+    sectionCommentComposeOpen = { ...sectionCommentComposeOpen, [a]: false };
   }
 
   async function saveHighlight(
@@ -3345,12 +3367,13 @@
         />
       </header>
 
-      <RatingPanel
+        <RatingPanel
         bind:this={ratingPanel}
         ratings={visibleRatings}
         publication={event}
         hideEntryCta
         hideSummary
+        loading={socialLoading}
         focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
       />
 
@@ -3359,6 +3382,7 @@
           target={event}
           responses={editionResponses}
           focusId={urlFocusComment}
+          loading={socialLoading}
         />
       </section>
     {:else}
@@ -3542,6 +3566,7 @@
                             quotes: [],
                             highlights: []
                           }}
+                          loading={!!sectionCommentsLoading[sectionKey]}
                         />
                       </div>
                     {/if}
@@ -3616,6 +3641,7 @@
                             quotes: [],
                             highlights: []
                           }}
+                          loading={!!sectionCommentsLoading[sectionKey]}
                         />
                       </div>
                     {/if}
@@ -3627,8 +3653,8 @@
               {@const sectionKey = eventAddress(section)}
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const missing = isPlaceholderSection(section)}
-              {@const heroUrl = readerSectionHeroUrl(section, event)}
-              {@const heroFull = readerSectionHeroFullUrl(section, event)}
+              {@const heroUrl = readerSectionHeroUrl(section, event, sections)}
+              {@const heroFull = readerSectionHeroFullUrl(section, event, sections)}
               {@const showHero = Boolean(
                 heroUrl && isAllowedMediaUrl(heroUrl) && !heroIsBroken(heroUrl) && heroIsConfirmed(heroUrl)
               )}
@@ -3887,6 +3913,7 @@
                         quotes: [],
                         highlights: []
                       }}
+                      loading={!!sectionCommentsLoading[sectionKey]}
                     />
                   </div>
                 {/if}
@@ -3895,7 +3922,8 @@
           {/each}
           {#if moreToPaint}
             <div class="reader-paint-more">
-              <p class="muted">
+              <p class="loading-hint loading-hint-busy" aria-live="polite">
+                <span class="jump-busy-spinner" aria-hidden="true"></span>
                 Loading sections… {paintedSections.length} of {corpusCount} ready
               </p>
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
@@ -3910,7 +3938,7 @@
       </div>
     {/if}
   {:else if loading}
-    <p class="loading-hint">Publication is loading...</p>
+    <LoadingHint message="Publication is loading..." />
   {/if}
 </main>
 <ReadingFinishModal
