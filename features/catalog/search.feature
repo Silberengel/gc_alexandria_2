@@ -14,7 +14,7 @@ Feature: Search
     And relay NIP-01 tag filters for search are only #d #T #N
     And #title and #author are never sent as NIP-01 tags
     And searches run in parallel against cache, Mercury HTTP, the matching relay stacks on the shared pool, and Brainstorm NIP-50 full-text
-    And Brainstorm search uses wss://search-staging.brainstorm.world only, with observer, sort:rank, and trust-filter extensions that are never sent to other relays
+    And Brainstorm search uses wss://search.brainstorm.world only, with observer, sort:rank, and trust-filter extensions that are never sent to other relays
     And a repeat of the same query paints the last snapshot immediately, then refreshes from API and relays
     And cards render as each source returns; the page does not wait for every EOSE or for full-text
     And a top-level 30040 is one not referenced by another 30040's a-tag
@@ -151,7 +151,7 @@ Feature: Search
 
   Scenario: Fan-out includes Brainstorm full-text
     When a fan-out search runs
-    Then NIP-50 full-text is queried on wss://search-staging.brainstorm.world for publication and wiki kinds
+    Then NIP-50 full-text is queried on wss://search.brainstorm.world for publication and wiki kinds
     And that REQ includes observer and sort:rank
     And when Trust filter is on, it includes filter:rank:gte with the configured minimum
     And when Trust filter is off, it includes include:spam

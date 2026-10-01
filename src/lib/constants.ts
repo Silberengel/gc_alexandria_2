@@ -66,7 +66,7 @@ export const AGGR_RELAY = viteString(env.VITE_AGGR_RELAY, 'wss://aggr.nostr.land
 /** Brainstorm NIP-50 search (vespa) — extensions only on this host. */
 export const BRAINSTORM_SEARCH_RELAY_URL = viteString(
   env.VITE_BRAINSTORM_SEARCH_RELAY_URL,
-  'wss://search-staging.brainstorm.world'
+  'wss://search.brainstorm.world'
 );
 
 /** Community observer when the viewer has no kind 10040. */

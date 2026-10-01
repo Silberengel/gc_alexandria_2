@@ -72,7 +72,7 @@ describe('buildBrainstormSearchQuery', () => {
 
 describe('isBrainstormSearchRelay', () => {
   it('matches the staging Brainstorm host', () => {
-    expect(isBrainstormSearchRelay('wss://search-staging.brainstorm.world')).toBe(true);
+    expect(isBrainstormSearchRelay('wss://search.brainstorm.world')).toBe(true);
     expect(isBrainstormSearchRelay('wss://thecitadel.nostr1.com')).toBe(false);
   });
 });
