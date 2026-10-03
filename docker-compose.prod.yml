@@ -12,3 +12,11 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:9071:80"
+    networks:
+      - default
+      - wikistr-network
+
+networks:
+  wikistr-network:
+    external: true
+    name: wikistr-network

@@ -135,11 +135,11 @@ export default defineConfig(({ mode }) => {
           });
         }
       },
-      // Wikistr AsciiDoctor sidecar (EPUB/PDF) — same path layout as jumble prod.
+      // Wikistr AsciiDoctor sidecar (EPUB/PDF). Server routes are /convert/*.
       '/api/asciidoctor': {
-        target: 'https://jumble.imwald.eu',
+        target: 'http://127.0.0.1:8091',
         changeOrigin: true,
-        agent: ipv4Https,
+        rewrite: (path) => path.replace(/^\/api\/asciidoctor/, ''),
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             const msg = err instanceof Error ? err.message : String(err);
