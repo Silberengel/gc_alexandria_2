@@ -117,24 +117,35 @@
   <LoadingHint message="Loading text…" compact />
 {:else if entry}
   <div class="reading-track-row">
-    <div class="reading-progress" role="progressbar" aria-valuenow={percent} aria-valuemin="0" aria-valuemax="100">
+    <div
+      class="reading-progress"
+      role="progressbar"
+      aria-valuenow={percent}
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-label={`Reading progress ${percent} percent`}
+    >
       <span class="reading-progress-fill" style={`width:${percent}%`}></span>
     </div>
-    <span class="muted reading-track-status">
-      {percent}% · {inActive ? 'In rotation' : 'Up next'}
-    </span>
-    <button class="btn btn-sm" type="button" disabled={busy} onclick={() => void stop()}>
-      Stop tracking
-    </button>
-    <button
-      class="btn btn-sm"
-      type="button"
-      disabled={busy || !behindTracked}
-      title="Clear tracked progress back to the start"
-      onclick={() => void reset()}
-    >
-      Reset tracking
-    </button>
+    <div class="reading-track-meta">
+      <span class="reading-track-status">
+        {percent}% · {inActive ? 'In rotation' : 'Up next'}
+      </span>
+      <div class="reading-track-actions">
+        <button class="reading-track-action" type="button" disabled={busy} onclick={() => void stop()}>
+          Stop tracking
+        </button>
+        <button
+          class="reading-track-action"
+          type="button"
+          disabled={busy || !behindTracked}
+          title="Clear tracked progress back to the start"
+          onclick={() => void reset()}
+        >
+          Reset tracking
+        </button>
+      </div>
+    </div>
   </div>
   <aside class="reading-track-help" aria-label="Tracking help">
     <p>

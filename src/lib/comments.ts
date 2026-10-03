@@ -145,9 +145,13 @@ export function missingCommentParentIds(
   const roots = new Set(
     [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => HEX_ID.test(id))
   );
-  const follow = target
-    ? events.filter((event) => event?.id && workThreadIds(events, target).has(event.id.toLowerCase()))
-    : events.filter((event) => isThreadEvent(event));
+  let follow: Event[];
+  if (target) {
+    const threadIds = workThreadIds(events, target);
+    follow = events.filter((event) => event?.id && threadIds.has(event.id.toLowerCase()));
+  } else {
+    follow = events.filter((event) => isThreadEvent(event));
+  }
   const missing = new Set<string>();
   for (const event of follow) {
     const refs = kind1ETagIds(event);
