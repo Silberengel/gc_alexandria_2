@@ -2380,10 +2380,20 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 
 /* In-browser publication reader: fill the wider frame; prose is .reading-content. */
 .reader-layout .reading-body {
+  font-family: var(--reading-font);
   font-size: 1.08rem;
-  line-height: 1.65;
+  line-height: 1.75;
+  color: var(--ink);
   max-width: none;
   width: 100%;
+}
+
+.reader-layout .reader-section :is(h1, h2, h3, h4, h5, h6),
+.reader-layout .event-body :is(h1, h2, h3, h4, h5, h6),
+.reader-layout .bible-run-heading {
+  font-family: var(--reading-font);
+  color: var(--ink);
+  line-height: 1.25;
 }
 
 .reader-layout .reading-content {
@@ -4791,7 +4801,7 @@ mark.text-highlight.highlight-flash,
 .reader-section .event-body p,
 .reader-section .event-body .paragraph,
 .reader-section .event-body .paragraph > p {
-  margin: 0.3rem 0;
+  margin: 0.65em 0;
 }
 
 /* Bible verses (type=bible): flowing prose with superscript verse numbers. */
@@ -4811,13 +4821,15 @@ mark.text-highlight.highlight-flash,
 .bible-flow {
   position: relative;
   font-size: 1.08rem;
-  line-height: 1.65;
+  line-height: 1.75;
+  color: var(--ink);
 }
 .bible-run-heading {
   display: block;
   margin: 0.85rem 0 0.35rem;
   font-size: 1.05rem;
   font-weight: 700;
+  color: var(--ink);
 }
 .bible-run-heading-wrap {
   display: flex;
@@ -4838,6 +4850,11 @@ mark.text-highlight.highlight-flash,
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
+}
+.reader-layout .section-heading-wrap {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.85rem;
 }
 .section-heading-wrap .section-heading {
   flex: 1 1 auto;
@@ -5139,7 +5156,6 @@ mark.text-highlight.highlight-flash,
 .reader-section.reader-index {
   margin-bottom: 1.25rem;
   padding-bottom: 0.35rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 /* Nested day/chapter indexes: clear air above after packed verse text. */
 .reader-section.reader-index:not(.reader-edition):not(:first-child) {
@@ -5151,19 +5167,19 @@ mark.text-highlight.highlight-flash,
   font-weight: 700;
   letter-spacing: 0.01em;
   margin-bottom: 0.35rem;
-  color: color-mix(in srgb, var(--text) 92%, var(--accent));
+  color: var(--ink);
 }
 .reader-section.reader-edition {
   margin-bottom: 1.75rem;
   padding-bottom: 0.65rem;
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-bottom: 1px solid var(--rule);
 }
 .reader-section.reader-edition .section-heading {
   font-size: 1.85rem;
   font-weight: 700;
   letter-spacing: 0.015em;
   margin-bottom: 0.15rem;
-  color: var(--text);
+  color: var(--ink);
 }
 .edition-reader-meta {
   margin: 0.35rem 0 0.85rem;
