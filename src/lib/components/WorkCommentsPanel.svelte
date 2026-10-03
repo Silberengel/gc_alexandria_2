@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import CommentThread from './CommentThread.svelte';
+  import ThreadCompose from './ThreadCompose.svelte';
   import WorkResponseItem from './WorkResponseItem.svelte';
   import EventCard from './EventCard.svelte';
   import {
@@ -109,29 +110,19 @@
 
   {#if allowCompose}
     {#if $session.pubkey && !replyOpenId && commentComposeOpen}
-      <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
-        <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
-        {#if offerKind1}
-          <label class="compose-kind1">
-            <input type="checkbox" bind:checked={asKind1Reply} />
-            Also post as a kind 1 reply
-          </label>
-        {/if}
-        <div class="compose-actions">
-          <button class="btn btn-primary" type="submit" disabled={posting || !commentText.trim()}
-          >{posting ? 'Posting…' : 'Post'}</button
-        >
-          <button
-            class="btn"
-            type="button"
-            onclick={() => {
-              commentComposeOpen = false;
-              commentText = '';
-              asKind1Reply = false;
-            }}>Cancel</button
-          >
-        </div>
-      </form>
+      <ThreadCompose
+        bind:value={commentText}
+        bind:asKind1Reply
+        {posting}
+        {offerKind1}
+        showCancel
+        onSubmit={() => void postComment()}
+        onCancel={() => {
+          commentComposeOpen = false;
+          commentText = '';
+          asKind1Reply = false;
+        }}
+      />
     {:else if $session.pubkey && !replyOpenId}
       <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
         >Leave a comment</button

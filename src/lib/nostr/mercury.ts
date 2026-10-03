@@ -4,18 +4,23 @@ import { ingestEvent } from './verify';
 import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
 
-/** Mercury indexes only these document kinds — never social / lists / profiles. */
-const MERCURY_DOCUMENT_KINDS = new Set<number>([
+/** Mercury indexes only these document kinds: 30023, 30817, 30818, 30040, 30041. */
+export const MERCURY_DOCUMENT_KINDS = new Set<number>([
   KIND.LONG_FORM,
-  KIND.PUBLICATION,
-  KIND.SECTION,
+  KIND.SPEC,
   KIND.WIKI,
-  KIND.SPEC
+  KIND.PUBLICATION,
+  KIND.SECTION
 ]);
 
-/** Drop social kinds from a Mercury filter; null means skip the request entirely. */
+/** True when every `kinds` value is a Mercury document kind (never kindless). */
+export function isMercuryDocumentFilter(filter: Filter): boolean {
+  return !!filter.kinds?.length && filter.kinds.every((k) => MERCURY_DOCUMENT_KINDS.has(k));
+}
+
+/** Drop non-document kinds from a Mercury filter; null means skip the request entirely. */
 function documentOnlyFilter(filter: Filter): Filter | null {
-  if (!filter.kinds?.length) return filter;
+  if (!filter.kinds?.length) return null;
   const kinds = filter.kinds.filter((k) => MERCURY_DOCUMENT_KINDS.has(k));
   if (!kinds.length) return null;
   return kinds.length === filter.kinds.length ? filter : { ...filter, kinds };
@@ -151,9 +156,22 @@ export function isMercuryPublicationMissing(naddr: string): boolean {
 export function resetMercuryClientState(): void {
   unavailableUntil = 0;
   missingPublicationTrees.clear();
+  mercuryChain = Promise.resolve();
 }
 
+let mercuryChain: Promise<unknown> = Promise.resolve();
+
 async function mercuryRequest(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<Response | null> {
+  if (mercurySkipped()) return null;
+  const run = mercuryChain.then(() => mercuryRequestOnce(path, init), () => mercuryRequestOnce(path, init));
+  mercuryChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+async function mercuryRequestOnce(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response | null> {
@@ -166,15 +184,12 @@ async function mercuryRequest(
   try {
     const res = await fetch(`${trimSlash(MERCURY_HTTP)}${path}`, { ...fetchInit, signal });
     // Proxy DNS/outages often surface as 5xx rather than a thrown fetch error.
-    if (res.status === 502 || res.status === 503 || res.status === 504) {
+    if (res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504) {
       markMercuryDown();
       return null;
     }
     return res;
-  } catch (err) {
-    // Timeouts must not trip the 60s cooldown — AbortError is expected under load.
-    const name = err instanceof Error ? err.name : '';
-    if (name === 'AbortError' || name === 'TimeoutError') return null;
+  } catch {
     markMercuryDown();
     return null;
   }

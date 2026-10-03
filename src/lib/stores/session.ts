@@ -187,29 +187,27 @@ function createSessionStore() {
 
       // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
       const outboxSocial = viewerOutboxStack();
-      const [docResult, socialResult, profileResult, shelfResult, dirResult, outboxShelf] =
+      const [docResult, socialResult, profileResult, outboxShelf] =
         await Promise.allSettled([
-          relayPool.query(documentStack(), [listFilter], 4000),
-          relayPool.query(socialStack(), [socialFilter], 4000),
-          relayPool.query(profileStack(), [profileFilter], 4000),
-          relayPool.query(socialStack(), [shelfFilter], 4000),
           relayPool.query(
             documentStack(),
-            [{ authors: [pubkey], kinds: [KIND.DIRECTORY], limit: 40 }],
+            [listFilter, { authors: [pubkey], kinds: [KIND.DIRECTORY], limit: 40 }],
             4000
           ),
-          // Explicit outbox pass for bookmarks/dirs — Jumble-style “my lists live on my writes”.
-          // Cap at 2 relays: personal write hosts are often rate-limited (e.g. 12 msg/min).
+          relayPool.query(socialStack(), [socialFilter, shelfFilter], 4000),
+          relayPool.query(profileStack(), [profileFilter], 4000),
           relayPool.query(outboxSocial, [shelfFilter], 4000, 2)
         ]);
       const doc = docResult.status === 'fulfilled' ? docResult.value : [];
       const social = socialResult.status === 'fulfilled' ? socialResult.value : [];
       const profiles = profileResult.status === 'fulfilled' ? profileResult.value : [];
-      const shelf = shelfResult.status === 'fulfilled' ? shelfResult.value : [];
-      const dirs = dirResult.status === 'fulfilled' ? dirResult.value : [];
+      const dirs = doc.filter((e) => e.kind === KIND.DIRECTORY);
+      const shelf = social.filter((e) =>
+        (SHELF_LOGIN_KINDS as readonly number[]).includes(e.kind)
+      );
       const outboxLists = outboxShelf.status === 'fulfilled' ? outboxShelf.value : [];
       const byId = new Map<string, Event>();
-      for (const e of [...bootEvents, ...doc, ...social, ...profiles, ...shelf, ...dirs, ...outboxLists]) {
+      for (const e of [...bootEvents, ...doc, ...social, ...profiles, ...outboxLists]) {
         byId.set(e.id, e);
       }
       let merged = [...byId.values()];

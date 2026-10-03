@@ -9,7 +9,7 @@ import { ensureMetadata } from './ensure-metadata';
 import { lookupNip05Pubkey, splitNip05Identifier } from './nip05';
 import { cacheGetSearchSnapshot, cachePutMany, cachePutSearchSnapshot, cacheScanText, searchSnapshotFresh, searchSnapshotMatchesViewer } from './nostr/cache';
 import { rememberEvents } from './nostr/event-memory';
-import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest } from './nostr/mercury';
+import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest, MERCURY_DOCUMENT_KINDS } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack, socialStack } from './nostr/selector';
@@ -306,11 +306,13 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
 }
 
 async function fetchByIdOrAuthor(hex: string): Promise<Event[]> {
-  const idFilter: Filter = { ids: [hex.toLowerCase()], limit: 100 };
-  const authorFilter: Filter = { authors: [hex.toLowerCase()], limit: 100 };
+  const id = hex.toLowerCase();
+  const docKinds = [...MERCURY_DOCUMENT_KINDS];
+  const idFilter: Filter = { ids: [id], limit: 100 };
+  const authorFilter: Filter = { authors: [id], limit: 100 };
   const [m1, m2, w1, w2, s1, s2] = await Promise.all([
-    mercuryFilter(idFilter),
-    mercuryFilter(authorFilter),
+    mercuryFilter({ ...idFilter, kinds: docKinds }),
+    mercuryFilter({ ...authorFilter, kinds: docKinds }),
     relayPool.query(documentStack(), [idFilter]),
     relayPool.query(documentStack(), [authorFilter]),
     relayPool.query(socialStack(), [idFilter]),

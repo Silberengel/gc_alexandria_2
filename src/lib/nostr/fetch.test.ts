@@ -38,7 +38,8 @@ vi.mock('./pool', () => ({
 
 vi.mock('./selector', () => ({
   documentStack: () => ['wss://example.com'],
-  wikiStack: () => ['wss://example.com']
+  wikiStack: () => ['wss://example.com'],
+  socialStack: () => ['wss://social.example.com']
 }));
 
 function ev(partial: Partial<Event> & Pick<Event, 'id' | 'kind' | 'pubkey'>): Event {
@@ -138,12 +139,13 @@ describe('fetch cache fallback', () => {
     expect(query).toHaveBeenCalled();
   });
 
-  it('returns a cached id event without hitting the network', async () => {
-    const cached = ev({ id: 'd'.repeat(64), kind: 1, pubkey: 'e'.repeat(64), tags: [] });
-    memoryGetEvent.mockReturnValue(cached);
+  it('does not call Mercury for a generic id lookup', async () => {
+    const live = ev({ id: 'f'.repeat(64), kind: 1, pubkey: 'b'.repeat(64), tags: [] });
+    query.mockResolvedValue([live]);
     const { fetchById } = await import('./fetch');
-    await expect(fetchById(cached.id)).resolves.toBe(cached);
+    await expect(fetchById(live.id)).resolves.toBe(live);
     expect(mercuryFilter).not.toHaveBeenCalled();
+    expect(query).toHaveBeenCalled();
   });
 
   it('falls back to relays when Mercury misses', async () => {

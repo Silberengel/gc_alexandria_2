@@ -5,7 +5,7 @@ import { type MuteState, isMutedEvent } from './mute';
 import { publicationCoordinateLookupKeys, coordinatesOverlap } from './publication-coordinate';
 import { fetchByIds } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
-import { documentStack, highlightStack, socialStack } from './nostr/selector';
+import { documentStack, highlightStack, socialSearchStack, socialStack } from './nostr/selector';
 import { eventAddress } from './nostr/verify';
 import { splitNostrRefs } from './nostr-refs';
 
@@ -31,10 +31,17 @@ export function isThreadEvent(event: Event): boolean {
   return event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE;
 }
 
-/** Kind 1 with NIP-10 thread tags (marked or positional `e`). */
+function tagHasThreadMarker(t: string[]): boolean {
+  const marked = (v: string | undefined) => v === 'root' || v === 'reply';
+  return marked(t[2]) || marked(t[3]);
+}
+
+/** Kind 1 with NIP-10 `e` tags, or an `a`/`A` tag marked `root`/`reply` (comment on an addressable). */
 export function isKind1Reply(event: Event): boolean {
   if (event.kind !== KIND.TEXT_NOTE) return false;
-  return event.tags.some((t) => t[0] === 'e' && t[1]);
+  return event.tags.some(
+    (t) => (t[0] === 'e' && t[1]) || ((t[0] === 'a' || t[0] === 'A') && t[1] && tagHasThreadMarker(t))
+  );
 }
 
 /** Kind 1 original: offer 1111 by default, plus an optional kind 1 reply. */
@@ -62,12 +69,19 @@ function nip22Coordinate(event: Event): string | null {
 export function commentParentId(event: Event): string | null {
   if (event.kind === KIND.TEXT_NOTE) {
     const eTags = event.tags.filter((t) => t[0] === 'e' && t[1]);
-    if (!eTags.length) return null;
-    const hasRoot = eTags.some((t) => t[3] === 'root');
-    const reply = eTags.find((t) => t[3] === 'reply');
-    if (hasRoot && reply?.[1]) return reply[1].toLowerCase();
-    const marked = reply ?? eTags[eTags.length - 1];
-    return marked?.[1]?.toLowerCase() ?? null;
+    if (eTags.length) {
+      const hasRoot = eTags.some((t) => t[3] === 'root');
+      const reply = eTags.find((t) => t[3] === 'reply');
+      if (hasRoot && reply?.[1]) return reply[1].toLowerCase();
+      const marked = reply ?? eTags[eTags.length - 1];
+      return marked?.[1]?.toLowerCase() ?? null;
+    }
+    const aTags = event.tags.filter(
+      (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && tagHasThreadMarker(t)
+    );
+    const aReply = aTags.find((t) => t[3] === 'reply');
+    const aRoot = aTags.find((t) => t[3] === 'root');
+    return aReply?.[1] ?? aRoot?.[1] ?? null;
   }
   const e = event.tags.find((t) => t[0] === 'e' && t[1]);
   if (e?.[1]) return e[1].toLowerCase();
@@ -93,21 +107,56 @@ export function threadRootKeys(target: Event): string[] {
   return [...keys];
 }
 
+function kind1ETagIds(event: Event): string[] {
+  const ids: string[] = [];
+  for (const t of event.tags) {
+    if ((t[0] === 'e' || t[0] === 'E') && t[1] && HEX_ID.test(t[1])) ids.push(t[1].toLowerCase());
+  }
+  return ids;
+}
+
+/** `wss://` / `ws://` from NIP-10 `e`/`E` tags — where that parent was seen. */
+export function eTagRelayHints(events: Event[]): Map<string, string[]> {
+  const hints = new Map<string, string[]>();
+  for (const event of events) {
+    for (const t of event.tags) {
+      if ((t[0] !== 'e' && t[0] !== 'E') || !t[1] || !HEX_ID.test(t[1])) continue;
+      const relay = t[2]?.trim();
+      if (!relay || !/^wss?:\/\//i.test(relay)) continue;
+      const id = t[1].toLowerCase();
+      const key = relay.replace(/\/+$/, '').toLowerCase();
+      const list = hints.get(id) ?? [];
+      if (!list.some((u) => u.replace(/\/+$/, '').toLowerCase() === key)) {
+        list.push(relay);
+        hints.set(id, list);
+      }
+    }
+  }
+  return hints;
+}
+
 /** Parent ids referenced by thread events that are not yet in `have`. */
 export function missingCommentParentIds(
   events: Event[],
   have: ReadonlySet<string>,
-  rootEventIds: Iterable<string> = []
+  rootEventIds: Iterable<string> = [],
+  target?: Event
 ): string[] {
   const roots = new Set(
     [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => HEX_ID.test(id))
   );
+  const follow = target
+    ? events.filter((event) => event?.id && workThreadIds(events, target).has(event.id.toLowerCase()))
+    : events.filter((event) => isThreadEvent(event));
   const missing = new Set<string>();
-  for (const event of events) {
-    if (!isThreadEvent(event)) continue;
+  for (const event of follow) {
+    const refs = kind1ETagIds(event);
     const parentId = commentParentId(event);
-    if (!parentId || !HEX_ID.test(parentId) || roots.has(parentId) || have.has(parentId)) continue;
-    missing.add(parentId);
+    if (parentId && HEX_ID.test(parentId)) refs.push(parentId);
+    for (const id of refs) {
+      if (!id || roots.has(id) || have.has(id)) continue;
+      missing.add(id);
+    }
   }
   return [...missing];
 }
@@ -302,19 +351,24 @@ export function nip22TagsForTarget(target: Event, replyTo?: Event): string[][] {
   return [...buildNip22Root(target), ...nip22ParentTags(target)];
 }
 
-/** Social + document (+ inbox/outbox when signed in) — full scan for missing parents. */
+/** Social + document (+ inbox/outbox when signed in). Kind 1 search relays are a follow-up. */
 function threadRelayUniverse(): string[] {
-  return [...new Set([...highlightStack(), ...socialStack(), ...documentStack()])];
+  const urls = [...new Set([...highlightStack(), ...socialStack(), ...documentStack()])];
+  const key = (u: string) => u.replace(/\/+$/, '').toLowerCase();
+  const aggr = urls.find((u) => key(u).includes('aggr.nostr.land'));
+  if (!aggr) return urls;
+  return [aggr, ...urls.filter((u) => key(u) !== key(aggr))];
 }
 
 /**
- * Pull missing parent events by id from Mercury + a wide relay set.
- * Walks a few hops so reply chains can reassemble.
+ * Pull missing parent events by id from `e`-tag hints and SOCIAL_SEARCH_RELAYS,
+ * then the rest of the thread relay universe.
  */
 export async function resolveMissingCommentParents(
   events: Event[],
   rootEventIds: Iterable<string> = [],
-  maxHops = 3
+  maxHops = 4,
+  target?: Event
 ): Promise<Event[]> {
   const byId = new Map<string, Event>();
   for (const e of events) {
@@ -323,25 +377,40 @@ export async function resolveMissingCommentParents(
   const roots = [...rootEventIds];
 
   for (let hop = 0; hop < maxHops; hop++) {
-    const missing = missingCommentParentIds([...byId.values()], new Set(byId.keys()), roots).slice(
-      0,
-      24
-    );
+    const batch = [...byId.values()];
+    const missing = missingCommentParentIds(batch, new Set(byId.keys()), roots, target).slice(0, 24);
     if (!missing.length) break;
 
-    const found = await fetchByIds(missing, 8);
-    for (const e of found) byId.set(e.id.toLowerCase(), e);
+    const hintMap = eTagRelayHints(batch);
+    const hintRelays = [...new Set(missing.flatMap((id) => hintMap.get(id) ?? []))];
+    const searchRelays = [...new Set([...hintRelays, ...socialSearchStack()])];
+    const fromSearch = await relayPool.query(
+      searchRelays,
+      [{ ids: missing, limit: missing.length }],
+      4000,
+      6
+    );
+    for (const e of fromSearch) {
+      if (e?.id) byId.set(e.id.toLowerCase(), e);
+    }
 
-    const still = missing.filter((id) => !byId.has(id));
+    let still = missing.filter((id) => !byId.has(id));
+    if (still.length) {
+      const fromThread = await relayPool.query(
+        threadRelayUniverse(),
+        [{ ids: still, limit: still.length }],
+        4000,
+        4
+      );
+      for (const e of fromThread) {
+        if (e?.id) byId.set(e.id.toLowerCase(), e);
+      }
+      still = missing.filter((id) => !byId.has(id));
+    }
     if (!still.length) continue;
 
-    const wide = await relayPool.query(
-      threadRelayUniverse(),
-      [{ ids: still, limit: still.length }],
-      6000,
-      12
-    );
-    for (const e of wide) byId.set(e.id.toLowerCase(), e);
+    const found = await fetchByIds(still, 8);
+    for (const e of found) byId.set(e.id.toLowerCase(), e);
   }
 
   return [...byId.values()];
@@ -392,20 +461,74 @@ export function contentEmbedsTarget(event: Event, target: Event): boolean {
   return false;
 }
 
-/**
- * Quote of this work: NIP-18 `q`, an embedded `nostr:naddr` / `nevent` / `note1` of the OP,
- * or a kind 1 that `a`/`A`-tags the OP without NIP-10 thread tags.
- */
-export function isQuoteOfTarget(event: Event, target: Event): boolean {
-  if (event.kind === KIND.COMMENT) return false;
-  if (contentEmbedsTarget(event, target)) return true;
-  if (event.kind !== KIND.TEXT_NOTE) return false;
-  if (event.tags.some((t) => t[0] === 'q' && t[1] && qTagMatchesTarget(t[1], target))) return true;
-  if (isKind1Reply(event)) return false;
-  const addrKeys = new Set(publicationCoordinateLookupKeys(eventAddress(target)));
+function hasEventIdTag(event: Event): boolean {
+  return event.tags.some((t) => (t[0] === 'e' || t[0] === 'E') && t[1]);
+}
+
+function eTagsIncludeId(event: Event, id: string): boolean {
+  const want = id.toLowerCase();
+  return event.tags.some((t) => (t[0] === 'e' || t[0] === 'E') && t[1]?.toLowerCase() === want);
+}
+
+function addressTagsTarget(event: Event, target: Event): boolean {
+  const addr = eventAddress(target);
+  const addrKeys = new Set(publicationCoordinateLookupKeys(addr));
   return event.tags.some(
-    (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && (addrKeys.has(t[1]) || coordinatesOverlap(t[1], eventAddress(target)))
+    (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && (addrKeys.has(t[1]) || coordinatesOverlap(t[1], addr))
   );
+}
+
+/** Kind 1 that `a`/`A`-tags this OP with NIP-10 `root`/`reply` — a comment, not a quote. */
+function addressThreadMarker(event: Event, target: Event): boolean {
+  const addr = eventAddress(target);
+  const addrKeys = new Set(publicationCoordinateLookupKeys(addr));
+  return event.tags.some(
+    (t) =>
+      (t[0] === 'a' || t[0] === 'A') &&
+      t[1] &&
+      tagHasThreadMarker(t) &&
+      (addrKeys.has(t[1]) || coordinatesOverlap(t[1], addr))
+  );
+}
+
+function nip10HitsIds(event: Event, ids: ReadonlySet<string>): boolean {
+  return event.tags.some((t) => (t[0] === 'e' || t[0] === 'E') && t[1] && ids.has(t[1].toLowerCase()));
+}
+
+function qTagsTarget(event: Event, target: Event): boolean {
+  return event.tags.some((t) => t[0] === 'q' && t[1] && qTagMatchesTarget(t[1], target));
+}
+
+/** Citation of this OP (`q` or `nostr:` embed) — not the same as a thread pointer. */
+function citesTarget(event: Event, target: Event): boolean {
+  return qTagsTarget(event, target) || contentEmbedsTarget(event, target);
+}
+
+function relatedEventIds(events: Event[], target: Event): Set<string> {
+  const ids = new Set<string>([target.id.toLowerCase()]);
+  for (const event of events) {
+    if (!event?.id) continue;
+    if (referencesTarget(event, target)) ids.add(event.id.toLowerCase());
+  }
+  return ids;
+}
+
+/**
+ * Quote of this OP: cites it (`q`, content embed, or unmarked `a` from another thread)
+ * and is not a comment on it. Citations win over a-only address tags.
+ */
+export function isQuoteOfTarget(
+  event: Event,
+  target: Event,
+  relatedIds?: ReadonlySet<string>
+): boolean {
+  if (event.kind !== KIND.TEXT_NOTE) return false;
+  if (eTagsIncludeId(event, target.id)) return false;
+  if (addressThreadMarker(event, target)) return false;
+  if (relatedIds && nip10HitsIds(event, relatedIds)) return false;
+  if (citesTarget(event, target)) return true;
+  if (addressTagsTarget(event, target) && !hasEventIdTag(event)) return false;
+  return addressTagsTarget(event, target);
 }
 
 /** Kind 1111 / kind 1 / 9802 that points at this work with e/E and/or a/A (or q). */
@@ -471,30 +594,70 @@ function sortNewest(events: Event[]): Event[] {
   return events.sort((a, b) => b.created_at - a.created_at);
 }
 
-/** Events that point at this work, plus 1111 / NIP-10 replies nested under those. */
-function workResponseIds(events: Event[], target: Event): Set<string> {
+function isWorkThreadSeed(
+  event: Event,
+  target: Event,
+  related: ReadonlySet<string>
+): boolean {
+  if (!event?.id) return false;
+  if (event.kind === KIND.COMMENT) return referencesTarget(event, target);
+  if (event.kind !== KIND.TEXT_NOTE) return false;
+  if (eTagsIncludeId(event, target.id)) return true;
+  if (addressThreadMarker(event, target)) return true;
+  if (addressTagsTarget(event, target) && !hasEventIdTag(event) && !citesTarget(event, target)) {
+    return true;
+  }
+  return nip10HitsIds(event, related);
+}
+
+/** Kind 1111 / kind 1 comments on this OP, plus NIP-10 ancestors and descendants. */
+function workThreadIds(events: Event[], target: Event): Set<string> {
+  const targetId = target.id.toLowerCase();
   const rootKeys = new Set(threadRootKeys(target));
+  const related = relatedEventIds(events, target);
+  const byId = new Map(
+    events.filter((e) => e?.id).map((e) => [e.id.toLowerCase(), e] as const)
+  );
   const ids = new Set<string>();
   for (const event of events) {
-    if (!event?.id) continue;
-    if (referencesTarget(event, target) || isQuoteOfTarget(event, target)) {
-      ids.add(event.id.toLowerCase());
-    }
+    if (isWorkThreadSeed(event, target, related)) ids.add(event.id.toLowerCase());
   }
-  const nested = events.filter(
-    (event) => event?.id && (event.kind === KIND.COMMENT || isKind1Reply(event))
-  );
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const event of nested) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const id of [...ids]) {
+      const event = byId.get(id);
+      if (!event) continue;
+      for (const parentId of kind1ETagIds(event)) {
+        if (parentId === targetId || rootKeys.has(parentId)) continue;
+        if (byId.has(parentId) && !ids.has(parentId)) {
+          ids.add(parentId);
+          changed = true;
+        }
+      }
+    }
+    for (const event of events) {
+      if (!event?.id || !isThreadEvent(event)) continue;
       const id = event.id.toLowerCase();
       if (ids.has(id)) continue;
       const parent = commentParentId(event);
       if (parent && (ids.has(parent) || rootKeys.has(parent))) {
         ids.add(id);
-        grew = true;
+        changed = true;
       }
+    }
+  }
+  return ids;
+}
+
+/** Thread rows, plus quotes and other events that actually point at this work. */
+function workResponseIds(events: Event[], target: Event): Set<string> {
+  const ids = workThreadIds(events, target);
+  const relatedIds = relatedEventIds(events, target);
+  for (const event of events) {
+    if (!event?.id) continue;
+    if (referencesTarget(event, target) || isQuoteOfTarget(event, target, relatedIds)) {
+      ids.add(event.id.toLowerCase());
     }
   }
   return ids;
@@ -513,6 +676,8 @@ function eventDecoratesKept(event: Event, target: Event, kept: ReadonlySet<strin
 }
 
 export function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
+  const relatedIds = relatedEventIds(events, target);
+  const threadIds = workThreadIds(events, target);
   const kept = workResponseIds(events, target);
   const threadById = new Map<string, Event>();
   const quotesById = new Map<string, Event>();
@@ -549,12 +714,12 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       continue;
     }
     if (SKIP_OTHER_KINDS.has(event.kind)) continue;
-    if (isQuoteOfTarget(event, target)) {
-      quotesById.set(key, event);
+    if (threadIds.has(key) && isThreadEvent(event)) {
+      threadById.set(key, event);
       continue;
     }
-    if (event.kind === KIND.COMMENT || isKind1Reply(event)) {
-      threadById.set(key, event);
+    if (isQuoteOfTarget(event, target, relatedIds)) {
+      quotesById.set(key, event);
       continue;
     }
     otherById.set(key, event);
@@ -609,39 +774,22 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
   const id = target.id.toLowerCase();
   const addrKeys = [...new Set(publicationCoordinateLookupKeys(a))].slice(0, 12);
   const relays = threadRelayUniverse();
-  const maxRelays = 8;
+  const maxRelays = 4;
   const scopes = nip73Values(target);
 
-  const addressFilters: Filter[] = addrKeys.length
-    ? [
-        { '#A': addrKeys, limit },
-        { '#a': addrKeys, limit }
-      ]
-    : [];
-  const idFilters: Filter[] = [
-    { '#E': [id], limit },
-    { '#e': [id], limit },
-    { '#q': [id], limit }
-  ];
-  const scopeFilters: Filter[] = scopes.length
-    ? [
-        { '#I': scopes, limit },
-        { '#i': scopes, limit }
-      ]
-    : [];
+  const filters: Filter[] = [];
+  if (addrKeys.length) {
+    filters.push({ '#A': addrKeys, limit }, { '#a': addrKeys, limit });
+  }
+  filters.push({ '#E': [id], limit }, { '#e': [id], limit }, { '#q': [id], limit });
+  if (scopes.length) {
+    filters.push({ '#I': scopes, limit }, { '#i': scopes, limit });
+  }
 
-  const [byAddress, byId, byScope] = await Promise.all([
-    addressFilters.length
-      ? relayPool.query(relays, addressFilters, 6000, maxRelays)
-      : Promise.resolve([] as Event[]),
-    relayPool.query(relays, idFilters, 6000, maxRelays),
-    scopeFilters.length
-      ? relayPool.query(relays, scopeFilters, 6000, maxRelays)
-      : Promise.resolve([] as Event[])
-  ]);
+  const first = await relayPool.query(relays, filters, 6000, maxRelays, undefined, { priority: true });
 
   const byEventId = new Map<string, Event>();
-  for (const e of [...byAddress, ...byId, ...byScope]) {
+  for (const e of first) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }
 
@@ -664,9 +812,25 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
     }
   }
 
-  const recovered = await resolveMissingCommentParents([...byEventId.values()], [target.id]);
+  const recovered = await resolveMissingCommentParents([...byEventId.values()], [target.id], 4, target);
   for (const e of recovered) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
+  }
+
+  const branchIds = [...workThreadIds([...byEventId.values()], target)].slice(0, 24);
+  if (branchIds.length) {
+    const siblings = await relayPool.query(
+      relays,
+      [
+        { '#e': branchIds, limit: 40 },
+        { '#E': branchIds, limit: 40 }
+      ],
+      5000,
+      maxRelays
+    );
+    for (const e of siblings) {
+      if (e?.id) byEventId.set(e.id.toLowerCase(), e);
+    }
   }
 
   return partitionWorkResponses([...byEventId.values()], target);

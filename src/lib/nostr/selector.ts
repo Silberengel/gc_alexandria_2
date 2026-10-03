@@ -5,6 +5,7 @@ import {
   MERCURY_WSS,
   PROFILE_RELAYS,
   SOCIAL_RELAYS,
+  SOCIAL_SEARCH_RELAYS,
   THIRD_PARTY_RELAYS,
   WIKI_RELAYS,
   type StackKind
@@ -62,13 +63,17 @@ function withoutBlocked(urls: string[]): string[] {
 
 function maybeAggr(urls: string[]): string[] {
   if (!ctx.signedIn) return urls;
-  const hasNostrLand = [...ctx.outbox, ...ctx.favorites].some((u) =>
-    u.toLowerCase().includes('nostr.land')
-  );
-  if (hasNostrLand && !urls.some((u) => u.toLowerCase().includes('aggr.nostr.land'))) {
-    return [...urls, AGGR_RELAY];
+  const hasNostrLand = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local].some((u) => {
+    const x = u.toLowerCase();
+    return x.includes('nostr.land') && !x.includes('aggr.nostr.land');
+  });
+  if (!hasNostrLand) return urls;
+  if (urls.some((u) => u.toLowerCase().includes('aggr.nostr.land'))) return urls;
+  const idx = urls.findIndex((u) => u.toLowerCase().includes('nostr.land'));
+  if (idx >= 0) {
+    return [...urls.slice(0, idx + 1), AGGR_RELAY, ...urls.slice(idx + 1)];
   }
-  return urls;
+  return [AGGR_RELAY, ...urls];
 }
 
 /** Document/search WebSocket stack (Mercury read-only WSS + Citadel + third-party). */
@@ -119,13 +124,18 @@ export function wikiStack(): string[] {
   return withoutBlocked(stackUrls([...WIKI_RELAYS, ...documentStack()]));
 }
 
-/** Social/interaction stack */
+/** Social/interaction stack — library hosts. Kind 1 search relays are {@link socialSearchStack}. */
 export function socialStack(): string[] {
   let relays: string[] = [...SOCIAL_RELAYS];
   if (ctx.signedIn) {
     relays = [...SOCIAL_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
   }
   return maybeAggr(withoutBlocked(stackUrls(relays)));
+}
+
+/** Damus / Primal / nos.lol / nostr.mom — NIP-10 parent lookup, not the default social cap. */
+export function socialSearchStack(): string[] {
+  return withoutBlocked(stackUrls([...SOCIAL_SEARCH_RELAYS]));
 }
 
 /**

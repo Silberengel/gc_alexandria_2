@@ -54,6 +54,16 @@ export const SOCIAL_RELAYS = viteList(env.VITE_SOCIAL_RELAYS, [
   ...THIRD_PARTY_RELAYS
 ]);
 
+/** Kind 1 / thread search (NIP-10 parents, replies). Comma-separated `VITE_SOCIAL_SEARCH_RELAYS`. */
+export const SOCIAL_SEARCH_RELAYS = viteList(env.VITE_SOCIAL_SEARCH_RELAYS, [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://nostr.mom',
+  'wss://nostrelites.org',
+  'wss://pipe.imwald.eu'
+]);
+
 /** Kind-0 / profile mirrors — same set as jumble `PROFILE_RELAY_URLS` (not Mercury). */
 export const PROFILE_RELAYS = viteList(env.VITE_PROFILE_RELAYS, [
   'wss://profiles.nostr1.com',

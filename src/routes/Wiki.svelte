@@ -15,7 +15,7 @@
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys } from '$lib/wiki-defer';
   import { normalizeDTag } from '$lib/dtag';
-  import { mercuryFilter } from '$lib/nostr/mercury';
+  import { mercuryFilter, MERCURY_DOCUMENT_KINDS } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack, documentStack } from '$lib/nostr/selector';
   import { eventAddress } from '$lib/nostr/verify';
@@ -271,7 +271,11 @@
   async function eventFromId(id: string): Promise<Event | null> {
     const fromMem = memoryGetEvent(id);
     if (fromMem) return fromMem;
-    const mercury = await mercuryFilter({ ids: [id], limit: 1 });
+    const mercury = await mercuryFilter({
+      ids: [id],
+      kinds: [...MERCURY_DOCUMENT_KINDS],
+      limit: 1
+    });
     if (mercury[0]) {
       rememberEvents([mercury[0]]);
       return mercury[0];

@@ -18,7 +18,12 @@ function addPointer(out: EmbedPointer[], seen: Set<string>, p: EmbedPointer): vo
   out.push(p);
 }
 
-/** `q` tags, plus kind 1 `a`/`A` shares — same pointers the one-line embed card uses. */
+function tagHasThreadMarker(t: string[]): boolean {
+  const marked = (v: string | undefined) => v === 'root' || v === 'reply';
+  return marked(t[2]) || marked(t[3]);
+}
+
+/** `q` tags, plus kind 1 `a`/`A` shares — not NIP-10-style `a`/`A` thread pointers. */
 export function embedPointersFromTags(event: Event): EmbedPointer[] {
   const out: EmbedPointer[] = [];
   const seen = new Set<string>();
@@ -31,6 +36,7 @@ export function embedPointersFromTags(event: Event): EmbedPointer[] {
       else addPointer(out, seen, { kind: 'addr', addr: v });
     }
     if (event.kind === KIND.TEXT_NOTE && (name === 'a' || name === 'A')) {
+      if (tagHasThreadMarker(t)) continue;
       addPointer(out, seen, { kind: 'addr', addr: v });
     }
   }

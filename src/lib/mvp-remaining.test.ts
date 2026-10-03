@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nestComments, threadNodeKey, threadRootKeys, isQuoteOfTarget, referencesTarget, canOfferKind1Reply, nip10ReplyTags, nip22TagsForTarget, partitionWorkResponses } from './comments';
+import { nestComments, threadNodeKey, threadRootKeys, isQuoteOfTarget, referencesTarget, canOfferKind1Reply, nip10ReplyTags, nip22TagsForTarget, partitionWorkResponses, missingCommentParentIds, eTagRelayHints } from './comments';
 import { commentDraft } from './drafts';
 import {
   DEFAULT_LIKE_REACTION_CONTENT,
@@ -266,6 +266,14 @@ describe('comments nest', () => {
       tags: [['A', `30040:${'b'.repeat(64)}:book`], ['q', 'd'.repeat(64)]]
     });
     expect(embedPointersFromTags(comment)).toEqual([{ kind: 'id', id: 'd'.repeat(64) }]);
+    const replyToReplaceable = ev({
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['a', `30023:${'d'.repeat(64)}:1719204947236`, '', 'root'],
+        ['e', 'e'.repeat(64), '', 'root']
+      ]
+    });
+    expect(embedPointersFromTags(replyToReplaceable)).toEqual([]);
   });
 
   it('treats a content-only nostr:naddr of the OP as a quote, not an other-response', async () => {
@@ -334,6 +342,204 @@ describe('comments nest', () => {
     expect(replies.other.map((e) => e.id)).not.toContain(stray.id);
     expect(replies.thread.map((e) => e.id)).not.toContain(stray.id);
     expect(replies.quotes.map((e) => e.id)).not.toContain(share.id);
+  });
+
+  it('treats a kind 1 that a-tags the OP but replies in another thread as a quote', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const share = ev({
+      id: '18476c17c91fc68930a6b1511e029cc3af96cee1c71b19f6828b91e21845007a',
+      pubkey: 'fd208ee8c8f283780a9552896e4823cc9dc6bfd442063889577106940fd927c1',
+      kind: KIND.TEXT_NOTE,
+      content: 'https://next-alexandria.gitcitadel.eu/',
+      tags: [
+        ['e', '70691c5a055aeffa28eed43643ad4c83350787ab94bce1d012f8af1f3dbee1a1', '', 'root'],
+        ['e', '19db27b988b7ae0ee56812653c23ae20c0dcc3a5c686558cebde26a51a630057'],
+        ['e', 'a093fb4f8bd62fbc83c2e1db482dfa3f3ab4fd57df72fcbe931844ad3190081f', '', 'reply'],
+        ['a', `30023:${pk}:1719204947236`],
+        ['r', 'https://next-alexandria.gitcitadel.eu/']
+      ]
+    });
+    const replyHere = ev({
+      id: '1'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['e', article.id, '', 'root'],
+        ['a', `30023:${pk}:1719204947236`]
+      ]
+    });
+    expect(isQuoteOfTarget(share, article)).toBe(true);
+    expect(isQuoteOfTarget(replyHere, article)).toBe(false);
+    const parts = partitionWorkResponses([share, replyHere], article);
+    expect(parts.quotes.map((e) => e.id)).toEqual([share.id]);
+    expect(parts.thread.map((e) => e.id)).toEqual([replyHere.id]);
+  });
+
+  it('treats a kind 1 a-tag with root marker as a comment, not a quote', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const note = ev({
+      id: 'b50ba0c6cec520e3236eead41240ab99cbb5d4b38a00481b1cfed77bb25e632d',
+      pubkey: '9ca0bd7450742d6a20319c0e3d4c679c9e046a9dc70e8ef55c2905e24052340b',
+      kind: KIND.TEXT_NOTE,
+      content:
+        "Boosted. I barely understand, but I know this is cool. Let's get that Minecraft library thing on here somehow too:)",
+      tags: [
+        ['p', pk],
+        ['a', `30023:${pk}:1719204947236`, '', 'root']
+      ]
+    });
+    expect(isQuoteOfTarget(note, article)).toBe(false);
+    const parts = partitionWorkResponses([note], article);
+    expect(parts.thread.map((e) => e.id)).toEqual([note.id]);
+    expect(parts.quotes).toHaveLength(0);
+  });
+
+  it('treats a kind 1 that only a-tags the article as a root reply', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const note = ev({
+      id: 'ee0c9455835e83a72019078b8d6b84cd1c6fe5252559b0465967de8060cdab7b',
+      pubkey: '3c9849383bdea883b0bd16fece1ed36d37e37cdde3ce43b17ea4e9192ec11289',
+      kind: KIND.TEXT_NOTE,
+      content: 'Can this be monetized?',
+      tags: [
+        ['p', pk],
+        ['a', `30023:${pk}:1719204947236`, '', 'root']
+      ]
+    });
+    expect(isQuoteOfTarget(note, article)).toBe(false);
+    const parts = partitionWorkResponses([note], article);
+    expect(parts.thread.map((e) => e.id)).toEqual([note.id]);
+    expect(parts.quotes).toHaveLength(0);
+  });
+
+  it('rebuilds a kind 1 reply branch from a-root plus e-tag ancestors', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'f'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const addr = `30023:${pk}:1719204947236`;
+    const rootNote = ev({
+      id: 'a3e18d102baea9826bba4eed3bbac6fa0236e3fe3e4f6d3ead7fa2c7ad444878',
+      kind: KIND.TEXT_NOTE,
+      content: 'root of the kind 1 branch',
+      tags: [['a', addr, '', 'root']]
+    });
+    const mid = ev({
+      id: '9bed3f525e1210c55ae2029403b06ec7849b9f37b72abf87282f349f3286ca42',
+      kind: KIND.TEXT_NOTE,
+      content: 'mid reply',
+      tags: [
+        ['e', rootNote.id],
+        ['a', addr, '', 'root']
+      ]
+    });
+    const leaf = ev({
+      id: '32190b5a617866abab290244a21ad284696b7a73edce0f6ee58551dd8f3ba06b',
+      pubkey: pk,
+      kind: KIND.TEXT_NOTE,
+      content: 'Hierarchical levels.',
+      tags: [
+        ['e', rootNote.id],
+        ['e', mid.id, '', 'reply'],
+        ['a', addr, '', 'root']
+      ]
+    });
+    expect(
+      missingCommentParentIds([leaf], new Set([leaf.id]), [article.id], article).sort()
+    ).toEqual([rootNote.id, mid.id].sort());
+    const parts = partitionWorkResponses([leaf, mid, rootNote], article);
+    expect(parts.thread.map((e) => e.id).sort()).toEqual([leaf.id, mid.id, rootNote.id].sort());
+    expect(parts.quotes).toHaveLength(0);
+    const tree = nestComments(parts.thread, undefined, threadRootKeys(article));
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.event?.id).toBe(rootNote.id);
+    expect(tree[0]?.children[0]?.event?.id).toBe(mid.id);
+    expect(tree[0]?.children[0]?.children[0]?.event?.id).toBe(leaf.id);
+  });
+
+  it('nests a kind 1 reply under its NIP-10 parent when both e-tag the OP as root', () => {
+    const op = ev({
+      id: '30c8bea38000a4a634fbeb0d386a83af36cb49de353657cb16f7de6c8bcc2166',
+      kind: KIND.TEXT_NOTE,
+      tags: []
+    });
+    const parent = ev({
+      id: '7d72daec3cc34b14267dd18ac5d1fa2d33d6169480a4d4de429de14cfc0bb959',
+      kind: KIND.TEXT_NOTE,
+      content: 'We’ve been doing that for well over a month already! https://nips.wiki',
+      tags: [['e', op.id, 'wss://nostr.mom', 'root']]
+    });
+    const leaf = ev({
+      id: 'b23b4012a254485116608aaacba16c096d52d6680c5cebea48e508f6e34bad5b',
+      kind: KIND.TEXT_NOTE,
+      content: 'Brilliant 🫡 ',
+      tags: [
+        ['e', op.id, 'wss://nostr.mom/', 'root'],
+        ['e', parent.id, 'wss://relay.damus.io/', 'reply']
+      ]
+    });
+    expect(missingCommentParentIds([leaf], new Set([leaf.id]), [op.id], op)).toEqual([parent.id]);
+    expect([...eTagRelayHints([leaf]).get(parent.id)!]).toContain('wss://relay.damus.io/');
+    const parts = partitionWorkResponses([leaf, parent], op);
+    expect(parts.thread.map((e) => e.id).sort()).toEqual([leaf.id, parent.id].sort());
+    const tree = nestComments(parts.thread, undefined, threadRootKeys(op));
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.event?.id).toBe(parent.id);
+    expect(tree[0]?.children[0]?.event?.id).toBe(leaf.id);
+  });
+
+  it('treats a kind 1 that a-tags the OP and e-tags another such reply as a comment', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const addr = `30023:${pk}:1719204947236`;
+    const parent = ev({
+      id: '78603fc5bcf44a0d1f14a51eea93f22fccf4a3fff28c7bc3e8a1a1755e5f230c',
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['e', '5bffa3578b29401471ca2d7f2183c2fe1fda28fb69343f4852678c6c24db47cb'],
+        ['a', addr]
+      ]
+    });
+    const nested = ev({
+      id: 'f7978a0c9379d4e97e01bdd4a765dac234762ff65036a3a90fdb7d0d833e289e',
+      kind: KIND.TEXT_NOTE,
+      content: "...I don't know how to pandoc",
+      tags: [
+        ['e', '5bffa3578b29401471ca2d7f2183c2fe1fda28fb69343f4852678c6c24db47cb'],
+        ['e', parent.id, '', 'reply'],
+        ['a', addr]
+      ]
+    });
+    const related = new Set([article.id, parent.id, nested.id]);
+    expect(isQuoteOfTarget(nested, article, related)).toBe(false);
+    const parts = partitionWorkResponses([parent, nested], article);
+    expect(parts.thread.map((e) => e.id).sort()).toEqual([parent.id, nested.id].sort());
+    expect(parts.quotes).toHaveLength(0);
   });
 
   it('nests a kind 1 reply under a kind 1111 parent', () => {

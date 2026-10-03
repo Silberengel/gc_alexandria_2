@@ -3,24 +3,51 @@ import { SimplePool } from 'nostr-tools/pool';
 import { MERCURY_WSS } from '../constants';
 import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
-import { isMercuryUnavailable } from './mercury';
+import { isMercuryUnavailable, isMercuryDocumentFilter } from './mercury';
 import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
 import { ingestEvent } from './verify';
+
+function waitForWindowLoad(): Promise<void> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return Promise.resolve();
+  if (document.readyState === 'complete') return waitForIdle();
+  return new Promise((resolve) => {
+    window.addEventListener('load', () => waitForIdle().then(resolve), { once: true });
+  });
+}
+
+function waitForIdle(): Promise<void> {
+  return new Promise((resolve) => {
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void;
+      }
+    ).requestIdleCallback;
+    if (typeof ric === 'function') ric(() => resolve(), { timeout: 1500 });
+    else setTimeout(resolve, 200);
+  });
+}
 
 type SubCallback = {
   onEvent: (event: Event, relay: string) => void;
   onEose?: (relay: string) => void;
 };
 
-function usableRelays(urls: string[], max: number): string[] {
+function usableRelays(
+  urls: string[],
+  max: number,
+  skipKeys: ReadonlySet<string>,
+  allowMercuryWss: boolean
+): string[] {
   const mercury = MERCURY_WSS.replace(/\/+$/, '').toLowerCase();
-  return webSocketRelays(urls)
-    .filter((url) => {
-      // Mercury HTTP outage usually means its WSS is unreachable too — skip instead of hanging DNS.
-      if (isMercuryUnavailable() && url.replace(/\/+$/, '').toLowerCase() === mercury) return false;
-      return true;
-    })
-    .slice(0, max);
+  const out: string[] = [];
+  for (const url of webSocketRelays(urls)) {
+    const key = url.replace(/\/+$/, '').toLowerCase();
+    if (key === mercury && (!allowMercuryWss || isMercuryUnavailable())) continue;
+    if (skipKeys.has(key)) continue;
+    out.push(url);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 function queryIdentityKey(
@@ -38,7 +65,12 @@ function queryIdentityKey(
 }
 
 class RelayPool {
-  private pool = new SimplePool();
+  private pool = new (SimplePool as new (opts?: object) => SimplePool)({
+    maxWaitForConnection: 2500,
+    enableReconnect: false,
+    allowConnectingToRelay: (url: string) => !this.relayCoolingDown(url),
+    onRelayConnectionFailure: (url: string) => this.markRelayFailed(url)
+  });
   private signedIn = false;
   /**
    * Cap parallel query() calls (each may fan out to many relays).
@@ -48,12 +80,97 @@ class RelayPool {
   private queryWaiters: Array<() => void> = [];
   /** Identical in-flight REQs share one Promise (social + comments often overlap). */
   private inflight = new Map<string, Promise<Event[]>>();
-  private static readonly MAX_PARALLEL_QUERIES = 8;
+  private relayFailedUntil = new Map<string, number>();
+  /** At most one REQ in flight per host (outboxes like pipe.imwald.eu are 12 msg/min). */
+  private relayTurn = new Map<string, Promise<void>>();
+  private static readonly MAX_PARALLEL_QUERIES = 3;
   /**
    * Default fan-out per REQ. Parallel across these hosts, but keep the count modest —
    * publication social loads fire several filters at once and large fan-outs trip rate limits.
    */
-  private static readonly MAX_RELAYS_PER_QUERY = 5;
+  private static readonly MAX_RELAYS_PER_QUERY = 4;
+  /** Hung WebSockets often ignore SimplePool maxWait until TCP dies — bound the attempt. */
+  private static readonly RELAY_ATTEMPT_MS = 4_000;
+  private static readonly RELAY_FAIL_COOLDOWN_MS = 120_000;
+
+  private relayKey(url: string): string {
+    return url.replace(/\/+$/, '').toLowerCase();
+  }
+
+  private relayCoolingDown(url: string): boolean {
+    const until = this.relayFailedUntil.get(this.relayKey(url)) ?? 0;
+    return until > Date.now();
+  }
+
+  private skippedRelayKeys(): Set<string> {
+    const now = Date.now();
+    const skip = new Set<string>();
+    for (const [key, until] of this.relayFailedUntil) {
+      if (until > now) skip.add(key);
+      else this.relayFailedUntil.delete(key);
+    }
+    return skip;
+  }
+
+  private markRelayFailed(url: string): void {
+    this.relayFailedUntil.set(this.relayKey(url), Date.now() + RelayPool.RELAY_FAIL_COOLDOWN_MS);
+  }
+
+  private async withRelayTurn<T>(url: string, fn: () => Promise<T>): Promise<T> {
+    const key = this.relayKey(url);
+    const prev = this.relayTurn.get(key) ?? Promise.resolve();
+    let release: () => void = () => {};
+    const next = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.relayTurn.set(
+      key,
+      prev.then(() => next).catch(() => next)
+    );
+    await prev.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * One WebSocket REQ (all filters) per relay. CLOSE the sub when done so the
+   * next query cannot stack REQ ids (sovbit/wine "too many concurrent REQs").
+   * Do not close the WebSocket itself — that is what Firefox logs as interrupted.
+   */
+  private queryRelay(url: string, filters: Filter[], maxWait: number): Promise<Event[]> {
+    return this.withRelayTurn(url, () => {
+      if (this.relayCoolingDown(url)) return Promise.resolve([] as Event[]);
+      return new Promise((resolve) => {
+        const events: Event[] = [];
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          try {
+            void closer.close('done');
+          } catch {
+            /* ignore */
+          }
+          resolve(events);
+        };
+        const closer = this.pool.subscribeMap(
+          filters.map((filter) => ({ url, filter })),
+          {
+            maxWait,
+            onevent: (event: Event) => {
+              events.push(event);
+            },
+            oneose: finish,
+            onclose: finish
+          }
+        );
+        setTimeout(finish, maxWait);
+      });
+    });
+  }
 
   setSignedIn(signedIn: boolean): void {
     this.signedIn = signedIn;
@@ -104,8 +221,14 @@ class RelayPool {
     opts?: { priority?: boolean }
   ): Promise<Event[]> {
     try {
-      const wssRelays = usableRelays(relays, maxRelays);
+      await waitForWindowLoad();
       const cleanFilters = normalizeRelayFilters(filters);
+      const wssRelays = usableRelays(
+        relays,
+        maxRelays,
+        this.skippedRelayKeys(),
+        cleanFilters.every(isMercuryDocumentFilter)
+      );
       if (!wssRelays.length || !cleanFilters.length) return [];
 
       // Coalesce only when callers do not need their own progressive onBatch.
@@ -119,78 +242,32 @@ class RelayPool {
 
       const job = this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
-        const pool = this.pool;
-        const hardCapMs = Math.max(timeoutMs + 2000, 5000);
-        let acceptBatches = true;
-
-        const emit = (): void => {
-          if (!acceptBatches || !onBatch || !byId.size) return;
-          try {
-            onBatch([...byId.values()]);
-          } catch {
-            /* caller paint must not break the query */
-          }
-        };
-
-        const run = async (): Promise<Event[]> => {
-          // All selected relays in parallel — do not serialize behind a concurrency-2 worker pool.
-          await Promise.all(
-            wssRelays.map(async (url) => {
-              for (const filter of cleanFilters) {
-                try {
-                  const batch = await pool.querySync([url], filter, { maxWait: timeoutMs });
-                  if (!acceptBatches) continue;
-                  let added = false;
-                  for (const event of batch) {
-                    const v = ingestEvent(event);
-                    if (!v) continue;
-                    noteEventSource(v.id, url);
-                    if (!byId.has(v.id)) {
-                      byId.set(v.id, v);
-                      added = true;
+        const attemptMs = Math.min(timeoutMs, RelayPool.RELAY_ATTEMPT_MS);
+        await Promise.all(
+          wssRelays.map(async (url) => {
+            try {
+              const batch = await this.queryRelay(url, cleanFilters, attemptMs);
+              for (const event of batch) {
+                const v = ingestEvent(event);
+                if (!v) continue;
+                noteEventSource(v.id, url);
+                if (!byId.has(v.id)) {
+                  byId.set(v.id, v);
+                  if (onBatch) {
+                    try {
+                      onBatch([...byId.values()]);
+                    } catch {
+                      /* caller paint must not break the query */
                     }
                   }
-                  if (added) emit();
-                } catch {
-                  /* one relay failed — continue */
                 }
               }
-            })
-          );
-          return [...byId.values()];
-        };
-
-        let events: Event[] = [];
-        let raceDone = false;
-        let hardCapTimer: ReturnType<typeof setTimeout> | 0 = 0;
-        try {
-          events = await Promise.race([
-            run().then((value) => {
-              raceDone = true;
-              if (hardCapTimer) clearTimeout(hardCapTimer);
-              return value;
-            }),
-            new Promise<Event[]>((resolve) => {
-              hardCapTimer = setTimeout(() => {
-                if (raceDone) return;
-                raceDone = true;
-                acceptBatches = false;
-                console.warn(
-                  '[alexandria:pool] query hard-cap',
-                  hardCapMs,
-                  'ms',
-                  cleanFilters[0]?.kinds
-                );
-                resolve([...byId.values()]);
-              }, hardCapMs);
-            })
-          ]);
-        } catch {
-          events = [...byId.values()];
-        } finally {
-          if (hardCapTimer) clearTimeout(hardCapTimer);
-          acceptBatches = false;
-        }
+            } catch {
+              this.markRelayFailed(url);
+            }
+          })
+        );
+        const events = [...byId.values()];
         try {
           await cachePutMany(events);
         } catch {
@@ -214,52 +291,62 @@ class RelayPool {
 
   /** Never throws — returns a no-op closer if subscribe cannot start. */
   subscribe(relays: string[], filters: Filter[], cb: SubCallback): () => void {
-    try {
-      const wssRelays = usableRelays(relays, RelayPool.MAX_RELAYS_PER_QUERY);
-      const cleanFilters = normalizeRelayFilters(filters);
-      if (!wssRelays.length || !cleanFilters.length) return () => {};
-
-      const closers = wssRelays.flatMap((url) =>
-        cleanFilters.map((filter) => {
-          try {
-            return this.pool.subscribe([url], filter, {
-              onevent: (event) => {
-                try {
-                  const v = ingestEvent(event);
-                  if (v) {
-                    noteEventSource(v.id, url);
-                    void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v)).catch(() => {});
-                    cb.onEvent(v, url);
+    let closed = false;
+    const closers: Array<{ close: (reason?: string) => void }> = [];
+    void waitForWindowLoad().then(() => {
+      if (closed) return;
+      try {
+        const cleanFilters = normalizeRelayFilters(filters);
+        const wssRelays = usableRelays(
+          relays,
+          RelayPool.MAX_RELAYS_PER_QUERY,
+          this.skippedRelayKeys(),
+          cleanFilters.every(isMercuryDocumentFilter)
+        );
+        if (!wssRelays.length || !cleanFilters.length) return;
+        for (const url of wssRelays) {
+          closers.push(
+            this.pool.subscribeMap(
+              cleanFilters.map((filter) => ({ url, filter })),
+              {
+                onevent: (event: Event) => {
+                  if (closed) return;
+                  try {
+                    const v = ingestEvent(event);
+                    if (v) {
+                      noteEventSource(v.id, url);
+                      void import('./cache').then(({ cachePutEvent }) => cachePutEvent(v)).catch(() => {});
+                      cb.onEvent(v, url);
+                    }
+                  } catch {
+                    /* bad event — ignore */
                   }
-                } catch {
-                  /* bad event — ignore */
-                }
-              },
-              oneose: () => {
-                try {
-                  cb.onEose?.(url);
-                } catch {
-                  /* ignore */
+                },
+                oneose: () => {
+                  try {
+                    cb.onEose?.(url);
+                  } catch {
+                    /* ignore */
+                  }
                 }
               }
-            });
-          } catch {
-            return { close: () => {} };
-          }
-        })
-      );
-      return () => {
-        for (const c of closers) {
-          try {
-            c.close();
-          } catch {
-            /* ignore */
-          }
+            )
+          );
         }
-      };
-    } catch {
-      return () => {};
-    }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      closed = true;
+      for (const closer of closers) {
+        try {
+          closer.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
   }
 
   /**

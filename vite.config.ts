@@ -1,7 +1,20 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { lookup as dnsLookup, setDefaultResultOrder } from 'node:dns';
+import { Agent as HttpsAgent } from 'node:https';
 import { fileURLToPath, URL } from 'node:url';
+
+setDefaultResultOrder('ipv4first');
+
+/** This machine's getaddrinfo fails IPv6-first for *.imwald.eu; A records work. */
+const ipv4Https = new HttpsAgent({
+  family: 4,
+  keepAlive: true,
+  lookup(hostname, _opts, cb) {
+    dnsLookup(hostname, { family: 4 }, cb);
+  }
+});
 
 export default defineConfig(({ mode }) => {
   const fileEnv = loadEnv(mode, process.cwd(), '');
@@ -105,12 +118,13 @@ export default defineConfig(({ mode }) => {
       '/mercury': {
         target: mercuryTarget,
         changeOrigin: true,
+        agent: ipv4Https,
         rewrite: (path) => path.replace(/^\/mercury/, ''),
         configure: (proxy) => {
           // DNS/outages are expected to fall back to relays; avoid stacked ENOTFOUND spam.
           proxy.on('error', (err, _req, res) => {
             const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes('ENOTFOUND') || msg.includes('ECONNREFUSED')) {
+            if (msg.includes('ENOTFOUND') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up')) {
               if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
                 res.writeHead(502, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'mercury unavailable' }));
@@ -125,6 +139,7 @@ export default defineConfig(({ mode }) => {
       '/api/asciidoctor': {
         target: 'https://jumble.imwald.eu',
         changeOrigin: true,
+        agent: ipv4Https,
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             const msg = err instanceof Error ? err.message : String(err);

@@ -9,7 +9,7 @@ import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-mem
 import { mercuryFilter, isMercuryUnavailable } from './mercury';
 import { relayPool } from './pool';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
-import { documentStack, wikiStack } from './selector';
+import { documentStack, socialStack, wikiStack } from './selector';
 
 export type FetchByAddressOpts = {
   /** Skip Mercury HTTP — use document/wiki relays only (citadel-only trees). */
@@ -247,10 +247,10 @@ export async function fetchById(id: string): Promise<Event | null> {
     if (cached) return hideIfDeleted(cached);
 
     const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-    const hit = await firstEvent([
-      mercuryFilter(filter).then((events) => events[0] ?? null),
-      relayPool.query(documentStack(), [filter]).then((events) => events[0] ?? null)
-    ]);
+    const hit =
+      (
+        await relayPool.query([...documentStack(), ...socialStack()], [filter], 4000, 4)
+      )[0] ?? null;
     return hideIfDeleted(hit ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;

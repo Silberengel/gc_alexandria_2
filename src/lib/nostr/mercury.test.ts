@@ -33,11 +33,47 @@ describe('mercury unavailable cooldown', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('skips HTTP when the filter has only non-document kinds', async () => {
+  it('skips HTTP when the filter has no document kinds', async () => {
     const { mercuryFilter } = await import('./mercury');
-    const events = await mercuryFilter({ kinds: [1985, 1111, 10003], limit: 10 });
-    expect(events).toEqual([]);
+    expect(await mercuryFilter({ ids: ['a'.repeat(64)], limit: 1 })).toEqual([]);
+    expect(await mercuryFilter({ kinds: [1985, 1111, 10003], limit: 10 })).toEqual([]);
+    expect(await mercuryFilter({ authors: ['b'.repeat(64)], limit: 10 })).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('strips non-document kinds before HTTP', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify([]), { status: 200 }))
+    );
+    const { mercuryFilter } = await import('./mercury');
+    await mercuryFilter({ kinds: [30040, 30045, 1], limit: 10 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body as string);
+    expect(body.kinds).toEqual([30040]);
+  });
+});
+
+describe('mercury HTTP 500 cooldown', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('treats filter 500 like an outage and skips further calls', async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(' Internal Server Error', { status: 500 }))
+    );
+    const { mercuryFilter, isMercuryUnavailable } = await import('./mercury');
+    const first = await mercuryFilter({ kinds: [30023], limit: 1 });
+    expect(first).toEqual([]);
+    expect(isMercuryUnavailable()).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await mercuryFilter({ kinds: [30023], limit: 1 });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 
