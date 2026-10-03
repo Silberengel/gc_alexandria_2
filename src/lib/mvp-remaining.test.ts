@@ -380,6 +380,42 @@ describe('comments nest', () => {
     expect(parts.thread.map((e) => e.id)).toEqual([replyHere.id]);
   });
 
+  it('keeps that quote as a quote even when a comment e-tags it', () => {
+    const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', '1719204947236']]
+    });
+    const share = ev({
+      id: '18476c17c91fc68930a6b1511e029cc3af96cee1c71b19f6828b91e21845007a',
+      pubkey: 'fd208ee8c8f283780a9552896e4823cc9dc6bfd442063889577106940fd927c1',
+      kind: KIND.TEXT_NOTE,
+      content: 'https://next-alexandria.gitcitadel.eu/',
+      tags: [
+        ['e', '70691c5a055aeffa28eed43643ad4c83350787ab94bce1d012f8af1f3dbee1a1', '', 'root'],
+        ['e', '19db27b988b7ae0ee56812653c23ae20c0dcc3a5c686558cebde26a51a630057'],
+        ['e', 'a093fb4f8bd62fbc83c2e1db482dfa3f3ab4fd57df72fcbe931844ad3190081f', '', 'reply'],
+        ['a', `30023:${pk}:1719204947236`],
+        ['r', 'https://next-alexandria.gitcitadel.eu/']
+      ]
+    });
+    const replyHere = ev({
+      id: '1'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['e', article.id, '', 'root'],
+        ['e', share.id, '', 'reply'],
+        ['a', `30023:${pk}:1719204947236`]
+      ]
+    });
+    expect(isQuoteOfTarget(share, article)).toBe(true);
+    const parts = partitionWorkResponses([share, replyHere], article);
+    expect(parts.quotes.map((e) => e.id)).toEqual([share.id]);
+    expect(parts.thread.map((e) => e.id)).toEqual([replyHere.id]);
+  });
+
   it('treats a kind 1 a-tag with root marker as a comment, not a quote', () => {
     const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
     const article = ev({
@@ -508,7 +544,7 @@ describe('comments nest', () => {
     expect(tree[0]?.children[0]?.event?.id).toBe(leaf.id);
   });
 
-  it('treats a kind 1 that a-tags the OP and e-tags another such reply as a comment', () => {
+  it('treats a kind 1 that a-tags the OP and e-tags another thread as a quote', () => {
     const pk = 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319';
     const article = ev({
       id: 'e'.repeat(64),
@@ -536,10 +572,11 @@ describe('comments nest', () => {
       ]
     });
     const related = new Set([article.id, parent.id, nested.id]);
+    expect(isQuoteOfTarget(parent, article)).toBe(true);
     expect(isQuoteOfTarget(nested, article, related)).toBe(false);
     const parts = partitionWorkResponses([parent, nested], article);
-    expect(parts.thread.map((e) => e.id).sort()).toEqual([parent.id, nested.id].sort());
-    expect(parts.quotes).toHaveLength(0);
+    expect(parts.quotes.map((e) => e.id)).toEqual([parent.id]);
+    expect(parts.thread.map((e) => e.id)).toEqual([nested.id]);
   });
 
   it('nests a kind 1 reply under a kind 1111 parent', () => {

@@ -718,12 +718,15 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       continue;
     }
     if (SKIP_OTHER_KINDS.has(event.kind)) continue;
-    if (threadIds.has(key) && isThreadEvent(event)) {
-      threadById.set(key, event);
-      continue;
-    }
+    // Quotes first: a kind 1 can a-tag this work with no thread marker while its
+    // NIP-10 e-tags belong to another thread. Expansion may still put it in
+    // threadIds (as an ancestor of a real comment). Citation wins, as before.
     if (isQuoteOfTarget(event, target, relatedIds)) {
       quotesById.set(key, event);
+      continue;
+    }
+    if (threadIds.has(key) && isThreadEvent(event)) {
+      threadById.set(key, event);
       continue;
     }
     otherById.set(key, event);
