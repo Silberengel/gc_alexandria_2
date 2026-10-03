@@ -21,8 +21,9 @@
   --text-muted: var(--ink-soft);
   --accent: var(--accent-strong);
   --border: var(--rule);
-  /* Book-like measure shared by publication reader, wiki/articles, and reading-width blocks. */
+  /* Book-like measure for prose. The publication reader frame can be wider (--max-read-frame). */
   --max-read: 760px;
+  --max-read-frame: 960px;
   --radius: 0.65rem;
   /* Paper on paper — faint edge, whisper of lift */
   --border-soft: color-mix(in srgb, #5a4128 18%, transparent);
@@ -116,6 +117,13 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   min-width: 0;
   margin: 0 auto;
   padding: 1.25rem 1rem 2.5rem;
+}
+
+/* Publication reader: wider frame; prose stays on --max-read inside .reading-content. */
+.shell.reading-page {
+  width: min(var(--max-read-frame), calc(100vw - 48px));
+  max-width: min(var(--max-read-frame), calc(100vw - 48px));
+  margin-inline: auto;
 }
 
 /* Catalog surfaces need room for shelves and multi-column result grids. */
@@ -2350,10 +2358,18 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   box-sizing: border-box;
 }
 
-/* In-browser publication reader: slightly tighter type on the same measure. */
+/* In-browser publication reader: fill the wider frame; prose is .reading-content. */
 .reader-layout .reading-body {
   font-size: 1.08rem;
   line-height: 1.65;
+  max-width: none;
+  width: 100%;
+}
+
+.reader-layout .reading-content {
+  max-width: min(var(--max-read), 100%);
+  width: 100%;
+  margin-inline: auto;
 }
 
 .event-body,

@@ -3331,7 +3331,7 @@
 </script>
 
 <TopBar autoHideOnScroll={reading} />
-<main class="shell">
+<main class="shell" class:reading-page={reading}>
   {#if error}
     <ErrorPage title="Edition not found" />
   {:else if unreadable}
@@ -3536,6 +3536,7 @@
           </p>
         {/if}
         <div class="reading-body" bind:this={readingPane}>
+          <div class="reading-content">
           <PageFilter
             id="reader-page-filter"
             bind:value={pageFilter}
@@ -3556,10 +3557,11 @@
           {:else if !paintedSections.length && showEmptyReadingHint}
             {@render emptyReadingHint()}
           {/if}
+          </div>
           {#each readerGroups as group (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
             {#if group.kind === 'bible'}
               {@const verses = group.verses}
-              <div class="bible-flow">
+              <div class="reading-content bible-flow">
                 {#each verses as verse (verse.id)}
                   {@const sectionKey = eventAddress(verse)}
                   {@const disp = bibleDisplay(verse)}
@@ -3747,6 +3749,7 @@
               {@const pos = sectionReadPos.get(section.id) ?? 0}
               <article
                 class="reader-section"
+                class:reading-content={!isEditionRoot}
                 class:reader-index={isIndex}
                 class:reader-edition={isEditionRoot}
                 class:reader-section-missing={missing}
@@ -3996,10 +3999,12 @@
             {/if}
           {/each}
           {#if showEmptyReadingHint}
-            {@render emptyReadingHint()}
+            <div class="reading-content">
+              {@render emptyReadingHint()}
+            </div>
           {/if}
           {#if moreToPaint}
-            <div class="reader-paint-more">
+            <div class="reading-content reader-paint-more">
               <p class="loading-hint loading-hint-busy" aria-live="polite">
                 <span class="jump-busy-spinner" aria-hidden="true"></span>
                 Loading sections… {paintedSections.length} of {corpusCount} ready
@@ -4007,7 +4012,7 @@
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
             </div>
           {:else if sectionsLoading && paintedSections.length > 0 && !showEmptyReadingHint && !(event && isIndexScopedEdition(event))}
-            <p class="loading-hint" aria-live="polite">
+            <p class="reading-content loading-hint" aria-live="polite">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               Loading more sections…
             </p>
