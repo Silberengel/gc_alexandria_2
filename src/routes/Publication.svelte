@@ -3799,9 +3799,9 @@
                       readLabels={editionReads}
                     />
                   </div>
-                  <div class="edition-actions reader-info-actions">
-                    <button class="btn btn-primary" type="button" onclick={stopReading}
-                      >Publication info</button
+                  <div class="reader-info-actions">
+                    <button class="reader-info-back" type="button" onclick={stopReading}
+                      >Back to the publication info page</button
                     >
                   </div>
                 {:else}
@@ -3894,9 +3894,9 @@
                         readLabels={editionReads}
                       />
                     </div>
-                    <div class="edition-actions reader-info-actions">
-                      <button class="btn btn-primary" type="button" onclick={stopReading}
-                        >Publication info</button
+                    <div class="reader-info-actions">
+                      <button class="reader-info-back" type="button" onclick={stopReading}
+                        >Back to the publication info page</button
                       >
                     </div>
                   {/if}
@@ -4001,7 +4001,7 @@
               </article>
             {/if}
           {/each}
-          {#if showEmptyReadingHint}
+          {#if showEmptyReadingHint && paintedSections.length}
             <div class="reading-content">
               {@render emptyReadingHint()}
             </div>
