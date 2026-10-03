@@ -379,8 +379,10 @@ export function contentEmbedsTarget(event: Event, target: Event): boolean {
   const addr = eventAddress(target);
   for (const part of splitNostrRefs(text)) {
     if (part.type !== 'ref') continue;
-    if ((part.kind === 'note' || part.kind === 'nevent') && part.id?.toLowerCase() === id) {
-      return true;
+    if (part.kind === 'note' || part.kind === 'nevent') {
+      if (part.id?.toLowerCase() === id) return true;
+      if (part.raw && qTagMatchesTarget(part.raw, target)) return true;
+      if (part.bech32 && qTagMatchesTarget(part.bech32, target)) return true;
     }
     if (part.kind === 'naddr' && part.naddr) {
       const key = `${part.naddr.kind}:${part.naddr.pubkey.toLowerCase()}:${part.naddr.identifier}`;
@@ -391,7 +393,7 @@ export function contentEmbedsTarget(event: Event, target: Event): boolean {
 }
 
 /**
- * Quote of this work: NIP-18 `q`, an embedded `nostr:naddr` / `nevent` / `note` of the OP,
+ * Quote of this work: NIP-18 `q`, an embedded `nostr:naddr` / `nevent` / `note1` of the OP,
  * or a kind 1 that `a`/`A`-tags the OP without NIP-10 thread tags.
  */
 export function isQuoteOfTarget(event: Event, target: Event): boolean {
@@ -422,7 +424,7 @@ export function referencesTarget(event: Event, target: Event): boolean {
     if ((name === 'i' || name === 'I') && iKeys.has(v)) return true;
     if (name === 'q' && qTagMatchesTarget(v, target)) return true;
   }
-  return false;
+  return contentEmbedsTarget(event, target);
 }
 
 export type WorkResponses = {
@@ -469,7 +471,49 @@ function sortNewest(events: Event[]): Event[] {
   return events.sort((a, b) => b.created_at - a.created_at);
 }
 
-function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
+/** Events that point at this work, plus 1111 / NIP-10 replies nested under those. */
+function workResponseIds(events: Event[], target: Event): Set<string> {
+  const rootKeys = new Set(threadRootKeys(target));
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (!event?.id) continue;
+    if (referencesTarget(event, target) || isQuoteOfTarget(event, target)) {
+      ids.add(event.id.toLowerCase());
+    }
+  }
+  const nested = events.filter(
+    (event) => event?.id && (event.kind === KIND.COMMENT || isKind1Reply(event))
+  );
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const event of nested) {
+      const id = event.id.toLowerCase();
+      if (ids.has(id)) continue;
+      const parent = commentParentId(event);
+      if (parent && (ids.has(parent) || rootKeys.has(parent))) {
+        ids.add(id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
+}
+
+function eventDecoratesKept(event: Event, target: Event, kept: ReadonlySet<string>): boolean {
+  const targetId = target.id.toLowerCase();
+  for (const t of event.tags) {
+    const v = t[1]?.trim();
+    if (!v) continue;
+    if ((t[0] === 'e' || t[0] === 'E') && (kept.has(v.toLowerCase()) || v.toLowerCase() === targetId)) {
+      return true;
+    }
+  }
+  return referencesTarget(event, target) || isLibraryHighlightLoose(event, target);
+}
+
+export function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
+  const kept = workResponseIds(events, target);
   const threadById = new Map<string, Event>();
   const quotesById = new Map<string, Event>();
   const highlightsById = new Map<string, Event>();
@@ -480,6 +524,16 @@ function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
   for (const event of events) {
     if (!event?.id) continue;
     const key = event.id.toLowerCase();
+    const decorate =
+      event.kind === KIND.HIGHLIGHT ||
+      event.kind === KIND.ZAP ||
+      event.kind === KIND.REPOST ||
+      event.kind === KIND.GENERIC_REPOST;
+    if (decorate) {
+      if (!eventDecoratesKept(event, target, kept)) continue;
+    } else if (!kept.has(key)) {
+      continue;
+    }
     if (event.kind === KIND.HIGHLIGHT) {
       if (referencesTarget(event, target) || isLibraryHighlightLoose(event, target)) {
         highlightsById.set(key, event);
@@ -615,17 +669,7 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }
 
-  const partitioned = partitionWorkResponses([...byEventId.values()], target);
-  const threadIds = new Set(partitioned.thread.map((e) => e.id.toLowerCase()));
-  for (const e of recovered) {
-    if (e.kind !== KIND.COMMENT && !isKind1Reply(e)) continue;
-    if (isQuoteOfTarget(e, target)) continue;
-    if (!threadIds.has(e.id.toLowerCase())) {
-      partitioned.thread.push(e);
-      threadIds.add(e.id.toLowerCase());
-    }
-  }
-  return partitioned;
+  return partitionWorkResponses([...byEventId.values()], target);
 }
 
 /** Kind 1111 and kind 1 replies — then recover missing parents. */

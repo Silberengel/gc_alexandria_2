@@ -3,6 +3,7 @@
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
   import HeartButton from './HeartButton.svelte';
+  import CopyPointerButton from './CopyPointerButton.svelte';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import { KIND } from '$lib/constants';
 
@@ -38,5 +39,6 @@
   {/if}
   <div class="thread-actions">
     <HeartButton {event} />
+    <CopyPointerButton {event} class="thread-more" />
   </div>
 </li>

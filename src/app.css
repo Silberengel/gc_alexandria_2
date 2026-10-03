@@ -3455,8 +3455,13 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   border-color: transparent;
   transition: opacity 0.15s ease, color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
-/* Ellipsis headers stay quiet until hover / open (not verse-number triggers). */
-.copy-pointer-btn:not(.copy-pointer-btn-custom) {
+/* On cards the ellipsis stays quiet until hover / open. Inline rows match like/reply. */
+.pub-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.generic-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.note-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.result-card-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.listing-row-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom),
+.details-panel-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom) {
   opacity: 0.22;
 }
 .copy-pointer-btn .more-ellipsis {
@@ -3484,6 +3489,8 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .listing-row-wrap:hover .listing-row-copy .copy-pointer-btn,
 .details-panel-wrap:hover .details-more-menu .copy-pointer-btn,
 .details-panel-wrap:hover .details-toolbar .heart-btn,
+.thread-node:hover .thread-more .copy-pointer-btn,
+.work-response-item:hover .thread-more .copy-pointer-btn,
 .bible-heading-menu:hover .copy-pointer-btn,
 .section-heading-menu:hover .copy-pointer-btn {
   opacity: 1;
@@ -3780,6 +3787,10 @@ a.embed-event-line:focus-visible {
   width: 1.85rem;
   height: 1.85rem;
   min-width: 1.85rem;
+  opacity: 1;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-color: transparent;
 }
 /* Icon+count controls: grow as a pill so 1–4 digit counts stay inside the border. */
 .btn.btn-icon.heart-btn,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nestComments, threadNodeKey, threadRootKeys, isQuoteOfTarget, referencesTarget, canOfferKind1Reply, nip10ReplyTags, nip22TagsForTarget } from './comments';
+import { nestComments, threadNodeKey, threadRootKeys, isQuoteOfTarget, referencesTarget, canOfferKind1Reply, nip10ReplyTags, nip22TagsForTarget, partitionWorkResponses } from './comments';
 import { commentDraft } from './drafts';
 import {
   DEFAULT_LIKE_REACTION_CONTENT,
@@ -291,6 +291,51 @@ describe('comments nest', () => {
     expect(isQuoteOfTarget(share, edition)).toBe(true);
   });
 
+  it('treats a legacy nostr:note1 embed with no tags as a quote, not other', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const quotedId = '0d8a05e212f8edeb47195ac995351b5af063ba20854241b62eb9ecbdd269cb88';
+    const note1 = nip19.noteEncode(quotedId);
+    expect(note1).toBe('note1pk9qtcsjlrk7k3cettye2dgmttcx8w3qs4pyrd3wh8ktm5nfewyqpnk5q7');
+    const quoted = ev({ id: quotedId, kind: KIND.TEXT_NOTE, tags: [] });
+    const share = ev({
+      id: '0f38d6f1f2ee1a2b1c5863be06f6aaab87e6d28b947984653a860987b4be8b93',
+      pubkey: 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319',
+      kind: KIND.TEXT_NOTE,
+      tags: [],
+      content:
+        'Today was the day that Nostr moved into the book market. And Highlighter was the first to get there.\n\nLFG 🚀\n\nnostr:' +
+        note1
+    });
+    const otherWork = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', 'unrelated']]
+    });
+    expect(isQuoteOfTarget(share, quoted)).toBe(true);
+    expect(isQuoteOfTarget(share, otherWork)).toBe(false);
+
+    const stray = ev({
+      id: '70691c5a055aeffa28eed43643ad4c83350787ab94bce1d012f8af1f3dbee1a1',
+      pubkey: 'e88a691e98d9987c964521dff60025f60700378a4879180dcbbb4a5027850411',
+      kind: KIND.TEXT_NOTE,
+      tags: [],
+      content:
+        'A great way to advertise Nostr is to write long form here then post link to the outside.\n\nWhat are your favorite long form posts on Nostr?'
+    });
+    const article = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: 'f'.repeat(64),
+      tags: [['d', '1719204947236']]
+    });
+    const replies = partitionWorkResponses([share, stray, quoted], article);
+    expect(replies.quotes.map((e) => e.id)).not.toContain(stray.id);
+    expect(replies.other.map((e) => e.id)).not.toContain(stray.id);
+    expect(replies.thread.map((e) => e.id)).not.toContain(stray.id);
+    expect(replies.quotes.map((e) => e.id)).not.toContain(share.id);
+  });
+
   it('nests a kind 1 reply under a kind 1111 parent', () => {
     const rootId = '1'.repeat(64);
     const editionId = 'a'.repeat(64);
@@ -307,6 +352,31 @@ describe('comments nest', () => {
     expect(tree).toHaveLength(1);
     expect(tree[0]?.event?.id).toBe(rootId);
     expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+
+    const edition = ev({
+      id: editionId,
+      kind: KIND.PUBLICATION,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', 'book']]
+    });
+    const comment = ev({
+      id: rootId,
+      kind: KIND.COMMENT,
+      tags: [
+        ['A', `${KIND.PUBLICATION}:${'b'.repeat(64)}:book`],
+        ['K', String(KIND.PUBLICATION)],
+        ['a', `${KIND.PUBLICATION}:${'b'.repeat(64)}:book`],
+        ['e', editionId],
+        ['k', String(KIND.PUBLICATION)]
+      ]
+    });
+    const nestedOnly = ev({
+      id: '3'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [['e', rootId, '', 'reply']]
+    });
+    const parts = partitionWorkResponses([comment, nestedOnly], edition);
+    expect(parts.thread.map((e) => e.id).sort()).toEqual([comment.id, nestedOnly.id].sort());
   });
 
   it('treats a kind 1 e-tag of the edition as a root', () => {

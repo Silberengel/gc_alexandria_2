@@ -59,6 +59,9 @@
     <div class="thread-body">
       <EventBody {event} embedDepth={embedDepth} />
     </div>
+    <div class="thread-actions">
+      <CopyPointerButton {event} class="thread-more" />
+    </div>
   </div>
 {:else if event.kind === KIND.HIGHLIGHT}
   <article class="card note-card">
