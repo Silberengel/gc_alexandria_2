@@ -622,6 +622,45 @@ describe('comments nest', () => {
     expect(parts.thread.map((e) => e.id).sort()).toEqual([comment.id, nestedOnly.id].sort());
   });
 
+  it('does not put ratings or catalog documents in other responses', () => {
+    const pk = 'b'.repeat(64);
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: pk,
+      tags: [['d', 'book'], ['title', 'Am Fluss der Zeiten']]
+    });
+    const rating = ev({
+      id: '1'.repeat(64),
+      kind: KIND.RATING,
+      content: 'Great historical novel.',
+      tags: [
+        ['a', `30040:${pk}:book`],
+        ['m', 'book'],
+        ['rating', '1']
+      ]
+    });
+    const catalogCopy = ev({
+      id: '2'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: 'c'.repeat(64),
+      tags: [
+        ['d', 'copy'],
+        ['a', `30040:${pk}:book`],
+        ['title', 'Am Fluss der Zeiten']
+      ]
+    });
+    const review = ev({
+      id: '3'.repeat(64),
+      kind: 1244,
+      content: 'A proper other response.',
+      tags: [['a', `30040:${pk}:book`]]
+    });
+    const parts = partitionWorkResponses([edition, rating, catalogCopy, review], edition);
+    expect(parts.other.map((e) => e.id)).toEqual([review.id]);
+    expect(parts.thread).toHaveLength(0);
+  });
+
   it('treats a kind 1 e-tag of the edition as a root', () => {
     const editionId = 'a'.repeat(64);
     const note = ev({

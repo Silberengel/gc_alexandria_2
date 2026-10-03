@@ -561,7 +561,7 @@ export type WorkResponses = {
   quotes: Event[];
   /** Kind 9802 highlights — decorate referenced text, not thread rows. */
   highlights: Event[];
-  /** Kind 1244, bookmarks, unknown kinds, … */
+  /** Kind 1244, bookmarks, unknown kinds — not ratings or catalog documents. */
   other: Event[];
   zaps: Event[];
   boosts: Event[];
@@ -589,6 +589,11 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.EMOJI_SET,
   KIND.STATUS,
   KIND.RATING,
+  KIND.PUBLICATION,
+  KIND.SECTION,
+  KIND.LONG_FORM,
+  KIND.WIKI,
+  KIND.SPEC,
   KIND.DIRECTORY,
   KIND.NIP85_PREFS,
   KIND.NIP85_SCORE
@@ -717,6 +722,7 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       boostsById.set(key, event);
       continue;
     }
+    if (event.id.toLowerCase() === target.id.toLowerCase()) continue;
     if (SKIP_OTHER_KINDS.has(event.kind)) continue;
     // Quotes first: a kind 1 can a-tag this work with no thread marker while its
     // NIP-10 e-tags belong to another thread. Expansion may still put it in
