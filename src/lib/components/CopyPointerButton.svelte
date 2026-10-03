@@ -47,7 +47,6 @@
 
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
-  const jumbleUrl = $derived(`https://jumble.imwald.eu/notes/${ptr.text}`);
   /** Prefer an explicit reader share URL; otherwise the Alexandria document (or njump). */
   const hyperlink = $derived.by(() => {
     const explicit = shareUrl.trim();
@@ -257,21 +256,6 @@
           }}
         >
           View on Njump
-        </a>
-      </li>
-      <li role="none">
-        <a
-          class="menu-item"
-          role="menuitem"
-          href={jumbleUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onclick={(e) => {
-            e.stopPropagation();
-            close();
-          }}
-        >
-          View on Jumble
         </a>
       </li>
       {#if after}
