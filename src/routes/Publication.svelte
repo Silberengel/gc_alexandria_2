@@ -417,6 +417,7 @@
   const readingShellOnly = $derived(
     !!event && paintedSections.length > 0 && paintedSections.every((s) => s.id === event!.id)
   );
+  const editionRootPainted = $derived(!!event && paintedSections.some((s) => s.id === event!.id));
   /** Cover / empty pane — no nested section or leaf index is on screen yet. */
   const showEmptyReadingHint = $derived(
     reading &&
@@ -3451,6 +3452,38 @@
         />
       </section>
     {:else}
+      {#snippet readerFind()}
+        <PageFilter
+          id="reader-page-filter"
+          variant="reader"
+          bind:value={pageFilter}
+          placeholder="Find in this publication…"
+          onEnter={cyclePageFind}
+        />
+      {/snippet}
+      {#snippet readerBack()}
+        <button
+          class="reader-info-back"
+          type="button"
+          aria-label="Back to the publication info page"
+          onclick={stopReading}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 5 8 12l7 7"></path>
+          </svg>
+        </button>
+      {/snippet}
       {#snippet emptyReadingHint()}
         <div class="reader-empty-hint" aria-live="polite">
           <p>
@@ -3527,6 +3560,7 @@
                 d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"
               />
             </svg>
+            <span class="toc-fab-label" aria-hidden="true">{tocOpen ? 'Close' : 'Contents'}</span>
           </button>
         {/if}
         {#if jumpBusy}
@@ -3536,28 +3570,29 @@
           </p>
         {/if}
         <div class="reading-body" bind:this={readingPane}>
-          <div class="reading-content">
-          <PageFilter
-            id="reader-page-filter"
-            bind:value={pageFilter}
-            placeholder="Find in this publication…"
-            onEnter={cyclePageFind}
-          />
           {#if jumpBusy && !paintedSections.length}
-            <p class="loading-hint jump-busy" aria-hidden="true">
-              <span class="jump-busy-spinner" aria-hidden="true"></span>
-              Opening “{jumpLabel || 'section'}”…
-            </p>
+            <div class="reading-content">
+              <p class="loading-hint jump-busy" aria-hidden="true">
+                <span class="jump-busy-spinner" aria-hidden="true"></span>
+                Opening “{jumpLabel || 'section'}”…
+              </p>
+            </div>
           {:else if !paintedSections.length && (readingBusy || sectionsLoading)}
-            <!-- event is already known here — publication header/chrome is up -->
-            <p class="loading-hint" aria-live="polite">
-              <span class="jump-busy-spinner" aria-hidden="true"></span>
-              Loading sections…
-            </p>
+            <div class="reading-content">
+              <p class="loading-hint" aria-live="polite">
+                <span class="jump-busy-spinner" aria-hidden="true"></span>
+                Loading sections…
+              </p>
+            </div>
           {:else if !paintedSections.length && showEmptyReadingHint}
-            {@render emptyReadingHint()}
+            <div class="reading-content">
+              {@render emptyReadingHint()}
+            </div>
           {/if}
-          </div>
+          <div class="reading-sheet">
+          {#if !editionRootPainted}
+            {@render readerFind()}
+          {/if}
           {#each readerGroups as group (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
             {#if group.kind === 'bible'}
               {@const verses = group.verses}
@@ -3790,19 +3825,18 @@
                       <EditionReaderMeta event={section} {sections} />
                     </div>
                   </div>
-                  <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
-                    <TrackReadingButton
-                      publication={event}
-                      total={corpusCount}
-                      pos={readerPos}
-                      sectionId={readerSectionId}
-                      readLabels={editionReads}
-                    />
-                  </div>
-                  <div class="reader-info-actions">
-                    <button class="reader-info-back" type="button" onclick={stopReading}
-                      >Back to the publication info page</button
-                    >
+                  <div class="reading-cover-tools">
+                    {@render readerBack()}
+                    <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
+                      <TrackReadingButton
+                        publication={event}
+                        total={corpusCount}
+                        pos={readerPos}
+                        sectionId={readerSectionId}
+                        readLabels={editionReads}
+                      />
+                    </div>
+                    {@render readerFind()}
                   </div>
                 {:else}
                   {#if showHero && heroUrl}
@@ -3885,19 +3919,18 @@
                   </div>
                   {#if isIndex && isEditionRoot}
                     <EditionReaderMeta event={section} {sections} />
-                    <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
-                      <TrackReadingButton
-                        publication={event}
-                        total={corpusCount}
-                        pos={readerPos}
-                        sectionId={readerSectionId}
-                        readLabels={editionReads}
-                      />
-                    </div>
-                    <div class="reader-info-actions">
-                      <button class="reader-info-back" type="button" onclick={stopReading}
-                        >Back to the publication info page</button
-                      >
+                    <div class="reading-cover-tools">
+                      {@render readerBack()}
+                      <div class="reading-track-panel" class:reading-section-tick={sectionTick}>
+                        <TrackReadingButton
+                          publication={event}
+                          total={corpusCount}
+                          pos={readerPos}
+                          sectionId={readerSectionId}
+                          readLabels={editionReads}
+                        />
+                      </div>
+                      {@render readerFind()}
                     </div>
                   {/if}
                 {/if}
@@ -4020,6 +4053,7 @@
               Loading more sections…
             </p>
           {/if}
+          </div>
         </div>
       </div>
     {/if}

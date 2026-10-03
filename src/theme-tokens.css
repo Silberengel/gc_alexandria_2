@@ -3,6 +3,7 @@
   --paper: #f3ece1;
   --paper-light: #f8f3ea;
   --paper-dark: #e7dac8;
+  --reading-bg: #f7f2e8;
   --ink: #29241f;
   --ink-soft: #62584d;
   --rule: #d8c9b5;
@@ -32,6 +33,7 @@
   --paper: #1d1812;
   --paper-light: #29241f;
   --paper-dark: #3c352c;
+  --reading-bg: color-mix(in srgb, var(--paper-light) 38%, var(--paper));
   --ink: #f3ece1;
   --ink-soft: #d8c9b5;
   --rule: #564a3e;
@@ -59,6 +61,7 @@
   --paper: var(--brand-primary-50);
   --paper-light: var(--brand-primary-0);
   --paper-dark: var(--brand-primary-100);
+  --reading-bg: color-mix(in srgb, var(--paper-light) 58%, var(--paper));
   --ink: var(--brand-primary-900);
   --ink-soft: var(--brand-primary-700);
   --rule: var(--brand-primary-200);
@@ -77,6 +80,7 @@
   --paper: var(--brand-primary-1000);
   --paper-light: var(--brand-primary-950);
   --paper-dark: var(--brand-primary-800);
+  --reading-bg: color-mix(in srgb, var(--paper-light) 42%, var(--paper));
   --ink: var(--brand-primary-0);
   --ink-soft: var(--brand-primary-200);
   --rule: var(--brand-primary-800);

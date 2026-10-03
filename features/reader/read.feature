@@ -61,7 +61,7 @@ Feature: In-browser reader
     Then the interaction lists are replaced by the reader
     And the URL includes read=1 so a refresh stays in the reader
     And I stay on /publication/d/{d}/p/{npub}
-    And I see "Back to the publication info page" under the edition metadata
+    And I see a back button under the edition metadata
     When I press "Back to the publication info page"
     Then I see the header and interaction lists again
     And the URL no longer includes read=1
