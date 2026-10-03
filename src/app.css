@@ -1900,7 +1900,8 @@ a.listing-row:hover,
   border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
 .edition-summary-beside {
-  margin-top: 0.35rem;
+  margin-top: 0.15rem;
+  flex: 1 1 auto;
 }
 
 .edition-actions {
@@ -4963,7 +4964,7 @@ mark.text-highlight.highlight-flash,
   margin-bottom: 0;
 }
 .reader-section.reader-edition .section-hero img {
-  max-height: 28rem;
+  max-height: 19.6rem;
 }
 .reader-edition-hero {
   position: relative;
@@ -4981,9 +4982,28 @@ mark.text-highlight.highlight-flash,
 }
 .reader-edition-hero-generated .section-hero img {
   width: 100%;
-  max-height: 28rem;
+  max-height: 19.6rem;
   object-fit: cover;
   object-position: center top;
+}
+/* Reading-page cover: bookplate fade, not the info-page cinematic veil. */
+.reading-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 45%, rgb(35 25 20 / 75%) 100%);
+}
+.reading-cover .reader-edition-hero-meta {
+  background: none;
+  padding: 1.15rem 1.1rem 0.8rem;
+  z-index: 2;
+}
+.reading-cover .reader-edition-hero-meta .section-heading {
+  font-size: clamp(0.98rem, 2.4vw, 1.18rem);
+  font-weight: 650;
+  letter-spacing: 0.008em;
 }
 .reader-edition-hero-meta {
   position: absolute;
@@ -5044,7 +5064,6 @@ mark.text-highlight.highlight-flash,
   color: #f3ece1;
 }
 .reader-edition-hero-meta .edition-reader-publisher,
-.reader-edition-hero-meta .edition-reader-summary,
 .reader-edition-hero-meta .muted {
   font-family: var(--ui-font);
   font-size: 0.78rem;
@@ -5052,15 +5071,6 @@ mark.text-highlight.highlight-flash,
 }
 .reader-edition-hero-meta .edition-reader-publisher {
   margin: 0;
-}
-.reader-edition-hero-meta .edition-reader-summary {
-  margin: 0.35rem 0 0;
-  max-width: 36rem;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  overflow: hidden;
 }
 .reader-edition-hero-meta .edition-inline-link {
   font-family: var(--ui-font);
@@ -5147,12 +5157,6 @@ mark.text-highlight.highlight-flash,
 }
 .edition-reader-verse-styling {
   margin: 0 0 0.75rem;
-}
-.edition-reader-summary {
-  margin: 0;
-  font-size: 0.98rem;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--text) 88%, var(--text-muted));
 }
 .section-heading {
   font-size: 1.35rem;

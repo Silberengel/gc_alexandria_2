@@ -3759,7 +3759,10 @@
                 data-section-id={section.id}
               >
                 {#if isEditionRoot && heroSrc}
-                  <div class="reader-edition-hero" class:reader-edition-hero-generated={showGeneratedHero}>
+                  <div
+                    class="reader-edition-hero reading-cover"
+                    class:reader-edition-hero-generated={showGeneratedHero}
+                  >
                     <figure class="section-hero">
                       <button
                         class="section-hero-zoom"

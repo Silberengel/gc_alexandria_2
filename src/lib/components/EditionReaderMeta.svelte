@@ -43,8 +43,4 @@
       <VerseStylingToggle />
     </div>
   {/if}
-
-  {#if meta.summary}
-    <p class="edition-reader-summary">{meta.summary}</p>
-  {/if}
 </div>

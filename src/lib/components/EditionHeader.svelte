@@ -35,7 +35,6 @@
   let { event, sections = [], ratingAverage, ratingCount = 0, children }: Props = $props();
   const meta = $derived(editionMetadata(event));
   const isLongForm = $derived(event.kind === KIND.LONG_FORM);
-  const summaryBesideCover = $derived(event.kind === KIND.WIKI || event.kind === KIND.SPEC);
   const showVerseStyling = $derived(offersVerseStyling(event, sections));
   const showCardRating = $derived(
     typeof ratingAverage === 'number' && Number.isFinite(ratingAverage) && ratingCount > 0
@@ -308,15 +307,11 @@
 
         {@render metaTable(true)}
 
-        {#if summaryBesideCover && meta.summary}
+        {#if meta.summary}
           <p class="edition-summary edition-summary-beside">{meta.summary}</p>
         {/if}
       </div>
     </div>
-
-    {#if meta.summary && !summaryBesideCover}
-      <p class="edition-summary" class:edition-summary-rule={!children}>{meta.summary}</p>
-    {/if}
 
     {#if children}
       {@render children()}
