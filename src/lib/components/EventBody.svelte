@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import LoadingHint from './LoadingHint.svelte';
@@ -18,6 +19,8 @@
     expandCustomEmojiPlaceholders,
     prepareContentWithEmojis
   } from '$lib/emoji-content';
+  import { embedPointersFromTags, resolveEmbedPointer } from '$lib/event-embeds';
+  import { eventAddress } from '$lib/nostr/verify';
 
   interface Props {
     event?: Event;
@@ -74,22 +77,61 @@
 
   let segments = $state<Array<ContentSegment | RenderSegment>>([]);
   let resolved = $state<Record<number, Event | null>>({});
+  let extraEmbeds = $state<Event[]>([]);
   let bodyPending = $state(true);
   let bodyEl = $state<HTMLElement | null>(null);
+
+  const quotesSig = $derived(
+    quotes
+      .map((q) => (typeof q === 'string' ? q : `${q.pubkey ?? ''}\t${q.quote}`))
+      .join('\n')
+  );
+
+  async function fetchRef(seg: ContentSegment | RenderSegment): Promise<Event | null> {
+    if (seg.type !== 'ref') return null;
+    if (seg.kind === 'naddr' && seg.naddr) {
+      return fetchByAddress(`${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`);
+    }
+    if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
+      return fetchById(seg.id);
+    }
+    return null;
+  }
+
+  async function loadTagEmbeds(ev: Event | undefined, already: Event[]): Promise<Event[]> {
+    if (!ev) return [];
+    const haveId = new Set(already.map((e) => e.id.toLowerCase()));
+    const haveAddr = new Set(already.map((e) => eventAddress(e)));
+    const extra: Event[] = [];
+    for (const pointer of embedPointersFromTags(ev)) {
+      const hit = await resolveEmbedPointer(pointer);
+      if (!hit) continue;
+      if (haveId.has(hit.id.toLowerCase())) continue;
+      const addr = eventAddress(hit);
+      if (haveAddr.has(addr)) continue;
+      haveId.add(hit.id.toLowerCase());
+      haveAddr.add(addr);
+      extra.push(hit);
+    }
+    return extra;
+  }
 
   $effect(() => {
     const src = source;
     const k = sourceKind;
     const tags = sourceTags;
     const whole = wholeDocument;
-    const q = quotes;
+    const qSnap = quotesSig;
+    const q = untrack(() => quotes);
     const heroes = heroUrls;
     const embeds = showEmbeds && embedDepth <= 1;
     const ev = event;
+    void qSnap;
     let cancelled = false;
     bodyPending = true;
     segments = [];
     resolved = {};
+    extraEmbeds = [];
     void (async () => {
       const found: Record<number, Event | null> = {};
       let next: Array<ContentSegment | RenderSegment> = [];
@@ -106,8 +148,6 @@
           maybeDedupe(markHighlights(await renderWithFallback(k, text, tags), q))
         );
         next = expandNostrRefPlaceholders(rendered, refs);
-        // Paint the article immediately — embedded naddr/note fetches used to hold
-        // "Page is loading…" until every ref resolved (and fought the relay pool).
         if (!cancelled) {
           segments = next;
           bodyPending = false;
@@ -116,16 +156,17 @@
         await Promise.all(
           next.map(async (seg, i) => {
             if (seg.type !== 'ref') return;
-            if (seg.kind === 'naddr' && seg.naddr) {
-              found[i] = await fetchByAddress(
-                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
-              );
-            } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
-              found[i] = await fetchById(seg.id);
-            }
+            found[i] = await fetchRef(seg);
           })
         );
-        if (!cancelled) resolved = { ...found };
+        const extras = await loadTagEmbeds(
+          ev,
+          Object.values(found).filter((e): e is Event => !!e)
+        );
+        if (!cancelled) {
+          resolved = { ...found };
+          extraEmbeds = extras;
+        }
         return;
       }
 
@@ -135,25 +176,25 @@
         segs.map(async (seg, i) => {
           if (seg.type === 'text') {
             let rendered = await renderWithFallback(k, seg.text, tags);
-            // Only the opening segment can hold a redundant cover plate.
             if (i === 0 && heroes.length) rendered = maybeDedupe(rendered);
             next[i] = { type: 'html', html: withEmojis(markHighlights(rendered, q)) };
             return;
           }
           next[i] = seg;
           if (!embeds) return;
-          if (seg.kind === 'naddr' && seg.naddr) {
-            found[i] = await fetchByAddress(
-              `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
-            );
-          } else if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
-            found[i] = await fetchById(seg.id);
-          }
+          found[i] = await fetchRef(seg);
         })
       );
+      const extras = embeds
+        ? await loadTagEmbeds(
+            ev,
+            Object.values(found).filter((e): e is Event => !!e)
+          )
+        : [];
       if (!cancelled) {
         segments = next;
         resolved = found;
+        extraEmbeds = extras;
         bodyPending = false;
       }
     })();
@@ -236,5 +277,8 @@
     {:else}
       <p class="muted">Opening…</p>
     {/if}
+  {/each}
+  {#each extraEmbeds as hit (hit.id)}
+    {@render embedCard(hit)}
   {/each}
 </div>

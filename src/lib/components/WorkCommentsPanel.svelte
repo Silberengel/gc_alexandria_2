@@ -2,9 +2,12 @@
   import type { Event } from 'nostr-tools';
   import CommentThread from './CommentThread.svelte';
   import WorkResponseItem from './WorkResponseItem.svelte';
+  import EventCard from './EventCard.svelte';
   import {
+    canOfferKind1Reply,
     nestComments,
     threadNodeKey,
+    threadRootKeys,
     type WorkResponses
   } from '$lib/comments';
   import { muteState, filterMuted } from '$lib/mute';
@@ -41,12 +44,18 @@
   let commentComposeOpen = $state(false);
   let localThread = $state<Event[]>([]);
   let posting = $state(false);
+  let asKind1Reply = $state(false);
 
   const threadEvents = $derived(
     filterMuted([...responses.thread, ...localThread], $muteState)
   );
-  const quotes = $derived(filterMuted(responses.quotes, $muteState));
-  const thread = $derived(nestComments(threadEvents, $muteState, [target.id]));
+  const quotes = $derived(filterMuted(responses.quotes ?? [], $muteState));
+  const other = $derived(filterMuted(responses.other ?? [], $muteState));
+  const highlights = $derived(filterMuted(responses.highlights ?? [], $muteState));
+  const zaps = $derived(responses.zaps ?? []);
+  const boosts = $derived(responses.boosts ?? []);
+  const thread = $derived(nestComments(threadEvents, $muteState, threadRootKeys(target)));
+  const offerKind1 = $derived(canOfferKind1Reply(target));
 
   function showPublished(event: Event): void {
     localThread = [...localThread.filter((e) => e.id !== event.id), event];
@@ -60,11 +69,14 @@
     if (!commentText.trim() || posting) return;
     posting = true;
     try {
-      const published = await publishComment(commentDraft(target, commentText.trim()));
+      const published = await publishComment(
+        commentDraft(target, commentText.trim(), undefined, { asKind1Reply: offerKind1 && asKind1Reply })
+      );
       if (!published) return;
       showPublished(published);
       commentText = '';
       commentComposeOpen = false;
+      asKind1Reply = false;
     } finally {
       posting = false;
     }
@@ -77,7 +89,16 @@
   {#if thread.length}
     <ul class="thread-list">
       {#each thread as node (threadNodeKey(node))}
-        <CommentThread {node} {target} bind:replyOpenId focusId={focusId} onPublished={showPublished} />
+        <CommentThread
+          {node}
+          {target}
+          bind:replyOpenId
+          focusId={focusId}
+          onPublished={showPublished}
+          {highlights}
+          {zaps}
+          {boosts}
+        />
       {/each}
     </ul>
   {:else if loading}
@@ -90,6 +111,12 @@
     {#if $session.pubkey && !replyOpenId && commentComposeOpen}
       <form class="compose" onsubmit={(e) => { e.preventDefault(); void postComment(); }}>
         <textarea bind:value={commentText} rows="3" placeholder="Write a comment"></textarea>
+        {#if offerKind1}
+          <label class="compose-kind1">
+            <input type="checkbox" bind:checked={asKind1Reply} />
+            Also post as a kind 1 reply
+          </label>
+        {/if}
         <div class="compose-actions">
           <button class="btn btn-primary" type="submit" disabled={posting || !commentText.trim()}
           >{posting ? 'Posting…' : 'Post'}</button
@@ -100,6 +127,7 @@
             onclick={() => {
               commentComposeOpen = false;
               commentText = '';
+              asKind1Reply = false;
             }}>Cancel</button
           >
         </div>
@@ -119,6 +147,17 @@
     <ul class="thread-list work-response-list">
       {#each quotes as event (event.id)}
         <WorkResponseItem {event} />
+      {/each}
+    </ul>
+  {/if}
+
+  {#if other.length}
+    <h3 class="work-comments-subhead">Other responses</h3>
+    <ul class="thread-list work-response-list">
+      {#each other as event (event.id)}
+        <li class="work-response-item">
+          <EventCard {event} />
+        </li>
       {/each}
     </ul>
   {/if}

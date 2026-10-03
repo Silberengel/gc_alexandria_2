@@ -7,11 +7,13 @@
   import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import type { ThreadNode } from '$lib/comments';
-  import { threadNodeKey } from '$lib/comments';
+  import { canOfferKind1Reply, highlightsForEvent, threadNodeKey } from '$lib/comments';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import HeartButton from './HeartButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import ThreadRefBadges from './ThreadRefBadges.svelte';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { textHighlightsFromEvents } from '$lib/text-highlights';
 
   interface Props {
     node: ThreadNode;
@@ -22,11 +24,15 @@
     focusId?: string;
     /** Insert a relay-accepted comment into the parent thread (from cache). */
     onPublished?: (event: Event) => void;
+    highlights?: Event[];
+    zaps?: Event[];
+    boosts?: Event[];
   }
 
-  let { node, target, replyOpenId = $bindable(null), focusId = '', onPublished }: Props = $props();
+  let { node, target, replyOpenId = $bindable(null), focusId = '', onPublished, highlights = [], zaps = [], boosts = [] }: Props = $props();
   let reply = $state('');
   let posting = $state(false);
+  let asKind1Reply = $state(false);
 
   const open = $derived(
     !!node.event && !!replyOpenId && replyOpenId.toLowerCase() === node.event.id.toLowerCase()
@@ -36,12 +42,19 @@
   const signedIn = $derived(!!$session.pubkey);
   const canReply = $derived(signedIn);
 
+  const offerKind1 = $derived(!!node.event && canOfferKind1Reply(node.event));
+  const highlightQuotes = $derived(
+    node.event ? textHighlightsFromEvents(highlightsForEvent(highlights, node.event)) : []
+  );
+
   async function sendReply(): Promise<void> {
     if (!node.event || !canReply) return;
     if (!reply.trim() || posting) return;
     posting = true;
     try {
-      const published = await publishComment(commentDraft(target, reply.trim(), node.event));
+      const published = await publishComment(
+        commentDraft(target, reply.trim(), node.event, { asKind1Reply: offerKind1 && asKind1Reply })
+      );
       if (!published) return;
       if (onPublished) onPublished(published);
       else node.children = [...node.children, { event: published, placeholder: null, children: [] }];
@@ -82,10 +95,11 @@
       {/if}
     </div>
     <div class="thread-body">
-      <EventBody event={node.event} />
+      <EventBody event={node.event} quotes={highlightQuotes} />
     </div>
     <div class="thread-actions">
       <HeartButton event={node.event} />
+      <ThreadRefBadges event={node.event} {zaps} {boosts} />
       <button
         class="btn btn-icon icon-action-btn thread-reply"
         type="button"
@@ -115,6 +129,12 @@
     {#if open && canReply}
       <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendReply(); }}>
         <textarea bind:value={reply} rows="3" placeholder="Write a reply"></textarea>
+        {#if offerKind1}
+          <label class="compose-kind1">
+            <input type="checkbox" bind:checked={asKind1Reply} />
+            Also post as a kind 1 reply
+          </label>
+        {/if}
         <button class="btn btn-primary" type="submit" disabled={posting || !reply.trim()}
           >{posting ? 'Posting…' : 'Post'}</button
         >
@@ -124,7 +144,7 @@
   {#if node.children.length}
     <ul class="thread-children">
       {#each node.children as child (threadNodeKey(child))}
-        <CommentThread node={child} {target} bind:replyOpenId {focusId} {onPublished} />
+        <CommentThread node={child} {target} bind:replyOpenId {focusId} {onPublished} {highlights} {zaps} {boosts} />
       {/each}
     </ul>
   {/if}

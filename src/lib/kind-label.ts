@@ -38,8 +38,14 @@ export function kindDescription(kind: number): string {
       return 'Reading queue';
     case KIND.DIRECTORY:
       return 'Directory';
-    case 6:
+    case KIND.REPOST:
       return 'Repost';
+    case KIND.GENERIC_REPOST:
+      return 'Repost';
+    case KIND.ZAP:
+      return 'Zap';
+    case 1244:
+      return 'Review';
     case 7:
       return 'Reaction';
     case 11:

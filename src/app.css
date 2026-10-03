@@ -3750,6 +3750,26 @@ a.embed-event-line:focus-visible {
   gap: 0.25rem;
   margin-top: 0.35rem;
 }
+.thread-ref-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 1.85rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--border) 45%, transparent);
+}
+.compose-kind1 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.35rem 0;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
 .thread-actions .thread-more,
 .event-social-actions .thread-more {
   position: relative;

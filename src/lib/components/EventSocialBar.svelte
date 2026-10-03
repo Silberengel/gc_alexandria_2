@@ -5,13 +5,17 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
   import WorkResponseItem from './WorkResponseItem.svelte';
+  import EventCard from './EventCard.svelte';
+  import ThreadRefBadges from './ThreadRefBadges.svelte';
   import { session } from '$lib/stores/session';
   import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import {
+    canOfferKind1Reply,
     fetchWorkResponses,
     nestComments,
     threadNodeKey,
+    threadRootKeys,
     type ThreadNode,
     type WorkResponses
   } from '$lib/comments';
@@ -32,10 +36,15 @@
   let replyOpen = $state(false);
   let replyText = $state('');
   let posting = $state(false);
+  let asKind1Reply = $state(false);
   let thread = $state<ThreadNode[]>([]);
   /** Flat thread events, including ones just written to cache. */
   let threadSource = $state<Event[]>([]);
   let quotes = $state<Event[]>([]);
+  let other = $state<Event[]>([]);
+  let highlights = $state<Event[]>([]);
+  let zaps = $state<Event[]>([]);
+  let boosts = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
   let threadLoaded = $state(false);
   /** Bumps when the target event changes; drops stale thread paints. */
@@ -43,6 +52,7 @@
 
   const signedIn = $derived(!!$session.pubkey);
   const canReply = $derived(signedIn);
+  const offerKind1 = $derived(canOfferKind1Reply(event));
 
   $effect(() => {
     if (!allowReply) return;
@@ -52,8 +62,13 @@
     thread = [];
     threadSource = [];
     quotes = [];
+    other = [];
+    highlights = [];
+    zaps = [];
+    boosts = [];
     replyOpen = false;
     replyOpenId = null;
+    asKind1Reply = false;
     void ensureThread(targetId, gen);
   });
 
@@ -67,14 +82,18 @@
       (existing) => !hit.thread.some((remote) => remote.id === existing.id)
     );
     threadSource = [...hit.thread, ...localOnly];
-    thread = nestComments(threadSource, $muteState, [targetId]);
+    thread = nestComments(threadSource, $muteState, threadRootKeys(target));
     quotes = filterMuted(hit.quotes, $muteState);
+    other = filterMuted(hit.other, $muteState);
+    highlights = filterMuted(hit.highlights, $muteState);
+    zaps = hit.zaps;
+    boosts = hit.boosts;
     threadLoaded = true;
   }
 
   function showPublished(published: Event): void {
     threadSource = [...threadSource.filter((existing) => existing.id !== published.id), published];
-    thread = nestComments(threadSource, $muteState, [event.id]);
+    thread = nestComments(threadSource, $muteState, threadRootKeys(event));
     threadLoaded = true;
   }
 
@@ -91,11 +110,14 @@
     if (!canReply || posting || !replyText.trim()) return;
     posting = true;
     try {
-      const published = await publishComment(commentDraft(event, replyText.trim()));
+      const published = await publishComment(
+        commentDraft(event, replyText.trim(), undefined, { asKind1Reply: offerKind1 && asKind1Reply })
+      );
       if (!published) return;
       showPublished(published);
       replyText = '';
       replyOpen = false;
+      asKind1Reply = false;
     } finally {
       posting = false;
     }
@@ -105,6 +127,7 @@
 <div class="event-social">
   <div class="event-social-actions">
     <HeartButton {event} />
+    <ThreadRefBadges {event} {zaps} {boosts} />
     {#if allowReply}
       <button
         class="btn btn-icon icon-action-btn thread-reply"
@@ -140,6 +163,12 @@
   {#if allowReply && canReply && replyOpen}
     <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendRootReply(); }}>
       <textarea bind:value={replyText} rows="2" placeholder="Write a reply"></textarea>
+      {#if offerKind1}
+        <label class="compose-kind1">
+          <input type="checkbox" bind:checked={asKind1Reply} />
+          Also post as a kind 1 reply
+        </label>
+      {/if}
       <button class="btn btn-primary" type="submit" disabled={posting || !replyText.trim()}
         >{posting ? 'Posting…' : 'Post'}</button
       >
@@ -151,7 +180,15 @@
   {#if allowReply && thread.length}
     <ul class="thread-list event-social-thread">
       {#each thread as node (threadNodeKey(node))}
-        <CommentThread {node} target={event} bind:replyOpenId onPublished={showPublished} />
+        <CommentThread
+          {node}
+          target={event}
+          bind:replyOpenId
+          onPublished={showPublished}
+          {highlights}
+          {zaps}
+          {boosts}
+        />
       {/each}
     </ul>
   {/if}
@@ -160,6 +197,16 @@
     <ul class="thread-list work-response-list">
       {#each quotes as q (q.id)}
         <WorkResponseItem event={q} />
+      {/each}
+    </ul>
+  {/if}
+  {#if allowReply && other.length}
+    <h3 class="work-comments-subhead">Other responses</h3>
+    <ul class="thread-list work-response-list">
+      {#each other as item (item.id)}
+        <li class="work-response-item">
+          <EventCard event={item} />
+        </li>
       {/each}
     </ul>
   {/if}

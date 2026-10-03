@@ -1,12 +1,13 @@
 import type { Event, Filter } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
-import { KIND, MISSING_PARENT_PLACEHOLDER, MUTED_PARENT_PLACEHOLDER } from './constants';
+import { KIND, MUTED_PARENT_PLACEHOLDER } from './constants';
 import { type MuteState, isMutedEvent } from './mute';
-import { publicationCoordinateLookupKeys } from './publication-coordinate';
+import { publicationCoordinateLookupKeys, coordinatesOverlap } from './publication-coordinate';
 import { fetchByIds } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
 import { documentStack, highlightStack, socialStack } from './nostr/selector';
-import { eventAddress, firstTag } from './nostr/verify';
+import { eventAddress } from './nostr/verify';
+import { splitNostrRefs } from './nostr-refs';
 
 export type ThreadNode = {
   event: Event | null;
@@ -23,24 +24,73 @@ export function threadNodeKey(node: ThreadNode): string {
   return `ph:${node.placeholder ?? 'unknown'}`;
 }
 
+const HEX_ID = /^[0-9a-f]{64}$/;
+
 /** Kind 1111 NIP-22 comments and kind 1 NIP-10 notes that participate in a thread. */
 export function isThreadEvent(event: Event): boolean {
   return event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE;
 }
 
+/** Kind 1 with NIP-10 thread tags (marked or positional `e`). */
+export function isKind1Reply(event: Event): boolean {
+  if (event.kind !== KIND.TEXT_NOTE) return false;
+  return event.tags.some((t) => t[0] === 'e' && t[1]);
+}
+
+/** Kind 1 original: offer 1111 by default, plus an optional kind 1 reply. */
+export function canOfferKind1Reply(parent: Event): boolean {
+  return parent.kind === KIND.TEXT_NOTE && !isKind1Reply(parent);
+}
+
+function nip22Coordinate(event: Event): string | null {
+  const pk = event.pubkey.toLowerCase();
+  if (event.kind >= 30000 && event.kind < 40000) {
+    const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
+    return `${event.kind}:${pk}:${d}`;
+  }
+  if (event.kind === 0 || event.kind === 3 || (event.kind >= 10000 && event.kind < 20000)) {
+    return `${event.kind}:${pk}:`;
+  }
+  return null;
+}
+
 /**
- * Parent event id for threading.
- * NIP-22: lowercase `e` is the parent.
- * NIP-10: prefer the `reply` marker, else the last `e` tag.
+ * Parent pointer for nesting.
+ * NIP-22: lowercase `e` / `a` / `i` (ignore uppercase when those exist).
+ * NIP-10: `reply` when both `root` and `reply` exist, else last `e` (positional parent).
  */
 export function commentParentId(event: Event): string | null {
-  const eTags = event.tags.filter((t) => t[0] === 'e' && t[1]);
-  if (!eTags.length) return null;
   if (event.kind === KIND.TEXT_NOTE) {
-    const marked = eTags.find((t) => t[3] === 'reply') ?? eTags[eTags.length - 1];
+    const eTags = event.tags.filter((t) => t[0] === 'e' && t[1]);
+    if (!eTags.length) return null;
+    const hasRoot = eTags.some((t) => t[3] === 'root');
+    const reply = eTags.find((t) => t[3] === 'reply');
+    if (hasRoot && reply?.[1]) return reply[1].toLowerCase();
+    const marked = reply ?? eTags[eTags.length - 1];
     return marked?.[1]?.toLowerCase() ?? null;
   }
-  return eTags[0]?.[1]?.toLowerCase() ?? null;
+  const e = event.tags.find((t) => t[0] === 'e' && t[1]);
+  if (e?.[1]) return e[1].toLowerCase();
+  const a = event.tags.find((t) => t[0] === 'a' && t[1]);
+  if (a?.[1]) return a[1];
+  const i = event.tags.find((t) => t[0] === 'i' && t[1]);
+  if (i?.[1]) return i[1];
+  return null;
+}
+
+/** Ids, addresses, and NIP-73 scopes that count as this OP for nesting. */
+export function threadRootKeys(target: Event): string[] {
+  const keys = new Set<string>();
+  keys.add(target.id.toLowerCase());
+  const addr = eventAddress(target);
+  keys.add(addr);
+  for (const k of publicationCoordinateLookupKeys(addr)) keys.add(k);
+  const coord = nip22Coordinate(target);
+  if (coord) keys.add(coord);
+  for (const t of target.tags) {
+    if ((t[0] === 'i' || t[0] === 'I') && t[1]) keys.add(t[1]);
+  }
+  return [...keys];
 }
 
 /** Parent ids referenced by thread events that are not yet in `have`. */
@@ -50,13 +100,13 @@ export function missingCommentParentIds(
   rootEventIds: Iterable<string> = []
 ): string[] {
   const roots = new Set(
-    [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id))
+    [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => HEX_ID.test(id))
   );
   const missing = new Set<string>();
   for (const event of events) {
     if (!isThreadEvent(event)) continue;
     const parentId = commentParentId(event);
-    if (!parentId || roots.has(parentId) || have.has(parentId)) continue;
+    if (!parentId || !HEX_ID.test(parentId) || roots.has(parentId) || have.has(parentId)) continue;
     missing.add(parentId);
   }
   return [...missing];
@@ -65,17 +115,22 @@ export function missingCommentParentIds(
 export function nestComments(
   comments: Event[],
   mute?: MuteState,
-  /** Event ids of the work/section — kind 1 replies to these are roots, not orphans. */
-  rootEventIds: Iterable<string> = []
+  /** OP event ids, addresses, and `i` scopes — replies to these are roots. */
+  rootKeys: Iterable<string> = []
 ): ThreadNode[] {
-  const rootIds = new Set(
-    [...rootEventIds].map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id))
+  const rootsSet = new Set(
+    [...rootKeys].map((k) => (HEX_ID.test(k.toLowerCase()) ? k.toLowerCase() : k))
   );
-  const visible = comments.filter(
-    (c) => isThreadEvent(c) && !(mute && isMutedEvent(c, mute))
-  );
+  const visible = comments.filter((c) => isThreadEvent(c) && !(mute && isMutedEvent(c, mute)));
   const visibleIds = new Set(visible.map((c) => c.id.toLowerCase()));
   const allById = new Map(comments.map((c) => [c.id.toLowerCase(), c]));
+  const byAddress = new Map<string, Event>();
+  for (const event of comments) {
+    const addr = eventAddress(event);
+    byAddress.set(addr, event);
+    const coord = nip22Coordinate(event);
+    if (coord) byAddress.set(coord, event);
+  }
   const nodes = new Map<string, ThreadNode>();
   const placeholders = new Map<string, ThreadNode>();
 
@@ -104,38 +159,66 @@ export function nestComments(
     placeholder.children.push(node);
   }
 
+  function resolveParent(parentRef: string): Event | undefined {
+    if (HEX_ID.test(parentRef)) return allById.get(parentRef);
+    return byAddress.get(parentRef);
+  }
+
   const roots: ThreadNode[] = [];
   const seenRoot = new Set<ThreadNode>();
 
+  function pushRoot(node: ThreadNode): void {
+    if (seenRoot.has(node)) return;
+    seenRoot.add(node);
+    roots.push(node);
+  }
+
   for (const comment of visible) {
     const node = nodeFor(comment);
-    const parentId = commentParentId(comment);
-    if (!parentId || rootIds.has(parentId)) {
-      if (!seenRoot.has(node)) {
-        seenRoot.add(node);
-        roots.push(node);
-      }
+    const parentRef = commentParentId(comment);
+    if (!parentRef || rootsSet.has(parentRef)) {
+      pushRoot(node);
       continue;
     }
-    const parent = allById.get(parentId);
+    const parent = resolveParent(parentRef);
     if (parent && visibleIds.has(parent.id.toLowerCase())) {
       nodeFor(parent).children.push(node);
       continue;
     }
     if (parent && mute && isMutedEvent(parent, mute)) {
-      attachUnderPlaceholder(parentId, node, MUTED_PARENT_PLACEHOLDER);
+      attachUnderPlaceholder(parent.id.toLowerCase(), node, MUTED_PARENT_PLACEHOLDER);
       continue;
     }
-    // Parent still missing after relay recovery — keep a stub, do not promote to root.
-    attachUnderPlaceholder(parentId, node, MISSING_PARENT_PLACEHOLDER);
+    pushRoot(node);
   }
 
   return roots;
 }
 
-/** Continue any kind 1 with kind 1; everything else gets NIP-22. */
+/** Continue a NIP-10 kind 1 reply with kind 1; kind 1 originals and everything else get 1111. */
 export function shouldReplyWithKind1(replyTo: Event): boolean {
-  return replyTo.kind === KIND.TEXT_NOTE;
+  return isKind1Reply(replyTo);
+}
+
+function nip10ETag(id: string, marker: 'root' | 'reply', pubkey?: string): string[] {
+  const tag = ['e', id.toLowerCase(), '', marker];
+  if (pubkey && HEX_ID.test(pubkey.toLowerCase())) tag.push(pubkey.toLowerCase());
+  return tag;
+}
+
+function copyPTags(from: Event): string[][] {
+  const tags: string[][] = [];
+  const seenP = new Set<string>();
+  for (const t of from.tags) {
+    if (t[0] !== 'p' || !t[1]) continue;
+    const pk = t[1].toLowerCase();
+    if (seenP.has(pk)) continue;
+    seenP.add(pk);
+    tags.push(t.length > 2 ? ['p', pk, t[2]!] : ['p', pk]);
+  }
+  const author = from.pubkey.toLowerCase();
+  if (!seenP.has(author)) tags.push(['p', author]);
+  return tags;
 }
 
 /** NIP-10 e/p tags for a kind 1 reply to another kind 1. */
@@ -144,50 +227,79 @@ export function nip10ReplyTags(
   workEventIds: Iterable<string> = []
 ): string[][] {
   const work = new Set(
-    [...workEventIds].map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id))
+    [...workEventIds].map((id) => id.toLowerCase()).filter((id) => HEX_ID.test(id))
   );
   const eTags = replyTo.tags.filter((t) => t[0] === 'e' && t[1]);
-  const markedRoot = eTags.find((t) => t[3] === 'root')?.[1]?.toLowerCase();
+  if (!eTags.length) {
+    return [nip10ETag(replyTo.id, 'root', replyTo.pubkey), ...copyPTags(replyTo)];
+  }
+  const markedRoot = eTags.find((t) => t[3] === 'root');
   const rootId =
-    markedRoot ??
+    markedRoot?.[1]?.toLowerCase() ??
     eTags.find((t) => t[1] && work.has(t[1].toLowerCase()))?.[1]?.toLowerCase() ??
     eTags[0]?.[1]?.toLowerCase() ??
     replyTo.id.toLowerCase();
-  const tags: string[][] = [
-    ['e', rootId, '', 'root'],
-    ['e', replyTo.id.toLowerCase(), '', 'reply']
+  const rootPk = markedRoot?.[4] || (rootId === replyTo.id.toLowerCase() ? replyTo.pubkey : '');
+  return [
+    nip10ETag(rootId, 'root', rootPk),
+    nip10ETag(replyTo.id, 'reply', replyTo.pubkey),
+    ...copyPTags(replyTo)
   ];
-  const seenP = new Set<string>();
-  for (const t of replyTo.tags) {
-    if (t[0] !== 'p' || !t[1]) continue;
-    const pk = t[1].toLowerCase();
-    if (seenP.has(pk)) continue;
-    seenP.add(pk);
-    tags.push(t.length > 2 ? ['p', pk, t[2]!] : ['p', pk]);
-  }
-  const author = replyTo.pubkey.toLowerCase();
-  if (!seenP.has(author)) tags.push(['p', author]);
+}
+
+function copyNip22Root(from: Event): string[][] | null {
+  const A = from.tags.find((t) => t[0] === 'A' && t[1]);
+  const E = from.tags.find((t) => t[0] === 'E' && t[1]);
+  const I = from.tags.find((t) => t[0] === 'I' && t[1]);
+  if (!A && !E && !I) return null;
+  const tags: string[][] = [];
+  if (A) tags.push(['A', A[1]!]);
+  else if (E) {
+    const id = E[1]!.toLowerCase();
+    const relay = E[2] ?? '';
+    const pk = E[3] ?? '';
+    tags.push(pk ? ['E', id, relay, pk.toLowerCase()] : ['E', id, relay]);
+  } else if (I) tags.push(['I', I[1]!]);
+  const K = from.tags.find((t) => t[0] === 'K' && t[1]);
+  const P = from.tags.find((t) => t[0] === 'P' && t[1]);
+  if (K) tags.push(['K', K[1]!]);
+  if (P && (A || E)) tags.push(['P', P[1]!.toLowerCase()]);
   return tags;
 }
 
+function buildNip22Root(target: Event): string[][] {
+  const pk = target.pubkey.toLowerCase();
+  const coord = nip22Coordinate(target);
+  if (coord) return [['A', coord], ['K', String(target.kind)], ['P', pk]];
+  return [['E', target.id.toLowerCase(), '', pk], ['K', String(target.kind)], ['P', pk]];
+}
+
+function nip22ParentTags(parent: Event): string[][] {
+  const pk = parent.pubkey.toLowerCase();
+  return [
+    ['e', parent.id.toLowerCase(), '', pk],
+    ['k', String(parent.kind)],
+    ['p', pk]
+  ];
+}
+
 export function nip22TagsForTarget(target: Event, replyTo?: Event): string[][] {
-  const d = target.tags.find((t) => t[0] === 'd')?.[1] ?? '';
-  const addr = `${target.kind}:${target.pubkey}:${d}`;
-  const replaceable = target.kind >= 10000;
-  const tags: string[][] = [];
-  if (replaceable) {
-    tags.push(['A', addr], ['K', String(target.kind)], ['P', target.pubkey]);
-  } else {
-    tags.push(['E', target.id], ['K', String(target.kind)], ['P', target.pubkey]);
-  }
+  const pk = target.pubkey.toLowerCase();
   if (replyTo) {
-    tags.push(['e', replyTo.id], ['k', String(replyTo.kind)], ['p', replyTo.pubkey]);
-  } else if (replaceable) {
-    tags.push(['a', addr], ['k', String(target.kind)], ['p', target.pubkey]);
-  } else {
-    tags.push(['e', target.id], ['k', String(target.kind)], ['p', target.pubkey]);
+    const root = copyNip22Root(replyTo) ?? buildNip22Root(target);
+    return [...root, ...nip22ParentTags(replyTo)];
   }
-  return tags;
+  const coord = nip22Coordinate(target);
+  if (coord) {
+    return [
+      ...buildNip22Root(target),
+      ['a', coord],
+      ['e', target.id.toLowerCase(), '', pk],
+      ['k', String(target.kind)],
+      ['p', pk]
+    ];
+  }
+  return [...buildNip22Root(target), ...nip22ParentTags(target)];
 }
 
 /** Social + document (+ inbox/outbox when signed in) — full scan for missing parents. */
@@ -243,14 +355,15 @@ export function qTagMatchesTarget(raw: string, target: Event): boolean {
   if (v.toLowerCase() === id) return true;
   const addr = eventAddress(target);
   const addrKeys = new Set(publicationCoordinateLookupKeys(addr));
-  if (addrKeys.has(v)) return true;
+  if (addrKeys.has(v) || coordinatesOverlap(v, addr)) return true;
   try {
-    const decoded = nip19.decode(v.replace(/^nostr:/i, ''));
+    const decoded = nip19.decode(v.replace(/^nostr:/i, '').trim());
     if (decoded.type === 'note' && String(decoded.data).toLowerCase() === id) return true;
     if (decoded.type === 'nevent' && decoded.data.id.toLowerCase() === id) return true;
     if (decoded.type === 'naddr') {
-      const key = `${decoded.data.kind}:${decoded.data.pubkey}:${decoded.data.identifier}`;
-      return addrKeys.has(key);
+      const pk = String(decoded.data.pubkey).toLowerCase();
+      const key = `${decoded.data.kind}:${pk}:${decoded.data.identifier}`;
+      return addrKeys.has(key) || coordinatesOverlap(key, addr);
     }
   } catch {
     /* not bech32 */
@@ -258,58 +371,111 @@ export function qTagMatchesTarget(raw: string, target: Event): boolean {
   return false;
 }
 
-const CONTENT_EVENT_REF = /(?:nostr:)?(n(?:addr|event|ote)1[02-9ac-hj-np-z]+)/gi;
-
-/** True when note content embeds this work as naddr / nevent / note. */
+/** True when note content embeds this work as naddr / nevent / note. Embedding is quoting. */
 export function contentEmbedsTarget(event: Event, target: Event): boolean {
   const text = event.content ?? '';
   if (!text) return false;
-  CONTENT_EVENT_REF.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = CONTENT_EVENT_REF.exec(text)) !== null) {
-    if (qTagMatchesTarget(m[1]!, target)) return true;
+  const id = target.id.toLowerCase();
+  const addr = eventAddress(target);
+  for (const part of splitNostrRefs(text)) {
+    if (part.type !== 'ref') continue;
+    if ((part.kind === 'note' || part.kind === 'nevent') && part.id?.toLowerCase() === id) {
+      return true;
+    }
+    if (part.kind === 'naddr' && part.naddr) {
+      const key = `${part.naddr.kind}:${part.naddr.pubkey.toLowerCase()}:${part.naddr.identifier}`;
+      if (coordinatesOverlap(key, addr)) return true;
+    }
   }
   return false;
 }
 
 /**
- * Kind 1 note that quotes this work: NIP-18 `q` tag, or an embedded
- * naddr/nevent/note of the OP in the content (shown as a card in the body).
+ * Quote of this work: NIP-18 `q`, an embedded `nostr:naddr` / `nevent` / `note` of the OP,
+ * or a kind 1 that `a`/`A`-tags the OP without NIP-10 thread tags.
  */
 export function isQuoteOfTarget(event: Event, target: Event): boolean {
+  if (event.kind === KIND.COMMENT) return false;
+  if (contentEmbedsTarget(event, target)) return true;
   if (event.kind !== KIND.TEXT_NOTE) return false;
   if (event.tags.some((t) => t[0] === 'q' && t[1] && qTagMatchesTarget(t[1], target))) return true;
-  return contentEmbedsTarget(event, target);
+  if (isKind1Reply(event)) return false;
+  const addrKeys = new Set(publicationCoordinateLookupKeys(eventAddress(target)));
+  return event.tags.some(
+    (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && (addrKeys.has(t[1]) || coordinatesOverlap(t[1], eventAddress(target)))
+  );
 }
 
 /** Kind 1111 / kind 1 / 9802 that points at this work with e/E and/or a/A (or q). */
 export function referencesTarget(event: Event, target: Event): boolean {
   const id = target.id.toLowerCase();
   const addrKeys = new Set(publicationCoordinateLookupKeys(eventAddress(target)));
+  const iKeys = new Set(
+    target.tags.filter((t) => (t[0] === 'i' || t[0] === 'I') && t[1]).map((t) => t[1]!)
+  );
   for (const t of event.tags) {
     const name = t[0];
     const v = t[1]?.trim();
     if (!v) continue;
     if ((name === 'e' || name === 'E') && v.toLowerCase() === id) return true;
     if ((name === 'a' || name === 'A') && addrKeys.has(v)) return true;
+    if ((name === 'i' || name === 'I') && iKeys.has(v)) return true;
     if (name === 'q' && qTagMatchesTarget(v, target)) return true;
   }
   return false;
 }
 
 export type WorkResponses = {
-  /** Kind 1111 and kind 1 replies/notes that reference the work (excluding quotes). */
+  /** Kind 1111 comments and NIP-10 kind 1 replies. */
   thread: Event[];
   /** Kind 1 notes that quote this work (`q` tag or embedded OP pointer in content). */
   quotes: Event[];
-  /** Kind 9802 highlights of this work. */
+  /** Kind 9802 highlights — decorate referenced text, not thread rows. */
   highlights: Event[];
+  /** Kind 1244, bookmarks, unknown kinds, … */
+  other: Event[];
+  zaps: Event[];
+  boosts: Event[];
 };
+
+export function emptyWorkResponses(): WorkResponses {
+  return { thread: [], quotes: [], highlights: [], other: [], zaps: [], boosts: [] };
+}
+
+const SKIP_OTHER_KINDS = new Set<number>([
+  KIND.METADATA,
+  KIND.CONTACT_LIST,
+  KIND.DELETION,
+  KIND.REACTION,
+  KIND.MUTE,
+  KIND.RELAY_LIST,
+  KIND.BLOCKED,
+  KIND.FAVORITE,
+  KIND.USER_EMOJI_LIST,
+  KIND.LOCAL,
+  KIND.LABEL,
+  KIND.PAYMENT,
+  KIND.READING_QUEUE,
+  KIND.FOLLOW_SET,
+  KIND.EMOJI_SET,
+  KIND.STATUS,
+  KIND.RATING,
+  KIND.DIRECTORY,
+  KIND.NIP85_PREFS,
+  KIND.NIP85_SCORE
+]);
+
+function sortNewest(events: Event[]): Event[] {
+  return events.sort((a, b) => b.created_at - a.created_at);
+}
 
 function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
   const threadById = new Map<string, Event>();
   const quotesById = new Map<string, Event>();
   const highlightsById = new Map<string, Event>();
+  const otherById = new Map<string, Event>();
+  const zapsById = new Map<string, Event>();
+  const boostsById = new Map<string, Event>();
 
   for (const event of events) {
     if (!event?.id) continue;
@@ -320,19 +486,33 @@ function partitionWorkResponses(events: Event[], target: Event): WorkResponses {
       }
       continue;
     }
+    if (event.kind === KIND.ZAP) {
+      zapsById.set(key, event);
+      continue;
+    }
+    if (event.kind === KIND.REPOST || event.kind === KIND.GENERIC_REPOST) {
+      boostsById.set(key, event);
+      continue;
+    }
+    if (SKIP_OTHER_KINDS.has(event.kind)) continue;
     if (isQuoteOfTarget(event, target)) {
       quotesById.set(key, event);
       continue;
     }
-    if (isThreadEvent(event)) {
+    if (event.kind === KIND.COMMENT || isKind1Reply(event)) {
       threadById.set(key, event);
+      continue;
     }
+    otherById.set(key, event);
   }
 
   return {
     thread: [...threadById.values()],
-    quotes: [...quotesById.values()].sort((a, b) => b.created_at - a.created_at),
-    highlights: [...highlightsById.values()].sort((a, b) => b.created_at - a.created_at)
+    quotes: sortNewest([...quotesById.values()]),
+    highlights: sortNewest([...highlightsById.values()]),
+    other: sortNewest([...otherById.values()]),
+    zaps: [...zapsById.values()],
+    boosts: [...boostsById.values()]
   };
 }
 
@@ -343,8 +523,31 @@ function isLibraryHighlightLoose(event: Event, target: Event): boolean {
   return event.tags.some((t) => (t[0] === 'a' || t[0] === 'A') && t[1] && addrKeys.has(t[1]));
 }
 
+export function eventsPointingAtId(events: Event[], id: string): Event[] {
+  const want = id.toLowerCase();
+  return events.filter((event) =>
+    event.tags.some((t) => (t[0] === 'e' || t[0] === 'E') && t[1]?.toLowerCase() === want)
+  );
+}
+
+export function highlightsForEvent(highlights: Event[], event: Event): Event[] {
+  return highlights.filter((h) => referencesTarget(h, event) || isLibraryHighlightLoose(h, event));
+}
+
+export function isXmrZap(event: Event): boolean {
+  return event.tags.some((t) =>
+    t.some((cell) => /xmr|monero/i.test(cell ?? ''))
+  );
+}
+
+function nip73Values(target: Event): string[] {
+  return [
+    ...new Set(target.tags.filter((t) => (t[0] === 'i' || t[0] === 'I') && t[1]).map((t) => t[1]!))
+  ].slice(0, 8);
+}
+
 /**
- * Kind 1111 + kind 1 by e/E/a/A, kind 1 q-tag quotes, and kind 9802 highlights.
+ * Responses of any kind by #e #E #a #A #q (and #I/#i when the OP has NIP-73 scopes).
  * Uses social + document stacks (inbox/outbox/favorites when signed in).
  */
 export async function fetchWorkResponses(target: Event, limit = 40): Promise<WorkResponses> {
@@ -353,44 +556,52 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
   const addrKeys = [...new Set(publicationCoordinateLookupKeys(a))].slice(0, 12);
   const relays = threadRelayUniverse();
   const maxRelays = 8;
+  const scopes = nip73Values(target);
 
   const addressFilters: Filter[] = addrKeys.length
     ? [
-        { kinds: [KIND.COMMENT, KIND.TEXT_NOTE], '#A': addrKeys, limit },
-        { kinds: [KIND.COMMENT, KIND.TEXT_NOTE], '#a': addrKeys, limit },
-        { kinds: [KIND.HIGHLIGHT], '#A': addrKeys, limit },
-        { kinds: [KIND.HIGHLIGHT], '#a': addrKeys, limit }
+        { '#A': addrKeys, limit },
+        { '#a': addrKeys, limit }
       ]
     : [];
   const idFilters: Filter[] = [
-    { kinds: [KIND.COMMENT, KIND.TEXT_NOTE], '#E': [id], limit },
-    { kinds: [KIND.COMMENT, KIND.TEXT_NOTE], '#e': [id], limit },
-    { kinds: [KIND.TEXT_NOTE], '#q': [id], limit },
-    { kinds: [KIND.HIGHLIGHT], '#e': [id], limit },
-    { kinds: [KIND.HIGHLIGHT], '#E': [id], limit }
+    { '#E': [id], limit },
+    { '#e': [id], limit },
+    { '#q': [id], limit }
   ];
+  const scopeFilters: Filter[] = scopes.length
+    ? [
+        { '#I': scopes, limit },
+        { '#i': scopes, limit }
+      ]
+    : [];
 
-  const [byAddress, byId] = await Promise.all([
+  const [byAddress, byId, byScope] = await Promise.all([
     addressFilters.length
       ? relayPool.query(relays, addressFilters, 6000, maxRelays)
       : Promise.resolve([] as Event[]),
-    relayPool.query(relays, idFilters, 6000, maxRelays)
+    relayPool.query(relays, idFilters, 6000, maxRelays),
+    scopeFilters.length
+      ? relayPool.query(relays, scopeFilters, 6000, maxRelays)
+      : Promise.resolve([] as Event[])
   ]);
 
   const byEventId = new Map<string, Event>();
-  for (const e of [...byAddress, ...byId]) {
+  for (const e of [...byAddress, ...byId, ...byScope]) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }
 
-  // Nested replies under thread roots (not quotes).
   const parentIds = [...byEventId.values()]
-    .filter((e) => isThreadEvent(e) && !isQuoteOfTarget(e, target))
+    .filter((e) => e.kind === KIND.COMMENT || isKind1Reply(e))
     .map((e) => e.id.toLowerCase())
     .slice(0, 12);
   if (parentIds.length) {
     const nested = await relayPool.query(
       relays,
-      [{ kinds: [KIND.TEXT_NOTE, KIND.COMMENT], '#e': parentIds, limit: 40 }],
+      [
+        { '#e': parentIds, limit: 40 },
+        { '#E': parentIds, limit: 40 }
+      ],
       5000,
       maxRelays
     );
@@ -405,10 +616,10 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
   }
 
   const partitioned = partitionWorkResponses([...byEventId.values()], target);
-  // Recovered parents that are not quotes still belong in the thread.
   const threadIds = new Set(partitioned.thread.map((e) => e.id.toLowerCase()));
   for (const e of recovered) {
-    if (!isThreadEvent(e) || isQuoteOfTarget(e, target)) continue;
+    if (e.kind !== KIND.COMMENT && !isKind1Reply(e)) continue;
+    if (isQuoteOfTarget(e, target)) continue;
     if (!threadIds.has(e.id.toLowerCase())) {
       partitioned.thread.push(e);
       threadIds.add(e.id.toLowerCase());
@@ -417,7 +628,7 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
   return partitioned;
 }
 
-/** Kind 1111 by a/A/E/e plus kind 1 by e/E/a/A — then recover missing parents. */
+/** Kind 1111 and kind 1 replies — then recover missing parents. */
 export async function fetchThreadEvents(target: Event, limit = 40): Promise<Event[]> {
   const { thread } = await fetchWorkResponses(target, limit);
   return thread;

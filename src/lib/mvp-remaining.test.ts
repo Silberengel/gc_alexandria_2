@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KIND, MUTED_PARENT_PLACEHOLDER, MISSING_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nestComments, threadNodeKey, isQuoteOfTarget, referencesTarget } from './comments';
+import { KIND, MUTED_PARENT_PLACEHOLDER, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
+import { nestComments, threadNodeKey, threadRootKeys, isQuoteOfTarget, referencesTarget, canOfferKind1Reply, nip10ReplyTags, nip22TagsForTarget } from './comments';
 import { commentDraft } from './drafts';
 import {
   DEFAULT_LIKE_REACTION_CONTENT,
@@ -246,6 +246,51 @@ describe('comments nest', () => {
     expect(isQuoteOfTarget(bareReply, edition)).toBe(false);
   });
 
+  it('collects q and kind 1 a-tags as embed pointers', async () => {
+    const { embedPointersFromTags } = await import('./event-embeds');
+    const note = ev({
+      kind: KIND.TEXT_NOTE,
+      tags: [
+        ['q', 'c'.repeat(64)],
+        ['a', `30023:${'b'.repeat(64)}:project-alexandria`]
+      ]
+    });
+    const pointers = embedPointersFromTags(note);
+    expect(pointers).toContainEqual({ kind: 'id', id: 'c'.repeat(64) });
+    expect(pointers).toContainEqual({
+      kind: 'addr',
+      addr: `30023:${'b'.repeat(64)}:project-alexandria`
+    });
+    const comment = ev({
+      kind: KIND.COMMENT,
+      tags: [['A', `30040:${'b'.repeat(64)}:book`], ['q', 'd'.repeat(64)]]
+    });
+    expect(embedPointersFromTags(comment)).toEqual([{ kind: 'id', id: 'd'.repeat(64) }]);
+  });
+
+  it('treats a content-only nostr:naddr of the OP as a quote, not an other-response', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'b'.repeat(64);
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      tags: [['d', 'project-alexandria']]
+    });
+    const naddr = nip19.naddrEncode({
+      kind: KIND.LONG_FORM,
+      pubkey: pk,
+      identifier: 'project-alexandria'
+    });
+    const share = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      content: `Look:\nnostr:${naddr}`,
+      tags: []
+    });
+    expect(isQuoteOfTarget(share, edition)).toBe(true);
+  });
+
   it('nests a kind 1 reply under a kind 1111 parent', () => {
     const rootId = '1'.repeat(64);
     const editionId = 'a'.repeat(64);
@@ -277,7 +322,7 @@ describe('comments nest', () => {
     expect(tree[0]?.placeholder).toBeNull();
   });
 
-  it('keeps a missing-parent placeholder (does not claim muted, does not promote)', () => {
+  it('shows a missing parent as a top-level row', () => {
     const reply = ev({
       id: '2'.repeat(64),
       kind: KIND.COMMENT,
@@ -290,11 +335,28 @@ describe('comments nest', () => {
     });
     const tree = nestComments([reply, other]);
     expect(tree).toHaveLength(2);
-    expect(tree[0]?.placeholder).toBe(MISSING_PARENT_PLACEHOLDER);
-    expect(tree[0]?.missingParentId).toBe('9'.repeat(64));
-    expect(tree[1]?.missingParentId).toBe('8'.repeat(64));
+    expect(tree[0]?.event?.id).toBe(reply.id);
+    expect(tree[0]?.placeholder).toBeNull();
+    expect(tree[1]?.event?.id).toBe(other.id);
     expect(threadNodeKey(tree[0]!)).not.toBe(threadNodeKey(tree[1]!));
-    expect(tree[0]?.children[0]?.event?.id).toBe(reply.id);
+  });
+
+  it('treats a lowercase a-tag of the OP as a thread root', () => {
+    const edition = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: 'bb'.repeat(32),
+      tags: [['d', 'book']]
+    });
+    const onEdition = ev({
+      id: '2'.repeat(64),
+      kind: KIND.COMMENT,
+      tags: [['a', `30040:${edition.pubkey}:book`]]
+    });
+    const tree = nestComments([onEdition], undefined, threadRootKeys(edition));
+    expect(tree).toHaveLength(1);
+    expect(tree[0]?.event?.id).toBe(onEdition.id);
+    expect(tree[0]?.placeholder).toBeNull();
   });
 
   it('uses the muted placeholder only when the parent event is muted', () => {
@@ -336,8 +398,25 @@ describe('comment draft kinds', () => {
     const draft = commentDraft(edition, 'chain', note);
     expect(draft.kind).toBe(KIND.TEXT_NOTE);
     expect(draft.tags).toContainEqual(['e', editionId, '', 'root']);
-    expect(draft.tags).toContainEqual(['e', note.id, '', 'reply']);
+    expect(draft.tags).toContainEqual(['e', note.id, '', 'reply', note.pubkey]);
     expect(draft.tags.some((t) => t[0] === 'p' && t[1] === note.pubkey)).toBe(true);
+  });
+
+  it('defaults kind 1 originals to 1111 and can emit a single root e as a reply', () => {
+    const note = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: '2'.repeat(64),
+      tags: []
+    });
+    expect(canOfferKind1Reply(note)).toBe(true);
+    expect(commentDraft(note, 'comment').kind).toBe(KIND.COMMENT);
+    const asReply = commentDraft(note, 'reply', undefined, { asKind1Reply: true });
+    expect(asReply.kind).toBe(KIND.TEXT_NOTE);
+    expect(asReply.tags.filter((t) => t[0] === 'e')).toEqual([
+      ['e', note.id, '', 'root', note.pubkey]
+    ]);
+    expect(nip10ReplyTags(note)).toContainEqual(['e', note.id, '', 'root', note.pubkey]);
   });
 
   it('replies to kind 1111 and 9802 with kind 1111', () => {
@@ -372,6 +451,8 @@ describe('comment draft kinds', () => {
     expect(draft.kind).toBe(KIND.COMMENT);
     expect(draft.tags).toContainEqual(['A', `34259:${rating.pubkey}:30040:${'1'.repeat(64)}:book`]);
     expect(draft.tags).toContainEqual(['K', String(KIND.RATING)]);
+    expect(draft.tags).toContainEqual(['e', rating.id, '', rating.pubkey]);
+    expect(nip22TagsForTarget(rating).some((t) => t[0] === 'a')).toBe(true);
   });
 });
 

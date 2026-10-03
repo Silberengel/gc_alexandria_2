@@ -57,7 +57,7 @@
     scopedProgressForIndex,
     warmIndexTree
   } from '$lib/index-scope';
-  import { nestComments, fetchThreadEvents, fetchWorkResponses, threadNodeKey, type WorkResponses } from '$lib/comments';
+  import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
@@ -153,6 +153,9 @@
   let ratings = $state<Event[]>([]);
   let comments = $state<Event[]>([]);
   let workQuotes = $state<Event[]>([]);
+  let workOther = $state<Event[]>([]);
+  let workZaps = $state<Event[]>([]);
+  let workBoosts = $state<Event[]>([]);
   let sectionResponses = $state<Record<string, WorkResponses>>({});
   let highlights = $state<Event[]>([]);
   let editionLabels = $state<Event[]>([]);
@@ -338,15 +341,20 @@
     const thread = visibleComments;
     const quotes = filterMuted(workQuotes, $muteState);
     const highs = mutedHighlights;
-    if (!q) return { thread, quotes, highlights: highs };
+    const other = filterMuted(workOther, $muteState);
+    const zaps = workZaps;
+    const boosts = workBoosts;
+    if (!q) return { thread, quotes, highlights: highs, other, zaps, boosts };
     const match = (e: Event) => e.content.toLowerCase().includes(q);
     return {
       thread: thread.filter(match),
       quotes: quotes.filter(match),
-      highlights: highs.filter(match)
+      highlights: highs.filter(match),
+      other: other.filter(match),
+      zaps,
+      boosts
     };
   });
-  const thread = $derived(nestComments(visibleComments, $muteState, event ? [event.id] : []));
   const readerToc = $derived(enrichToc(toc, sections));
   const tocTree = $derived(buildTocTree(readerToc));
   const activeToc = $derived.by(() => {
@@ -703,6 +711,9 @@
     ratings = [...ratingById.values()];
     comments = threadEvents.thread;
     workQuotes = threadEvents.quotes;
+    workOther = threadEvents.other;
+    workZaps = threadEvents.zaps;
+    workBoosts = threadEvents.boosts;
     const hById = new Map<string, Event>();
     for (const e of threadEvents.highlights) hById.set(e.id, e);
     for (const batch of highlightBatches) {
@@ -2276,6 +2287,9 @@
       ratings = [];
       comments = [];
       workQuotes = [];
+      workOther = [];
+      workZaps = [];
+      workBoosts = [];
       highlights = [];
       sectionResponses = {};
       editionLabels = [];
@@ -3183,7 +3197,7 @@
       ...sectionComments,
       [a]: [...(sectionComments[a] ?? []), published]
     };
-    const prev = sectionResponses[a] ?? { thread: [], quotes: [], highlights: [] };
+    const prev = sectionResponses[a] ?? emptyWorkResponses();
     sectionResponses = {
       ...sectionResponses,
       [a]: { ...prev, thread: [...prev.thread.filter((e) => e.id !== published.id), published] }
@@ -3562,9 +3576,8 @@
                         <WorkCommentsPanel
                           target={verse}
                           responses={sectionResponses[sectionKey] ?? {
-                            thread: sectionComments[sectionKey] ?? [],
-                            quotes: [],
-                            highlights: []
+                            ...emptyWorkResponses(),
+                            thread: sectionComments[sectionKey] ?? []
                           }}
                           loading={!!sectionCommentsLoading[sectionKey]}
                         />
@@ -3637,9 +3650,8 @@
                         <WorkCommentsPanel
                           target={verse}
                           responses={sectionResponses[sectionKey] ?? {
-                            thread: sectionComments[sectionKey] ?? [],
-                            quotes: [],
-                            highlights: []
+                            ...emptyWorkResponses(),
+                            thread: sectionComments[sectionKey] ?? []
                           }}
                           loading={!!sectionCommentsLoading[sectionKey]}
                         />
@@ -3909,9 +3921,8 @@
                     <WorkCommentsPanel
                       target={section}
                       responses={sectionResponses[sectionKey] ?? {
-                        thread: sectionComments[sectionKey] ?? [],
-                        quotes: [],
-                        highlights: []
+                        ...emptyWorkResponses(),
+                        thread: sectionComments[sectionKey] ?? []
                       }}
                       loading={!!sectionCommentsLoading[sectionKey]}
                     />

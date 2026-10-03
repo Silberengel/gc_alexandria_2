@@ -140,8 +140,12 @@ export const KIND = {
   CONTACT_LIST: 3,
   TEXT_NOTE: 1,
   DELETION: 5,
+  REPOST: 6,
+  GENERIC_REPOST: 16,
   REACTION: 7,
   HIGHLIGHT: 9802,
+  /** NIP-57 zap receipt. */
+  ZAP: 9735,
   BOOKMARK: 10003,
   MUTE: 10000,
   RELAY_LIST: 10002,

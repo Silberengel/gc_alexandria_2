@@ -57,7 +57,7 @@
       {/if}
     </div>
     <div class="thread-body">
-      <EventBody {event} embedDepth={embedDepth + 1} />
+      <EventBody {event} embedDepth={embedDepth} />
     </div>
   </div>
 {:else if event.kind === KIND.HIGHLIGHT}

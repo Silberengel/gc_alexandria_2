@@ -1,6 +1,11 @@
 import type { Event } from 'nostr-tools';
 import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
-import { nip10ReplyTags, nip22TagsForTarget, shouldReplyWithKind1 } from './comments';
+import {
+  canOfferKind1Reply,
+  nip10ReplyTags,
+  nip22TagsForTarget,
+  shouldReplyWithKind1
+} from './comments';
 import { ratingTags } from './ratings';
 import { eventAddress } from './nostr/verify';
 import { slugifyPublicationLabel } from './publication-lists';
@@ -45,14 +50,22 @@ export function deletionDraft(target: Event): { kind: number; content: string; t
 export function commentDraft(
   target: Event,
   content: string,
-  replyTo?: Event
+  replyTo?: Event,
+  opts?: { asKind1Reply?: boolean }
 ): { kind: number; content: string; tags: string[][] } {
-  // Continue any kind 1 with NIP-10 kind 1; reply to 1111, 9802, etc. with 1111.
   if (replyTo && shouldReplyWithKind1(replyTo)) {
     return {
       kind: KIND.TEXT_NOTE,
       content,
       tags: nip10ReplyTags(replyTo, [target.id])
+    };
+  }
+  const noteParent = replyTo ?? target;
+  if (opts?.asKind1Reply && canOfferKind1Reply(noteParent)) {
+    return {
+      kind: KIND.TEXT_NOTE,
+      content,
+      tags: nip10ReplyTags(noteParent, [target.id])
     };
   }
   return {

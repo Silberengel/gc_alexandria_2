@@ -26,7 +26,7 @@
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { fetchWorkResponses, type WorkResponses } from '$lib/comments';
+  import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
@@ -40,7 +40,7 @@
 
   let event = $state<Event | null>(null);
   let versions = $state<Event[]>([]);
-  let responses = $state<WorkResponses>({ thread: [], quotes: [], highlights: [] });
+  let responses = $state<WorkResponses>(emptyWorkResponses());
   let error = $state(false);
   let deferredByList = $state<string[]>([]);
   let forwarding = $state(false);
@@ -77,7 +77,10 @@
     return {
       thread: responses.thread.filter(match),
       quotes: responses.quotes.filter(match),
-      highlights: responses.highlights.filter(match)
+      highlights: responses.highlights.filter(match),
+      other: (responses.other ?? []).filter(match),
+      zaps: responses.zaps ?? [],
+      boosts: responses.boosts ?? []
     };
   });
   const hideBody = $derived(
@@ -342,7 +345,7 @@
     let cancelled = false;
     const paintGen = ++wikiPaintGen;
     versions = [];
-    responses = { thread: [], quotes: [], highlights: [] };
+    responses = emptyWorkResponses();
     socialLoading = false;
     error = false;
     forwarding = false;
