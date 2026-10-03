@@ -5101,6 +5101,23 @@ mark.text-highlight.highlight-flash,
 .reader-section.reader-edition .reader-info-actions {
   margin-top: 0.35rem;
 }
+.reader-empty-hint {
+  margin: 1.35rem 0 2rem;
+  max-width: 38rem;
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--accent));
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--surface) 88%, var(--accent));
+}
+.reader-empty-hint p {
+  margin: 0 0 0.85rem;
+  line-height: 1.6;
+  color: var(--text);
+  font-size: 1.02rem;
+}
+.reader-empty-hint .btn {
+  display: inline-flex;
+}
 .reader-section.reader-index {
   margin-bottom: 1.25rem;
   padding-bottom: 0.35rem;

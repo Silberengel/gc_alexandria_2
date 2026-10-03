@@ -293,6 +293,15 @@ class RelayPool {
   subscribe(relays: string[], filters: Filter[], cb: SubCallback): () => void {
     let closed = false;
     const closers: Array<{ close: (reason?: string) => void }> = [];
+    const closeAll = (): void => {
+      for (const closer of closers) {
+        try {
+          closer.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
     void waitForWindowLoad().then(() => {
       if (closed) return;
       try {
@@ -305,6 +314,7 @@ class RelayPool {
         );
         if (!wssRelays.length || !cleanFilters.length) return;
         for (const url of wssRelays) {
+          if (closed) break;
           closers.push(
             this.pool.subscribeMap(
               cleanFilters.map((filter) => ({ url, filter })),
@@ -336,16 +346,12 @@ class RelayPool {
       } catch {
         /* ignore */
       }
+      // Closer may have run after the first `closed` check but before subscribeMap finished.
+      if (closed) closeAll();
     });
     return () => {
       closed = true;
-      for (const closer of closers) {
-        try {
-          closer.close();
-        } catch {
-          /* ignore */
-        }
-      }
+      closeAll();
     };
   }
 

@@ -191,7 +191,7 @@
   /** Douay / reading-plan: the one leaf index currently in the pane. */
   let scopedPaintIndex = $state<Event | null>(null);
   /** User chose edition root via Go to top — ignore background resume reopen. */
-  let scopedAtEditionTop = false;
+  let scopedAtEditionTop = $state(false);
   /** Bumps when the scoped pane target changes; drops stale in-flight paints. */
   let scopedPaintGen = 0;
   /** Bumps when social fetch starts for a new edition; drops stale assignments. */
@@ -416,6 +416,18 @@
   /** Edition shell painted, but no nested sections yet — keep a loading hint under the header. */
   const readingShellOnly = $derived(
     !!event && paintedSections.length > 0 && paintedSections.every((s) => s.id === event!.id)
+  );
+  /** Cover / empty pane — no nested section or leaf index is on screen yet. */
+  const showEmptyReadingHint = $derived(
+    reading &&
+      !jumpBusy &&
+      (scopedAtEditionTop ||
+        readingShellOnly ||
+        (!paintedSections.length && !readingBusy) ||
+        (!!event &&
+          isIndexScopedEdition(event) &&
+          !scopedPaintIndex &&
+          paintedSections.every((s) => s.kind === KIND.PUBLICATION)))
   );
   const canRead = $derived(!!event && hasPublicationSection(event) && !textUnavailable);
   /** Tracked queue only — untracked editions use Read the publication (local resume still applies inside the reader). */
@@ -2829,6 +2841,45 @@
     if (readingPane) pageFind.next(readingPane);
   }
 
+  /** Open the first leaf index (scoped) or first ToC part (linear). */
+  async function beginReadingFirstPart(): Promise<void> {
+    if (!event || !canRead) return;
+    const scopedToc = isIndexScopedEdition(event)
+      ? toc.length
+        ? toc
+        : buildIndexScopedToc(event)
+      : readerToc;
+    if (isIndexScopedEdition(event)) {
+      const open = pickScopedOpenIndex(event, scopedToc);
+      if (open) {
+        const addr = eventAddress(open).toLowerCase();
+        const entry =
+          scopedToc.find(
+            (e) =>
+              (e.id && e.id.toLowerCase() === open.id.toLowerCase()) ||
+              (e.address && e.address.toLowerCase() === addr)
+          ) ?? {
+            pos: 0,
+            title: sectionHeading(open),
+            address: eventAddress(open),
+            id: open.id,
+            depth: 1,
+            index: true,
+            kind: KIND.PUBLICATION,
+            event: open
+          };
+        await jumpTo(entry);
+        return;
+      }
+    }
+    const first = scopedToc.find((e) => !e.root && (e.event || e.address || e.id));
+    if (first) {
+      await jumpTo(first);
+      return;
+    }
+    tocOpen = true;
+  }
+
   /** Sticky ToC control: jump to the edition root / reading-pane top. */
   async function goToReadingTop(): Promise<void> {
     const root = readerToc.find((e) => e.root) ?? readerToc[0];
@@ -3400,6 +3451,17 @@
         />
       </section>
     {:else}
+      {#snippet emptyReadingHint()}
+        <div class="reader-empty-hint" aria-live="polite">
+          <p>
+            The publication can be read by navigating with the table of contents (button on the
+            bottom-right). Or click <strong>Begin reading</strong> to open the first part.
+          </p>
+          <button class="btn btn-primary" type="button" onclick={() => void beginReadingFirstPart()}
+            >Begin reading</button
+          >
+        </div>
+      {/snippet}
       <div class="reader-layout">
         {#if readerToc.length}
           <nav class="toc card" class:toc-open={tocOpen} aria-label="Table of contents">
@@ -3485,12 +3547,14 @@
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               Opening “{jumpLabel || 'section'}”…
             </p>
-          {:else if !paintedSections.length && (readingBusy || sectionsLoading || !sections.length)}
+          {:else if !paintedSections.length && (readingBusy || sectionsLoading)}
             <!-- event is already known here — publication header/chrome is up -->
             <p class="loading-hint" aria-live="polite">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
               Loading sections…
             </p>
+          {:else if !paintedSections.length && showEmptyReadingHint}
+            {@render emptyReadingHint()}
           {/if}
           {#each readerGroups as group (group.kind === 'bible' ? `bible-${group.verses[0]?.id}` : group.event.id)}
             {#if group.kind === 'bible'}
@@ -3931,6 +3995,9 @@
               </article>
             {/if}
           {/each}
+          {#if showEmptyReadingHint}
+            {@render emptyReadingHint()}
+          {/if}
           {#if moreToPaint}
             <div class="reader-paint-more">
               <p class="loading-hint loading-hint-busy" aria-live="polite">
@@ -3939,10 +4006,10 @@
               </p>
               <button class="btn" type="button" onclick={extendPaint}>Show more</button>
             </div>
-          {:else if sectionsLoading && paintedSections.length > 0 && !(event && isIndexScopedEdition(event) && !readingShellOnly)}
+          {:else if sectionsLoading && paintedSections.length > 0 && !showEmptyReadingHint && !(event && isIndexScopedEdition(event))}
             <p class="loading-hint" aria-live="polite">
               <span class="jump-busy-spinner" aria-hidden="true"></span>
-              {readingShellOnly ? 'Loading sections…' : 'Loading more sections…'}
+              Loading more sections…
             </p>
           {/if}
         </div>

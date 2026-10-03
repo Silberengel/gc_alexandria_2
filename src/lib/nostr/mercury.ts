@@ -138,6 +138,13 @@ function markMercuryDown(): void {
   unavailableUntil = Date.now() + COOLDOWN_MS;
 }
 
+/** Timeouts and caller aborts are expected under load — do not start the outage cooldown. */
+function isAbortOrTimeout(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const name = 'name' in err ? String((err as { name: unknown }).name) : '';
+  return name === 'AbortError' || name === 'TimeoutError';
+}
+
 function markPublicationTreeMissing(naddr: string): void {
   const key = naddr.trim();
   if (key) missingPublicationTrees.add(key);
@@ -189,8 +196,8 @@ async function mercuryRequestOnce(
       return null;
     }
     return res;
-  } catch {
-    markMercuryDown();
+  } catch (err) {
+    if (!isAbortOrTimeout(err)) markMercuryDown();
     return null;
   }
 }

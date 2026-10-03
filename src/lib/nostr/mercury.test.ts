@@ -41,6 +41,34 @@ describe('mercury unavailable cooldown', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('does not start cooldown on AbortError or TimeoutError', async () => {
+    const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw abort;
+      })
+    );
+    const { mercuryFilter, isMercuryUnavailable } = await import('./mercury');
+    expect(await mercuryFilter({ kinds: [30040], limit: 1 })).toEqual([]);
+    expect(isMercuryUnavailable()).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await mercuryFilter({ kinds: [30040], limit: 1 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    vi.resetModules();
+    const timeout = Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw timeout;
+      })
+    );
+    const mercury = await import('./mercury');
+    expect(await mercury.mercuryFilter({ kinds: [30023], limit: 1 })).toEqual([]);
+    expect(mercury.isMercuryUnavailable()).toBe(false);
+  });
+
   it('strips non-document kinds before HTTP', async () => {
     vi.stubGlobal(
       'fetch',
