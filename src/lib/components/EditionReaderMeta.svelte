@@ -1,10 +1,8 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
-  import UserBadge from './UserBadge.svelte';
   import VerseStylingToggle from './VerseStylingToggle.svelte';
   import { editionMetadata, formatAuthorLabel } from '$lib/publication-metadata';
-  import { isLibraryCopyPubkey } from '$lib/hex';
   import { offersVerseStyling } from '$lib/bible-verse';
 
   interface Props {
@@ -30,13 +28,6 @@
       {/each}
     </p>
   {/if}
-
-  <p class="muted edition-reader-publisher">
-    Published by <UserBadge pubkey={event.pubkey} />
-    {#if isLibraryCopyPubkey(event.pubkey)}
-      <span> · Library copy</span>
-    {/if}
-  </p>
 
   {#if showVerseStyling}
     <div class="edition-reader-verse-styling">
