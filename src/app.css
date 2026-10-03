@@ -3446,23 +3446,17 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   top: 0.65rem;
   right: 0.65rem;
 }
-.copy-pointer-btn {
-  width: 1.65rem;
-  height: 1.65rem;
-  min-width: 1.65rem;
+.btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom) {
+  width: 2.4rem;
+  height: 2.4rem;
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  padding: 0;
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   border-color: transparent;
-  transition: opacity 0.15s ease, color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
-}
-/* On cards the ellipsis stays quiet until hover / open. Inline rows match like/reply. */
-.pub-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.generic-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.note-card .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.result-card-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.listing-row-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.details-panel-wrap .copy-pointer-btn:not(.copy-pointer-btn-custom) {
-  opacity: 0.22;
+  opacity: 1;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
 .copy-pointer-btn .more-ellipsis {
   display: block;
@@ -3471,36 +3465,28 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   line-height: 1;
   letter-spacing: 0.05em;
   transform: translateY(-0.06em);
+  color: var(--text-muted);
+  opacity: 0.45;
 }
-.copy-pointer-btn:hover:not(:disabled),
-.copy-pointer-btn:focus-visible {
+.btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom):hover:not(:disabled) .more-ellipsis,
+.btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom):focus-visible .more-ellipsis,
+.event-more-menu-open > .btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom) .more-ellipsis {
+  color: var(--text);
+  opacity: 1;
+}
+.btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom):hover:not(:disabled),
+.btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom):focus-visible,
+.event-more-menu-open > .btn.btn-icon.copy-pointer-btn:not(.copy-pointer-btn-custom) {
   color: var(--text);
   background: var(--surface-2);
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
 }
-.copy-pointer-btn:not(.copy-pointer-btn-custom):hover:not(:disabled),
-.copy-pointer-btn:not(.copy-pointer-btn-custom):focus-visible,
-.menu-wrap:hover > .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.menu-wrap.event-more-menu-open > .copy-pointer-btn:not(.copy-pointer-btn-custom),
-.pub-card:hover .generic-card-copy .copy-pointer-btn,
-.generic-card:hover .generic-card-copy .copy-pointer-btn,
-.note-card:hover .generic-card-copy .copy-pointer-btn,
-.result-card-wrap:hover .generic-card-copy .copy-pointer-btn,
-.listing-row-wrap:hover .listing-row-copy .copy-pointer-btn,
-.details-panel-wrap:hover .details-more-menu .copy-pointer-btn,
-.details-panel-wrap:hover .details-toolbar .heart-btn,
-.thread-node:hover .thread-more .copy-pointer-btn,
-.work-response-item:hover .thread-more .copy-pointer-btn,
-.bible-heading-menu:hover .copy-pointer-btn,
-.section-heading-menu:hover .copy-pointer-btn {
-  opacity: 1;
-}
 .icon-action-btn {
-  width: 1.85rem;
-  height: 1.85rem;
-  min-width: 1.85rem;
+  width: 2.4rem;
+  height: 2.4rem;
+  min-width: 2.4rem;
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   border-color: transparent;
 }
 .icon-action-btn svg {
@@ -3781,16 +3767,6 @@ a.embed-event-line:focus-visible {
 .event-social-actions .thread-more {
   position: relative;
   flex: 0 0 auto;
-}
-.thread-actions .thread-more .copy-pointer-btn,
-.event-social-actions .thread-more .copy-pointer-btn {
-  width: 1.85rem;
-  height: 1.85rem;
-  min-width: 1.85rem;
-  opacity: 1;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  border-color: transparent;
 }
 /* Icon+count controls: grow as a pill so 1–4 digit counts stay inside the border. */
 .btn.btn-icon.heart-btn,
@@ -4820,13 +4796,6 @@ mark.text-highlight.highlight-flash,
 .bible-heading-menu {
   flex: 0 0 auto;
   align-self: center;
-}
-.bible-heading-menu .copy-pointer-btn {
-  width: 1.6rem;
-  height: 1.6rem;
-  min-width: 1.6rem;
-  min-height: 1.6rem;
-  padding: 0;
 }
 .section-heading-wrap {
   display: flex;
