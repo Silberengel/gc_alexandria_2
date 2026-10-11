@@ -10,7 +10,7 @@ import { isDouayPassagePath } from './douay-passage';
 const POINTER = '(?:naddr|nevent|note)1[02-9ac-hj-np-z]+';
 
 const SPA_PREFIX =
-  /^\/(?:search|settings|about|start|contact|booklists|p\/|publication\/|wiki\/|spec\/|article\/)/i;
+  /^\/(?:search|settings|about|start|contact|booklists|feed(?:\/|$)|p\/|publication\/|wiki\/|spec\/|article\/)/i;
 
 /** Collapse typed pointer segments used by some external linkers. */
 export function normalizeExternalSpaPath(pathname: string): string {

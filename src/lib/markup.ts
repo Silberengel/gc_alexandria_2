@@ -3,6 +3,7 @@ import { parse as parseDjot, renderHTML as renderDjot } from '@djot/djot';
 import MarkdownIt from 'markdown-it';
 import { KIND } from './constants';
 import { normalizeDTag } from './dtag';
+import { cropRenderedUrlsInHtml } from './crop-url';
 import { promoteImageAutolinks, rewriteBareImageUrls } from './media';
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
@@ -274,19 +275,66 @@ async function renderAsciidocHtml(src: string): Promise<string> {
   return convert(src);
 }
 
+/** Hashtag after start or a non-word character. Body is letters, numbers, underscore. */
+const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
+const HASHTAG_SKIP_TAGS = new Set(['a', 'pre', 'code', 'script', 'style']);
+
+function topicSearchHref(tag: string): string {
+  return `#/search?subject=${encodeURIComponent(tag)}`;
+}
+
+function linkifyHashtagText(segment: string): string {
+  return segment.replace(TOPIC_HASHTAG, (_full, prefix: string, tag: string) => {
+    return `${prefix}<a href="${topicSearchHref(tag)}">#${tag}</a>`;
+  });
+}
+
+/** Turn `#topic` in rendered text into a subject search link. Leaves links and code alone. */
+export function linkifyTopicHashtags(html: string): string {
+  if (!html.includes('#')) return html;
+  let out = '';
+  let i = 0;
+  let skip = 0;
+  while (i < html.length) {
+    if (html[i] === '<') {
+      const end = html.indexOf('>', i);
+      if (end < 0) {
+        out += html.slice(i);
+        break;
+      }
+      const tag = html.slice(i, end + 1);
+      const name = /^<\/?\s*([a-zA-Z0-9]+)/.exec(tag)?.[1]?.toLowerCase();
+      if (name && HASHTAG_SKIP_TAGS.has(name)) {
+        const closing = /^<\s*\//.test(tag);
+        const selfClosing = /\/>\s*$/.test(tag);
+        if (!selfClosing) skip = Math.max(0, skip + (closing ? -1 : 1));
+      }
+      out += tag;
+      i = end + 1;
+      continue;
+    }
+    const next = html.indexOf('<', i);
+    const text = html.slice(i, next === -1 ? html.length : next);
+    out += skip > 0 ? text : linkifyHashtagText(text);
+    if (next === -1) break;
+    i = next;
+  }
+  return out;
+}
+
+function presentHtml(html: string): string {
+  return linkifyTopicHashtags(cropRenderedUrlsInHtml(sanitizeHtml(promoteImageAutolinks(html))));
+}
+
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
   const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
   try {
-    if (format === 'asciidoc') {
-      return sanitizeHtml(promoteImageAutolinks(await renderAsciidocHtml(rewritten)));
-    }
-    if (format === 'djot') {
-      return sanitizeHtml(promoteImageAutolinks(renderDjotHtml(rewritten)));
-    }
-    return sanitizeHtml(promoteImageAutolinks(renderMarkdownHtml(rewritten)));
+    if (format === 'asciidoc') return presentHtml(await renderAsciidocHtml(rewritten));
+    if (format === 'djot') return presentHtml(renderDjotHtml(rewritten));
+    return presentHtml(renderMarkdownHtml(rewritten));
   } catch {
-    return sanitizeHtml(
-      promoteImageAutolinks(renderMarkdownHtml(rewriteBareImageUrls(rewriteWikilinks(content ?? '', 'markdown'), 'markdown')))
+    return presentHtml(
+      renderMarkdownHtml(rewriteBareImageUrls(rewriteWikilinks(content ?? '', 'markdown'), 'markdown'))
     );
   }
 }

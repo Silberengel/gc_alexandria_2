@@ -212,7 +212,8 @@ body:has(main.reading-page) .top-bar {
   font-size: 0.92rem;
   white-space: nowrap;
 }
-.top-bar nav a:hover {
+.top-bar nav a:hover,
+.top-bar nav a[aria-current='page'] {
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   text-decoration: none;
@@ -3398,6 +3399,13 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A mention inside a sentence is ordinary inline text, so it shares that line. */
+.event-inline .userbadge,
+.event-inline .userbadge span {
+  display: inline;
+  vertical-align: baseline;
+  line-height: inherit;
+}
 .pub-card .userbadge-avatar {
   width: 1.15rem;
   height: 1.15rem;
@@ -3722,6 +3730,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .work-comments-panel {
   margin-top: 0.25rem;
 }
+.op-reply-compose {
+  margin: 0.75rem 0 1rem;
+}
 .work-comments-subhead {
   margin: 1.35rem 0 0.25rem;
   font-family: var(--ui-font);
@@ -3881,6 +3892,11 @@ a.embed-event-line:focus-visible {
   gap: 0.25rem;
   margin-top: 0.35rem;
 }
+.thread-head .thread-actions {
+  margin-top: 0;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
 .thread-ref-badge {
   display: inline-flex;
   align-items: center;
@@ -3893,11 +3909,23 @@ a.embed-event-line:focus-visible {
   color: var(--ink-soft);
   background: color-mix(in srgb, var(--border) 45%, transparent);
 }
+.compose-options {
+  margin: 0.35rem 0 0.15rem;
+}
+.compose-options summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.compose-options:not([open]) > :not(summary) {
+  display: none;
+}
 .compose-kind1 {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin: 0.35rem 0;
+  margin: 0.45rem 0 0.15rem;
   font-size: 0.85rem;
   color: var(--ink-soft);
 }
@@ -3957,6 +3985,45 @@ a.embed-event-line:focus-visible {
 :root.dark .heart-btn.heart-on:hover:not(:disabled),
 :root.dark .heart-btn[aria-pressed='true']:hover:not(:disabled) {
   color: #ff8a80;
+}
+/* Response controls stay as quiet as the … menu until hovered. */
+.thread-actions .btn.btn-icon.heart-btn,
+.thread-actions .icon-action-btn {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  opacity: 0.32;
+}
+.thread-actions .heart-btn:hover:not(:disabled),
+.thread-actions .heart-btn:focus-visible,
+.thread-actions .icon-action-btn:hover:not(:disabled),
+.thread-actions .icon-action-btn:focus-visible,
+.thread-actions .icon-action-btn[aria-expanded='true'] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
+  border-color: transparent;
+  opacity: 1;
+}
+.thread-actions .heart-btn.heart-on,
+.thread-actions .heart-btn[aria-pressed='true'] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.32;
+}
+.thread-actions .heart-btn.heart-on:hover:not(:disabled),
+.thread-actions .heart-btn[aria-pressed='true']:hover:not(:disabled),
+.thread-actions .heart-btn.heart-on:focus-visible,
+.thread-actions .heart-btn[aria-pressed='true']:focus-visible {
+  opacity: 1;
+  background: transparent;
+  border-color: transparent;
+}
+:root.dark .thread-actions .heart-btn.heart-on,
+:root.dark .thread-actions .heart-btn[aria-pressed='true'] {
+  background: transparent;
+  border-color: transparent;
 }
 .heart-icon {
   display: block;
@@ -4173,6 +4240,25 @@ a.embed-event-line:focus-visible {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
+}
+.compose-preview {
+  margin: 0;
+  padding: 0.65rem 0.75rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 68%, transparent);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--paper) 55%, var(--paper-light));
+}
+.compose-preview-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.compose-preview .event-body > :first-child {
+  margin-top: 0;
+}
+.compose-preview .event-body > :last-child {
+  margin-bottom: 0;
 }
 .shelf-actions {
   display: flex;
@@ -4397,10 +4483,42 @@ a.embed-event-line:focus-visible {
   align-items: center;
   gap: 0.15rem;
 }
-.details-toolbar .heart-btn {
+.details-toolbar .btn.btn-icon.heart-btn {
   min-width: 2rem;
   height: 1.85rem;
   padding: 0 0.4rem;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  opacity: 0.32;
+}
+.details-toolbar .heart-btn:hover:not(:disabled),
+.details-toolbar .heart-btn:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
+  border-color: transparent;
+  opacity: 1;
+}
+.details-toolbar .heart-btn.heart-on,
+.details-toolbar .heart-btn[aria-pressed='true'] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.32;
+}
+.details-toolbar .heart-btn.heart-on:hover:not(:disabled),
+.details-toolbar .heart-btn[aria-pressed='true']:hover:not(:disabled),
+.details-toolbar .heart-btn.heart-on:focus-visible,
+.details-toolbar .heart-btn[aria-pressed='true']:focus-visible {
+  opacity: 1;
+  background: transparent;
+  border-color: transparent;
+}
+:root.dark .details-toolbar .heart-btn.heart-on,
+:root.dark .details-toolbar .heart-btn[aria-pressed='true'] {
+  background: transparent;
+  border-color: transparent;
 }
 .details-toolbar .heart-btn .heart-icon {
   width: 1rem;
@@ -4409,6 +4527,24 @@ a.embed-event-line:focus-visible {
 .details-toolbar .heart-count {
   font-size: 0.78rem;
 }
+.details-toolbar .thread-reply {
+  width: 1.85rem;
+  height: 1.85rem;
+  min-width: 1.85rem;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  opacity: 0.32;
+}
+.details-toolbar .thread-reply:hover:not(:disabled),
+.details-toolbar .thread-reply:focus-visible,
+.details-toolbar .thread-reply[aria-expanded='true'] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
+  border-color: transparent;
+  opacity: 1;
+}
 .details-more-menu {
   position: relative;
   top: auto;
@@ -4416,7 +4552,7 @@ a.embed-event-line:focus-visible {
   z-index: 4;
 }
 .details-panel-wrap > .details-panel > summary {
-  padding-right: 5.5rem;
+  padding-right: 7.25rem;
 }
 .details-export-status,
 .details-export-error {
@@ -6045,6 +6181,62 @@ a.user-status-line:hover {
   transform-origin: center center;
   user-select: none;
   -webkit-user-drag: none;
+}
+.raw-event-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 0.75rem;
+  background: color-mix(in srgb, #0c0a08 78%, transparent);
+}
+.raw-event-viewer {
+  display: flex;
+  flex-direction: column;
+  width: min(46rem, 100%);
+  height: min(86vh, 40rem);
+  max-height: 92vh;
+  border-radius: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, #fff 10%);
+  background: var(--surface);
+  box-shadow: 0 18px 48px color-mix(in srgb, #000 40%, transparent);
+  overflow: hidden;
+}
+.raw-event-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+.raw-event-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+.raw-event-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.raw-event-json {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0.85rem 1rem 1.1rem;
+  border: 0;
+  resize: none;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre;
+  overflow: auto;
+  user-select: text;
+  cursor: text;
 }
 @media (max-width: 640px) {
   .media-viewer-backdrop {

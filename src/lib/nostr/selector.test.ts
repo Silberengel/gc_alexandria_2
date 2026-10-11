@@ -6,7 +6,9 @@ import {
   documentStack,
   setSelectorContext,
   socialSearchStack,
-  socialStack
+  socialStack,
+  viewerOutboxStack,
+  writeStack
 } from './selector';
 
 describe('nostr.land aggregator', () => {
@@ -119,6 +121,30 @@ describe('nostr.land aggregator', () => {
     relayPrefs.setGitcitadel(false);
     expect(socialStack().some((u) => u.includes('aggr.nostr.land'))).toBe(false);
     expect(socialStack()).toContain('wss://nostr.land');
+  });
+
+  it('falls back to theforest when the signed-in viewer has no relays', () => {
+    setSelectorContext({
+      signedIn: true,
+      viewerPubkey: 'a'.repeat(64),
+      inbox: [],
+      outbox: [],
+      favorites: [],
+      local: []
+    });
+    relayPrefs.setGitcitadel(false);
+    relayPrefs.setOutboxes(false);
+    expect(socialStack()).toEqual(['wss://theforest.nostr1.com']);
+    expect(documentStack()).toEqual(['wss://theforest.nostr1.com']);
+    expect(viewerOutboxStack()).toEqual(['wss://theforest.nostr1.com']);
+    expect(writeStack()).toEqual(['wss://theforest.nostr1.com']);
+    expect(
+      constrainRelays([
+        'wss://thecitadel.nostr1.com',
+        'wss://theforest.nostr1.com',
+        'wss://relay.damus.io'
+      ])
+    ).toEqual(['wss://theforest.nostr1.com']);
   });
 
   it('keeps social search relays off the default social stack', () => {

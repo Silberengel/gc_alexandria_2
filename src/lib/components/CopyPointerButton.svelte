@@ -5,6 +5,7 @@
   import { libraryDocumentPath } from '$lib/metadata';
   import { KIND } from '$lib/constants';
   import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
+  import { openRawEvent } from '$lib/stores/raw-event-viewer';
 
   interface Props {
     event: Event;
@@ -241,6 +242,21 @@
           }}
         >
           {copied ? 'Copied' : ptr.label}
+        </button>
+      </li>
+      <li role="none">
+        <button
+          class="menu-item"
+          type="button"
+          role="menuitem"
+          onclick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openRawEvent(event);
+            close();
+          }}
+        >
+          View the raw event
         </button>
       </li>
       <li role="none">

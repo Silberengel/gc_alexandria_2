@@ -119,13 +119,16 @@
         <h2>Relays</h2>
         <p class="muted">
           Saved in this browser. With Outboxes off, reads and publishes stay on your relays,
-          plus GitCitadel's if that is on.
+          plus GitCitadel's if that is on. Missing user relays fall back to theforest.
         </p>
       </header>
       <div class="settings-relay-fixed">
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">My own relay lists</span>
-          <span class="muted">Always on. Your inbox, outbox, favorites, and local relays.</span>
+          <span class="muted">
+            Always on. Your inbox, outbox, favorites, and local relays. If you have none,
+            Alexandria uses theforest.
+          </span>
         </span>
         <span class="settings-relay-always">Always on</span>
       </div>

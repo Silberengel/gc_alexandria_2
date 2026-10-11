@@ -252,7 +252,31 @@ export function nestComments(
     pushRoot(node);
   }
 
+  sortThreadChronologically(roots);
   return roots;
+}
+
+/** Earliest `created_at` in this node, so a placeholder sits with its replies. */
+function nodeTime(node: ThreadNode): number {
+  if (node.event) return node.event.created_at;
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const child of node.children) {
+    const time = nodeTime(child);
+    if (time < earliest) earliest = time;
+  }
+  return Number.isFinite(earliest) ? earliest : 0;
+}
+
+/** Read a thread from earlier responses to later ones, at every nesting level. */
+function sortThreadChronologically(nodes: ThreadNode[]): void {
+  nodes.sort((a, b) => {
+    const delta = nodeTime(a) - nodeTime(b);
+    if (delta) return delta;
+    return threadNodeKey(a).localeCompare(threadNodeKey(b));
+  });
+  for (const node of nodes) {
+    if (node.children.length) sortThreadChronologically(node.children);
+  }
 }
 
 /** Continue a NIP-10 kind 1 reply with kind 1; kind 1 originals and everything else get 1111. */

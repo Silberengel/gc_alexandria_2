@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { link } from 'svelte-spa-router';
+  import { link, location } from 'svelte-spa-router';
   import { session } from '$lib/stores/session';
   import { loginDialogOpen, openLoginDialog, closeLoginDialog } from '$lib/stores/login-ui';
   import UserBadge from './UserBadge.svelte';
@@ -101,6 +101,9 @@
     <span>Library of Alexandria</span>
   </a>
   <nav>
+    <a href="#/feed" use:link aria-current={($location ?? '').startsWith('/feed') ? 'page' : undefined}
+      >Feed</a
+    >
     <a href="#/about" use:link>About</a>
     {#if $session.pubkey}
       <a href="#/contact" use:link>Contact</a>

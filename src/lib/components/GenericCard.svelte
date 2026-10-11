@@ -4,7 +4,7 @@
   import UserBadge from './UserBadge.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import { eventPreview } from '$lib/event-preview';
-  import { uniqueMedia } from '$lib/media';
+  import { dedupeMediaUrls, uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
 
   interface Props {
@@ -34,9 +34,10 @@
       {/each}
     </div>
   {/if}
-  {#each [...preview.imageUrls, ...media.filter((m) => m.type === 'image').map((m) => m.url)]
-    .filter((u, i, arr) => arr.indexOf(u) === i)
-    .slice(0, 4) as url}
+  {#each dedupeMediaUrls([
+    ...preview.imageUrls,
+    ...media.filter((m) => m.type === 'image').map((m) => m.url)
+  ]).slice(0, 4) as url}
     {#if isAllowedMediaUrl(url)}
       <img class="generic-media" src={url} alt="" loading="lazy" />
     {/if}

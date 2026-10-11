@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { cropRenderedUrl } from './crop-url';
 import { firstTag } from './nostr/verify';
 
 export type ProfileFields = {
@@ -393,8 +394,10 @@ export function aboutHtml(about: string): string {
     try {
       const parsed = new URL(href);
       if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        const label = cropRenderedUrl(href);
+        const title = label === href ? '' : ` title="${escapeHtml(href)}"`;
         parts.push(
-          `<a href="${escapeHtml(href)}" rel="noopener noreferrer" target="_blank">${escapeHtml(href)}</a>`
+          `<a href="${escapeHtml(href)}"${title} rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`
         );
         parts.push(escapeHtml(trailing));
       } else {

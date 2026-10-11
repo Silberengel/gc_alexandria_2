@@ -7,7 +7,10 @@
   import { renderWithFallback, markHighlights, type HighlightQuote } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
+  import { imetaMedia, omitMediaUrls, stripRenderedMedia } from '$lib/media';
+  import { isAllowedMediaUrl } from '$lib/markup';
   import {
+    coalesceInlineMentions,
     expandNostrRefPlaceholders,
     protectNostrRefsForMarkup,
     splitNostrRefs,
@@ -53,7 +56,11 @@
     dedupeHeroUrls = []
   }: Props = $props();
 
-  const source = $derived(event?.content ?? content);
+  const imeta = $derived(
+    event ? imetaMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
+  );
+  /** Drop imeta file URLs from the prose so a note is not a link and a player. */
+  const source = $derived(omitMediaUrls(event?.content ?? content, imeta));
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
   const heroUrls = $derived.by(() => {
@@ -61,25 +68,37 @@
     if (dedupeHeroImage && event) urls.push(...eventHeroImageUrls(event));
     return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
   });
-  /** Full-document render for markup kinds — splitting first breaks AsciiDoc listings/tables. */
+  /**
+   * One render pass so a nostr:npub stays inside its sentence.
+   * Splitting before AsciiDoc also breaks listings and tables.
+   */
   const wholeDocument = $derived(
     sourceKind === KIND.SECTION ||
       sourceKind === KIND.WIKI ||
       sourceKind === KIND.SPEC ||
       sourceKind === KIND.LONG_FORM ||
-      sourceKind === KIND.DJOT
+      sourceKind === KIND.DJOT ||
+      sourceKind === KIND.TEXT_NOTE ||
+      sourceKind === KIND.COMMENT
+  );
+  let segments = $state<Array<ContentSegment | RenderSegment>>([]);
+  let resolved = $state<Record<number, Event | null>>({});
+  let extraEmbeds = $state<Event[]>([]);
+  let bodyPending = $state(true);
+  let bodyEl = $state<HTMLElement | null>(null);
+
+  const blocks = $derived(
+    coalesceInlineMentions(
+      segments.flatMap((seg) =>
+        seg.type === 'text' ? [{ type: 'html' as const, html: seg.text }] : [seg]
+      )
+    )
   );
   const loadingLabel = $derived(
     sourceKind === KIND.SECTION || sourceKind === KIND.PUBLICATION
       ? 'Publication is loading...'
       : 'Page is loading...'
   );
-
-  let segments = $state<Array<ContentSegment | RenderSegment>>([]);
-  let resolved = $state<Record<number, Event | null>>({});
-  let extraEmbeds = $state<Event[]>([]);
-  let bodyPending = $state(true);
-  let bodyEl = $state<HTMLElement | null>(null);
 
   const quotesSig = $derived(
     quotes
@@ -136,8 +155,12 @@
       const found: Record<number, Event | null> = {};
       let next: Array<ContentSegment | RenderSegment> = [];
 
-      const maybeDedupe = (html: string) =>
-        heroes.length ? stripEarlyDuplicateHeroImage(html, heroes) : html;
+      const shownMedia = imeta.flatMap((item) => [item.url, item.poster]);
+      const maybeDedupe = (html: string, early = true) => {
+        let out = shownMedia.length ? stripRenderedMedia(html, shownMedia) : html;
+        if (early && heroes.length) out = stripEarlyDuplicateHeroImage(out, heroes);
+        return out;
+      };
 
       const { text: emojiReady, slots: emojiSlots } = await prepareContentWithEmojis(src, ev);
       const withEmojis = (html: string) => expandCustomEmojiPlaceholders(html, emojiSlots);
@@ -176,7 +199,7 @@
         segs.map(async (seg, i) => {
           if (seg.type === 'text') {
             let rendered = await renderWithFallback(k, seg.text, tags);
-            if (i === 0 && heroes.length) rendered = maybeDedupe(rendered);
+            rendered = maybeDedupe(rendered, i === 0);
             next[i] = { type: 'html', html: withEmojis(markHighlights(rendered, q)) };
             return;
           }
@@ -248,8 +271,8 @@
 </script>
 
 {#snippet embedCard(hit: Event)}
-  {#await import('./EmbedEventLine.svelte') then mod}
-    <mod.default event={hit} />
+  {#await import('./EventCard.svelte') then mod}
+    <mod.default event={hit} embedDepth={embedDepth + 1} asCard />
   {/await}
 {/snippet}
 
@@ -257,22 +280,26 @@
   {#if bodyPending}
     <LoadingHint message={loadingLabel} />
   {/if}
-  {#each segments as seg, i (i)}
-    {#if seg.type === 'html'}
-      {@html seg.html}
-    {:else if seg.type === 'text'}
-      {@html seg.text}
-    {:else if seg.kind === 'npub' || seg.kind === 'nprofile'}
-      {#if seg.pubkey}
-        <UserBadge pubkey={seg.pubkey} compact />
-      {/if}
+  {#each blocks as block, i (i)}
+    {#if block.type === 'html'}
+      {@html block.html}
+    {:else if block.type === 'flow'}
+      <p class="event-inline">
+        {#each block.parts as part, pi (pi)}
+          {#if part.type === 'html'}
+            {@html part.html}
+          {:else}
+            <UserBadge pubkey={part.pubkey} compact />
+          {/if}
+        {/each}
+      </p>
     {:else if !showEmbeds}
       <!-- Caller asked to omit embedded event cards. -->
     {:else if embedDepth > 1}
       <span class="muted">Embedded event</span>
-    {:else if resolved[i]}
-      {@render embedCard(resolved[i]!)}
-    {:else if resolved[i] === null}
+    {:else if resolved[block.index]}
+      {@render embedCard(resolved[block.index]!)}
+    {:else if resolved[block.index] === null}
       <p class="muted">This item could not be found.</p>
     {:else}
       <p class="muted">Opening…</p>
@@ -280,5 +307,30 @@
   {/each}
   {#each extraEmbeds as hit (hit.id)}
     {@render embedCard(hit)}
+  {/each}
+  {#each imeta as item (item.url)}
+    {#if item.type === 'video'}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        class="event-imeta"
+        src={item.url}
+        poster={item.poster}
+        controls
+        playsinline
+        preload="metadata"
+      ></video>
+    {:else if item.type === 'audio'}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <audio class="event-imeta" src={item.url} controls></audio>
+    {:else}
+      <img
+        class="event-imeta"
+        src={item.url}
+        alt={item.alt ?? ''}
+        loading="lazy"
+        width={item.width}
+        height={item.height}
+      />
+    {/if}
   {/each}
 </div>

@@ -30,6 +30,8 @@ describe('isSpaPathname', () => {
     expect(isSpaPathname('/spec/naddr1abc')).toBe(true);
     expect(isSpaPathname('/article/naddr1abc')).toBe(true);
     expect(isSpaPathname('/search')).toBe(true);
+    expect(isSpaPathname('/feed')).toBe(true);
+    expect(isSpaPathname('/feed/note1qqqq')).toBe(true);
     expect(isSpaPathname('/')).toBe(false);
     expect(isSpaPathname('/assets/index.js')).toBe(false);
   });

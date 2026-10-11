@@ -14,9 +14,11 @@
   interface Props {
     event: Event;
     embedDepth?: number;
+    /** Citation inside a post: listing card, not the compact note. */
+    asCard?: boolean;
   }
 
-  let { event, embedDepth = 0 }: Props = $props();
+  let { event, embedDepth = 0, asCard = false }: Props = $props();
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -25,8 +27,10 @@
       event.kind === KIND.SPEC ||
       event.kind === KIND.LONG_FORM
   );
-  /** Short notes and NIP-22 comments — thread-style, not listing cards. */
-  const isThreadNote = $derived(event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE);
+  /** Compact note. Quotes use the one-line embed; other citations use a card. */
+  const isThreadNote = $derived(
+    !asCard && (event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE)
+  );
   const preview = $derived(eventPreview(event));
   const relative = $derived(formatRelativeTime(event.created_at));
   const absolute = $derived(formatAbsoluteTime(event.created_at));

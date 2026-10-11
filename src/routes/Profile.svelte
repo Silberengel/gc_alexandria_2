@@ -15,6 +15,7 @@
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { countReadsByAuthor } from '$lib/search';
+  import { cropRenderedUrl, cropRenderedUrlsInText } from '$lib/crop-url';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
@@ -822,7 +823,7 @@
             <ul class="profile-tag-list">
               {#each fields.websites as url}
                 {#if isAllowedHref(url)}
-                  <li><a href={url} rel="noopener noreferrer">{url}</a></li>
+                  <li><a href={url} rel="noopener noreferrer" title={url}>{cropRenderedUrl(url)}</a></li>
                 {/if}
               {/each}
             </ul>
@@ -835,10 +836,10 @@
             </ul>
           {/if}
           {#each Object.entries(fields.extra) as [key, value]}
-            <p class="muted">{key}: {value}</p>
+            <p class="muted">{key}: {cropRenderedUrlsInText(value)}</p>
           {/each}
           {#each fields.extraTags as tag}
-            <p class="muted">{tag.name}: {tag.value}</p>
+            <p class="muted">{tag.name}: {cropRenderedUrlsInText(tag.value)}</p>
           {/each}
           {#if payments.length}
             <h3>Payment targets</h3>
@@ -855,7 +856,12 @@
                     <td>{paymentTypeLabel(row.type)}</td>
                     <td>
                       <a href={row.href} rel="noopener noreferrer" title={row.label}>
-                        {cropPaymentAddress(row.label)}
+                        {row.label.startsWith('http://') ||
+                        row.label.startsWith('https://') ||
+                        row.label.startsWith('ws://') ||
+                        row.label.startsWith('wss://')
+                          ? cropRenderedUrl(row.label)
+                          : cropPaymentAddress(row.label)}
                       </a>
                     </td>
                   </tr>

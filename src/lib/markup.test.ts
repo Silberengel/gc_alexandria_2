@@ -4,6 +4,7 @@ import {
   markupFromTags,
   resolveMarkup,
   renderWithFallback,
+  linkifyTopicHashtags,
   looksLikeNativeAsciidoc,
   looksLikeDjot
 } from './markup';
@@ -80,6 +81,23 @@ describe('renderWithFallback', () => {
   it('renders kind 11 as Djot by default', async () => {
     const html = await renderWithFallback(KIND.DJOT, 'See [Label][] here.');
     expect(html).toContain('Label');
+  });
+});
+
+describe('topic hashtags', () => {
+  it('links #topics to subject search and leaves urls and code alone', async () => {
+    const html = await renderWithFallback(
+      KIND.TEXT_NOTE,
+      'relays 5/21\nhttps://nonfungible.cash/p/abc?nft=1\n#archjourney #940911'
+    );
+    expect(html).toContain('href="#/search?subject=archjourney"');
+    expect(html).toContain('>#archjourney</a>');
+    expect(html).toContain('href="#/search?subject=940911"');
+    expect(html).toContain('href="https://nonfungible.cash/p/abc?nft=1"');
+    expect(linkifyTopicHashtags('<a href="https://ex.test/#keep">https://ex.test/#keep</a>')).not.toContain(
+      'subject='
+    );
+    expect(linkifyTopicHashtags('<code>#archjourney</code>')).toBe('<code>#archjourney</code>');
   });
 });
 

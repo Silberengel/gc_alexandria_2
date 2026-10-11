@@ -6,6 +6,10 @@
     exportPublicationDownload,
     type PublicationDownloadFormat
   } from '$lib/publication-export';
+  import { cropRenderedUrlsInText } from '$lib/crop-url';
+  import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
+  import { opComposeId, registerOpReplyToolbar, toggleOpCompose } from '$lib/stores/op-reply';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
@@ -20,6 +24,18 @@
   }
 
   let { event, found, getSeedEvents, canExport = false }: Props = $props();
+  const replyOpen = $derived($opComposeId === event.id.toLowerCase());
+  const canReply = $derived(!!$session.pubkey);
+
+  $effect(() => registerOpReplyToolbar(event.id));
+
+  function onReplyClick(): void {
+    if (!canReply) {
+      openLoginDialog();
+      return;
+    }
+    toggleOpCompose(event.id);
+  }
   const coord = $derived(eventAddress(event));
   const sources = $derived.by(() => {
     const tracked = eventSources(event.id);
@@ -57,6 +73,21 @@
 <div class="details-panel-wrap">
   <div class="details-toolbar">
     <HeartButton {event} />
+    <button
+      class="btn btn-icon icon-action-btn thread-reply"
+      type="button"
+      aria-label={canReply ? 'Reply' : 'Sign in to reply'}
+      title={canReply ? 'Reply' : 'Sign in to reply'}
+      aria-expanded={replyOpen}
+      onclick={onReplyClick}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+        />
+      </svg>
+    </button>
     <CopyPointerButton {event} class="details-more-menu">
       {#snippet after()}
         {#if canExport}
@@ -91,7 +122,7 @@
         {#if sources.length}
           <ul class="found-list">
             {#each sources as source}
-              <li><code>{source}</code></li>
+              <li><code title={source}>{cropRenderedUrlsInText(source)}</code></li>
             {/each}
           </ul>
         {:else}

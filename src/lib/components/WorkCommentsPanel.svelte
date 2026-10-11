@@ -2,7 +2,7 @@
   import type { Event } from 'nostr-tools';
   import CommentThread from './CommentThread.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
-  import WorkResponseItem from './WorkResponseItem.svelte';
+  import EmbedEventLine from './EmbedEventLine.svelte';
   import EventCard from './EventCard.svelte';
   import {
     canOfferKind1Reply,
@@ -14,6 +14,7 @@
   import { muteState, filterMuted } from '$lib/mute';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { closeOpCompose, opComposeId, opReplyToolbar, toggleOpCompose } from '$lib/stores/op-reply';
   import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
   import LoadingHint from './LoadingHint.svelte';
@@ -42,7 +43,7 @@
 
   let replyOpenId = $state<string | null>(null);
   let commentText = $state('');
-  let commentComposeOpen = $state(false);
+  let composeEl = $state<HTMLDivElement | null>(null);
   let localThread = $state<Event[]>([]);
   let posting = $state(false);
   let asKind1Reply = $state(false);
@@ -57,6 +58,18 @@
   const boosts = $derived(responses.boosts ?? []);
   const thread = $derived(nestComments(threadEvents, $muteState, threadRootKeys(target)));
   const offerKind1 = $derived(canOfferKind1Reply(target));
+  const commentComposeOpen = $derived($opComposeId === target.id.toLowerCase());
+  const replyOnToolbar = $derived($opReplyToolbar.has(target.id.toLowerCase()));
+
+  $effect(() => {
+    if (replyOpenId) closeOpCompose(target.id);
+  });
+
+  $effect(() => {
+    if (!commentComposeOpen) return;
+    replyOpenId = null;
+    composeEl?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
 
   function showPublished(event: Event): void {
     localThread = [...localThread.filter((e) => e.id !== event.id), event];
@@ -76,7 +89,7 @@
       if (!published) return;
       showPublished(published);
       commentText = '';
-      commentComposeOpen = false;
+      closeOpCompose(target.id);
       asKind1Reply = false;
     } finally {
       posting = false;
@@ -86,6 +99,36 @@
 
 <section class="work-comments-panel">
   <h2 class="section-title">{title}</h2>
+
+  {#if allowCompose}
+    {#if $session.pubkey && commentComposeOpen}
+      <div class="op-reply-compose" bind:this={composeEl}>
+        <ThreadCompose
+          bind:value={commentText}
+          bind:asKind1Reply
+          {posting}
+          {offerKind1}
+          onSubmit={() => void postComment()}
+          onCancel={() => closeOpCompose(target.id)}
+        />
+      </div>
+    {:else if !replyOnToolbar && !replyOpenId}
+      <button
+        class="btn btn-icon icon-action-btn thread-reply"
+        type="button"
+        aria-label={$session.pubkey ? 'Reply' : 'Sign in to reply'}
+        title={$session.pubkey ? 'Reply' : 'Sign in to reply'}
+        onclick={() => ($session.pubkey ? toggleOpCompose(target.id) : openLoginDialog())}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+          />
+        </svg>
+      </button>
+    {/if}
+  {/if}
 
   {#if thread.length}
     <ul class="thread-list">
@@ -108,36 +151,14 @@
     <p class="muted">No comments yet.</p>
   {/if}
 
-  {#if allowCompose}
-    {#if $session.pubkey && !replyOpenId && commentComposeOpen}
-      <ThreadCompose
-        bind:value={commentText}
-        bind:asKind1Reply
-        {posting}
-        {offerKind1}
-        showCancel
-        onSubmit={() => void postComment()}
-        onCancel={() => {
-          commentComposeOpen = false;
-          commentText = '';
-          asKind1Reply = false;
-        }}
-      />
-    {:else if $session.pubkey && !replyOpenId}
-      <button class="btn" type="button" onclick={() => (commentComposeOpen = true)}
-        >Leave a comment</button
-      >
-    {:else if !$session.pubkey}
-      <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to comment</button>
-    {/if}
-  {/if}
-
   {#if quotes.length}
     <h3 class="work-comments-subhead">Quotes</h3>
     <p class="muted work-comments-lede">Notes that quote this work.</p>
     <ul class="thread-list work-response-list">
       {#each quotes as event (event.id)}
-        <WorkResponseItem {event} />
+        <li class="work-response-item">
+          <EmbedEventLine {event} />
+        </li>
       {/each}
     </ul>
   {/if}

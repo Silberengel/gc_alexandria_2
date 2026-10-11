@@ -188,6 +188,95 @@ export function protectNostrRefsForMarkup(content: string): {
   return { text: out, refs };
 }
 
+export type MentionPart = { type: 'html'; html: string } | { type: 'mention'; pubkey: string };
+
+export type InlineBodyBlock =
+  | { type: 'html'; html: string }
+  | { type: 'flow'; parts: MentionPart[] }
+  | { type: 'ref'; index: number };
+
+/** If `html` ends inside an open `<p>`, split off that unfinished paragraph text. */
+export function peelUnclosedParagraph(html: string): { done: string; open: string } {
+  const tagRe = /<\/?p\b[^>]*>/gi;
+  let depth = 0;
+  let openAt = -1;
+  let openLen = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tagRe.exec(html))) {
+    const closing = match[0].startsWith('</');
+    if (closing) {
+      depth = Math.max(0, depth - 1);
+    } else {
+      if (depth === 0) {
+        openAt = match.index;
+        openLen = match[0].length;
+      }
+      depth += 1;
+    }
+  }
+  if (depth > 0 && openAt >= 0) {
+    return { done: html.slice(0, openAt), open: html.slice(openAt + openLen) };
+  }
+  return { done: html, open: '' };
+}
+
+/**
+ * Keep `npub` / `nprofile` mentions inside the paragraph they were written in.
+ * A mention between two HTML chunks is one inline run, not its own row.
+ */
+export function coalesceInlineMentions(segments: RenderSegment[]): InlineBodyBlock[] {
+  const blocks: InlineBodyBlock[] = [];
+  let flow: MentionPart[] | null = null;
+
+  const flush = (): void => {
+    if (!flow?.length) {
+      flow = null;
+      return;
+    }
+    const parts = flow.filter((part) => part.type !== 'html' || part.html.length > 0);
+    if (parts.length) blocks.push({ type: 'flow', parts });
+    flow = null;
+  };
+
+  const pushHtml = (html: string): void => {
+    if (!html) return;
+    if (flow) {
+      const closed = /^([\s\S]*?)<\/p\b[^>]*>([\s\S]*)$/i.exec(html);
+      if (closed) {
+        if (closed[1]) flow.push({ type: 'html', html: closed[1] });
+        flush();
+        pushHtml(closed[2] ?? '');
+        return;
+      }
+      flow.push({ type: 'html', html });
+      return;
+    }
+    const { done, open } = peelUnclosedParagraph(html);
+    if (open) {
+      if (done.trim()) blocks.push({ type: 'html', html: done });
+      flow = [{ type: 'html', html: open }];
+      return;
+    }
+    blocks.push({ type: 'html', html });
+  };
+
+  segments.forEach((seg, index) => {
+    if (seg.type === 'html') {
+      pushHtml(seg.html);
+      return;
+    }
+    if ((seg.kind === 'npub' || seg.kind === 'nprofile') && seg.pubkey) {
+      if (!flow) flow = [];
+      flow.push({ type: 'mention', pubkey: seg.pubkey });
+      return;
+    }
+    flush();
+    blocks.push({ type: 'ref', index });
+  });
+  flush();
+  return blocks;
+}
+
 /** Re-split rendered HTML on placeholders into html chunks and ref embeds. */
 export function expandNostrRefPlaceholders(html: string, refs: RefSegment[]): RenderSegment[] {
   if (!refs.length) return [{ type: 'html', html }];

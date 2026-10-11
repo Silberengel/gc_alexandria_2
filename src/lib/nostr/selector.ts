@@ -67,6 +67,18 @@ function relayKey(url: string): string {
   return url.replace(/\/+$/, '').toLowerCase();
 }
 
+/** theforest. The one relay used when a signed-in viewer has no relays of their own. */
+export function forestRelay(): string {
+  return (
+    SOCIAL_RELAYS.find((url) => url.toLowerCase().includes('theforest')) ??
+    'wss://theforest.nostr1.com'
+  );
+}
+
+function forestFallback(urls: string[]): string[] {
+  return urls.length ? urls : [forestRelay()];
+}
+
 /** Relays Alexandria ships with. Not Damus / Primal / other public social hosts. */
 const GITCITADEL_RELAYS = [
   ...DOCUMENT_SEARCH_RELAYS,
@@ -114,6 +126,7 @@ export function foreignRelaysAllowed(): boolean {
  * Drop every relay this session is not allowed to dial.
  * Signed out: GitCitadel's hard-coded relays only.
  * Signed in, Outboxes off: the viewer's lists, plus GitCitadel's when that toggle is on.
+ * An empty viewer list falls back to theforest.
  * Signed in, Outboxes on: callers may also pass one author's inbox or outbox, or the
  * popular note-search relays. Those URLs are not rewritten here.
  */
@@ -123,7 +136,9 @@ export function constrainRelays(urls: string[]): string[] {
   if (gitcitadelReadsAllowed()) {
     for (const key of gitcitadelRelayKeys()) allow.add(key);
   }
-  for (const url of viewerRelayLists()) allow.add(relayKey(url));
+  const own = viewerRelayLists();
+  for (const url of own) allow.add(relayKey(url));
+  if (ctx.signedIn && own.length === 0) allow.add(relayKey(forestRelay()));
   return urls.filter((url) => allow.has(relayKey(url)));
 }
 
@@ -133,7 +148,9 @@ export function constrainRelays(urls: string[]): string[] {
  */
 function composeReadStack(hardcoded: readonly string[], personal: string[] = viewerRelayLists()): string[] {
   const shipped = gitcitadelReadsAllowed() ? hardcoded : [];
-  return maybeAggr(withoutBlocked(stackUrls([...shipped, ...personal])));
+  const urls = maybeAggr(withoutBlocked(stackUrls([...shipped, ...personal])));
+  if (ctx.signedIn && urls.length === 0) return withoutBlocked([forestRelay()]);
+  return urls;
 }
 
 function withoutBlocked(urls: string[]): string[] {
@@ -183,10 +200,7 @@ export function publicationSearchStack(): string[] {
  */
 export function viewerOutboxStack(): string[] {
   if (!ctx.signedIn) return socialStack().slice(0, 3);
-  const personal = withoutBlocked(stackUrls([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
-  if (personal.length) return personal;
-  if (!gitcitadelReadsAllowed()) return [];
-  return withoutBlocked(stackUrls([...SOCIAL_RELAYS.slice(0, 2), ...DOCUMENT_SEARCH_RELAYS.slice(0, 2)]));
+  return forestFallback(withoutBlocked(stackUrls([...ctx.outbox, ...ctx.favorites, ...ctx.local])));
 }
 
 /** Wiki read stack — wiki hosts first so a 2–3 relay cap still reaches them. */
@@ -225,7 +239,7 @@ export function highlightStack(): string[] {
 export function writeStack(): string[] {
   if (!ctx.signedIn) return [];
   return writeWebSocketRelays(
-    withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]))
+    forestFallback(withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local])))
   );
 }
 

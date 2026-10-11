@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import {
+  coalesceInlineMentions,
   expandNostrRefPlaceholders,
   nostrRefPlaceholder,
   protectNostrRefsForMarkup,
@@ -81,6 +82,32 @@ describe('protectNostrRefsForMarkup', () => {
     expect(parts[0]).toEqual({ type: 'html', html: '<p>before ' });
     expect(parts[1]?.type).toBe('ref');
     expect(parts[2]).toEqual({ type: 'html', html: ' after</p>' });
+  });
+});
+
+describe('coalesceInlineMentions', () => {
+  it('keeps an npub inside the surrounding sentence', () => {
+    const blocks = coalesceInlineMentions([
+      { type: 'html', html: '<p>Hey, checkout what ' },
+      {
+        type: 'ref',
+        kind: 'npub',
+        raw: 'nostr:npub1',
+        bech32: 'npub1',
+        pubkey: 'a'.repeat(64)
+      },
+      { type: 'html', html: ' is building.</p><p>Next.</p>' }
+    ]);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({
+      type: 'flow',
+      parts: [
+        { type: 'html', html: 'Hey, checkout what ' },
+        { type: 'mention', pubkey: 'a'.repeat(64) },
+        { type: 'html', html: ' is building.' }
+      ]
+    });
+    expect(blocks[1]).toEqual({ type: 'html', html: '<p>Next.</p>' });
   });
 });
 

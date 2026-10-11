@@ -4,9 +4,10 @@
   import HeartButton from './HeartButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
-  import WorkResponseItem from './WorkResponseItem.svelte';
+  import EmbedEventLine from './EmbedEventLine.svelte';
   import EventCard from './EventCard.svelte';
   import ThreadRefBadges from './ThreadRefBadges.svelte';
+  import ThreadCompose from './ThreadCompose.svelte';
   import { session } from '$lib/stores/session';
   import { publishComment } from '$lib/sign';
   import { commentDraft } from '$lib/drafts';
@@ -161,18 +162,15 @@
   </div>
   <div class="event-social-rest">
   {#if allowReply && canReply && replyOpen}
-    <form class="compose" onsubmit={(e) => { e.preventDefault(); void sendRootReply(); }}>
-      <textarea bind:value={replyText} rows="2" placeholder="Write a reply"></textarea>
-      {#if offerKind1}
-        <label class="compose-kind1">
-          <input type="checkbox" bind:checked={asKind1Reply} />
-          Also post as a kind 1 reply
-        </label>
-      {/if}
-      <button class="btn btn-primary" type="submit" disabled={posting || !replyText.trim()}
-        >{posting ? 'Posting…' : 'Post'}</button
-      >
-    </form>
+    <ThreadCompose
+      bind:value={replyText}
+      bind:asKind1Reply
+      placeholder="Write a reply"
+      {posting}
+      {offerKind1}
+      onSubmit={() => void sendRootReply()}
+      onCancel={() => (replyOpen = false)}
+    />
   {/if}
   {#if allowReply && replyOpen && !threadLoaded}
     <LoadingHint message="Loading replies…" compact />
@@ -196,7 +194,9 @@
     <h3 class="work-comments-subhead">Quotes</h3>
     <ul class="thread-list work-response-list">
       {#each quotes as q (q.id)}
-        <WorkResponseItem event={q} />
+        <li class="work-response-item">
+          <EmbedEventLine event={q} />
+        </li>
       {/each}
     </ul>
   {/if}

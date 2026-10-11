@@ -25,7 +25,7 @@ import { landingLabels } from './labels';
 import { assignShelves, collapseSameCoverEditions, membershipsFromEvents, topLevelShelfEvents, withBookmarkTag } from './shelves';
 import { aggregateRating, ratingValue, newestRatingPerAuthor, newestRatingPerPublication } from './ratings';
 import { parseKind0, paymentRows } from './profile-fields';
-import { uniqueMedia, contentWithoutMediaUrls, rewriteBareImageUrls, promoteImageAutolinks } from './media';
+import { uniqueMedia, contentWithoutMediaUrls, imetaMedia, omitMediaUrls, rewriteBareImageUrls, promoteImageAutolinks, sameMedia, stripRenderedMedia } from './media';
 import { nip19, type Event } from 'nostr-tools';
 import { GITCITADEL_CURATOR_HEX } from './hex';
 
@@ -674,6 +674,34 @@ describe('comments nest', () => {
     expect(tree[0]?.placeholder).toBeNull();
   });
 
+  it('lists earlier responses before later ones', () => {
+    const parent = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.COMMENT,
+      created_at: 10
+    });
+    const early = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.COMMENT,
+      created_at: 20,
+      tags: [['e', parent.id]]
+    });
+    const late = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.COMMENT,
+      created_at: 30,
+      tags: [['e', parent.id]]
+    });
+    const laterRoot = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.COMMENT,
+      created_at: 40
+    });
+    const tree = nestComments([late, laterRoot, parent, early]);
+    expect(tree.map((node) => node.event?.id)).toEqual([parent.id, laterRoot.id]);
+    expect(tree[0]?.children.map((node) => node.event?.id)).toEqual([early.id, late.id]);
+  });
+
   it('shows a missing parent as a top-level row', () => {
     const reply = ev({
       id: '2'.repeat(64),
@@ -1291,6 +1319,65 @@ describe('media once', () => {
     expect(rewriteBareImageUrls(`before\n${gif}\nafter`, 'markdown')).toContain(`![](${gif})`);
     expect(rewriteBareImageUrls(gif, 'asciidoc')).toContain(`image::${gif}[]`);
     expect(rewriteBareImageUrls(`![](${gif})`, 'markdown')).toBe(`![](${gif})`);
+  });
+
+  it('renders a NIP-92 imeta file instead of leaving the URL as text', () => {
+    const url =
+      'https://npub1uwjejfyn8j0e7t0cx3ys2h4nsk83fq8a6rz7mw2a7z97mnfwvcjqcvaxfl.blossom.band/39a8333ea419edbd9afd4da15d97f701547e29c71817b4725b1f8332d21af272.jpg';
+    const event = ev({
+      kind: 1,
+      content: url,
+      tags: [['imeta', `url ${url}`, 'm image/jpeg', 'thumbhash YFkKJwZflVdteHhjeHh5WHeH9pt44KAH', 'dim 1229x1280']]
+    });
+    expect(imetaMedia(event)).toEqual([{ type: 'image', url, width: 1229, height: 1280 }]);
+    expect(omitMediaUrls(event.content, imetaMedia(event))).toBe('');
+    expect(omitMediaUrls(`line one\n\n${url}`, imetaMedia(event))).toBe('line one');
+  });
+
+  it('uses the imeta mime when the file URL has no extension', () => {
+    const url = 'https://blossom.example/abcdef';
+    const video = 'https://blossom.example/clip.mp4';
+    const event = ev({
+      kind: 1,
+      content: `caption ${url}`,
+      tags: [
+        ['imeta', 'url', url, 'm', 'image/jpeg'],
+        ['imeta', `url ${video}`, 'm video/mp4', 'image https://blossom.example/poster.jpg']
+      ]
+    });
+    expect(imetaMedia(event)).toEqual([
+      { type: 'image', url },
+      { type: 'video', url: video, poster: 'https://blossom.example/poster.jpg' }
+    ]);
+  });
+
+  it('treats a resized or extensionless copy as the same file', () => {
+    const url = 'https://cdn.example/pic.jpg';
+    const hash =
+      '39a8333ea419edbd9afd4da15d97f701547e29c71817b4725b1f8332d21af272';
+    const blossom = `https://blossom.example/${hash}.jpg`;
+    const bare = `https://cdn.example/${hash}`;
+    expect(sameMedia(url, `${url}?w=800`)).toBe(true);
+    expect(sameMedia('https://i.nostr.build/plate.jpg', 'https://i.nostr.build/thumb/plate.jpg')).toBe(
+      true
+    );
+    expect(sameMedia(blossom, bare)).toBe(true);
+    expect(sameMedia('https://cdn.example/view?id=1', 'https://cdn.example/view?id=2')).toBe(false);
+
+    const event = ev({
+      kind: 1,
+      content: `look ${url}?w=800\n\nhttps://i.nostr.build/thumb/plate.jpg`,
+      tags: [
+        ['imeta', `url ${url}`, 'm image/jpeg'],
+        ['imeta', 'url https://i.nostr.build/plate.jpg', 'm image/jpeg'],
+        ['imeta', `url ${bare}`, 'm image/jpeg']
+      ]
+    });
+    expect(imetaMedia(event)).toHaveLength(3);
+    expect(uniqueMedia(event)).toHaveLength(3);
+    expect(omitMediaUrls(event.content, imetaMedia(event))).toBe('look');
+    const html = `<p>look</p><p><img src="${url}?w=800" alt=""></p><p><a href="${blossom}">${blossom}</a></p>`;
+    expect(stripRenderedMedia(html, imetaMedia(event).map((item) => item.url))).toBe('<p>look</p>');
   });
 
   it('promotes linkified image autolinks to img tags', () => {
