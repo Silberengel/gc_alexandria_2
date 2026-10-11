@@ -1225,6 +1225,26 @@ select:hover {
   background-color: var(--accent);
   background-image: radial-gradient(circle at 1.82rem 50%, var(--surface) 0 0.48rem, transparent 0.5rem);
 }
+.settings-relay-fixed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.85rem 0;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  line-height: 1.35;
+}
+.settings-relay-always {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--accent);
+}
 .scheme-grid {
   display: grid;
   gap: 0.65rem;

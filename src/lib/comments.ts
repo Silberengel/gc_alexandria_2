@@ -5,7 +5,14 @@ import { type MuteState, isMutedEvent } from './mute';
 import { publicationCoordinateLookupKeys, coordinatesOverlap } from './publication-coordinate';
 import { fetchByIds } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
-import { documentStack, highlightStack, socialSearchStack, socialStack } from './nostr/selector';
+import { authorInbox, withPreferredRelays } from './nostr/mailboxes';
+import {
+  documentStack,
+  foreignRelaysAllowed,
+  highlightStack,
+  socialSearchStack,
+  socialStack
+} from './nostr/selector';
 import { eventAddress } from './nostr/verify';
 import { splitNostrRefs } from './nostr-refs';
 
@@ -372,7 +379,8 @@ export async function resolveMissingCommentParents(
   events: Event[],
   rootEventIds: Iterable<string> = [],
   maxHops = 4,
-  target?: Event
+  target?: Event,
+  opInbox: string[] = []
 ): Promise<Event[]> {
   const byId = new Map<string, Event>();
   for (const e of events) {
@@ -386,13 +394,20 @@ export async function resolveMissingCommentParents(
     if (!missing.length) break;
 
     const hintMap = eTagRelayHints(batch);
-    const hintRelays = [...new Set(missing.flatMap((id) => hintMap.get(id) ?? []))];
-    const searchRelays = [...new Set([...hintRelays, ...socialSearchStack()])];
+    const foreign = foreignRelaysAllowed();
+    const hintRelays = foreign
+      ? [...new Set(missing.flatMap((id) => hintMap.get(id) ?? []))]
+      : [];
+    const searchScope = withPreferredRelays(
+      foreign ? [...new Set([...hintRelays, ...socialSearchStack()])] : [],
+      opInbox,
+      6
+    );
     const fromSearch = await relayPool.query(
-      searchRelays,
+      searchScope.relays,
       [{ ids: missing, limit: missing.length }],
       4000,
-      6
+      searchScope.maxRelays
     );
     for (const e of fromSearch) {
       if (e?.id) byId.set(e.id.toLowerCase(), e);
@@ -400,11 +415,12 @@ export async function resolveMissingCommentParents(
 
     let still = missing.filter((id) => !byId.has(id));
     if (still.length) {
+      const threadScope = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
       const fromThread = await relayPool.query(
-        threadRelayUniverse(),
+        threadScope.relays,
         [{ ids: still, limit: still.length }],
         4000,
-        4
+        threadScope.maxRelays
       );
       for (const e of fromThread) {
         if (e?.id) byId.set(e.id.toLowerCase(), e);
@@ -780,14 +796,19 @@ function nip73Values(target: Event): string[] {
 
 /**
  * Responses of any kind by #e #E #a #A #q (and #I/#i when the OP has NIP-73 scopes).
- * Uses social + document stacks (inbox/outbox/favorites when signed in).
+ * Uses social + document stacks (the viewer's inbox/outbox/favorites when signed in)
+ * plus the OP author's inbox, so responses written there are visible.
  */
 export async function fetchWorkResponses(target: Event, limit = 40): Promise<WorkResponses> {
   const a = eventAddress(target);
   const id = target.id.toLowerCase();
   const addrKeys = [...new Set(publicationCoordinateLookupKeys(a))].slice(0, 12);
-  const relays = threadRelayUniverse();
-  const maxRelays = 4;
+  // OP inbox only — replies written so the author can see them. Not their outbox,
+  // and not every participant's write relays.
+  const opInbox = foreignRelaysAllowed() ? await authorInbox(target.pubkey) : [];
+  const scoped = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
+  const relays = scoped.relays;
+  const maxRelays = scoped.maxRelays;
   const scopes = nip73Values(target);
 
   const filters: Filter[] = [];
@@ -825,7 +846,13 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
     }
   }
 
-  const recovered = await resolveMissingCommentParents([...byEventId.values()], [target.id], 4, target);
+  const recovered = await resolveMissingCommentParents(
+    [...byEventId.values()],
+    [target.id],
+    4,
+    target,
+    opInbox
+  );
   for (const e of recovered) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }

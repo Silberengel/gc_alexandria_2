@@ -4,7 +4,16 @@ import { KIND, LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { relayPool } from '../nostr/pool';
-import { documentStack, profileStack, setSelectorContext, socialStack, viewerOutboxStack, writeStack } from '../nostr/selector';
+import {
+  documentStack,
+  foreignRelaysAllowed,
+  profileStack,
+  setSelectorContext,
+  socialStack,
+  viewerOutboxStack,
+  writeStack
+} from '../nostr/selector';
+import { inboxRelaysForResponse, uniqueRelayUrls } from '../nostr/mailboxes';
 import { nip65InboxOutbox, relayTagUrls } from '../nostr/nip65';
 import { mergeRememberedMetadata } from '../session-metadata';
 import { pruneToLatestReplaceables } from '../nostr/replaceable';
@@ -132,7 +141,7 @@ function createSessionStore() {
     applyMuteList(parseMuteList(muteEvent, extra));
   }
 
-  async function applyRelayContextFromEvents(events: Event[]): Promise<void> {
+  async function applyRelayContextFromEvents(events: Event[], viewerPubkey: string): Promise<void> {
     const relayList = latestReplaceable(events, KIND.RELAY_LIST);
     const favoriteList = latestReplaceable(events, KIND.FAVORITE);
     const blockedList = latestReplaceable(events, KIND.BLOCKED);
@@ -140,6 +149,7 @@ function createSessionStore() {
     const { inbox, outbox } = nip65InboxOutbox(relayList);
     setSelectorContext({
       signedIn: true,
+      viewerPubkey,
       inbox,
       outbox,
       favorites: relayTagUrls(favoriteList),
@@ -183,7 +193,7 @@ function createSessionStore() {
         ...(bootSocial.status === 'fulfilled' ? bootSocial.value : []),
         ...(bootProfile.status === 'fulfilled' ? bootProfile.value : [])
       ];
-      await applyRelayContextFromEvents(bootEvents);
+      await applyRelayContextFromEvents(bootEvents, pubkey);
 
       // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
       const outboxSocial = viewerOutboxStack();
@@ -250,7 +260,7 @@ function createSessionStore() {
         void applyMuteFromMetadata(metadataEvents).catch(() => {});
       }, 3500);
 
-      await applyRelayContextFromEvents(metadataEvents);
+      await applyRelayContextFromEvents(metadataEvents, pubkey);
       void import('../trusted-assertions').then(({ trustedAssertions }) => {
         trustedAssertions.resetForViewer(pubkey);
         void trustedAssertions.resolveProvider(pubkey);
@@ -271,6 +281,7 @@ function createSessionStore() {
       metadata.set(metadataEvents);
       setSelectorContext({
         signedIn: true,
+        viewerPubkey: pubkey,
         inbox: [],
         outbox: [],
         favorites: [],
@@ -470,7 +481,15 @@ function createSessionStore() {
     metadataEvents = [];
     metadata.set([]);
     clearMute();
-    setSelectorContext({ signedIn: false, inbox: [], outbox: [], favorites: [], local: [], blocked: [] });
+    setSelectorContext({
+      signedIn: false,
+      viewerPubkey: '',
+      inbox: [],
+      outbox: [],
+      favorites: [],
+      local: [],
+      blocked: []
+    });
     relayPool.setSignedIn(false);
     if (previousSigner && 'close' in previousSigner && typeof previousSigner.close === 'function') {
       void (previousSigner as { close: () => Promise<void> }).close();
@@ -552,7 +571,22 @@ function createSessionStore() {
       /* private mode / quota */
     }
     rememberEvent(event);
-    const relays = writeStack();
+    // Responses also go to the other person's inbox when Outboxes is on.
+    // Off: publish only reaches the viewer's own write relays.
+    let extra: string[] = [];
+    if (foreignRelaysAllowed()) {
+      try {
+        extra = await Promise.race([
+          inboxRelaysForResponse(event),
+          new Promise<string[]>((resolve) => {
+            setTimeout(() => resolve([]), 2500);
+          })
+        ]);
+      } catch {
+        extra = [];
+      }
+    }
+    const relays = uniqueRelayUrls([...writeStack(), ...extra]);
     let timer = 0;
     const timeout = new Promise<boolean>((resolve) => {
       timer = window.setTimeout(() => resolve(false), 8_000);

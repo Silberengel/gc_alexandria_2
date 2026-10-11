@@ -5,6 +5,7 @@ import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
 import { isMercuryUnavailable, isMercuryDocumentFilter } from './mercury';
 import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
+import { constrainRelays } from './selector';
 import { ingestEvent } from './verify';
 
 function waitForWindowLoad(): Promise<void> {
@@ -40,7 +41,8 @@ function usableRelays(
 ): string[] {
   const mercury = MERCURY_WSS.replace(/\/+$/, '').toLowerCase();
   const out: string[] = [];
-  for (const url of webSocketRelays(urls)) {
+  // Allowlist before the cap, so a disallowed hint cannot crowd out a permitted relay.
+  for (const url of webSocketRelays(constrainRelays(urls))) {
     const key = url.replace(/\/+$/, '').toLowerCase();
     if (key === mercury && (!allowMercuryWss || isMercuryUnavailable())) continue;
     if (skipKeys.has(key)) continue;
@@ -363,7 +365,7 @@ class RelayPool {
   async publish(relays: string[], event: Event): Promise<number> {
     if (!this.signedIn) return 0;
     try {
-      const wssRelays = writeWebSocketRelays(relays);
+      const wssRelays = writeWebSocketRelays(constrainRelays(relays));
       if (!wssRelays.length) return 0;
       // SimplePool.publish returns Promise[] — one per relay, fulfilled on OK.
       const pubs = this.pool.publish(wssRelays, event);

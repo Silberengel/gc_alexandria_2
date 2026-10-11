@@ -10,7 +10,8 @@
   import { listingPageSize } from '$lib/listing-table';
   import { KIND, READING_CONCURRENT_DEFAULT } from '$lib/constants';
   import { relayPool } from '$lib/nostr/pool';
-  import { documentStack, profileStack, socialStack } from '$lib/nostr/selector';
+  import { authorMailboxes, withPreferredRelays } from '$lib/nostr/mailboxes';
+  import { documentStack, foreignRelaysAllowed, profileStack, socialStack } from '$lib/nostr/selector';
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { countReadsByAuthor } from '$lib/search';
@@ -446,6 +447,11 @@
         if (snap) applyPageSnapshot(snap);
       }
 
+      // Their NIP-65 outbox, only when Outboxes is on. Otherwise stay on our relays and the viewer's.
+      const mailboxesP = foreignRelaysAllowed()
+        ? authorMailboxes(nextPk)
+        : Promise.resolve({ inbox: [] as string[], outbox: [] as string[] });
+
       // 3) Kind-0 first, priority slot — do not wait on social/document fan-out.
       const kind0Hits = await relayPool.query(
         profileStack(),
@@ -473,6 +479,33 @@
         return;
       }
 
+      const authorOutbox = (await mailboxesP).outbox;
+      if (cancelled) return;
+      if (!fresh && authorOutbox.length) {
+        const fromOutbox = await relayPool.query(
+          authorOutbox,
+          [{ kinds: [KIND.METADATA], authors: [nextPk], limit: 1 }],
+          4000,
+          Math.min(authorOutbox.length, 4),
+          undefined,
+          { priority: true }
+        );
+        if (cancelled) return;
+        const meta = pickLatestReplaceable(fromOutbox, KIND.METADATA, nextPk);
+        if (meta) applyProfileMeta(meta);
+      }
+
+      const queryAuthored = (
+        base: string[],
+        filters: Parameters<typeof relayPool.query>[1],
+        timeout: number,
+        baseMax: number,
+        opts?: { priority?: boolean }
+      ) => {
+        const scope = withPreferredRelays(base, authorOutbox, baseMax);
+        return relayPool.query(scope.relays, filters, timeout, scope.maxRelays, undefined, opts);
+      };
+
       let statusEventsAcc: Event[] = snap?.statusEvents ?? [];
       let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
 
@@ -490,9 +523,8 @@
               const relays = (docKinds as number[]).includes(filterKind)
                 ? documentStack()
                 : [...new Set([...socialStack(), ...documentStack()])];
-              return relayPool
-                .query(relays, [authoredFilter], 8000, 5, undefined, { priority: true })
-                .then((authored) => {
+              return queryAuthored(relays, [authoredFilter], 8000, 5, { priority: true }).then(
+                (authored) => {
                   if (cancelled) return;
                   const byId = new Map<string, Event>();
                   for (const e of untrack(() => produced)) {
@@ -501,12 +533,11 @@
                   for (const e of authored) byId.set(e.id, e);
                   produced = pruneToLatestReplaceables([...byId.values()]);
                   rememberEvents(produced);
-                });
+                }
+              );
             })()
           : Promise.all([
-              relayPool.query(documentStack(), [authoredFilter], 8000, 5, undefined, {
-                priority: true
-              }),
+              queryAuthored(documentStack(), [authoredFilter], 8000, 5, { priority: true }),
               mercuryFilter(creditedFilter).then(async (m) =>
                 m.length
                   ? m
@@ -523,8 +554,8 @@
             });
 
       const statusP = Promise.all([
-        relayPool.query(socialStack(), [statusFilter], 5000, 4),
-        relayPool.query(profileStack(), [statusFilter], 5000, 4)
+        queryAuthored(socialStack(), [statusFilter], 5000, 4),
+        queryAuthored(profileStack(), [statusFilter], 5000, 4)
       ]).then(([statusSocial, statusProfile]) => {
         if (cancelled) return;
         const statusById = new Map<string, Event>();
@@ -536,8 +567,8 @@
       });
 
       const payP = Promise.all([
-        relayPool.query(socialStack(), [paymentFilter], 5000, 4),
-        relayPool.query(profileStack(), [paymentFilter], 5000, 4)
+        queryAuthored(socialStack(), [paymentFilter], 5000, 4),
+        queryAuthored(profileStack(), [paymentFilter], 5000, 4)
       ]).then(([paySocial, payProfile]) => {
         if (cancelled) return;
         const payById = new Map<string, Event>();
@@ -557,13 +588,12 @@
       const queueP =
         filterKind != null
           ? Promise.resolve()
-          : relayPool
-              .query(
-                socialStack(),
-                [{ kinds: [KIND.READING_QUEUE], authors: [nextPk], limit: 5 }],
-                4000,
-                2
-              )
+          : queryAuthored(
+              socialStack(),
+              [{ kinds: [KIND.READING_QUEUE], authors: [nextPk], limit: 5 }],
+              4000,
+              2
+            )
               .then(async (queueHits) => {
                 if (cancelled) return;
                 const queueEv = latestReplaceable(queueHits, KIND.READING_QUEUE);
@@ -595,42 +625,22 @@
         filterKind != null
           ? Promise.resolve()
           : Promise.all([
-              relayPool.query(
-                socialStack(),
-                [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }],
-                8000,
-                4
-              ),
-              relayPool.query(
-                socialStack(),
-                [{ kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 5 }],
-                5000,
-                4
-              ),
-              relayPool.query(
+              queryAuthored(socialStack(), [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }], 8000, 4),
+              queryAuthored(socialStack(), [{ kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 5 }], 5000, 4),
+              queryAuthored(
                 documentStack(),
                 [{ kinds: [KIND.DIRECTORY], authors: [nextPk], limit: 40 }],
                 8000,
                 4
               ),
-              relayPool.query(
+              queryAuthored(
                 socialStack(),
                 [{ kinds: [KIND.HIGHLIGHT], authors: [nextPk], limit: 40 }],
                 8000,
                 4
               ),
-              relayPool.query(
-                socialStack(),
-                [{ kinds: [KIND.COMMENT], authors: [nextPk], limit: 40 }],
-                8000,
-                4
-              ),
-              relayPool.query(
-                socialStack(),
-                [{ kinds: [KIND.RATING], authors: [nextPk], limit: 40 }],
-                8000,
-                4
-              )
+              queryAuthored(socialStack(), [{ kinds: [KIND.COMMENT], authors: [nextPk], limit: 40 }], 8000, 4),
+              queryAuthored(socialStack(), [{ kinds: [KIND.RATING], authors: [nextPk], limit: 40 }], 8000, 4)
             ]).then(async ([labels, bookmarks, dirs, highs, comms, rates]) => {
               if (cancelled) return;
               const interactionEvents = [

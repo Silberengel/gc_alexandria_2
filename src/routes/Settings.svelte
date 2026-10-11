@@ -3,6 +3,7 @@
   import TopBar from '$lib/components/TopBar.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { appearance, type Scheme } from '$lib/stores/appearance';
+  import { relayPrefs } from '$lib/stores/relay-prefs';
   import { trust } from '$lib/stores/trust';
   import { readingPrefs } from '$lib/stores/reading-prefs';
   import { localReadingQueue } from '$lib/stores/local-reading-queue';
@@ -111,6 +112,53 @@
     <h1>Settings</h1>
     <p class="page-lede muted">Tune reading comfort, palette, and trust without leaving the library.</p>
   </header>
+
+  {#if $session.pubkey}
+    <section class="settings-panel">
+      <header class="settings-panel-head">
+        <h2>Relays</h2>
+        <p class="muted">
+          Saved in this browser. With Outboxes off, reads and publishes stay on your relays,
+          plus GitCitadel's if that is on.
+        </p>
+      </header>
+      <div class="settings-relay-fixed">
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">My own relay lists</span>
+          <span class="muted">Always on. Your inbox, outbox, favorites, and local relays.</span>
+        </span>
+        <span class="settings-relay-always">Always on</span>
+      </div>
+      <label class="settings-toggle" class:settings-toggle-on={$relayPrefs.gitcitadel}>
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">GitCitadel's favorite relays</span>
+          <span class="muted">
+            Relays Alexandria ships with, including thecitadel, theforest, and Mercury.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={$relayPrefs.gitcitadel}
+          onchange={(e) => relayPrefs.setGitcitadel((e.target as HTMLInputElement).checked)}
+        />
+      </label>
+      <label class="settings-toggle" class:settings-toggle-on={$relayPrefs.outboxes}>
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Outboxes</span>
+          <span class="muted">
+            Other people's relays: their write relays on a profile, their read relays when you
+            open or answer a thread, and popular relays when searching for a missing note. Off
+            leaves only your relays, plus GitCitadel's if that is on.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={$relayPrefs.outboxes}
+          onchange={(e) => relayPrefs.setOutboxes((e.target as HTMLInputElement).checked)}
+        />
+      </label>
+    </section>
+  {/if}
 
   <section class="settings-panel">
     <header class="settings-panel-head">

@@ -3,6 +3,7 @@ import { KIND, MERCURY_HTTP, MERCURY_WSS } from '../constants';
 import { ingestEvent } from './verify';
 import { cachePutMany } from './cache';
 import { noteEventSource } from './event-sources';
+import { gitcitadelReadsAllowed } from './selector';
 
 /** Mercury indexes only these document kinds: 30023, 30817, 30818, 30040, 30041. */
 export const MERCURY_DOCUMENT_KINDS = new Set<number>([
@@ -172,6 +173,7 @@ async function mercuryRequest(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response | null> {
+  if (!gitcitadelReadsAllowed()) return null;
   if (mercurySkipped()) return null;
   const run = mercuryChain.then(() => mercuryRequestOnce(path, init), () => mercuryRequestOnce(path, init));
   mercuryChain = run.then(() => undefined, () => undefined);
@@ -182,6 +184,7 @@ async function mercuryRequestOnce(
   path: string,
   init?: RequestInit & { timeoutMs?: number }
 ): Promise<Response | null> {
+  if (!gitcitadelReadsAllowed()) return null;
   if (mercurySkipped()) return null;
   const timeoutMs = init?.timeoutMs ?? MERCURY_FETCH_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);

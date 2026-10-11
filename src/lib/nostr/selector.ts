@@ -1,6 +1,9 @@
 import {
   AGGR_RELAY,
+  BRAINSTORM_SEARCH_RELAY_URL,
   DOCUMENT_SEARCH_RELAYS,
+  GRAPEVINE_SCORES_RELAY_URL,
+  GRAPEVINE_SCORES_STAGING_RELAY_URL,
   MERCURY_HTTP,
   MERCURY_WSS,
   PROFILE_RELAYS,
@@ -10,10 +13,13 @@ import {
   WIKI_RELAYS,
   type StackKind
 } from '../constants';
+import { relayPrefs } from '../stores/relay-prefs';
 import { webSocketRelays, writeWebSocketRelays } from './relay-filters';
 
 export type SelectorContext = {
   signedIn: boolean;
+  /** Signed-in viewer. Used to reuse their NIP-65 lists without a second lookup. */
+  viewerPubkey: string;
   inbox: string[];
   outbox: string[];
   favorites: string[];
@@ -23,6 +29,7 @@ export type SelectorContext = {
 
 const defaultCtx: SelectorContext = {
   signedIn: false,
+  viewerPubkey: '',
   inbox: [],
   outbox: [],
   favorites: [],
@@ -56,17 +63,87 @@ function stackUrls(urls: string[]): string[] {
   return webSocketRelays(dedupe(urls));
 }
 
+function relayKey(url: string): string {
+  return url.replace(/\/+$/, '').toLowerCase();
+}
+
+/** Relays Alexandria ships with. Not Damus / Primal / other public social hosts. */
+const GITCITADEL_RELAYS = [
+  ...DOCUMENT_SEARCH_RELAYS,
+  ...SOCIAL_RELAYS,
+  ...PROFILE_RELAYS,
+  ...WIKI_RELAYS,
+  AGGR_RELAY,
+  BRAINSTORM_SEARCH_RELAY_URL,
+  GRAPEVINE_SCORES_RELAY_URL,
+  GRAPEVINE_SCORES_STAGING_RELAY_URL
+];
+
+function gitcitadelRelayKeys(): Set<string> {
+  return new Set(GITCITADEL_RELAYS.map(relayKey));
+}
+
+/** Inbox, outbox, favorites, and local relays. Empty when signed out. */
+function viewerRelayLists(): string[] {
+  if (!ctx.signedIn) return [];
+  return [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
+}
+
+function viewerListedNostrLand(): boolean {
+  return viewerRelayLists().some((u) => {
+    const x = u.toLowerCase();
+    return x.includes('nostr.land') && !x.includes('aggr.nostr.land');
+  });
+}
+
+/** Signed out, or signed in with GitCitadel's relays left on. */
+export function gitcitadelReadsAllowed(): boolean {
+  if (!ctx.signedIn) return true;
+  return relayPrefs.get().gitcitadel;
+}
+
+/**
+ * Other people's relays. Only when signed in and the Outboxes setting is on.
+ * Signed-out sessions stay on the hard-coded set.
+ */
+export function foreignRelaysAllowed(): boolean {
+  return ctx.signedIn && relayPrefs.get().outboxes;
+}
+
+/**
+ * Drop every relay this session is not allowed to dial.
+ * Signed out: GitCitadel's hard-coded relays only.
+ * Signed in, Outboxes off: the viewer's lists, plus GitCitadel's when that toggle is on.
+ * Signed in, Outboxes on: callers may also pass one author's inbox or outbox, or the
+ * popular note-search relays. Those URLs are not rewritten here.
+ */
+export function constrainRelays(urls: string[]): string[] {
+  if (foreignRelaysAllowed()) return urls;
+  const allow = new Set<string>();
+  if (gitcitadelReadsAllowed()) {
+    for (const key of gitcitadelRelayKeys()) allow.add(key);
+  }
+  for (const url of viewerRelayLists()) allow.add(relayKey(url));
+  return urls.filter((url) => allow.has(relayKey(url)));
+}
+
+/**
+ * Hard-coded relays (when signed out, or when the GitCitadel toggle is on) plus the
+ * viewer's own lists when signed in. Never another person's relays.
+ */
+function composeReadStack(hardcoded: readonly string[], personal: string[] = viewerRelayLists()): string[] {
+  const shipped = gitcitadelReadsAllowed() ? hardcoded : [];
+  return maybeAggr(withoutBlocked(stackUrls([...shipped, ...personal])));
+}
+
 function withoutBlocked(urls: string[]): string[] {
   const blocked = new Set(ctx.blocked.map((u) => u.replace(/\/+$/, '').toLowerCase()));
   return urls.filter((u) => !blocked.has(u.replace(/\/+$/, '').toLowerCase()));
 }
 
 function maybeAggr(urls: string[]): string[] {
-  if (!ctx.signedIn) return urls;
-  const hasNostrLand = [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local].some((u) => {
-    const x = u.toLowerCase();
-    return x.includes('nostr.land') && !x.includes('aggr.nostr.land');
-  });
+  if (!ctx.signedIn || !gitcitadelReadsAllowed()) return urls;
+  const hasNostrLand = viewerListedNostrLand();
   if (!hasNostrLand) return urls;
   if (urls.some((u) => u.toLowerCase().includes('aggr.nostr.land'))) return urls;
   const idx = urls.findIndex((u) => u.toLowerCase().includes('nostr.land'));
@@ -76,35 +153,27 @@ function maybeAggr(urls: string[]): string[] {
   return [AGGR_RELAY, ...urls];
 }
 
-/** Document/search WebSocket stack (Mercury read-only WSS + Citadel + third-party). */
+/**
+ * Document/search WebSocket stack (Mercury read-only WSS + Citadel + third-party).
+ * Hard-coded relays, plus the viewer's own lists when signed in and never someone else's.
+ */
 export function documentStack(): string[] {
-  let relays: string[] = [...DOCUMENT_SEARCH_RELAYS];
-  if (ctx.signedIn) {
-    // Defaults first so a 5-relay cap still hits library hosts; personal outboxes follow
-    // (strict outbox-first reads use viewerOutboxStack).
-    relays = [...DOCUMENT_SEARCH_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
-  }
-  return maybeAggr(withoutBlocked(stackUrls(relays)));
+  return composeReadStack(DOCUMENT_SEARCH_RELAYS);
 }
 
 /**
- * Resolve 30040 covers for shelves: library/index relays first, then the viewer's
- * inbox/outbox (NIP-65) so personal mirrors and a-tag hints still win.
- * Do not put personal write relays alone at the front — a 2–5 relay cap would then
- * never reach thecitadel/Mercury where most editions live.
+ * Resolve 30040 covers for shelves: library relays first, then the viewer's own lists.
+ * Personal write relays stay behind the library hosts so a small relay cap still
+ * reaches thecitadel and Mercury.
  */
 export function publicationSearchStack(): string[] {
-  let relays: string[] = [...DOCUMENT_SEARCH_RELAYS];
-  if (ctx.signedIn) {
-    relays = [
-      ...DOCUMENT_SEARCH_RELAYS,
-      ...ctx.outbox,
-      ...ctx.inbox,
-      ...ctx.favorites,
-      ...ctx.local
-    ];
-  }
-  return maybeAggr(withoutBlocked(stackUrls(relays)));
+  if (!ctx.signedIn) return composeReadStack(DOCUMENT_SEARCH_RELAYS);
+  return composeReadStack(DOCUMENT_SEARCH_RELAYS, [
+    ...ctx.outbox,
+    ...ctx.inbox,
+    ...ctx.favorites,
+    ...ctx.local
+  ]);
 }
 
 /**
@@ -114,40 +183,38 @@ export function publicationSearchStack(): string[] {
  */
 export function viewerOutboxStack(): string[] {
   if (!ctx.signedIn) return socialStack().slice(0, 3);
-  const personal = withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
-  if (personal.length) return withoutBlocked(stackUrls(personal));
+  const personal = withoutBlocked(stackUrls([...ctx.outbox, ...ctx.favorites, ...ctx.local]));
+  if (personal.length) return personal;
+  if (!gitcitadelReadsAllowed()) return [];
   return withoutBlocked(stackUrls([...SOCIAL_RELAYS.slice(0, 2), ...DOCUMENT_SEARCH_RELAYS.slice(0, 2)]));
 }
 
 /** Wiki read stack — wiki hosts first so a 2–3 relay cap still reaches them. */
 export function wikiStack(): string[] {
-  return withoutBlocked(stackUrls([...WIKI_RELAYS, ...documentStack()]));
+  const wiki = gitcitadelReadsAllowed() ? WIKI_RELAYS : [];
+  return withoutBlocked(stackUrls([...wiki, ...documentStack()]));
 }
 
-/** Social/interaction stack — library hosts. Kind 1 search relays are {@link socialSearchStack}. */
+/** Social/interaction stack — library hosts plus the viewer's own lists. */
 export function socialStack(): string[] {
-  let relays: string[] = [...SOCIAL_RELAYS];
-  if (ctx.signedIn) {
-    relays = [...SOCIAL_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
-  }
-  return maybeAggr(withoutBlocked(stackUrls(relays)));
+  return composeReadStack(SOCIAL_RELAYS);
 }
 
-/** Damus / Primal / nos.lol / nostr.mom — NIP-10 parent lookup, not the default social cap. */
+/**
+ * Damus, Primal, and the other popular relays used only to find a missing note.
+ * Empty unless the signed-in viewer has Outboxes on.
+ */
 export function socialSearchStack(): string[] {
+  if (!foreignRelaysAllowed()) return [];
   return withoutBlocked(stackUrls([...SOCIAL_SEARCH_RELAYS]));
 }
 
 /**
- * Kind-0 profile hydration — jumble-style profile mirrors plus the signed-in viewer's own relays.
+ * Kind-0 profile hydration — profile mirrors plus the signed-in viewer's own relays.
  * Mercury is document-only and is never included.
  */
 export function profileStack(): string[] {
-  let relays: string[] = [...PROFILE_RELAYS];
-  if (ctx.signedIn) {
-    relays = [...PROFILE_RELAYS, ...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
-  }
-  return withoutBlocked(stackUrls(relays));
+  return composeReadStack(PROFILE_RELAYS);
 }
 
 /** Highlight list unions document + social */

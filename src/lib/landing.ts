@@ -605,22 +605,6 @@ function landingRatings(...lists: Event[][]): Event[] {
   return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
 }
 
-/** Relay hints from `["a", coord, relayUrl]` on bookmark/label/directory events. */
-function relayHintsForAddresses(events: Event[]): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const event of events) {
-    for (const tag of event.tags) {
-      if (tag[0] !== 'a' || !tag[1] || !tag[2]) continue;
-      const hint = tag[2].trim();
-      if (!/^wss?:\/\//i.test(hint)) continue;
-      const list = out.get(tag[1]) ?? [];
-      if (!list.includes(hint)) list.push(hint);
-      out.set(tag[1], list);
-    }
-  }
-  return out;
-}
-
 async function resolveShelfPublications(
   memberships: Membership[],
   known: Event[],
@@ -628,7 +612,6 @@ async function resolveShelfPublications(
     networkBudgetMs?: number;
     maxAddrs?: number;
     maxGroups?: number;
-    hintEvents?: Event[];
   }
 ): Promise<Map<string, Event>> {
   const byAddr = new Map<string, Event>();
@@ -658,8 +641,6 @@ async function resolveShelfPublications(
     ...curatorTake,
     ...otherMissing.slice(0, Math.max(0, maxAddrs - curatorTake.length))
   ];
-
-  const hints = relayHintsForAddresses(opts?.hintEvents ?? []);
 
   const run = async (): Promise<void> => {
     // Fast local only — never O(n) Cache Storage scans per address (that hung My shelf).
@@ -693,7 +674,7 @@ async function resolveShelfPublications(
       if (event?.kind === KIND.PUBLICATION) putNewest(byAddr, addr, event);
     }
 
-    type AuthorGroup = { pubkey: string; ds: string[]; hintRelays: string[]; curator: boolean };
+    type AuthorGroup = { pubkey: string; ds: string[]; curator: boolean };
     const groups = new Map<string, AuthorGroup>();
     for (const addr of missingAddrs) {
       if (byAddr.has(addr)) continue;
@@ -704,14 +685,10 @@ async function resolveShelfPublications(
         groups.get(parsed.pubkey) ?? {
           pubkey: parsed.pubkey,
           ds: [],
-          hintRelays: [],
           curator: false
         };
       if (!g.ds.includes(parsed.d)) g.ds.push(parsed.d);
       if (curatorTake.includes(addr)) g.curator = true;
-      for (const url of hints.get(addr) ?? []) {
-        if (!g.hintRelays.includes(url)) g.hintRelays.push(url);
-      }
       groups.set(parsed.pubkey, g);
     }
 
@@ -736,7 +713,7 @@ async function resolveShelfPublications(
       }
       const still = dValues.filter((d) => !byAddr.has(`${KIND.PUBLICATION}:${group.pubkey}:${d}`));
       if (!still.length) return;
-      const relays = [...group.hintRelays, ...publicationSearchStack()];
+      const relays = publicationSearchStack();
       try {
         const ws = await relayPool.query(
           relays,
@@ -933,8 +910,7 @@ async function loadShelvesAndLabels(
     {
       ...(viewerOnly
         ? { networkBudgetMs: 5_000, maxAddrs: 24, maxGroups: 6 }
-        : { networkBudgetMs: 7_000, maxAddrs: 24, maxGroups: 4 }),
-      hintEvents: combined
+        : { networkBudgetMs: 7_000, maxAddrs: 24, maxGroups: 4 })
     }
   );
   await enrichPublicationParents(publications);
