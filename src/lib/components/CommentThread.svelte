@@ -25,6 +25,8 @@
     highlights?: Event[];
     zaps?: Event[];
     boosts?: Event[];
+    /** Embedded events inside this row use the one-line link. */
+    lineEmbeds?: boolean;
   }
 
   let {
@@ -35,7 +37,8 @@
     onPublished,
     highlights = [],
     zaps = [],
-    boosts = []
+    boosts = [],
+    lineEmbeds = false
   }: Props = $props();
 
   let reply = $state('');
@@ -132,7 +135,7 @@
       </div>
     </div>
     <div class="thread-body">
-      <EventBody {event} quotes={highlightQuotes} />
+      <EventBody {event} quotes={highlightQuotes} {lineEmbeds} />
     </div>
     {#if open && canReply}
       <ThreadCompose

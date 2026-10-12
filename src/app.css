@@ -2532,6 +2532,21 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   object-fit: contain;
   margin-inline: auto;
 }
+.event-body img:not(.content-emoji):not(.userbadge-avatar),
+.event-body video,
+.reading-body img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body video,
+.reader-section img:not(.content-emoji):not(.userbadge-avatar),
+.reader-section video,
+.thread-body img:not(.content-emoji):not(.userbadge-avatar),
+.thread-body video {
+  margin-block: 1.35rem;
+  max-width: calc(100% - 1.7rem) !important;
+}
+.embed-event-thumb img,
+.cover-frame img {
+  margin-block: 0;
+}
 
 /* NIP-30 / shortcode custom emoji — stay inline with text, not block media. */
 .event-body img.content-emoji,
@@ -2779,8 +2794,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   gap: 0.5rem;
   margin: 0;
   padding: 0.55rem 0.9rem;
-  max-width: min(22rem, calc(100vw - 2rem));
+  max-width: min(36rem, calc(100vw - 2rem));
   border-radius: 999px;
+  line-height: 1.35;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -3521,8 +3537,17 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .generic-card,
 .note-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
   padding-right: 2.5rem;
+  /* Same inset as a feed card. The clip is the inner box, so this padding stays visible. */
+  padding-bottom: 1.85rem;
   max-height: 250px;
+  overflow: hidden;
+}
+.card-clip {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
 }
 .generic-card:has(.event-more-menu-open),
@@ -3580,7 +3605,10 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 }
 .result-card-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
   max-height: 250px;
+  padding-bottom: 1.85rem;
   overflow: hidden;
 }
 .result-card-wrap:has(.event-more-menu-open) {
@@ -4028,6 +4056,20 @@ a.embed-event-line:focus-visible {
 .heart-icon {
   display: block;
   flex: 0 0 auto;
+}
+.heart-btn.heart-pending .heart-icon {
+  animation: heart-wait 1.1s ease-in-out infinite;
+}
+@keyframes heart-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .heart-btn.heart-pending .heart-icon {
+    animation: none;
+    opacity: 0.55;
+  }
 }
 .heart-count,
 .read-count {

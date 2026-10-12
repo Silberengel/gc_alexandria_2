@@ -3040,7 +3040,11 @@
     if (sectionResponses[a] || sectionComments[a]) return;
     sectionCommentsLoading = { ...sectionCommentsLoading, [a]: true };
     try {
-      const hit = await fetchWorkResponses(section, 40);
+      const hit = await fetchWorkResponses(section, 40, (cached) => {
+        sectionResponses = { ...sectionResponses, [a]: cached };
+        sectionComments = { ...sectionComments, [a]: cached.thread };
+        sectionCommentsLoading = { ...sectionCommentsLoading, [a]: false };
+      });
       sectionResponses = { ...sectionResponses, [a]: hit };
       sectionComments = { ...sectionComments, [a]: hit.thread };
     } finally {

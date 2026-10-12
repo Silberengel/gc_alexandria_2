@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
-import { memoryFindByAddress, rememberEvents } from './event-memory';
+import { memoryEventsByKind, memoryEventsReferencing, memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
 import { firstTag, ingestEvent, ingestTrustedEvent } from './verify';
 
@@ -562,6 +562,120 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
   }
 }
 
+const SOCIAL_INDEX_KEY = 'alexandria-social-index';
+const SOCIAL_INDEX_KINDS = new Set<number>([
+  KIND.TEXT_NOTE,
+  KIND.REACTION,
+  KIND.COMMENT,
+  KIND.DJOT,
+  KIND.PICTURE,
+  KIND.VIDEO,
+  KIND.LONG_FORM,
+  KIND.PUBLICATION,
+  KIND.WIKI,
+  KIND.SPEC
+]);
+const SOCIAL_KIND_CAP = 200;
+const SOCIAL_TARGET_CAP = 80;
+const SOCIAL_TARGET_KEYS = 400;
+
+type SocialIndex = {
+  byKind: Record<string, string[]>;
+  byTarget: Record<string, string[]>;
+};
+
+function emptySocialIndex(): SocialIndex {
+  return { byKind: {}, byTarget: {} };
+}
+
+function readSocialIndex(): SocialIndex {
+  try {
+    const raw = localStorage.getItem(SOCIAL_INDEX_KEY);
+    if (!raw) return emptySocialIndex();
+    const parsed = JSON.parse(raw) as SocialIndex;
+    if (!parsed || typeof parsed !== 'object') return emptySocialIndex();
+    return {
+      byKind: parsed.byKind && typeof parsed.byKind === 'object' ? parsed.byKind : {},
+      byTarget: parsed.byTarget && typeof parsed.byTarget === 'object' ? parsed.byTarget : {}
+    };
+  } catch {
+    return emptySocialIndex();
+  }
+}
+
+function pushCapped(list: string[] | undefined, id: string, cap: number): string[] {
+  const next = (list ?? []).filter((item) => item !== id);
+  next.push(id);
+  return next.length > cap ? next.slice(next.length - cap) : next;
+}
+
+function noteSocialIndex(event: Event): void {
+  if (!SOCIAL_INDEX_KINDS.has(event.kind) || typeof localStorage === 'undefined') return;
+  const index = readSocialIndex();
+  const id = event.id.toLowerCase();
+  const kindKey = String(event.kind);
+  index.byKind[kindKey] = pushCapped(index.byKind[kindKey], id, SOCIAL_KIND_CAP);
+  for (const tag of event.tags) {
+    if (tag[0] !== 'e' && tag[0] !== 'E' && tag[0] !== 'q') continue;
+    const target = tag[1]?.trim().toLowerCase() ?? '';
+    if (!/^[0-9a-f]{64}$/.test(target)) continue;
+    index.byTarget[target] = pushCapped(index.byTarget[target], id, SOCIAL_TARGET_CAP);
+  }
+  const keys = Object.keys(index.byTarget);
+  if (keys.length > SOCIAL_TARGET_KEYS) {
+    for (const key of keys.slice(0, keys.length - SOCIAL_TARGET_KEYS)) delete index.byTarget[key];
+  }
+  try {
+    localStorage.setItem(SOCIAL_INDEX_KEY, JSON.stringify(index));
+  } catch {
+    /* quota */
+  }
+}
+
+async function eventsForIds(ids: string[]): Promise<Event[]> {
+  const out: Event[] = [];
+  await Promise.all(
+    ids.map(async (id) => {
+      const mem = memoryGetEvent(id);
+      if (mem) {
+        out.push(mem);
+        return;
+      }
+      try {
+        const stored = await cacheGetEvent(id);
+        if (stored) out.push(stored);
+      } catch {
+        /* private mode */
+      }
+    })
+  );
+  if (out.length) rememberEvents(out);
+  return out;
+}
+
+function dedupeEvents(events: Event[]): Event[] {
+  const byId = new Map<string, Event>();
+  for (const event of events) {
+    if (event?.id) byId.set(event.id.toLowerCase(), event);
+  }
+  return [...byId.values()];
+}
+
+/** Kind 1 notes, comments, reactions, and other feed posts already stored. */
+export async function cachedEventsByKind(kind: number): Promise<Event[]> {
+  const index = readSocialIndex();
+  const stored = await eventsForIds(index.byKind[String(kind)] ?? []);
+  return dedupeEvents([...memoryEventsByKind(kind), ...stored]);
+}
+
+/** Replies, comments, and reactions already stored against this event id. */
+export async function cachedEventsReferencing(targetId: string): Promise<Event[]> {
+  const id = targetId.toLowerCase();
+  const index = readSocialIndex();
+  const stored = await eventsForIds(index.byTarget[id] ?? []);
+  return dedupeEvents([...memoryEventsReferencing(id), ...stored]);
+}
+
 export async function cacheGetEvent(id: string): Promise<Event | null> {
   const cache = await openCache();
   const res = await cache.match(`/event/${id.toLowerCase()}`);
@@ -584,6 +698,7 @@ export async function cachePutEvent(event: Event): Promise<void> {
     `/event/${verified.id}`,
     new Response(body, { headers: { 'Content-Type': 'application/json' } })
   );
+  noteSocialIndex(verified);
   const m = meta();
   if (!m.ids.includes(verified.id)) {
     m.ids.push(verified.id);

@@ -2,13 +2,14 @@
   import type { Event } from 'nostr-tools';
   import CommentThread from './CommentThread.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
-  import EmbedEventLine from './EmbedEventLine.svelte';
   import EventCard from './EventCard.svelte';
   import {
     canOfferKind1Reply,
     nestComments,
+    stableThreadNode,
     threadNodeKey,
     threadRootKeys,
+    type ThreadNode,
     type WorkResponses
   } from '$lib/comments';
   import { muteState, filterMuted } from '$lib/mute';
@@ -42,6 +43,7 @@
   }: Props = $props();
 
   let replyOpenId = $state<string | null>(null);
+  const quoteNodes = new Map<string, ThreadNode>();
   let commentText = $state('');
   let composeEl = $state<HTMLDivElement | null>(null);
   let localThread = $state<Event[]>([]);
@@ -154,11 +156,19 @@
   {#if quotes.length}
     <h3 class="work-comments-subhead">Quotes</h3>
     <p class="muted work-comments-lede">Notes that quote this work.</p>
-    <ul class="thread-list work-response-list">
+    <ul class="thread-list">
       {#each quotes as event (event.id)}
-        <li class="work-response-item">
-          <EmbedEventLine {event} />
-        </li>
+        <CommentThread
+          node={stableThreadNode(quoteNodes, event)}
+          {target}
+          bind:replyOpenId
+          focusId={focusId}
+          onPublished={showPublished}
+          {highlights}
+          {zaps}
+          {boosts}
+          lineEmbeds
+        />
       {/each}
     </ul>
   {/if}

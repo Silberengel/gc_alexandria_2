@@ -314,7 +314,11 @@
 
   async function loadSocial(target: Event, gen: number): Promise<void> {
     try {
-      const hit = await fetchWorkResponses(target, 60);
+      const hit = await fetchWorkResponses(target, 60, (cached) => {
+        if (gen !== wikiPaintGen || event?.id !== target.id) return;
+        responses = cached;
+        socialLoading = false;
+      });
       if (gen !== wikiPaintGen || event?.id !== target.id) return;
       responses = hit;
     } finally {

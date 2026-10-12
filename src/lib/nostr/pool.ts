@@ -220,7 +220,7 @@ class RelayPool {
     timeoutMs = 8000,
     maxRelays = RelayPool.MAX_RELAYS_PER_QUERY,
     onBatch?: (events: Event[]) => void,
-    opts?: { priority?: boolean }
+    opts?: { priority?: boolean; includeCooling?: boolean }
   ): Promise<Event[]> {
     try {
       await waitForWindowLoad();
@@ -228,7 +228,7 @@ class RelayPool {
       const wssRelays = usableRelays(
         relays,
         maxRelays,
-        this.skippedRelayKeys(),
+        opts?.includeCooling ? new Set() : this.skippedRelayKeys(),
         cleanFilters.every(isMercuryDocumentFilter)
       );
       if (!wssRelays.length || !cleanFilters.length) return [];

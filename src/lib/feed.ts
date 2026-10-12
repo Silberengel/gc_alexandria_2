@@ -4,7 +4,8 @@ import { KIND } from './constants';
 import { isKind1Reply } from './comments';
 import { filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { uniqueRelayUrls } from './nostr/mailboxes';
-import { memoryGetEvent } from './nostr/event-memory';
+import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
+import { cachedEventsByKind, cacheGetEvent } from './nostr/cache';
 import { relayPool } from './nostr/pool';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { forestRelay, getSelectorContext } from './nostr/selector';
@@ -102,42 +103,86 @@ function followNoteFilters(authors: string[]): Filter[] {
 
 const emptyMute: MuteState = { pubkeys: new Set(), eventIds: new Set() };
 
+/** Keep posts already on screen when a load comes back with nothing. */
+export function keepFeedPosts(shown: Event[], incoming: Event[]): Event[] {
+  return incoming.length ? incoming : shown;
+}
+
+/** Newest original posts already in memory or the browser cache. */
+export async function recallFeedPosts(): Promise<Event[]> {
+  const kinds = [KIND.TEXT_NOTE, ...FEED_POST_KINDS];
+  const stored = (await Promise.all(kinds.map((kind) => cachedEventsByKind(kind)))).flat();
+  return stored
+    .filter(isOriginalPost)
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, 40);
+}
+
 /** Newest original posts from the session's feed relays, plus follows' notes when signed in. */
-export async function loadFeed(metadataEvents: Event[] = [], muted: MuteState = emptyMute): Promise<Event[]> {
+export async function loadFeed(
+  metadataEvents: Event[] = [],
+  muted: MuteState = emptyMute,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
+  const cached = filterMuted(await recallFeedPosts(), muted);
+  const byId = new Map<string, Event>();
+  const paint = (): void => {
+    const posts = filterMuted(
+      pruneToLatestReplaceables([...byId.values()]).sort((a, b) => b.created_at - a.created_at),
+      muted
+    );
+    if (posts.length) onCache?.(posts);
+  };
+  for (const event of cached) {
+    if (isOriginalPost(event)) byId.set(event.id, event);
+  }
+  if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
   const filters = feedFilters();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = followNoteFilters(authors);
+  const queryOpts = { priority: true, includeCooling: true };
+  const absorb = (batch: Event[]): void => {
+    let added = false;
+    for (const event of batch) {
+      if (!isOriginalPost(event) || byId.has(event.id)) continue;
+      byId.set(event.id, event);
+      added = true;
+    }
+    if (added) paint();
+  };
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
     personal.length
-      ? relayPool.query(personal, filters, 7000, Math.min(personal.length, 8), undefined, {
-          priority: true
-        })
+      ? relayPool.query(personal, filters, 7000, Math.min(personal.length, 8), absorb, queryOpts)
       : Promise.resolve([]),
     shipped.length
-      ? relayPool.query(shipped, filters, 7000, 4, undefined, { priority: true })
+      ? relayPool.query(shipped, filters, 7000, 4, absorb, queryOpts)
       : Promise.resolve([]),
     followFilters.length
       ? relayPool
-          .query(relays, followFilters, 7000, Math.min(relays.length, 8), undefined, { priority: true })
+          .query(relays, followFilters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
           .catch(() => [] as Event[])
       : Promise.resolve([] as Event[])
   ]);
-  const byId = new Map<string, Event>();
   for (const event of [...fromPersonal, ...fromShipped, ...fromFollows]) {
     if (!isOriginalPost(event)) continue;
     byId.set(event.id, event);
   }
-  const posts = pruneToLatestReplaceables([...byId.values()]).sort((a, b) => b.created_at - a.created_at);
-  return filterMuted(posts, muted);
+  return filterMuted(
+    pruneToLatestReplaceables([...byId.values()]).sort((a, b) => b.created_at - a.created_at),
+    muted
+  );
 }
 
 /** Load one event for a feed thread, from memory and then the same relay groups. */
 export async function fetchFeedEvent(id: string): Promise<Event | null> {
   const hex = id.toLowerCase();
-  const cached = memoryGetEvent(hex);
-  if (cached) return cached;
+  const cached = memoryGetEvent(hex) ?? (await cacheGetEvent(hex).catch(() => null));
+  if (cached) {
+    rememberEvents([cached]);
+    return cached;
+  }
   const { personal, shipped } = feedRelayGroups();
   const filter: Filter[] = [{ ids: [hex], limit: 1 }];
   if (personal.length) {

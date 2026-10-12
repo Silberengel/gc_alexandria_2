@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { eventAddress } from './nostr/verify';
+import { cachedEventsReferencing } from './nostr/cache';
 import { relayPool } from './nostr/pool';
 import { socialStack } from './nostr/selector';
 
@@ -88,9 +89,19 @@ export function reactionDraft(
   };
 }
 
-export async function fetchReactionsForIds(ids: string[], limit = 100): Promise<Event[]> {
+export async function fetchReactionsForIds(
+  ids: string[],
+  limit = 100,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
   const unique = [...new Set(ids.map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{64}$/.test(id)))];
   if (!unique.length) return [];
+  const cached = (
+    await Promise.all(unique.map((id) => cachedEventsReferencing(id)))
+  )
+    .flat()
+    .filter((event) => event.kind === KIND.REACTION);
+  if (cached.length) onCache?.(cached);
   const batches: string[][] = [];
   for (let i = 0; i < unique.length; i += 20) batches.push(unique.slice(i, i + 20));
   const hits = await Promise.all(
@@ -99,6 +110,9 @@ export async function fetchReactionsForIds(ids: string[], limit = 100): Promise<
     )
   );
   const byId = new Map<string, Event>();
+  for (const event of cached) {
+    if (event.kind === KIND.REACTION) byId.set(event.id.toLowerCase(), event);
+  }
   for (const list of hits) {
     for (const event of list) {
       if (event.kind === KIND.REACTION) byId.set(event.id.toLowerCase(), event);

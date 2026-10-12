@@ -41,12 +41,16 @@
 {:else if event.kind === KIND.PICTURE}
   <div class="result-card-wrap">
     <CopyPointerButton {event} class="generic-card-copy" />
-    <PictureCard {event} />
+    <div class="card-clip">
+      <PictureCard {event} />
+    </div>
   </div>
 {:else if event.kind === KIND.VIDEO}
   <div class="result-card-wrap">
     <CopyPointerButton {event} class="generic-card-copy" />
-    <VideoCard {event} />
+    <div class="card-clip">
+      <VideoCard {event} />
+    </div>
   </div>
 {:else if isThreadNote}
   <div class="thread-node thread-embed-note">
@@ -70,6 +74,7 @@
 {:else if event.kind === KIND.HIGHLIGHT}
   <article class="card note-card">
     <CopyPointerButton {event} class="generic-card-copy" />
+    <div class="card-clip">
     <p class="generic-card-kind muted">{preview.kindLine}</p>
     <h3 class="generic-card-title">{preview.headline}</h3>
     <p class="note-card-by muted">
@@ -78,6 +83,7 @@
     {#if preview.body}
       <p class="generic-card-body muted">{preview.body}</p>
     {/if}
+    </div>
   </article>
 {:else}
   <GenericCard {event} {embedDepth} />

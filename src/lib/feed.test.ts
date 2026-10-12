@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { feedFollowAuthors, feedRelayGroups, isOriginalPost } from './feed';
+import { feedFollowAuthors, feedRelayGroups, isOriginalPost, keepFeedPosts } from './feed';
+import { memoryEventsByKind, memoryEventsReferencing, rememberEvents } from './nostr/event-memory';
 import { setSelectorContext } from './nostr/selector';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind'>): Event {
@@ -65,6 +66,15 @@ describe('feedFollowAuthors', () => {
   });
 });
 
+describe('keepFeedPosts', () => {
+  it('keeps the posts on screen when a load comes back empty', () => {
+    const shown = [ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE })];
+    expect(keepFeedPosts(shown, [])).toBe(shown);
+    const incoming = [ev({ id: '2'.repeat(64), kind: KIND.TEXT_NOTE })];
+    expect(keepFeedPosts(shown, incoming)).toBe(incoming);
+  });
+});
+
 describe('feedRelayGroups', () => {
   afterEach(() => {
     setSelectorContext({
@@ -118,5 +128,33 @@ describe('feedRelayGroups', () => {
       personal: [],
       shipped: ['wss://theforest.nostr1.com']
     });
+  });
+});
+
+describe('social event memory', () => {
+  it('keeps an original note, its kind 1 reply, and its reaction for recall', () => {
+    const op = ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE });
+    const reply = ev({
+      id: '2'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      tags: [['e', op.id]]
+    });
+    const reaction = ev({
+      id: '3'.repeat(64),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [['e', op.id]]
+    });
+    const comment = ev({
+      id: '4'.repeat(64),
+      kind: KIND.COMMENT,
+      tags: [['e', op.id]]
+    });
+    rememberEvents([op, reply, reaction, comment]);
+    expect(memoryEventsByKind(KIND.TEXT_NOTE).some((event) => event.id === op.id)).toBe(true);
+    expect(memoryEventsByKind(KIND.COMMENT).some((event) => event.id === comment.id)).toBe(true);
+    expect(memoryEventsReferencing(op.id).map((event) => event.id).sort()).toEqual(
+      [reply.id, reaction.id, comment.id].sort()
+    );
   });
 });

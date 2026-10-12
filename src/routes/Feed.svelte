@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import { untrack } from 'svelte';
   import { link, querystring } from 'svelte-spa-router';
   import TopBar from '$lib/components/TopBar.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
@@ -19,11 +20,19 @@
   import { eventPreview } from '$lib/event-preview';
   import { kindDescription } from '$lib/kind-label';
   import { libraryDocumentPath } from '$lib/metadata';
-  import { decodeFeedPointer, feedFollowAuthors, feedThreadPath, fetchFeedEvent, loadFeed } from '$lib/feed';
+  import {
+  decodeFeedPointer,
+  feedFollowAuthors,
+  feedRelayGroups,
+  feedThreadPath,
+  fetchFeedEvent,
+  keepFeedPosts,
+  loadFeed
+} from '$lib/feed';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
-  import { getSelectorContext } from '$lib/nostr/selector';
+  import { getSelectorContext, onSelectorContext } from '$lib/nostr/selector';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
 
   let { params = {} }: { params?: { id?: string } } = $props();
@@ -47,7 +56,10 @@
   let items = $state<Event[]>([]);
   const visibleItems = $derived(filterMuted(items, $muteState));
   let listLoading = $state(true);
+  /** True only after a load finishes once the viewer's relay lists are in place. */
+  let listSettled = $state(false);
   let listError = $state('');
+  let feedRelays = $state(0);
   /** Rows in view. Each one renders its body and embedded cards; the rest stay a preview. */
   let shown = $state<Record<string, true>>({});
 
@@ -120,26 +132,75 @@
   });
 
   $effect(() => {
+    return onSelectorContext(() => {
+      feedRelays += 1;
+    });
+  });
+
+  $effect(() => {
     if (params.id) return;
-    void $session.pubkey;
-    void metadataEvents;
-    void $muteState;
+    void feedRelays;
+    const pubkey = $session.pubkey;
+    const sessionLoading = $session.loading;
+    const meta = metadataEvents;
+    const muted = $muteState;
     let cancelled = false;
-    listLoading = true;
     listError = '';
-    void loadFeed(metadataEvents, $muteState)
-      .then((events) => {
-        if (cancelled) return;
-        items = events;
-        listLoading = false;
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        listError = err instanceof Error ? err.message : 'Could not load the feed.';
-        listLoading = false;
+    // An empty reply must not become "no posts" while lists are still loading,
+    // and must not wipe posts that are already on screen.
+    if (!untrack(() => items.length)) {
+      listLoading = true;
+      listSettled = false;
+    }
+    if (pubkey && sessionLoading && !feedRelayGroups().personal.length) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    let timer = 0;
+    let resumeWait: (() => void) | null = null;
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        resumeWait = resolve;
+        timer = window.setTimeout(resolve, ms);
       });
+    void (async () => {
+      for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
+        try {
+          const events = await loadFeed(meta, muted, (cached) => {
+            if (cancelled || !cached.length) return;
+            items = keepFeedPosts(items, cached);
+            listLoading = false;
+          });
+          if (cancelled) return;
+          items = keepFeedPosts(items, events);
+          if (items.length) {
+            listLoading = false;
+            listSettled = true;
+            return;
+          }
+        } catch (err: unknown) {
+          if (cancelled) return;
+          if (items.length) {
+            listLoading = false;
+            listSettled = true;
+            return;
+          }
+          listError = err instanceof Error ? err.message : 'Could not load the feed.';
+          listLoading = false;
+          listSettled = true;
+          return;
+        }
+        if (attempt < 3 && !cancelled) await wait(1200);
+      }
+      if (cancelled || items.length) return;
+      listLoading = false;
+      listSettled = true;
+    })();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      resumeWait?.();
     };
   });
 
@@ -167,7 +228,11 @@
       if (!found) return;
       socialLoading = true;
       try {
-        const hit = await fetchWorkResponses(found, 60);
+        const hit = await fetchWorkResponses(found, 60, (cached) => {
+          if (cancelled) return;
+          responses = cached;
+          socialLoading = false;
+        });
         if (cancelled) return;
         responses = hit;
       } finally {
@@ -223,10 +288,10 @@
       <h1>Feed</h1>
       <p class="page-lede muted">{lede}</p>
     </header>
-    {#if listLoading && !visibleItems.length}
-      <LoadingHint message="Loading original posts…" />
-    {:else if listError}
+    {#if !visibleItems.length && listError}
       <p class="muted">{listError}</p>
+    {:else if !visibleItems.length && !listSettled}
+      <LoadingHint message="Loading original posts…" />
     {:else if !visibleItems.length}
       <p class="muted">No original posts here yet.</p>
     {:else}

@@ -38,9 +38,30 @@ const defaultCtx: SelectorContext = {
 };
 
 let ctx: SelectorContext = { ...defaultCtx };
+const selectorListeners = new Set<() => void>();
+
+function selectorFeedKey(value: SelectorContext): string {
+  return [
+    value.signedIn ? '1' : '0',
+    value.viewerPubkey,
+    value.inbox.join('\n'),
+    value.favorites.join('\n')
+  ].join('|');
+}
 
 export function setSelectorContext(partial: Partial<SelectorContext>): void {
+  const before = selectorFeedKey(ctx);
   ctx = { ...ctx, ...partial };
+  if (selectorFeedKey(ctx) === before) return;
+  for (const listener of selectorListeners) listener();
+}
+
+/** Fires when the signed-in feed relays (inboxes and favorites) change. */
+export function onSelectorContext(listener: () => void): () => void {
+  selectorListeners.add(listener);
+  return () => {
+    selectorListeners.delete(listener);
+  };
 }
 
 export function getSelectorContext(): SelectorContext {

@@ -4,7 +4,6 @@
   import HeartButton from './HeartButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
-  import EmbedEventLine from './EmbedEventLine.svelte';
   import EventCard from './EventCard.svelte';
   import ThreadRefBadges from './ThreadRefBadges.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
@@ -15,6 +14,7 @@
     canOfferKind1Reply,
     fetchWorkResponses,
     nestComments,
+    stableThreadNode,
     threadNodeKey,
     threadRootKeys,
     type ThreadNode,
@@ -47,6 +47,7 @@
   let zaps = $state<Event[]>([]);
   let boosts = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
+  const quoteNodes = new Map<string, ThreadNode>();
   let threadLoaded = $state(false);
   /** Bumps when the target event changes; drops stale thread paints. */
   let threadGen = 0;
@@ -77,7 +78,17 @@
     if (threadLoaded && gen === threadGen) return;
     const target = event;
     if (target.id !== targetId) return;
-    const hit: WorkResponses = await fetchWorkResponses(target, 40);
+    const hit: WorkResponses = await fetchWorkResponses(target, 40, (cached) => {
+      if (gen !== threadGen || event.id !== targetId) return;
+      threadSource = cached.thread;
+      thread = nestComments(threadSource, $muteState, threadRootKeys(target));
+      quotes = filterMuted(cached.quotes, $muteState);
+      other = filterMuted(cached.other, $muteState);
+      highlights = filterMuted(cached.highlights, $muteState);
+      zaps = cached.zaps;
+      boosts = cached.boosts;
+      threadLoaded = true;
+    });
     if (gen !== threadGen || event.id !== targetId) return;
     const localOnly = threadSource.filter(
       (existing) => !hit.thread.some((remote) => remote.id === existing.id)
@@ -192,11 +203,18 @@
   {/if}
   {#if allowReply && quotes.length}
     <h3 class="work-comments-subhead">Quotes</h3>
-    <ul class="thread-list work-response-list">
+    <ul class="thread-list">
       {#each quotes as q (q.id)}
-        <li class="work-response-item">
-          <EmbedEventLine event={q} />
-        </li>
+        <CommentThread
+          node={stableThreadNode(quoteNodes, q)}
+          target={event}
+          bind:replyOpenId
+          onPublished={showPublished}
+          {highlights}
+          {zaps}
+          {boosts}
+          lineEmbeds
+        />
       {/each}
     </ul>
   {/if}

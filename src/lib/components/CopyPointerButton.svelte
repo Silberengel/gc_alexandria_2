@@ -4,7 +4,9 @@
   import { copyPointerForEvent } from '$lib/publication-load';
   import { libraryDocumentPath } from '$lib/metadata';
   import { KIND } from '$lib/constants';
+  import { feedThreadPath } from '$lib/feed';
   import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
+  import { warmNavEvent } from '$lib/nav-warm';
   import { openRawEvent } from '$lib/stores/raw-event-viewer';
 
   interface Props {
@@ -48,6 +50,7 @@
 
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
+  const threadHref = $derived(`#${feedThreadPath(event)}`);
   /** Prefer an explicit reader share URL; otherwise the Alexandria document (or njump). */
   const hyperlink = $derived.by(() => {
     const explicit = shareUrl.trim();
@@ -135,6 +138,19 @@
 
   function close(): void {
     open = false;
+  }
+
+  function openInThread(e: MouseEvent): void {
+    e.stopPropagation();
+    warmNavEvent(event);
+    const modified = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+    if (modified) {
+      close();
+      return;
+    }
+    e.preventDefault();
+    close();
+    window.location.hash = threadHref;
   }
 
   function onPanelClick(e: MouseEvent): void {
@@ -243,6 +259,16 @@
         >
           {copied ? 'Copied' : ptr.label}
         </button>
+      </li>
+      <li role="none">
+        <a
+          class="menu-item"
+          role="menuitem"
+          href={threadHref}
+          onclick={openInThread}
+        >
+          Open in a thread
+        </a>
       </li>
       <li role="none">
         <button

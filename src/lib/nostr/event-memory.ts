@@ -15,6 +15,28 @@ const byId = new Map<string, Event>();
 const byAddr = new Map<string, Event>();
 /** Newest kind-0 per pubkey — badges remount without waiting on profile relays. */
 const byMetaPubkey = new Map<string, Event>();
+/**
+ * Kind 1 notes, kind 1111 comments, and kind 7 reactions, plus the other feed
+ * post kinds. Kept apart from the publication tree so a feed recall stays small.
+ */
+const SOCIAL_KINDS = new Set<number>([
+  KIND.TEXT_NOTE,
+  KIND.REACTION,
+  KIND.COMMENT,
+  KIND.DJOT,
+  KIND.PICTURE,
+  KIND.VIDEO,
+  KIND.LONG_FORM,
+  KIND.PUBLICATION,
+  KIND.WIKI,
+  KIND.SPEC
+]);
+const bySocialKind = new Map<number, Map<string, Event>>();
+/** Events whose e / E / q tag points at this id (replies, comments, reactions). */
+const byRef = new Map<string, Map<string, Event>>();
+const MAX_SOCIAL_KIND = 800;
+const MAX_REFS = 2_000;
+const MAX_PER_REF = 200;
 
 /** Match Cache Storage publication-stream cap (see cache.ts MAX_PUBLICATION_STREAM_EVENTS). */
 const MAX_BY_ID = 50_000;
@@ -36,6 +58,38 @@ function touchMap<K, V>(map: Map<K, V>, key: K, value: V): void {
   map.set(key, value);
 }
 
+function referencedEventIds(event: Event): string[] {
+  const out: string[] = [];
+  for (const tag of event.tags) {
+    if (tag[0] !== 'e' && tag[0] !== 'E' && tag[0] !== 'q') continue;
+    const id = tag[1]?.trim().toLowerCase() ?? '';
+    if (/^[0-9a-f]{64}$/.test(id)) out.push(id);
+  }
+  return out;
+}
+
+function rememberSocial(event: Event): void {
+  if (!SOCIAL_KINDS.has(event.kind)) return;
+  const id = event.id.toLowerCase();
+  let bucket = bySocialKind.get(event.kind);
+  if (!bucket) {
+    bucket = new Map();
+    bySocialKind.set(event.kind, bucket);
+  }
+  touchMap(bucket, id, event);
+  trimMap(bucket, MAX_SOCIAL_KIND);
+  for (const ref of referencedEventIds(event)) {
+    let refs = byRef.get(ref);
+    if (!refs) {
+      refs = new Map();
+      byRef.set(ref, refs);
+    }
+    touchMap(refs, id, event);
+    trimMap(refs, MAX_PER_REF);
+  }
+  trimMap(byRef, MAX_REFS);
+}
+
 function addrKey(kind: number, pubkey: string, d: string): string {
   return `${kind}:${pubkey.toLowerCase()}:${normalizeDTag(d) || d}`;
 }
@@ -48,6 +102,8 @@ export function rememberEvents(events: Event[]): void {
     // Same id: keep the richer tag set (search sources often disagree on a/e completeness).
     if (!prev) touchMap(byId, id, event);
     else touchMap(byId, id, preferRicherEvent(prev, event));
+
+    rememberSocial(byId.get(id) ?? event);
 
     const pk = event.pubkey.toLowerCase();
     if (event.kind === 0) {
@@ -81,6 +137,14 @@ export function rememberEvents(events: Event[]): void {
   trimMap(byId, MAX_BY_ID);
   trimMap(byAddr, MAX_BY_ADDR);
   trimMap(byMetaPubkey, MAX_META);
+}
+
+export function memoryEventsByKind(kind: number): Event[] {
+  return [...(bySocialKind.get(kind)?.values() ?? [])];
+}
+
+export function memoryEventsReferencing(targetId: string): Event[] {
+  return [...(byRef.get(targetId.toLowerCase())?.values() ?? [])];
 }
 
 export function memoryGetEvent(id: string): Event | null {

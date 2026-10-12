@@ -4,7 +4,7 @@ import { cacheGetEvent } from './nostr/cache';
 import { memoryGetEvent } from './nostr/event-memory';
 import { ingestEvent } from './nostr/verify';
 import { session } from './stores/session';
-import { showPublishResult } from './stores/toast';
+import { showNotice, showPublishResult } from './stores/toast';
 import { Nip07Signer } from './signers/nip07';
 import type { BunkerSigner } from './signers/bunker';
 
@@ -19,8 +19,41 @@ export function withClientTag(tags: string[][]): string[][] {
 /** Nested NIP-46 / extension sign calls in flight (Amber opens → page hides). */
 let signDepth = 0;
 
+/** Why the latest `signUnsigned` returned null, until the caller reads it. */
+let signFailure: string | null = null;
+
+const STALE_BUNKER =
+  'The signer connection is stale. Open Amber and connect again, then try again.';
+
 export function isSignInFlight(): boolean {
   return signDepth > 0;
+}
+
+/** User-facing reason for the last failed sign, then cleared. */
+export function consumeSignFailure(): string | null {
+  const message = signFailure;
+  signFailure = null;
+  return message;
+}
+
+function noteSignFailure(message: string): void {
+  signFailure = message;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message.trim() : '';
+}
+
+function bunkerSignFailure(err: unknown): string {
+  const text = errorText(err);
+  if (
+    /not logged in|could not open bunker|timed out connecting|timed out reading the public key|invalid bunker/i.test(
+      text
+    )
+  ) {
+    return STALE_BUNKER;
+  }
+  return text || STALE_BUNKER;
 }
 
 export async function signUnsigned(partial: {
@@ -29,9 +62,10 @@ export async function signUnsigned(partial: {
   tags: string[][];
 }): Promise<Event | null> {
   signDepth += 1;
+  signFailure = null;
+  const signerType = session.getSignerType();
   try {
     const expectedPubkey = session.getPubkey()?.toLowerCase() ?? '';
-    const signerType = session.getSignerType();
     let signer = session.getSigner();
 
     if (!signer) {
@@ -43,6 +77,7 @@ export async function signUnsigned(partial: {
           console.warn(
             '[alexandria:sign] bunker session has no live signer; refusing NIP-07 fallback'
           );
+          noteSignFailure(STALE_BUNKER);
           return null;
         }
       } else if (signerType === 'nip07' || (!signerType && expectedPubkey && window.nostr?.signEvent)) {
@@ -50,10 +85,12 @@ export async function signUnsigned(partial: {
         try {
           signer = new Nip07Signer();
           await signer.getPublicKey();
-        } catch {
+        } catch (err) {
+          noteSignFailure(errorText(err) || 'The browser signer is not available.');
           return null;
         }
       } else {
+        noteSignFailure('Sign in again before trying this.');
         return null;
       }
     }
@@ -65,6 +102,7 @@ export async function signUnsigned(partial: {
       signer = session.getSigner();
       if (!ok || !signer || signer instanceof Nip07Signer) {
         console.warn('[alexandria:sign] could not rebuild bunker signer');
+        noteSignFailure(STALE_BUNKER);
         return null;
       }
     }
@@ -88,7 +126,10 @@ export async function signUnsigned(partial: {
       tags: withClientTag(partial.tags)
     });
     const event = ingestEvent(signed);
-    if (!event) return null;
+    if (!event) {
+      noteSignFailure('The signature could not be verified.');
+      return null;
+    }
     // Guard against an extension signing as a different key while bunker was intended.
     if (expectedPubkey && event.pubkey.toLowerCase() !== expectedPubkey) {
       console.warn('[alexandria:sign] signed pubkey mismatch; dropping event', {
@@ -96,11 +137,17 @@ export async function signUnsigned(partial: {
         got: event.pubkey.slice(0, 8),
         signerType
       });
+      noteSignFailure('The signer used a different key than the one you are signed in with.');
       return null;
     }
     return event;
   } catch (err) {
     console.warn('[alexandria:sign] sign failed', err);
+    noteSignFailure(
+      signerType === 'bunker'
+        ? bunkerSignFailure(err)
+        : errorText(err) || 'The signer did not approve this.'
+    );
     return null;
   } finally {
     signDepth = Math.max(0, signDepth - 1);
@@ -139,7 +186,7 @@ export async function publishComment(partial: {
 }): Promise<Event | null> {
   const signed = await signUnsigned(partial);
   if (!signed) {
-    showPublishResult(false);
+    showNotice(consumeSignFailure() ?? 'Could not sign this.');
     return null;
   }
   const wrote = await publishSigned(signed);

@@ -20,6 +20,7 @@
 
 <article class="card generic-card">
   <CopyPointerButton {event} class="generic-card-copy" />
+  <div class="card-clip">
   <p class="generic-card-kind muted">{preview.kindLine}</p>
   <h3 class="generic-card-title">{preview.headline}</h3>
   <p class="generic-card-by muted">
@@ -58,4 +59,5 @@
   {:else if !preview.summary && !media.length && !preview.imageUrls.length}
     <p class="muted generic-card-empty">No text in this event.</p>
   {/if}
+  </div>
 </article>

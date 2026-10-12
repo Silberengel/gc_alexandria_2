@@ -13,6 +13,7 @@ import {
   socialSearchStack,
   socialStack
 } from './nostr/selector';
+import { cachedEventsReferencing } from './nostr/cache';
 import { eventAddress } from './nostr/verify';
 import { splitNostrRefs } from './nostr-refs';
 
@@ -23,6 +24,19 @@ export type ThreadNode = {
   missingParentId?: string;
   children: ThreadNode[];
 };
+
+/** Reuse one node per event so a reply stays attached across re-renders. */
+export function stableThreadNode(cache: Map<string, ThreadNode>, event: Event): ThreadNode {
+  const id = event.id.toLowerCase();
+  const existing = cache.get(id);
+  if (existing) {
+    existing.event = event;
+    return existing;
+  }
+  const node: ThreadNode = { event, placeholder: null, children: [] };
+  cache.set(id, node);
+  return node;
+}
 
 /** Stable keyed-each id for a thread node (placeholders share the same label text). */
 export function threadNodeKey(node: ThreadNode): string {
@@ -823,9 +837,15 @@ function nip73Values(target: Event): string[] {
  * Uses social + document stacks (the viewer's inbox/outbox/favorites when signed in)
  * plus the OP author's inbox, so responses written there are visible.
  */
-export async function fetchWorkResponses(target: Event, limit = 40): Promise<WorkResponses> {
+export async function fetchWorkResponses(
+  target: Event,
+  limit = 40,
+  onCache?: (hit: WorkResponses) => void
+): Promise<WorkResponses> {
   const a = eventAddress(target);
   const id = target.id.toLowerCase();
+  const cached = await cachedEventsReferencing(id);
+  if (cached.length) onCache?.(partitionWorkResponses(cached, target));
   const addrKeys = [...new Set(publicationCoordinateLookupKeys(a))].slice(0, 12);
   // OP inbox only — replies written so the author can see them. Not their outbox,
   // and not every participant's write relays.
@@ -847,7 +867,7 @@ export async function fetchWorkResponses(target: Event, limit = 40): Promise<Wor
   const first = await relayPool.query(relays, filters, 6000, maxRelays, undefined, { priority: true });
 
   const byEventId = new Map<string, Event>();
-  for (const e of first) {
+  for (const e of [...cached, ...first]) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }
 

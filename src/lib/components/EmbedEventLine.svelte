@@ -6,7 +6,9 @@
   import { KIND } from '$lib/constants';
   import { cardMeta, displayTitle } from '$lib/metadata';
   import { eventPreview } from '$lib/event-preview';
+  import { kindDescription } from '$lib/kind-label';
   import { eventHref, cropText } from '$lib/listing-table';
+  import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
 
   interface Props {
@@ -22,7 +24,7 @@
       event.kind === KIND.SPEC ||
       event.kind === KIND.LONG_FORM
   );
-  const href = $derived(eventHref(event));
+  const href = $derived(eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''));
   const meta = $derived(cardMeta(event));
   const kindLabel = $derived(
     event.kind === KIND.SPEC
@@ -46,9 +48,12 @@
   const title = $derived.by(() => {
     if (isPubLike) return displayTitle(event);
     const preview = eventPreview(event);
-    if (preview.headline && !/^KIND:/u.test(preview.headline) && preview.headline !== kindLabel) {
-      return cropText(preview.headline, 72);
-    }
+    const generic =
+      !preview.headline ||
+      /^KIND:/u.test(preview.headline) ||
+      preview.headline === kindLabel ||
+      preview.headline === kindDescription(event.kind);
+    if (!generic) return cropText(preview.headline, 72);
     const body = preview.body || preview.summary || '';
     return cropText(body, 72) || kindLabel;
   });
@@ -82,7 +87,13 @@
 {/snippet}
 
 {#if href}
-  <a class="embed-event-line" href={href} use:link onpointerdown={warm}>
+  <a
+    class="embed-event-line"
+    {href}
+    use:link
+    onpointerdown={warm}
+    onclick={(e) => e.stopPropagation()}
+  >
     {@render lineBody()}
   </a>
 {:else}

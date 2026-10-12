@@ -571,31 +571,28 @@ function createSessionStore() {
       /* private mode / quota */
     }
     rememberEvent(event);
-    // Responses also go to the other person's inbox when Outboxes is on.
-    // Off: publish only reaches the viewer's own write relays.
-    let extra: string[] = [];
-    if (foreignRelaysAllowed()) {
-      try {
-        extra = await Promise.race([
-          inboxRelaysForResponse(event),
-          new Promise<string[]>((resolve) => {
-            setTimeout(() => resolve([]), 2500);
-          })
-        ]);
-      } catch {
-        extra = [];
-      }
-    }
-    const relays = uniqueRelayUrls([...writeStack(), ...extra]);
+    // Own relays start immediately. The other person's inbox is added when Outboxes
+    // is on, without holding the like or comment until that lookup finishes.
+    const own = writeStack();
+    const ownKeys = new Set(own.map((url) => url.replace(/\/+$/, '').toLowerCase()));
+    const ownWrite = relayPool.publish(own, event).then((accepted) => accepted > 0);
+    const extraWrite = (
+      foreignRelaysAllowed()
+        ? inboxRelaysForResponse(event).catch(() => [] as string[])
+        : Promise.resolve([] as string[])
+    ).then(async (extra) => {
+      const more = uniqueRelayUrls(extra).filter(
+        (url) => !ownKeys.has(url.replace(/\/+$/, '').toLowerCase())
+      );
+      if (!more.length) return false;
+      return (await relayPool.publish(more, event)) > 0;
+    });
     let timer = 0;
     const timeout = new Promise<boolean>((resolve) => {
       timer = window.setTimeout(() => resolve(false), 8_000);
     });
     try {
-      return await Promise.race([
-        relayPool.publish(relays, event).then((accepted) => accepted > 0),
-        timeout
-      ]);
+      return await Promise.race([firstRelayAccept([ownWrite, extraWrite]), timeout]);
     } finally {
       window.clearTimeout(timer);
     }
@@ -626,6 +623,33 @@ function createSessionStore() {
     /** Prefer live signer type; fall back to painted/persisted session type. */
     getSignerType: () => activeSignerType ?? get({ subscribe }).signerType
   };
+}
+
+/** Resolve on the first success. A later inbox publish still runs. */
+function firstRelayAccept(jobs: Promise<boolean>[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!jobs.length) {
+      resolve(false);
+      return;
+    }
+    let pending = jobs.length;
+    let accepted = false;
+    for (const job of jobs) {
+      void job
+        .then((ok) => {
+          if (!ok) return;
+          accepted = true;
+          resolve(true);
+        })
+        .catch(() => {
+          /* one path failing still leaves the other */
+        })
+        .finally(() => {
+          pending -= 1;
+          if (pending <= 0) resolve(accepted);
+        });
+    }
+  });
 }
 
 export const session = createSessionStore();

@@ -32,6 +32,8 @@
     embedDepth?: number;
     /** When false, skip fetching/painting embedded naddr/nevent/note lines. */
     showEmbeds?: boolean;
+    /** Quotes show each embedded event as a one-line link. */
+    lineEmbeds?: boolean;
     quotes?: Array<string | HighlightQuote>;
     /**
      * When false, skip the event’s own cover URLs for early-body dedupe
@@ -51,6 +53,7 @@
     kind,
     embedDepth = 0,
     showEmbeds = true,
+    lineEmbeds = false,
     quotes = [],
     dedupeHeroImage = true,
     dedupeHeroUrls = []
@@ -271,9 +274,15 @@
 </script>
 
 {#snippet embedCard(hit: Event)}
-  {#await import('./EventCard.svelte') then mod}
-    <mod.default event={hit} embedDepth={embedDepth + 1} asCard />
-  {/await}
+  {#if lineEmbeds}
+    {#await import('./EmbedEventLine.svelte') then mod}
+      <mod.default event={hit} />
+    {/await}
+  {:else}
+    {#await import('./EventCard.svelte') then mod}
+      <mod.default event={hit} embedDepth={embedDepth + 1} asCard />
+    {/await}
+  {/if}
 {/snippet}
 
 <div class="event-body" bind:this={bodyEl}>

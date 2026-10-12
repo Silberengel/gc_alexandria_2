@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { Event } from 'nostr-tools';
   import { session } from '$lib/stores/session';
-  import { signAndPublish } from '$lib/sign';
+  import { consumeSignFailure, publishSigned, signUnsigned } from '$lib/sign';
+  import { showNotice } from '$lib/stores/toast';
   import { deletionDraft } from '$lib/drafts';
   import {
     fetchReactionsForIds,
@@ -21,12 +21,22 @@
   let { event, reactions: reactionsProp }: Props = $props();
 
   let local = $state<Event[]>([]);
-  let busy = $state(false);
+  let extras = $state<Event[]>([]);
+  let hiddenIds = $state<string[]>([]);
+  let pending = $state(false);
   let loaded = $state(false);
 
-  const reactions = $derived(
-    (reactionsProp ?? local).filter((r) => reactionTargetsId(r, event.id))
-  );
+  const reactions = $derived.by(() => {
+    const hidden = new Set(hiddenIds);
+    const base = (reactionsProp ?? local).filter(
+      (item) => reactionTargetsId(item, event.id) && !hidden.has(item.id)
+    );
+    const seen = new Set(base.map((item) => item.id));
+    const extra = extras.filter(
+      (item) => reactionTargetsId(item, event.id) && !hidden.has(item.id) && !seen.has(item.id)
+    );
+    return [...extra, ...base];
+  });
   const count = $derived(likeCount(reactions));
   const mine = $derived(myLikeReaction(reactions, $session.pubkey));
   const liked = $derived(!!mine);
@@ -35,15 +45,19 @@
     !!$session.pubkey && $session.pubkey.toLowerCase() === event.pubkey.toLowerCase()
   );
   const canToggle = $derived(signedIn && !ownEvent);
-  const disabled = $derived(busy || !canToggle);
 
-  onMount(() => {
+  $effect(() => {
+    const id = event.id;
     if (reactionsProp) {
       loaded = true;
       return;
     }
     let cancelled = false;
-    void fetchReactionsForIds([event.id]).then((hits) => {
+    void fetchReactionsForIds([id], 100, (cached) => {
+      if (cancelled || !cached.length) return;
+      local = cached;
+      loaded = true;
+    }).then((hits) => {
       if (cancelled) return;
       local = hits;
       loaded = true;
@@ -53,36 +67,63 @@
     };
   });
 
-  $effect(() => {
-    if (reactionsProp) local = reactionsProp;
-  });
+  function revert(previousExtras: Event[], previousHidden: string[]): void {
+    extras = previousExtras;
+    hiddenIds = previousHidden;
+  }
+
+  function explainSignFailure(action: 'like' | 'unlike'): void {
+    showNotice(consumeSignFailure() ?? `The ${action} could not be signed.`);
+  }
 
   async function toggle(): Promise<void> {
-    if (busy || !canToggle) return;
-    busy = true;
+    if (pending || !canToggle) return;
+    pending = true;
+    const previousExtras = extras.slice();
+    const previousHidden = hiddenIds.slice();
+    const pubkey = $session.pubkey ?? '';
     try {
       if (mine) {
-        const signed = await signAndPublish(deletionDraft(mine));
-        if (signed) {
-          local = local.filter((r) => r.id !== mine.id);
+        const target = mine;
+        const signed = await signUnsigned(deletionDraft(target));
+        if (!signed) {
+          explainSignFailure('unlike');
+          return;
         }
-      } else {
-        const signed = await signAndPublish(reactionDraft(event));
-        if (signed) {
-          local = [signed, ...local.filter((r) => r.pubkey !== signed.pubkey)];
+        hiddenIds = [...hiddenIds, target.id];
+        extras = extras.filter((item) => item.id !== target.id);
+        const wrote = await publishSigned(signed);
+        if (!wrote) {
+          revert(previousExtras, previousHidden);
+          showNotice('The unlike was signed, but no relay accepted it.');
         }
+        return;
+      }
+
+      const signed = await signUnsigned(reactionDraft(event));
+      if (!signed) {
+        explainSignFailure('like');
+        return;
+      }
+      extras = [signed, ...extras.filter((item) => item.pubkey !== pubkey || item.id === signed.id)];
+      const wrote = await publishSigned(signed);
+      if (!wrote) {
+        revert(previousExtras, previousHidden);
+        showNotice('The like was signed, but no relay accepted it.');
       }
     } finally {
-      busy = false;
+      pending = false;
     }
   }
 
   const label = $derived.by(() => {
+    if (pending) return 'Waiting for the signer';
     if (!signedIn) return `Likes (${count}). Sign in to like`;
     if (ownEvent) return `Likes (${count}). You cannot like your own event`;
     return liked ? `Unlike (${count})` : `Like (${count})`;
   });
   const tip = $derived.by(() => {
+    if (pending) return 'Waiting for the signer';
     if (!signedIn) return 'Sign in to like';
     if (ownEvent) return 'You cannot like your own event';
     return liked ? 'Unlike' : 'Like';
@@ -92,9 +133,11 @@
 <button
   class="btn btn-icon heart-btn"
   class:heart-on={liked}
+  class:heart-pending={pending}
   type="button"
-  {disabled}
+  disabled={!canToggle}
   aria-pressed={liked}
+  aria-busy={pending}
   aria-label={label}
   title={tip}
   onclick={() => void toggle()}
