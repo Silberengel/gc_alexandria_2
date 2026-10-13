@@ -3,6 +3,7 @@ import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryEventsByKind, memoryEventsReferencing, memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { cachedIdentityEvent, clearIdentityCache, isIdentityKind, rememberIdentityEvent } from './identity-cache';
+import { getSelectorContext } from './selector';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
 import { firstTag, ingestEvent, ingestTrustedEvent } from './verify';
 
@@ -703,9 +704,12 @@ export async function cachePutEvent(event: Event): Promise<void> {
   if (!verified) return;
   if (isIdentityKind(verified.kind)) {
     rememberEvents([verified]);
-    // Contact and mute lists are large. Only the signed-in viewer's copies
-    // belong in the map; the session stores those after it loads them.
-    if (verified.kind !== KIND.CONTACT_LIST && verified.kind !== KIND.MUTE) {
+    // Contact and mute lists are large, so other people's stay out of the map.
+    // The viewer's own lists are stored whenever a newer copy arrives, including
+    // after the login load has finished.
+    const viewerList = verified.kind === KIND.CONTACT_LIST || verified.kind === KIND.MUTE;
+    const viewer = getSelectorContext().viewerPubkey.trim().toLowerCase();
+    if (!viewerList || (viewer && verified.pubkey.toLowerCase() === viewer)) {
       rememberIdentityEvent(verified);
     }
     return;
