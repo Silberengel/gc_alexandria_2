@@ -23,6 +23,7 @@
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent, cacheGetProfilePageSnapshot, cachePutProfilePageSnapshot, peekProfilePageSnapshot, profilePageSnapshotFresh, type ProfilePageSnapshot } from '$lib/nostr/cache';
   import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
+  import { cachedIdentityEvent } from '$lib/nostr/identity-cache';
   import { peekProfileThumb, rememberProfileFromKind0 } from '$lib/profile-cache';
   import { pickLatestReplaceable, isNewerReplaceable, pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
@@ -317,7 +318,8 @@
     const statuses = selectUserStatuses(snap.statusEvents);
     statusGeneral = statuses.general;
     statusMusic = statuses.music;
-    paymentEvents = pruneToLatestReplaceables([...snap.paymentEvents]);
+    const snapPayments = pruneToLatestReplaceables([...snap.paymentEvents]);
+    if (snapPayments.length) paymentEvents = snapPayments;
     readCount = snap.readCount;
     const ownLocal =
       !!get(session).pubkey &&
@@ -408,12 +410,18 @@
       if (warmMeta) {
         applyProfileMeta(warmMeta);
       } else {
-        const thumb = peekProfileThumb(nextPk);
-        if (thumb) {
-          warmName = thumb.name;
-          warmPicture = thumb.picture;
+        const cachedMeta = cachedIdentityEvent(KIND.METADATA, nextPk);
+        if (cachedMeta) applyProfileMeta(cachedMeta);
+        else {
+          const thumb = peekProfileThumb(nextPk);
+          if (thumb) {
+            warmName = thumb.name;
+            warmPicture = thumb.picture;
+          }
         }
       }
+      const cachedPay = cachedIdentityEvent(KIND.PAYMENT, nextPk);
+      if (cachedPay) paymentEvents = [cachedPay];
 
       // 2) Medium-term page snapshot — paint listings before relays answer.
       const memSnap = peekProfilePageSnapshot(nextPk);
@@ -577,6 +585,7 @@
         for (const e of [...paySocial, ...payProfile]) payById.set(e.id, e);
         paymentEventsAcc = pruneToLatestReplaceables([...payById.values()]);
         paymentEvents = paymentEventsAcc;
+        for (const event of paymentEventsAcc) void cachePutEvent(event);
       });
 
       const readsP =

@@ -3,10 +3,12 @@ import type { Event } from 'nostr-tools';
 import { KIND, LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
 import { cachePutMany } from '../nostr/cache';
+import { cachedViewerIdentity, rememberIdentityEvent } from '../nostr/identity-cache';
 import { relayPool } from '../nostr/pool';
 import {
   documentStack,
   foreignRelaysAllowed,
+  getSelectorContext,
   profileStack,
   setSelectorContext,
   socialStack,
@@ -180,20 +182,38 @@ function createSessionStore() {
     const priorLocal = metadataEvents;
     try {
       // Phase 1: NIP-65 / favorites so subsequent shelf REQs include the viewer's outboxes.
+      // A first wave often dies while the browser is still opening sockets. Retry before
+      // the feed decides this account has no inboxes and stays on theforest.
       const bootKinds = [KIND.RELAY_LIST, KIND.FAVORITE, KIND.BLOCKED, KIND.LOCAL];
-      const [bootSocial, bootProfile] = await Promise.allSettled([
-        relayPool.query(
-          socialStack(),
-          [{ authors: [pubkey], kinds: bootKinds, limit: 20 }],
-          2500
-        ),
-        relayPool.query(profileStack(), [profileFilter], 2500)
-      ]);
-      const bootEvents = [
-        ...(bootSocial.status === 'fulfilled' ? bootSocial.value : []),
-        ...(bootProfile.status === 'fulfilled' ? bootProfile.value : [])
-      ];
-      await applyRelayContextFromEvents(bootEvents, pubkey);
+      const bootFilter = [{ authors: [pubkey], kinds: bootKinds, limit: 20 }];
+      let bootEvents: Event[] = [];
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (get({ subscribe }).pubkey?.toLowerCase() !== pubkey.toLowerCase()) return;
+        const [bootSocial, bootProfile] = await Promise.allSettled([
+          relayPool.query(socialStack(), bootFilter, attempt === 0 ? 2500 : 5000, 4, undefined, {
+            priority: true,
+            includeCooling: attempt > 0
+          }),
+          relayPool.query(profileStack(), [profileFilter], attempt === 0 ? 2500 : 5000, 4, undefined, {
+            priority: true,
+            includeCooling: attempt > 0
+          })
+        ]);
+        bootEvents = [
+          ...(bootSocial.status === 'fulfilled' ? bootSocial.value : []),
+          ...(bootProfile.status === 'fulfilled' ? bootProfile.value : [])
+        ];
+        if (bootEvents.some((event) => event.kind === KIND.RELAY_LIST || event.kind === KIND.FAVORITE)) {
+          break;
+        }
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
+      const hadCachedLists =
+        getSelectorContext().inbox.length > 0 || getSelectorContext().favorites.length > 0;
+      const gotFreshLists = bootEvents.some(
+        (event) => event.kind === KIND.RELAY_LIST || event.kind === KIND.FAVORITE
+      );
+      if (gotFreshLists || !hadCachedLists) await applyRelayContextFromEvents(bootEvents, pubkey);
 
       // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
       const outboxSocial = viewerOutboxStack();
@@ -251,6 +271,7 @@ function createSessionStore() {
       } catch {
         /* ignore */
       }
+      for (const event of metadataEvents) rememberIdentityEvent(event);
       // Public mute tags now; private decrypt is deferred so huge NIP-44 lists do not
       // starve landing relays / freeze the page on first paint.
       const muteEvent = newestMuteList(metadataEvents);
@@ -415,8 +436,14 @@ function createSessionStore() {
       signerType: persisted.signerType
     });
     relayPool.setSignedIn(true);
-    metadataEvents = [];
-    metadata.set([]);
+    const seeded = cachedViewerIdentity(persisted.pubkey);
+    metadataEvents = seeded;
+    metadata.set(seeded);
+    if (seeded.length) {
+      void applyRelayContextFromEvents(seeded, persisted.pubkey);
+      const muteEvent = newestMuteList(seeded);
+      if (muteEvent) applyMuteList(parseMuteList(muteEvent, []));
+    }
     void confirmRestoredSession(persisted);
     return true;
   }
@@ -600,6 +627,7 @@ function createSessionStore() {
 
   function rememberEvent(event: Event): void {
     if (event.kind === KIND.DELETION) rememberDeletion(event);
+    rememberIdentityEvent(event);
     const pk = get({ subscribe }).pubkey;
     if (!pk || event.pubkey.toLowerCase() !== pk) return;
     metadataEvents = mergeRememberedMetadata(metadataEvents, event);

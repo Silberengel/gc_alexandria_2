@@ -1,8 +1,10 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from '../constants';
 import { nip65InboxOutbox, type Nip65Mailboxes } from './nip65';
+import { cachePutEvent } from './cache';
+import { cachedIdentityEvent } from './identity-cache';
 import { relayPool } from './pool';
-import { pickLatestReplaceable } from './replaceable';
+import { isNewerReplaceable, pickLatestReplaceable } from './replaceable';
 import { getSelectorContext, profileStack } from './selector';
 
 /**
@@ -96,14 +98,31 @@ export async function authorMailboxes(pubkey: string): Promise<Nip65Mailboxes> {
   const hit = cache.get(pk);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 
+  const stored = cachedIdentityEvent(KIND.RELAY_LIST, pk);
+  if (stored) {
+    const value = nip65InboxOutbox(stored);
+    cache.set(pk, { at: Date.now(), value });
+    void refreshAuthorMailboxes(pk);
+    return value;
+  }
+  return refreshAuthorMailboxes(pk);
+}
+
+async function refreshAuthorMailboxes(pk: string): Promise<Nip65Mailboxes> {
   const events = await relayPool.query(
     profileStack(),
     [{ kinds: [KIND.RELAY_LIST], authors: [pk], limit: 2 }],
     4000,
     4
   );
-  const list = pickLatestReplaceable(events, KIND.RELAY_LIST, pk);
-  const value = nip65InboxOutbox(list);
+  const fetched = pickLatestReplaceable(events, KIND.RELAY_LIST, pk);
+  const stored = cachedIdentityEvent(KIND.RELAY_LIST, pk);
+  const list =
+    fetched && (!stored || fetched.id === stored.id || isNewerReplaceable(fetched, stored))
+      ? fetched
+      : stored;
+  if (fetched && list === fetched) void cachePutEvent(fetched);
+  const value = list ? nip65InboxOutbox(list) : EMPTY;
   cache.set(pk, { at: Date.now(), value });
   return value;
 }

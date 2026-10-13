@@ -68,11 +68,13 @@ export function feedRelayGroups(): FeedRelayGroups {
   return { personal, shipped: [] };
 }
 
-function feedFilters(): Filter[] {
-  return [
-    { kinds: [KIND.TEXT_NOTE], limit: 40 },
-    { kinds: [...FEED_POST_KINDS], limit: 24 }
-  ];
+/** Kind 1 is its own REQ. A relay that only honors one filter would otherwise return long-form and drop notes. */
+function noteFilters(): Filter[] {
+  return [{ kinds: [KIND.TEXT_NOTE], limit: 40 }];
+}
+
+function postFilters(): Filter[] {
+  return [{ kinds: [...FEED_POST_KINDS], limit: 24 }];
 }
 
 /**
@@ -138,7 +140,6 @@ export async function loadFeed(
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
-  const filters = feedFilters();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = followNoteFilters(authors);
@@ -152,13 +153,14 @@ export async function loadFeed(
     }
     if (added) paint();
   };
+  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
+    Promise.all([
+      relayPool.query(urls, noteFilters(), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts)
+    ]).then(([notes, posts]) => [...notes, ...posts]);
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
-    personal.length
-      ? relayPool.query(personal, filters, 7000, Math.min(personal.length, 8), absorb, queryOpts)
-      : Promise.resolve([]),
-    shipped.length
-      ? relayPool.query(shipped, filters, 7000, 4, absorb, queryOpts)
-      : Promise.resolve([]),
+    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
+    shipped.length ? ask(shipped, 4) : Promise.resolve([]),
     followFilters.length
       ? relayPool
           .query(relays, followFilters, 7000, Math.min(relays.length, 8), absorb, queryOpts)

@@ -2,6 +2,7 @@ import type { Event } from 'nostr-tools';
 import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { memoryEventsByKind, memoryEventsReferencing, memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
+import { cachedIdentityEvent, clearIdentityCache, isIdentityKind, rememberIdentityEvent } from './identity-cache';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
 import { firstTag, ingestEvent, ingestTrustedEvent } from './verify';
 
@@ -517,6 +518,12 @@ export async function cacheGetProfilePageSnapshot(
       ...snap.paymentEvents,
       ...snap.readingEditions
     ]);
+    if (snap.profile) rememberIdentityEvent(snap.profile);
+    for (const event of snap.paymentEvents) rememberIdentityEvent(event);
+    const mappedProfile = cachedIdentityEvent(KIND.METADATA, pk);
+    const mappedPay = cachedIdentityEvent(KIND.PAYMENT, pk);
+    if (mappedProfile) snap.profile = mappedProfile;
+    if (mappedPay) snap.paymentEvents = [mappedPay];
     return cloneProfilePageSnapshot(snap);
   } catch {
     return null;
@@ -539,7 +546,16 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
     readingEditions: snap.readingEditions.slice(0, 40),
     readCount: snap.readCount
   };
-  touchProfilePageMemory(pk, body);
+  if (body.profile) rememberIdentityEvent(body.profile);
+  for (const event of body.paymentEvents) rememberIdentityEvent(event);
+  const profile = cachedIdentityEvent(KIND.METADATA, pk) ?? body.profile;
+  const payment = cachedIdentityEvent(KIND.PAYMENT, pk);
+  const view: ProfilePageSnapshot = {
+    ...body,
+    profile,
+    paymentEvents: payment ? [payment] : body.paymentEvents
+  };
+  touchProfilePageMemory(pk, view);
   try {
     const cache = await openCache();
     const key = profilePageKey(pk);
@@ -547,16 +563,11 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
       typeof location !== 'undefined' ? new Request(new URL(key, location.origin).href) : key;
     await cache.put(
       req,
-      new Response(JSON.stringify(body), {
+      new Response(JSON.stringify({ ...view, profile: null, paymentEvents: [] }), {
         headers: { 'Content-Type': 'application/json' }
       })
     );
-    void cachePutMany([
-      ...(body.profile ? [body.profile] : []),
-      ...body.produced,
-      ...body.interacted,
-      ...body.readingEditions
-    ]);
+    void cachePutMany([...body.produced, ...body.interacted, ...body.readingEditions]);
   } catch {
     /* quota / private mode — memory still helps this session */
   }
@@ -688,9 +699,18 @@ export async function cacheGetEvent(id: string): Promise<Event | null> {
 }
 
 export async function cachePutEvent(event: Event): Promise<void> {
-  if (!CACHE_KINDS.includes(event.kind as (typeof CACHE_KINDS)[number])) return;
   const verified = ingestEvent(event);
   if (!verified) return;
+  if (isIdentityKind(verified.kind)) {
+    rememberEvents([verified]);
+    // Contact and mute lists are large. Only the signed-in viewer's copies
+    // belong in the map; the session stores those after it loads them.
+    if (verified.kind !== KIND.CONTACT_LIST && verified.kind !== KIND.MUTE) {
+      rememberIdentityEvent(verified);
+    }
+    return;
+  }
+  if (!CACHE_KINDS.includes(verified.kind as (typeof CACHE_KINDS)[number])) return;
   rememberEvents([verified]);
   const cache = await openCache();
   const body = JSON.stringify(verified);
@@ -818,6 +838,7 @@ export async function clearEventCache(): Promise<void> {
   }
   localStorage.removeItem(META_KEY);
   localStorage.removeItem(SEARCH_KEYS_META);
+  clearIdentityCache();
   searchMemory.clear();
   profilePageMemory.clear();
   try {

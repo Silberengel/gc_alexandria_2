@@ -1,18 +1,19 @@
 /**
- * Fast pubkey → name/picture for badges. Survives remount/refresh via memory + localStorage
- * so avatars do not wait on kind-0 relays every time.
+ * Name and picture for badges, derived from the kind 0 in the replaceable map.
+ * Memory only — the event itself is the stored copy.
  */
 
 import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
+import { KIND } from './constants';
 import { toNostrBuildThumbUrl } from './nostr-build';
+import { cachedIdentityEvent, rememberIdentityEvent } from './nostr/identity-cache';
 import { firstTag } from './nostr/verify';
 import { populateImageCache } from './image-cache';
 
 export type ProfileThumb = { name: string; picture: string };
 
-const LS_KEY = 'alexandria-profile-thumbs';
-const MAX_LS = 200;
+const LEGACY_THUMBS_KEY = 'alexandria-profile-thumbs';
 const MAX_MEMORY = 400;
 
 const memory = new Map<string, ProfileThumb>();
@@ -60,30 +61,33 @@ export function profileThumbFromKind0(meta: Event): ProfileThumb {
   return { name, picture };
 }
 
-function readLs(): Record<string, ProfileThumb> {
+function legacyThumb(pk: string): ProfileThumb | null {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') return {};
-    return parsed as Record<string, ProfileThumb>;
+    const raw = localStorage.getItem(LEGACY_THUMBS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, ProfileThumb>;
+    const fromLs = parsed?.[pk];
+    if (!fromLs || typeof fromLs.name !== 'string') return null;
+    return {
+      name: fromLs.name,
+      picture: typeof fromLs.picture === 'string' ? toNostrBuildThumbUrl(fromLs.picture) : ''
+    };
   } catch {
-    return {};
+    return null;
   }
 }
 
-function writeLs(all: Record<string, ProfileThumb>): void {
-  try {
-    const entries = Object.entries(all);
-    const trimmed =
-      entries.length > MAX_LS ? Object.fromEntries(entries.slice(-MAX_LS)) : all;
-    localStorage.setItem(LS_KEY, JSON.stringify(trimmed));
-  } catch {
-    /* quota / private */
-  }
+function paintThumb(pk: string, thumb: ProfileThumb): ProfileThumb {
+  const next: ProfileThumb = {
+    name: thumb.name || fallbackName(pk),
+    picture: thumb.picture ? toNostrBuildThumbUrl(thumb.picture) : ''
+  };
+  touchMemory(pk, next);
+  if (next.picture) void populateImageCache(next.picture);
+  return next;
 }
 
-/** Sync peek — memory, then localStorage. */
+/** Sync peek — memory, then the stored kind 0, then a name left by an older build. */
 export function peekProfileThumb(pubkey: string): ProfileThumb | null {
   const pk = pubkey.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pk)) return null;
@@ -92,34 +96,15 @@ export function peekProfileThumb(pubkey: string): ProfileThumb | null {
     touchMemory(pk, mem);
     return mem;
   }
-  const fromLs = readLs()[pk];
-  if (fromLs && typeof fromLs.name === 'string') {
-    const thumb: ProfileThumb = {
-      name: fromLs.name,
-      picture: typeof fromLs.picture === 'string' ? toNostrBuildThumbUrl(fromLs.picture) : ''
-    };
-    touchMemory(pk, thumb);
-    return thumb;
-  }
+  const meta = cachedIdentityEvent(KIND.METADATA, pk);
+  if (meta) return paintThumb(pk, profileThumbFromKind0(meta));
+  const legacy = legacyThumb(pk);
+  if (legacy) return paintThumb(pk, legacy);
   return null;
 }
 
-export function rememberProfileThumb(pubkey: string, thumb: ProfileThumb): void {
-  const pk = pubkey.trim().toLowerCase();
-  if (!/^[0-9a-f]{64}$/.test(pk)) return;
-  const next: ProfileThumb = {
-    name: thumb.name || fallbackName(pk),
-    picture: thumb.picture ? toNostrBuildThumbUrl(thumb.picture) : ''
-  };
-  touchMemory(pk, next);
-  const all = readLs();
-  all[pk] = next;
-  writeLs(all);
-  if (next.picture) void populateImageCache(next.picture);
-}
-
 export function rememberProfileFromKind0(meta: Event): ProfileThumb {
-  const thumb = profileThumbFromKind0(meta);
-  rememberProfileThumb(meta.pubkey, thumb);
-  return thumb;
+  rememberIdentityEvent(meta);
+  const pk = meta.pubkey.toLowerCase();
+  return paintThumb(pk, profileThumbFromKind0(meta));
 }

@@ -27,7 +27,8 @@
   feedThreadPath,
   fetchFeedEvent,
   keepFeedPosts,
-  loadFeed
+  loadFeed,
+  recallFeedPosts
 } from '$lib/feed';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
@@ -153,6 +154,15 @@
       listSettled = false;
     }
     if (pubkey && sessionLoading && !feedRelayGroups().personal.length) {
+      // Lists are still loading. Show anything already cached, but do not
+      // settle: theforest long-form is not this account's kind 1 feed.
+      void recallFeedPosts().then((cached) => {
+        if (cancelled) return;
+        const posts = filterMuted(cached, muted);
+        if (!posts.length) return;
+        items = keepFeedPosts(untrack(() => items), posts);
+        listLoading = false;
+      });
       return () => {
         cancelled = true;
       };
@@ -174,11 +184,13 @@
           });
           if (cancelled) return;
           items = keepFeedPosts(items, events);
-          if (items.length) {
+          const listsMissing = !!pubkey && !feedRelayGroups().personal.length;
+          if (items.length && !listsMissing) {
             listLoading = false;
             listSettled = true;
             return;
           }
+          if (items.length) listLoading = false;
         } catch (err: unknown) {
           if (cancelled) return;
           if (items.length) {
