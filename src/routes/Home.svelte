@@ -9,12 +9,15 @@
   import { LISTING_PAGE_SIZE_FULL } from '$lib/listing-table';
   import {
     LANDING_FEED_LIMIT,
+    clearWarmLandingVisit,
+    isWarmLandingRevisit,
     landingCoverSeed,
     landingRefHasRenderableTarget,
     loadCachedLanding,
     loadViewerShelves,
     mergeLandingShelves,
     orderShelfCovers,
+    recordWarmLandingVisit,
     refreshLanding,
     type LandingView
   } from '$lib/landing';
@@ -288,6 +291,13 @@
     return out;
   });
 
+  let loadInFlight = false;
+  let loadAgain = false;
+  let mergeInFlight = false;
+  let mergeAgain = false;
+  /** Metadata id-key for which My shelf was last successfully folded. */
+  let lastFoldedMetaKey = '';
+
   $effect(() => {
     if (!$session.pubkey) return;
     const queue = readingShelfEntries;
@@ -304,7 +314,9 @@
         readingEditions = new Map(readingEditions).set(addr, hit);
       })();
     }
-    warmReadingQueueCache(queue);
+    // Heavy seed Cache Storage (e.g. Chronological Bible) waits until landing/merge idle
+    // (see maybeWarmReadingQueue from load/merge finally).
+    maybeWarmReadingQueue();
     return () => {
       cancelled = true;
     };
@@ -339,14 +351,8 @@
       .map((e) => coverImageUrl(e))
       .filter((u): u is string => !!u);
     prefetchImages(coverUrls);
+    markViewerShelvesFoldedIfReady();
   }
-
-  let loadInFlight = false;
-  let loadAgain = false;
-  let mergeInFlight = false;
-  let mergeAgain = false;
-  /** Metadata id-key for which My shelf was last successfully folded. */
-  let lastFoldedMetaKey = '';
 
   /** Drop identity-bound rows and label chips; keep network while the next load runs. */
   function clearIdentityShelves(): void {
@@ -354,6 +360,7 @@
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
     labels = [];
     lastFoldedMetaKey = '';
+    clearWarmLandingVisit();
   }
 
   function shelfMetaKey(events: Event[]): string {
@@ -368,6 +375,26 @@
       .map((e) => e.id)
       .sort()
       .join(',');
+  }
+
+  function hasViewerBoundCovers(rows: LandingShelfSnap[] = shelves): boolean {
+    return rows.some((s) => isViewerBoundShelfId(s.id) && s.events.length);
+  }
+
+  /** Cache/refresh already painted My shelf — skip a redundant merge fold for this metadata. */
+  function markViewerShelvesFoldedIfReady(): void {
+    if (!hasViewerBoundCovers()) return;
+    const meta = session.getMetadata();
+    if (!meta.length) return;
+    const key = shelfMetaKey(meta);
+    if (!key) return;
+    lastFoldedMetaKey = key;
+  }
+
+  function maybeWarmReadingQueue(): void {
+    if (loadInFlight || mergeInFlight) return;
+    if (!session.getPubkey()) return;
+    warmReadingQueueCache(readingShelfEntries);
   }
 
   async function mergeViewerShelves(): Promise<void> {
@@ -429,7 +456,16 @@
       ];
       let raceDone = false;
       const pack = await Promise.race([
-        loadViewerShelves(known).then((value) => {
+        loadViewerShelves(known, (progress) => {
+          // Parent-enrichment rematch after the first fold — keep progressive paint.
+          if (!progress.shelves.some((s) => s.events.length) && !progress.labels.length) return;
+          shelves = mergeLandingShelves(shelves, progress.shelves);
+          if (progress.labels.length) labels = progress.labels;
+          if (hasViewerBoundCovers()) {
+            lastFoldedMetaKey = foldKey;
+            landingStatus = 'Your shelves are ready';
+          }
+        }).then((value) => {
           raceDone = true;
           if (timeoutId) clearTimeout(timeoutId);
           return value;
@@ -448,7 +484,16 @@
         shelfRows: summary,
         labelChips: pack.labels.length
       });
-      if (!pack.shelves.some((s) => s.events.length) && !pack.labels.length) {
+      const packEmpty = !pack.shelves.some((s) => s.events.length) && !pack.labels.length;
+      if (packEmpty) {
+        // Soft race often returns empty while cache/refresh already painted My shelf.
+        if (hasViewerBoundCovers()) {
+          lastFoldedMetaKey = foldKey;
+          recordWarmLandingVisit(pk, foldKey);
+          landingStatus = 'Your shelves are ready';
+          console.info(LOG, 'mergeViewerShelves kept cached shelves (empty race result)');
+          return;
+        }
         landingStatus = 'No personal shelf lists found on relays yet';
         return;
       }
@@ -463,6 +508,11 @@
       );
       if (pack.shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)) {
         lastFoldedMetaKey = foldKey;
+        recordWarmLandingVisit(pk, foldKey);
+        landingStatus = 'Your shelves are ready';
+      } else if (hasViewerBoundCovers()) {
+        lastFoldedMetaKey = foldKey;
+        recordWarmLandingVisit(pk, foldKey);
         landingStatus = 'Your shelves are ready';
       } else {
         landingStatus = 'Shelves updated (no My shelf covers resolved yet)';
@@ -474,11 +524,11 @@
       if (timeoutId) clearTimeout(timeoutId);
       mergeInFlight = false;
       shelfBusy = false;
+      maybeWarmReadingQueue();
       if (mergeAgain && !loadInFlight) {
         mergeAgain = false;
         // Trailing rematch is only needed when My shelf never painted.
-        const haveMine = shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length);
-        if (!haveMine) void mergeViewerShelves();
+        if (!hasViewerBoundCovers()) void mergeViewerShelves();
         else console.info(LOG, 'mergeViewerShelves skip trailing rematch (My shelf already painted)');
       }
     }
@@ -514,6 +564,19 @@
         shelves: cached?.shelves?.map((s) => `${s.id}:${s.events.length}`).join(', ') ?? ''
       });
       if (cached) apply(cached, replaceFromCache);
+      const metaKey = shelfMetaKey(session.getMetadata());
+      // Same SPA session, same lists, cache still has My shelf — do not re-stampede relays
+      // (Booklists → Home remount used to start a second full refreshLanding).
+      if (isWarmLandingRevisit(identity, metaKey, cached)) {
+        console.info(LOG, 'warm revisit — skip refreshLanding', {
+          identity: identity?.slice(0, 8) ?? null,
+          metaEvents: metaKey ? metaKey.split(',').length : 0
+        });
+        markViewerShelvesFoldedIfReady();
+        recordWarmLandingVisit(identity, metaKey);
+        landingStatus = '';
+        return;
+      }
       landingStatus = 'Refreshing shelves and feeds…';
       const live = await refreshLanding(cached, (view) => {
         // Drop updates only when the viewer identity changed under us.
@@ -525,6 +588,10 @@
         ratings: live.ratings?.length ?? 0
       });
       if (session.getPubkey() === identity) apply(live, true);
+      markViewerShelvesFoldedIfReady();
+      if (hasViewerBoundCovers() || (!identity && shelves.some((s) => s.events.length))) {
+        recordWarmLandingVisit(identity, shelfMetaKey(session.getMetadata()));
+      }
       landingStatus = '';
     } catch (err) {
       console.warn(LOG, 'loadLanding failed', err);
@@ -532,8 +599,17 @@
     } finally {
       loadInFlight = false;
       landingBusy = false;
-      // Fold My shelf only after landing releases relay slots.
-      if (session.getPubkey()) void mergeViewerShelves();
+      // Fold My shelf only when still missing — cache/refresh often already painted it.
+      // Clear coalesced merge requests so a deferred merge during landing does not re-stampede.
+      if (session.getPubkey() && !hasViewerBoundCovers()) {
+        mergeAgain = false;
+        void mergeViewerShelves();
+      } else if (session.getPubkey()) {
+        mergeAgain = false;
+        markViewerShelvesFoldedIfReady();
+        console.info(LOG, 'mergeViewerShelves skip after landing (My shelf already painted)');
+      }
+      maybeWarmReadingQueue();
       if (loadAgain) {
         loadAgain = false;
         void loadLanding();

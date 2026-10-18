@@ -605,6 +605,42 @@ function landingRatings(...lists: Event[][]): Event[] {
   return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
 }
 
+async function fillShelfPublicationsLocally(
+  missingAddrs: string[],
+  byAddr: Map<string, Event>
+): Promise<void> {
+  // Fast local only — never O(n) Cache Storage scans per address (that hung My shelf).
+  let landing: LandingSnapshot | null = null;
+  try {
+    landing = await cacheGetLandingSnapshot();
+  } catch {
+    landing = null;
+  }
+  const landingPool: Event[] = [];
+  if (landing) {
+    landingPool.push(...(landing.publications ?? []));
+    landingPool.push(...(landing.referenced ?? []));
+    for (const shelf of landing.shelves ?? []) landingPool.push(...shelf.events);
+  }
+  for (const addr of missingAddrs) {
+    if (byAddr.has(addr)) continue;
+    const parsed = parseAddress(addr);
+    if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
+    if (!parsed.d?.trim()) continue;
+    let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+    if (!event) {
+      for (const e of landingPool) {
+        if (e.kind !== KIND.PUBLICATION) continue;
+        if (eventAddress(e) === addr) {
+          event = e;
+          break;
+        }
+      }
+    }
+    if (event?.kind === KIND.PUBLICATION) putNewest(byAddr, addr, event);
+  }
+}
+
 async function resolveShelfPublications(
   memberships: Membership[],
   known: Event[],
@@ -642,41 +678,49 @@ async function resolveShelfPublications(
     ...otherMissing.slice(0, Math.max(0, maxAddrs - curatorTake.length))
   ];
 
-  const run = async (): Promise<void> => {
-    // Fast local only — never O(n) Cache Storage scans per address (that hung My shelf).
-    let landing: LandingSnapshot | null = null;
+  await fillShelfPublicationsLocally(missingAddrs, byAddr);
+
+  const stillMissing = missingAddrs.filter((addr) => !byAddr.has(addr));
+  const localHits = missingAddrs.length - stillMissing.length;
+  const localHitRate = missingAddrs.length ? localHits / missingAddrs.length : 1;
+
+  async function resolveMembershipIds(): Promise<void> {
+    const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
+    if (!missingIds.length) return;
     try {
-      landing = await cacheGetLandingSnapshot();
-    } catch {
-      landing = null;
-    }
-    const landingPool: Event[] = [];
-    if (landing) {
-      landingPool.push(...(landing.publications ?? []));
-      landingPool.push(...(landing.referenced ?? []));
-      for (const shelf of landing.shelves ?? []) landingPool.push(...shelf.events);
-    }
-    for (const addr of missingAddrs) {
-      if (byAddr.has(addr)) continue;
-      const parsed = parseAddress(addr);
-      if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
-      if (!parsed.d?.trim()) continue;
-      let event = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
-      if (!event) {
-        for (const e of landingPool) {
-          if (e.kind !== KIND.PUBLICATION) continue;
-          if (eventAddress(e) === addr) {
-            event = e;
-            break;
-          }
+      const byId = new Map(
+        (await Promise.race([
+          fetchByIds(missingIds.slice(0, 12), 2),
+          new Promise<Event[]>((resolve) => setTimeout(() => resolve([]), 2500))
+        ])).map((e) => [e.id, e])
+      );
+      for (const membership of memberships) {
+        if (membership.address) continue;
+        if (!membership.eventId) continue;
+        const event = byId.get(membership.eventId);
+        if (event?.kind === KIND.PUBLICATION) {
+          membership.address = eventAddress(event);
+          putNewest(byAddr, membership.address, event);
         }
       }
-      if (event?.kind === KIND.PUBLICATION) putNewest(byAddr, addr, event);
+    } catch {
+      /* id resolve soft-fail */
     }
+  }
 
+  // Warm snapshot already covered address memberships — skip Mercury/WS gap-fill.
+  if (!stillMissing.length) {
+    await resolveMembershipIds();
+    return byAddr;
+  }
+  // High local hit rate: fewer author groups so we do not starve the pool.
+  const effectiveMaxGroups =
+    localHitRate >= 0.75 ? Math.min(2, maxGroups) : maxGroups;
+
+  const run = async (): Promise<void> => {
     type AuthorGroup = { pubkey: string; ds: string[]; curator: boolean };
     const groups = new Map<string, AuthorGroup>();
-    for (const addr of missingAddrs) {
+    for (const addr of stillMissing) {
       if (byAddr.has(addr)) continue;
       const parsed = parseAddress(addr);
       if (!parsed || parsed.kind !== KIND.PUBLICATION) continue;
@@ -695,7 +739,7 @@ async function resolveShelfPublications(
     // Prefer curator publication authors so maxGroups cannot drop those covers.
     const orderedGroups = [...groups.values()].sort((a, b) => Number(b.curator) - Number(a.curator));
 
-    await poolMap(orderedGroups.slice(0, maxGroups), 2, async (group) => {
+    await poolMap(orderedGroups.slice(0, effectiveMaxGroups), 2, async (group) => {
       const dValues = group.ds.slice(0, 24);
       if (!dValues.length) return;
       const filter = {
@@ -729,27 +773,7 @@ async function resolveShelfPublications(
       }
     });
 
-    const missingIds = [...new Set(memberships.flatMap((m) => (m.eventId ? [m.eventId] : [])))];
-    if (!missingIds.length) return;
-    try {
-      const byId = new Map(
-        (await Promise.race([
-          fetchByIds(missingIds.slice(0, 12), 2),
-          new Promise<Event[]>((resolve) => setTimeout(() => resolve([]), 2500))
-        ])).map((e) => [e.id, e])
-      );
-      for (const membership of memberships) {
-        if (membership.address) continue;
-        if (!membership.eventId) continue;
-        const event = byId.get(membership.eventId);
-        if (event?.kind === KIND.PUBLICATION) {
-          membership.address = eventAddress(event);
-          putNewest(byAddr, membership.address, event);
-        }
-      }
-    } catch {
-      /* id resolve soft-fail */
-    }
+    await resolveMembershipIds();
   };
 
   await raceWithTimeout(
@@ -855,12 +879,56 @@ function prioritizeMemberships(
     .slice(0, limit);
 }
 
+type ShelfLabelPack = { shelves: LandingShelfSnap[]; labels: string[] };
+
+function buildShelfSnaps(
+  memberships: Membership[],
+  publications: Map<string, Event>,
+  viewer: string | null,
+  follows: Set<string>,
+  liveDirs: Event[],
+  mineDirs: Event[],
+  viewerNpub: string
+): LandingShelfSnap[] {
+  const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
+  const nested =
+    viewer != null
+      ? nestedShelvesForViewer(
+          pruneToLatestReplaceables(mergeEvents(liveDirs, mineDirs)),
+          publications,
+          viewer
+        )
+      : [];
+  return dedupeLandingShelfEvents([
+    ...shelves.map((s) => ({
+      id: s.id,
+      title: s.title,
+      events: s.events,
+      ...(s.id === 'mine' && viewerNpub
+        ? {
+            href: `/search?bookshelf=${encodeURIComponent(MY_BOOK_COLLECTION_D_TAG)}&npub=${viewerNpub}`
+          }
+        : {})
+    })),
+    ...nested.map((s) => ({
+      id: s.id,
+      title: s.title,
+      events: s.events,
+      href: `/search?bookshelf=${encodeURIComponent(s.d)}${viewerNpub ? `&npub=${viewerNpub}` : ''}`
+    }))
+  ]);
+}
+
 async function loadShelvesAndLabels(
   knownPubs: Event[],
   cached?: LandingView | null,
   membership?: ShelfMembershipPack,
-  opts?: { viewerOnly?: boolean }
-): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
+  opts?: {
+    viewerOnly?: boolean;
+    /** Progressive rematch after parent enrichment (does not delay the first return). */
+    onProgress?: (pack: ShelfLabelPack) => void;
+  }
+): Promise<ShelfLabelPack> {
   const viewerOnly = opts?.viewerOnly === true;
   // Signed-in: wait briefly for login lists so "My shelf" is not skipped on the first paint.
   // Viewer-only fold already has metadata — never block here.
@@ -913,7 +981,7 @@ async function loadShelvesAndLabels(
         : { networkBudgetMs: 7_000, maxAddrs: 24, maxGroups: 4 })
     }
   );
-  await enrichPublicationParents(publications);
+  // Deletions only — parent hops run in the background so the 8s outer race can win.
   try {
     await refreshDeletionsFor([...publications.values()]);
   } catch {
@@ -922,28 +990,6 @@ async function loadShelvesAndLabels(
   for (const [addr, event] of [...publications]) {
     if (!isRenderableCatalogEvent(event)) publications.delete(addr);
   }
-  const shelves: Shelf[] = assignShelves(memberships, publications, viewer, follows);
-  const nested =
-    viewer != null
-      ? nestedShelvesForViewer(
-          pruneToLatestReplaceables(mergeEvents(liveDirs, mineDirs)),
-          publications,
-          viewer
-        )
-      : [];
-  console.info('[alexandria:landing] loadShelvesAndLabels', {
-    viewer: viewer?.slice(0, 8) ?? null,
-    viewerOnly,
-    memberships: memberships.length,
-    resolvedPubs: publications.size,
-    mineMeta: mine.length,
-    liveBookmarks: liveBookmarks.length,
-    liveDirs: liveDirs.length,
-    shelves: [
-      ...shelves.map((s) => `${s.id}:${s.events.length}`),
-      ...nested.map((s) => `${s.id}:${s.events.length}`)
-    ].join(', ')
-  });
   const labels = landingLabels(liveLabels.length ? liveLabels : combined);
   let viewerNpub = '';
   if (viewer) {
@@ -954,28 +1000,53 @@ async function loadShelvesAndLabels(
       viewerNpub = '';
     }
   }
-  const shelfSnaps: LandingShelfSnap[] = dedupeLandingShelfEvents([
-    ...shelves.map((s) => ({
-      id: s.id,
-      title: s.title,
-      events: s.events,
-      ...(s.id === 'mine' && viewerNpub
-        ? {
-            href: `/search?bookshelf=${encodeURIComponent(MY_BOOK_COLLECTION_D_TAG)}&npub=${viewerNpub}`
-          }
-        : {})
-    })),
-    ...nested.map((s) => ({
-      id: s.id,
-      title: s.title,
-      events: s.events,
-      href: `/search?bookshelf=${encodeURIComponent(s.d)}${viewerNpub ? `&npub=${viewerNpub}` : ''}`
-    }))
-  ]);
-  return {
-    shelves: shelfSnaps,
-    labels
-  };
+  const shelfSnaps = buildShelfSnaps(
+    memberships,
+    publications,
+    viewer,
+    follows,
+    liveDirs,
+    mineDirs,
+    viewerNpub
+  );
+  console.info('[alexandria:landing] loadShelvesAndLabels', {
+    viewer: viewer?.slice(0, 8) ?? null,
+    viewerOnly,
+    memberships: memberships.length,
+    resolvedPubs: publications.size,
+    mineMeta: mine.length,
+    liveBookmarks: liveBookmarks.length,
+    liveDirs: liveDirs.length,
+    shelves: shelfSnaps.map((s) => `${s.id}:${s.events.length}`).join(', ')
+  });
+  const first: ShelfLabelPack = { shelves: shelfSnaps, labels };
+
+  // Parent enrichment can take longer than the outer race — rematch covers when it finishes.
+  if (opts?.onProgress && publications.size) {
+    const pubsCopy = new Map(publications);
+    void (async () => {
+      try {
+        await enrichPublicationParents(pubsCopy);
+        for (const [addr, event] of [...pubsCopy]) {
+          if (!isRenderableCatalogEvent(event)) pubsCopy.delete(addr);
+        }
+        const enriched = buildShelfSnaps(
+          memberships,
+          pubsCopy,
+          viewer,
+          follows,
+          liveDirs,
+          mineDirs,
+          viewerNpub
+        );
+        opts.onProgress?.({ shelves: enriched, labels });
+      } catch {
+        /* enrichment optional */
+      }
+    })();
+  }
+
+  return first;
 }
 
 /**
@@ -983,9 +1054,44 @@ async function loadShelvesAndLabels(
  * Used after metadata arrives so "My shelf" does not wait on a full landing refresh.
  */
 export async function loadViewerShelves(
-  knownPubs: Event[] = []
-): Promise<{ shelves: LandingShelfSnap[]; labels: string[] }> {
-  return loadShelvesAndLabels(knownPubs, null, EMPTY_MEMBERSHIP, { viewerOnly: true });
+  knownPubs: Event[] = [],
+  onProgress?: (pack: ShelfLabelPack) => void
+): Promise<ShelfLabelPack> {
+  return loadShelvesAndLabels(knownPubs, null, EMPTY_MEMBERSHIP, {
+    viewerOnly: true,
+    onProgress
+  });
+}
+
+/**
+ * SPA-session memory: Home was painted for this viewer+lists. Survives route unmount
+ * so Booklists → Home can skip a second refreshLanding (pool stampede).
+ */
+let warmLandingVisit: { viewer: string | null; metaKey: string } | null = null;
+
+export function recordWarmLandingVisit(viewer: string | null, metaKey: string): void {
+  if (viewer && !metaKey) return;
+  warmLandingVisit = { viewer: viewer?.toLowerCase() ?? null, metaKey };
+}
+
+export function clearWarmLandingVisit(): void {
+  warmLandingVisit = null;
+}
+
+export function isWarmLandingRevisit(
+  viewer: string | null,
+  metaKey: string,
+  cached: LandingView | null | undefined
+): boolean {
+  if (!warmLandingVisit) return false;
+  const nowViewer = viewer?.toLowerCase() ?? null;
+  if (warmLandingVisit.viewer !== nowViewer) return false;
+  const shelves = cached?.shelves ?? [];
+  if (nowViewer) {
+    if (!metaKey || warmLandingVisit.metaKey !== metaKey) return false;
+    return shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length > 0);
+  }
+  return shelves.some((s) => s.events.length > 0);
 }
 
 export async function loadCachedLanding(): Promise<LandingView | null> {
@@ -1136,17 +1242,22 @@ export async function refreshLanding(
     }
   }
 
-  // Resolve shelves as soon as membership returns — do not wait on slow social feed queries.
-  // Single shelf resolve path (not a parallel minePack) so we do not saturate the relay pool.
-  const shelvesPromise = membershipPromise.then((membership) =>
-    loadShelvesAndLabels(publications, cacheOk ? cached : null, membership)
-  );
-  void shelvesPromise.then((pack) => {
+  const applyShelfPack = (pack: ShelfLabelPack): void => {
     if (!shelvesHaveCovers(pack.shelves) && !pack.labels.length) return;
     if (shelvesHaveCovers(pack.shelves)) shelves = mergeLandingShelves(shelves, pack.shelves);
     if (pack.labels.length) labels = pack.labels;
     paint(snapshot());
-  });
+  };
+
+  // Resolve shelves as soon as membership returns — do not wait on slow social feed queries.
+  // Single shelf resolve path (not a parallel minePack) so we do not saturate the relay pool.
+  // onProgress rematches after background parent enrichment (first return skips that hop).
+  const shelvesPromise = membershipPromise.then((membership) =>
+    loadShelvesAndLabels(publications, cacheOk ? cached : null, membership, {
+      onProgress: applyShelfPack
+    })
+  );
+  void shelvesPromise.then(applyShelfPack);
 
   const [commWs, highWs, rateWs] = await feedWsPromise;
 

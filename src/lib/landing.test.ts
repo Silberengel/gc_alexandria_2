@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest';
-import { preferLive, subjectsFromPublications, orderShelfCovers, landingCoverSeed, titleForAddress, publisherForAddress, displayRefTitle, focusHrefForRef, pathForRef, topLevelPublicationAddress, mergeLandingShelves, landingRefHasRenderableTarget } from './landing';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  preferLive,
+  subjectsFromPublications,
+  orderShelfCovers,
+  landingCoverSeed,
+  titleForAddress,
+  publisherForAddress,
+  displayRefTitle,
+  focusHrefForRef,
+  pathForRef,
+  topLevelPublicationAddress,
+  mergeLandingShelves,
+  landingRefHasRenderableTarget,
+  recordWarmLandingVisit,
+  clearWarmLandingVisit,
+  isWarmLandingRevisit
+} from './landing';
 import { orderLandingShelves, dedupeLandingShelfEvents } from './shelves';
 import type { Event } from 'nostr-tools';
 import type { LandingShelfSnap } from './nostr/cache';
@@ -294,5 +310,61 @@ describe('referenced work titles', () => {
     publication.kind = 30040;
     expect(landingRefHasRenderableTarget(comment, [publication])).toBe(true);
     expect(pathForRef(comment, [publication])).toContain('/publication/d/ghost-book/');
+  });
+});
+
+describe('warm landing revisit', () => {
+  const viewer = 'd'.repeat(64);
+  const metaKey = 'event-a,event-b';
+
+  afterEach(() => {
+    clearWarmLandingVisit();
+  });
+
+  it('skips refresh when same viewer, same lists, and cache has My shelf', () => {
+    recordWarmLandingVisit(viewer, metaKey);
+    const cached = {
+      viewerPubkey: viewer,
+      publications: [],
+      comments: [],
+      highlights: [],
+      ratings: [],
+      referenced: [],
+      subjects: [],
+      shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+      labels: []
+    };
+    expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(true);
+  });
+
+  it('does not skip when metadata fingerprint changed', () => {
+    recordWarmLandingVisit(viewer, metaKey);
+    const cached = {
+      viewerPubkey: viewer,
+      publications: [],
+      comments: [],
+      highlights: [],
+      ratings: [],
+      referenced: [],
+      subjects: [],
+      shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+      labels: []
+    };
+    expect(isWarmLandingRevisit(viewer, 'event-a,event-c', cached)).toBe(false);
+  });
+
+  it('does not skip without a prior warm visit', () => {
+    const cached = {
+      viewerPubkey: viewer,
+      publications: [],
+      comments: [],
+      highlights: [],
+      ratings: [],
+      referenced: [],
+      subjects: [],
+      shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+      labels: []
+    };
+    expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(false);
   });
 });
