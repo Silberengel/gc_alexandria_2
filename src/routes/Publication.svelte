@@ -231,6 +231,12 @@
    */
   let pendingScopedRepaint = false;
   let tocOpen = $state(false);
+
+  /** Enter the reader and show the floating contents panel (FAB alone is easy to miss). */
+  function enterReadingView(): void {
+    reading = true;
+    tocOpen = true;
+  }
   /** Hero image URLs that 404'd or failed to decode — fall back to the celtic brand header. */
   let brokenHeroUrls = $state(new Set<string>());
   /** Heroes that passed reachability probe (nostr.build soft-404 check). */
@@ -1314,7 +1320,7 @@
 
   async function ensureReadingSections(): Promise<boolean> {
     if (!event || unreadable || !canRead) return false;
-    reading = true;
+    enterReadingView();
     if (sections.length) return true;
     return fillReadingSections(event);
   }
@@ -1830,7 +1836,8 @@
     }
     if (key === focusKey && readingBusy) return;
     focusKey = key;
-    reading = true;
+    // Deep links (Reading now cover, shared ?read=1&section=) enter here — not startReading.
+    enterReadingView();
     readingBusy = true;
     sectionsLoading = true;
     const focusAddr = sectionAddr;
@@ -2035,7 +2042,7 @@
       return;
     }
     focusKey = key;
-    reading = true;
+    enterReadingView();
     readingBusy = true;
     sectionsLoading = true;
     const edition = event;
@@ -2509,7 +2516,7 @@
     if (reading && opts?.fromUrl && wantScopedCover && scopedAtEditionTop && readingShellOnly) {
       return;
     }
-    reading = true;
+    enterReadingView();
     if (!opts?.fromUrl) setReadQuery(true);
     if (isIndexScopedEdition(event)) {
       const focus = focusFromUrl();

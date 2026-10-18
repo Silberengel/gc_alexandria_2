@@ -59,6 +59,8 @@ Feature: In-browser reader
   Scenario: Read shows this naddr's tree
     When I press "Read the publication"
     Then the interaction lists are replaced by the reader
+    And the floating contents panel opens so the reader notices it
+    And the same panel opens when I continue from a Reading now cover (?read=1&section=)
     And the URL includes read=1 so a refresh stays in the reader
     And I stay on /publication/d/{d}/p/{npub}
     And I see a back button under the edition metadata
@@ -67,6 +69,7 @@ Feature: In-browser reader
     And the URL no longer includes read=1
     When I press "Read the publication"
     Then the interaction lists are replaced by the reader
+    And the floating contents panel opens so the reader notices it
     And the ToC is Mercury /toc in pos order, or the document-stack fallback if this naddr has no tree
     And Mercury /toc lists nested 30040 indexes as headings (not every leaf section)
     And those nested indexes keep their titles and render indented by depth under their parent index
