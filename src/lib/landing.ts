@@ -1070,7 +1070,8 @@ export async function loadViewerShelves(
 let warmLandingVisit: { viewer: string | null; metaKey: string } | null = null;
 
 export function recordWarmLandingVisit(viewer: string | null, metaKey: string): void {
-  if (viewer && !metaKey) return;
+  // Empty metaKey is valid: signed-in viewers may have metadata with no list kinds
+  // (no bookmarks / labels / directories / contacts). Treat that fingerprint like any other.
   warmLandingVisit = { viewer: viewer?.toLowerCase() ?? null, metaKey };
 }
 
@@ -1088,7 +1089,8 @@ export function isWarmLandingRevisit(
   if (warmLandingVisit.viewer !== nowViewer) return false;
   const shelves = cached?.shelves ?? [];
   if (nowViewer) {
-    if (!metaKey || warmLandingVisit.metaKey !== metaKey) return false;
+    // Do not treat empty metaKey as "missing" — it is a real fingerprint.
+    if (warmLandingVisit.metaKey !== metaKey) return false;
     return shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length > 0);
   }
   return shelves.some((s) => s.events.length > 0);

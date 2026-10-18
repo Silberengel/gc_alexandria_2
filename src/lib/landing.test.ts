@@ -367,4 +367,20 @@ describe('warm landing revisit', () => {
     };
     expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(false);
   });
+
+  it('skips refresh when the signed-in fingerprint is empty (no list kinds)', () => {
+    recordWarmLandingVisit(viewer, '');
+    const cached = {
+      viewerPubkey: viewer,
+      publications: [],
+      comments: [],
+      highlights: [],
+      ratings: [],
+      referenced: [],
+      subjects: [],
+      shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+      labels: []
+    };
+    expect(isWarmLandingRevisit(viewer, '', cached)).toBe(true);
+  });
 });

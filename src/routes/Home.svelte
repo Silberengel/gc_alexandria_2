@@ -295,8 +295,12 @@
   let loadAgain = false;
   let mergeInFlight = false;
   let mergeAgain = false;
-  /** Metadata id-key for which My shelf was last successfully folded. */
-  let lastFoldedMetaKey = '';
+  /**
+   * Metadata id-key for which My shelf was last successfully folded.
+   * `null` = never folded this session; `''` = folded when the viewer had no
+   * bookmark/label/directory/contact events (empty fingerprint is still valid).
+   */
+  let lastFoldedMetaKey: string | null = null;
 
   $effect(() => {
     if (!$session.pubkey) return;
@@ -359,7 +363,7 @@
     shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
     labels = [];
-    lastFoldedMetaKey = '';
+    lastFoldedMetaKey = null;
     clearWarmLandingVisit();
   }
 
@@ -386,9 +390,8 @@
     if (!hasViewerBoundCovers()) return;
     const meta = session.getMetadata();
     if (!meta.length) return;
-    const key = shelfMetaKey(meta);
-    if (!key) return;
-    lastFoldedMetaKey = key;
+    // Empty key is valid when metadata has no list kinds — still mark folded.
+    lastFoldedMetaKey = shelfMetaKey(meta);
   }
 
   function maybeWarmReadingQueue(): void {
@@ -423,9 +426,9 @@
     }
     const foldKey = shelfMetaKey(meta);
     if (
-      foldKey &&
+      lastFoldedMetaKey !== null &&
       foldKey === lastFoldedMetaKey &&
-      shelves.some((s) => isViewerBoundShelfId(s.id) && s.events.length)
+      hasViewerBoundCovers()
     ) {
       console.info(LOG, 'mergeViewerShelves skip: My shelf already folded for this metadata');
       return;
