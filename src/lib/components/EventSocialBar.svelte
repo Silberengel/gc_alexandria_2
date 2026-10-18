@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { untrack } from 'svelte';
   import type { Event } from 'nostr-tools';
   import HeartButton from './HeartButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
@@ -56,44 +57,54 @@
   const canReply = $derived(signedIn);
   const offerKind1 = $derived(canOfferKind1Reply(event));
 
+  // Only re-fetch when the target event / allowReply changes — never when the
+  // thread finishes loading. Reading threadLoaded inside ensureThread used to
+  // register it as an $effect dependency, so cache hits after a like turned
+  // into a tight remount storm (Firefox "Script terminated by timeout").
   $effect(() => {
     if (!allowReply) return;
     const targetId = event.id;
     const gen = ++threadGen;
-    threadLoaded = false;
-    thread = [];
-    threadSource = [];
-    quotes = [];
-    other = [];
-    highlights = [];
-    zaps = [];
-    boosts = [];
-    replyOpen = false;
-    replyOpenId = null;
-    asKind1Reply = false;
+    untrack(() => {
+      threadLoaded = false;
+      thread = [];
+      threadSource = [];
+      quotes = [];
+      other = [];
+      highlights = [];
+      zaps = [];
+      boosts = [];
+      replyOpen = false;
+      replyOpenId = null;
+      asKind1Reply = false;
+    });
     void ensureThread(targetId, gen);
   });
 
   async function ensureThread(targetId: string, gen: number): Promise<void> {
-    if (threadLoaded && gen === threadGen) return;
-    const target = event;
+    // gen (not threadLoaded) is the stale-paint gate — avoid tracking threadLoaded.
+    if (untrack(() => threadLoaded) && gen === threadGen) return;
+    const target = untrack(() => event);
     if (target.id !== targetId) return;
     const hit: WorkResponses = await fetchWorkResponses(target, 40, (cached) => {
-      if (gen !== threadGen || event.id !== targetId) return;
-      threadSource = cached.thread;
-      thread = nestComments(threadSource, $muteState, threadRootKeys(target));
-      quotes = filterMuted(cached.quotes, $muteState);
-      other = filterMuted(cached.other, $muteState);
-      highlights = filterMuted(cached.highlights, $muteState);
-      zaps = cached.zaps;
-      boosts = cached.boosts;
-      threadLoaded = true;
+      if (gen !== threadGen || untrack(() => event.id) !== targetId) return;
+      applyHit(cached, target);
     });
-    if (gen !== threadGen || event.id !== targetId) return;
-    const localOnly = threadSource.filter(
-      (existing) => !hit.thread.some((remote) => remote.id === existing.id)
+    if (gen !== threadGen || untrack(() => event.id) !== targetId) return;
+    const localOnly = untrack(() =>
+      threadSource.filter((existing) => !hit.thread.some((remote) => remote.id === existing.id))
     );
-    threadSource = [...hit.thread, ...localOnly];
+    applyHit(
+      {
+        ...hit,
+        thread: [...hit.thread, ...localOnly]
+      },
+      target
+    );
+  }
+
+  function applyHit(hit: WorkResponses, target: Event): void {
+    threadSource = hit.thread;
     thread = nestComments(threadSource, $muteState, threadRootKeys(target));
     quotes = filterMuted(hit.quotes, $muteState);
     other = filterMuted(hit.other, $muteState);
