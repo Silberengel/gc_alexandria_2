@@ -2797,6 +2797,268 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   line-height: inherit;
 }
 
+/* Djot `>` quotes and AsciiDoc quote blocks. Without this, a blockquote is just a paragraph. */
+.reading-body blockquote,
+.event-body blockquote,
+.reader-section blockquote {
+  margin: 0.9rem 0;
+  padding: 0.1rem 0 0.1rem 0.95rem;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--rule));
+  color: color-mix(in srgb, var(--ink) 84%, var(--ink-soft));
+}
+.reading-body blockquote > :first-child,
+.event-body blockquote > :first-child,
+.reader-section blockquote > :first-child {
+  margin-top: 0;
+}
+.reading-body blockquote > :last-child,
+.event-body blockquote > :last-child,
+.reader-section blockquote > :last-child {
+  margin-bottom: 0;
+}
+.reading-body blockquote p,
+.event-body blockquote p,
+.reader-section blockquote p {
+  white-space: pre-line;
+}
+.reading-body blockquote .djot-source,
+.event-body blockquote .djot-source,
+.reader-section blockquote .djot-source {
+  margin-top: 0.45rem;
+  font-size: 0.92em;
+  color: var(--ink-soft);
+}
+.reading-body blockquote .djot-source::before,
+.event-body blockquote .djot-source::before,
+.reader-section blockquote .djot-source::before {
+  content: "— ";
+}
+/* Djot `{.important}` / `{.large}` land on the block itself. `div.important` stays an admonition. */
+.reading-body :not(div).important,
+.event-body :not(div).important,
+.reader-section :not(div).important {
+  font-weight: 650;
+  padding-left: 0.85rem;
+  border-left: 3px solid var(--accent);
+}
+.reading-body .large,
+.event-body .large,
+.reader-section .large {
+  font-size: 1.25em;
+}
+.reading-body .quoteblock,
+.event-body .quoteblock,
+.reader-section .quoteblock {
+  margin: 0.9rem 0;
+}
+.reading-body .asciidoc-doc-header,
+.event-body .asciidoc-doc-header,
+.reader-section .asciidoc-doc-header {
+  margin: 0 0 1.35rem;
+}
+.reading-body .asciidoc-doc-header .details,
+.event-body .asciidoc-doc-header .details,
+.reader-section .asciidoc-doc-header .details {
+  margin: 0.15rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+.reading-body .asciidoc-doc-header .author-line,
+.event-body .asciidoc-doc-header .author-line,
+.reader-section .asciidoc-doc-header .author-line,
+.reading-body .asciidoc-doc-header .rev,
+.event-body .asciidoc-doc-header .rev,
+.reader-section .asciidoc-doc-header .rev {
+  display: block;
+}
+
+.reading-body th,
+.reading-body td,
+.event-body th,
+.event-body td,
+.reader-section th,
+.reader-section td {
+  border: 1px solid color-mix(in srgb, var(--rule) 72%, transparent);
+  padding: 0.35rem 0.6rem;
+  vertical-align: top;
+  text-align: left;
+}
+.reading-body th,
+.event-body th,
+.reader-section th {
+  font-weight: 650;
+  background: color-mix(in srgb, var(--paper-dark) 38%, transparent);
+}
+.reading-body .admonitionblock td,
+.event-body .admonitionblock td,
+.reader-section .admonitionblock td {
+  border: none;
+  background: transparent;
+}
+
+.reading-body section[role='doc-endnotes'],
+.event-body section[role='doc-endnotes'],
+.reader-section section[role='doc-endnotes'],
+.reading-body #footnotes,
+.event-body #footnotes,
+.reader-section #footnotes {
+  margin-top: 1.6rem;
+  font-size: 0.92em;
+  color: var(--ink-soft);
+}
+.reading-body section[role='doc-endnotes'] hr,
+.event-body section[role='doc-endnotes'] hr,
+.reader-section section[role='doc-endnotes'] hr {
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  margin: 0 0 0.75rem;
+}
+.reading-body sup,
+.event-body sup,
+.reader-section sup,
+.reading-body sub,
+.event-body sub,
+.reader-section sub {
+  font-size: 0.75em;
+  line-height: 0;
+}
+.reading-body .underline,
+.event-body .underline,
+.reader-section .underline {
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+.reading-body .mark,
+.event-body .mark,
+.reader-section .mark,
+.reading-body .highlight,
+.event-body .highlight,
+.reader-section .highlight {
+  background: #e8b84a;
+  color: #1a140c;
+  padding: 0.08em 0.14em;
+  border-radius: 0.2em;
+}
+.reading-body :is(div.note, div.tip, div.important, div.caution, div.warning),
+.event-body :is(div.note, div.tip, div.important, div.caution, div.warning),
+.reader-section :is(div.note, div.tip, div.important, div.caution, div.warning),
+.reading-body .exampleblock,
+.event-body .exampleblock,
+.reader-section .exampleblock,
+.reading-body div.example,
+.event-body div.example,
+.reader-section div.example {
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 75%, transparent);
+  border-left: 0.28rem solid var(--accent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+}
+.reading-body .sidebarblock,
+.event-body .sidebarblock,
+.reader-section .sidebarblock,
+.reading-body div.sidebar,
+.event-body div.sidebar,
+.reader-section div.sidebar {
+  margin: 1rem 0 1rem 1.15rem;
+  padding: 0.8rem 1rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, var(--rule));
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--paper-dark) 72%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface) 55%, transparent);
+}
+.reading-body .sidebarblock > .content > .title,
+.event-body .sidebarblock > .content > .title,
+.reader-section .sidebarblock > .content > .title,
+.reading-body div.sidebar > .title,
+.event-body div.sidebar > .title,
+.reader-section div.sidebar > .title {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.reading-body .sidebarblock .paragraph,
+.event-body .sidebarblock .paragraph,
+.reader-section .sidebarblock .paragraph,
+.reading-body div.sidebar .paragraph,
+.event-body div.sidebar .paragraph,
+.reader-section div.sidebar .paragraph {
+  margin: 0.35rem 0;
+}
+.reading-body kbd,
+.event-body kbd,
+.reader-section kbd {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78em;
+  font-weight: 650;
+  line-height: 1.4;
+  padding: 0.08em 0.4em;
+  border: 1px solid color-mix(in srgb, var(--ink) 22%, var(--rule));
+  border-bottom-width: 2px;
+  border-radius: 0.28rem;
+  background: color-mix(in srgb, var(--surface) 82%, var(--paper-dark));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ink) 18%, transparent);
+  vertical-align: 0.08em;
+}
+.reading-body b.button,
+.event-body b.button,
+.reader-section b.button {
+  display: inline-block;
+  font-weight: 650;
+  font-size: 0.92em;
+  line-height: 1.35;
+  padding: 0.08em 0.55em;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, var(--rule));
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--surface) 70%, var(--paper-dark));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 80%, white),
+    0 1px 0 color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.reading-body .menuseq,
+.event-body .menuseq,
+.reader-section .menuseq {
+  white-space: nowrap;
+}
+.reading-body .menuseq b.menu,
+.event-body .menuseq b.menu,
+.reader-section .menuseq b.menu,
+.reading-body .menuseq b.submenu,
+.event-body .menuseq b.submenu,
+.reader-section .menuseq b.submenu,
+.reading-body .menuseq b.menuitem,
+.event-body .menuseq b.menuitem,
+.reader-section .menuseq b.menuitem {
+  font-weight: 650;
+}
+.reading-body .menuseq b.caret,
+.event-body .menuseq b.caret,
+.reader-section .menuseq b.caret {
+  font-weight: 400;
+  color: var(--ink-soft);
+  padding: 0 0.12em;
+}
+.reading-body dl,
+.event-body dl,
+.reader-section dl {
+  margin: 0.8rem 0;
+}
+.reading-body dt,
+.event-body dt,
+.reader-section dt {
+  font-weight: 650;
+  margin-top: 0.45rem;
+}
+.reading-body dd,
+.event-body dd,
+.reader-section dd {
+  margin: 0.1rem 0 0.35rem 1rem;
+}
+
 /* Inline monospace — keep smaller than reading body, lightly marked. */
 .reading-body :not(pre) > code,
 .event-body :not(pre) > code,

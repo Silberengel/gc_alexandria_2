@@ -2,13 +2,59 @@ import { describe, expect, it } from 'vitest';
 import { KIND } from './constants';
 import {
   markupFromTags,
+  withMarkupTag, 
   resolveMarkup,
-  renderWithFallback,
+  renderDjotHtml,
+  renderWithFallback, 
   linkifyTopicHashtags,
   looksLikeNativeAsciidoc,
-  looksLikeDjot,
+  looksLikeDjot, 
   normalizeMarkdownEmphasis
 } from './markup';
+
+describe('withMarkupTag', () => {
+  it('records the body format and leaves unrelated m tags', () => {
+    expect(withMarkupTag([['m', 'book'], ['t', 'wiki']], 'djot')).toEqual([
+      ['m', 'book'],
+      ['t', 'wiki'],
+      ['m', 'text/djot']
+    ]);
+    expect(withMarkupTag([['m', 'text/markdown'], ['markup', 'djot']], 'asciidoc')).toEqual([
+      ['m', 'text/asciidoc']
+    ]);
+  });
+});
+
+describe('asciidoc document header', () => {
+  it('shows the title, author, and revision', async () => {
+    const html = await renderWithFallback(
+      KIND.WIKI,
+      ['= Document Title', 'Author Name <author@email.org>', 'v2.0, 2019-03-22', '', '== Section'].join(
+        '\n'
+      ),
+      [['m', 'text/asciidoc']]
+    );
+    expect(html).toContain('>Document Title</h1>');
+    expect(html).toContain('Author Name');
+    expect(html).toContain('mailto:author@email.org');
+    expect(html).toContain('version 2.0, 2019-03-22');
+    expect(html).toContain('>Section</h2>');
+  });
+});
+
+describe('asciidoc ui macros', () => {
+  it('renders the sidebar, menu, button, and keyboard control', async () => {
+    const html = await renderWithFallback(
+      KIND.WIKI,
+      ['****', 'sidebar', '****', '', 'menu:File[Save]', 'btn:[OK]', 'kbd:[F11]'].join('\n'),
+      [['m', 'text/asciidoc']]
+    );
+    expect(html).toContain('class="sidebarblock"');
+    expect(html).toContain('class="menuseq"');
+    expect(html).toContain('class="button">OK');
+    expect(html).toContain('<kbd>F11</kbd>');
+  });
+});
 
 describe('markupFromTags', () => {
   it('reads m, then markup, then format', () => {
@@ -38,6 +84,7 @@ describe('resolveMarkup', () => {
   it('uses AsciiDoc for kind 30041 even without tags', () => {
     expect(resolveMarkup(KIND.SECTION, '= Chapter\n\nHello.', [])).toBe('asciidoc');
     expect(resolveMarkup(KIND.SECTION, 'plain', [['m', 'text/markdown']])).toBe('asciidoc');
+    expect(resolveMarkup(KIND.SECTION, 'Hello *world*', [['m', 'text/djot']])).toBe('djot');
   });
 
   it('uses wiki tags to choose Djot vs deprecated AsciiDoc', () => {
@@ -128,6 +175,20 @@ describe('renderWithFallback', () => {
     expect(html).toContain('katex-display');
     expect(html).not.toContain('\\(');
     expect(html).not.toContain('\\[');
+  });
+});
+
+describe('djot block attributes', () => {
+  it('keeps the id and classes and shows a quote source', () => {
+    const html = renderDjotHtml(`{#water}
+{.important .large}
+Don't forget to turn off the water!
+
+{source="Iliad"}
+> Sing, muse, of the wrath of Achilles
+`);
+    expect(html).toContain('<p id="water" class="important large">');
+    expect(html).toContain('<footer class="djot-source">Iliad</footer>');
   });
 });
 

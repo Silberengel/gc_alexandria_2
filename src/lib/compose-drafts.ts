@@ -10,6 +10,8 @@ export type ComposeDraftState = {
   freeformTags: string[][];
   /** Kind-0 profile editor rows (JSON + tag mirrors). */
   kind0Tags?: string[][];
+  /** Advanced-editor markup, when the kind has a Djot or AsciiDoc body. */
+  markup?: 'djot' | 'asciidoc' | null;
   updatedAt: number;
 };
 

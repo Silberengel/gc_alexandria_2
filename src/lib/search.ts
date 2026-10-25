@@ -217,6 +217,19 @@ export function isNsec(input: string): boolean {
   }
 }
 
+/** note / nevent / naddr / 64-hex. These are lookups, not catalog text search. */
+export function exactEventQuery(query: string): 'hex' | 'note' | 'nevent' | 'naddr' | null {
+  const q = stripNostr(query);
+  if (HEX64.test(q)) return 'hex';
+  try {
+    const decoded = nip19.decode(q);
+    if (decoded.type === 'note' || decoded.type === 'nevent' || decoded.type === 'naddr') return decoded.type;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 async function paintCached(
   key: string,
   onUpdate: (r: SearchResult) => void
@@ -260,6 +273,20 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
     return;
   }
 
+  if (exactEventQuery(q)) {
+    onUpdate({ events: [], loading: true, done: false });
+    try {
+      const live = HEX64.test(q) ? await fetchByIdOrAuthor(q) : await fetchBech32(nip19.decode(q));
+      const events = filterDeletedEvents(live);
+      rememberEvents(events);
+      void cachePutMany(events);
+      onUpdate({ events, loading: false, done: true });
+    } catch {
+      onUpdate({ events: [], loading: false, done: true });
+    }
+    return;
+  }
+
   // q2: older q: snapshots dropped matching profiles after they had already painted.
   const key = `q2:${normalizeSearchKey(q)}`;
   const { events: cached, fresh } = await paintCached(key, onUpdate);
@@ -286,21 +313,6 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
   }
 
   if (fresh) return;
-
-  if (HEX64.test(q)) {
-    await finishWithGrapevine(key, await fetchByIdOrAuthor(q), cached, onUpdate);
-    return;
-  }
-
-  try {
-    const decoded = nip19.decode(q);
-    if (decoded.type === 'naddr' || decoded.type === 'nevent' || decoded.type === 'note') {
-      await finishWithGrapevine(key, await fetchBech32(decoded), cached, onUpdate);
-      return;
-    }
-  } catch {
-    /* fan-out */
-  }
 
   await fanOutSearch(q, key, cached, onUpdate);
 }

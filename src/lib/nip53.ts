@@ -234,7 +234,7 @@ export function parseSpaceStatus(raw: string | null | undefined): SpaceStatus {
 }
 
 /** Display labels for catalog activity status options. */
-export function activityStatusLabel(status: ActivityStatus, kind = NIP53_KIND.LIVE_EVENT): string {
+export function activityStatusLabel(status: ActivityStatus, kind: number = NIP53_KIND.LIVE_EVENT): string {
   switch (status) {
     case 'live':
       return 'Live';

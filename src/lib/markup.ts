@@ -31,6 +31,36 @@ export function markupFromMime(value: string | undefined): MarkupFormat | null {
   return null;
 }
 
+/** True when a markup tag names Djot itself, not a legacy markdown alias. */
+export function tagsDeclareDjot(tags: string[][] | undefined): boolean {
+  if (!tags?.length) return false;
+  for (const name of MARKUP_TAG_NAMES) {
+    for (const tag of tags) {
+      if (tag[0] !== name || !tag[1]) continue;
+      if (tag[1].toLowerCase().includes('djot')) return true;
+    }
+  }
+  return false;
+}
+
+/** Keep non-markup `m` tags (file MIME, rating mark) and record the body format. */
+export function withMarkupTag(tags: string[][], format: 'djot' | 'asciidoc'): string[][] {
+  const mime = format === 'asciidoc' ? 'text/asciidoc' : 'text/djot';
+  let wrote = false;
+  const next: string[][] = [];
+  for (const tag of tags) {
+    const name = tag[0] ?? '';
+    if ((name === 'm' || name === 'markup' || name === 'format') && markupFromMime(tag[1])) {
+      if (!wrote) next.push([name, mime]);
+      wrote = true;
+      continue;
+    }
+    next.push(tag);
+  }
+  if (!wrote) next.push(['m', mime]);
+  return next;
+}
+
 export function markupFromTags(tags: string[][] | undefined): MarkupFormat | null {
   if (!tags?.length) return null;
   for (const name of MARKUP_TAG_NAMES) {
@@ -119,6 +149,47 @@ function transformSkippingInlineCode(line: string, transform: (segment: string) 
   return out.join('');
 }
 
+type AsciidocAuthor = { getName?: () => string; getEmail?: () => string };
+type AsciidocDoc = {
+  getDocumentTitle?: () => string | undefined;
+  getAuthors?: () => AsciidocAuthor[];
+  getRevisionNumber?: () => string | undefined;
+  getRevisionDate?: () => string | undefined;
+  getRevisionRemark?: () => string | undefined;
+  convert: () => string;
+};
+
+/** Title, author line, and revision. Embedded conversion omits this header. */
+function asciidocDocumentHeader(doc: AsciidocDoc): string {
+  const title = String(doc.getDocumentTitle?.() ?? '').trim();
+  if (!title) return '';
+  const authors = doc.getAuthors?.() ?? [];
+  const people = authors
+    .map((author) => {
+      const name = String(author.getName?.() ?? '').trim();
+      const email = String(author.getEmail?.() ?? '').trim();
+      if (!name && !email) return '';
+      const nameHtml = name ? `<span class="author">${escapePlainHtml(name)}</span>` : '';
+      const emailHtml = email
+        ? `<span class="email"><a href="mailto:${escapePlainHtml(email)}">${escapePlainHtml(email)}</a></span>`
+        : '';
+      return `<span class="author-line">${[nameHtml, emailHtml].filter(Boolean).join(' ')}</span>`;
+    })
+    .filter(Boolean);
+  const revNumber = String(doc.getRevisionNumber?.() ?? '').trim();
+  const revDate = String(doc.getRevisionDate?.() ?? '').trim();
+  const revRemark = String(doc.getRevisionRemark?.() ?? '').trim();
+  const rev = [revNumber ? `version ${revNumber}` : '', revDate, revRemark].filter(Boolean).join(', ');
+  const details = [
+    people.length ? people.join('') : '',
+    rev ? `<span class="rev">${escapePlainHtml(rev)}</span>` : ''
+  ]
+    .filter(Boolean)
+    .join('');
+  const byline = details ? `<p class="details">${details}</p>` : '';
+  return `<header class="asciidoc-doc-header"><h1>${escapePlainHtml(title)}</h1>${byline}</header>`;
+}
+
 function escapePlainHtml(src: string): string {
   return src
     .replace(/&/g, '&amp;')
@@ -137,7 +208,12 @@ export function resolveMarkup(kind: number, content = '', tags?: string[][]): Ma
   const tagged = markupFromTags(tags);
   const encoding = getKind(kind)?.content?.encoding;
 
-  if (kind === KIND.SECTION || encoding === 'asciidoc') return 'asciidoc';
+  // Sections are AsciiDoc unless the event explicitly says Djot (`m` = text/djot).
+  // Legacy markdown tags stay AsciiDoc.
+  if (kind === KIND.SECTION || encoding === 'asciidoc') {
+    if (tagsDeclareDjot(tags)) return 'djot';
+    return 'asciidoc';
+  }
 
   // Catalog djot kinds (and wiki, which is catalogued as djot).
   if (encoding === 'djot' || kind === KIND.WIKI) {
@@ -307,18 +383,20 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
       const factory = mod.default;
       const processor = typeof factory === 'function' ? factory() : factory;
       asciidoctorConvert = (src: string) => {
-        const html = String(
-          processor.convert(src, {
-            safe: 'secure',
-            standalone: false,
-            doctype: 'article',
-            attributes: {
-              'source-highlighter': 'highlight.js',
-              // Prefer TeX/LaTeX so stem:/latexmath: emit \(…\) / \[…\] for KaTeX.
-              stem: 'latexmath'
-            }
-          })
-        );
+        const doc = processor.load(src, {
+          safe: 'secure',
+          standalone: false,
+          doctype: 'article',
+          attributes: {
+            'source-highlighter': 'highlight.js',
+            // menu:, btn:, and kbd: are UI macros. AsciiDoc leaves them as
+            // source text unless this attribute is set.
+            experimental: '',
+            // Prefer TeX/LaTeX so stem:/latexmath: emit \(…\) / \[…\] for KaTeX.
+            stem: 'latexmath'
+          }
+        });
+        const html = asciidocDocumentHeader(doc) + String(doc.convert());
         return renderAsciidoctorMath(highlightCodeBlocks(html));
       };
     });
@@ -330,7 +408,18 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
 export function renderDjotHtml(src: string): string {
   const normalized = normalizeMarkdownEmphasis(src);
   try {
-    return renderDjot(parseDjot(normalized));
+    return renderDjot(parseDjot(normalized), {
+      overrides: {
+        // `{source="…"}` is only an HTML attribute, so the preview and reader never showed it.
+        block_quote(node, renderer) {
+          const html = renderer.renderAstNodeDefault(node);
+          const source = node.attributes?.source?.trim();
+          if (!source) return html;
+          const cite = `<footer class="djot-source">${renderer.escape(source)}</footer>\n`;
+          return html.replace(/<\/blockquote>\s*$/, `${cite}</blockquote>\n`);
+        }
+      }
+    });
   } catch {
     return `<pre>${escapePlainHtml(normalized)}</pre>`;
   }

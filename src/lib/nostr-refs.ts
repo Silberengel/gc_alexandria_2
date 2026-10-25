@@ -114,7 +114,7 @@ export function splitNostrRefs(content: string): ContentSegment[] {
 }
 
 /** note / nevent / naddr render as block cards — not inline mentions. */
-export function isBlockEmbedRef(seg: ContentSegment): boolean {
+export function isBlockEmbedRef(seg: ContentSegment | RenderSegment): boolean {
   return (
     seg.type === 'ref' && (seg.kind === 'note' || seg.kind === 'nevent' || seg.kind === 'naddr')
   );

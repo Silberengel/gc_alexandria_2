@@ -6,6 +6,7 @@
   import { warmNavEvent } from '$lib/nav-warm';
   import EventBody from '$lib/components/EventBody.svelte';
   import ComposeGrammarTextarea from '$lib/components/ComposeGrammarTextarea.svelte';
+  import AdvancedMarkupEditor from '$lib/components/AdvancedMarkupEditor.svelte';
   import ComposeHashtagRows from '$lib/components/ComposeHashtagRows.svelte';
   import ComposeEventTagRows from '$lib/components/ComposeEventTagRows.svelte';
   import ComposePublicationAuthorsEditor from '$lib/components/ComposePublicationAuthorsEditor.svelte';
@@ -42,6 +43,7 @@
     COMPOSE_METADATA_KINDS,
     composePickerGroups,
     composeKindLabel,
+    composeMarkupFormat,
     showContentBox,
     isMetadataComposeKind
   } from '$lib/compose-presets';
@@ -129,6 +131,9 @@
   let draftRevision = $state(0);
   type EditorTab = 'edit' | 'preview' | 'json';
   let editorTab = $state<EditorTab>('edit');
+  let advancedOpen = $state(false);
+  /** Markup for the advanced editor. Follows the kind until the toggle changes it. */
+  let editorMarkup = $state<'djot' | 'asciidoc' | null>(null);
   /** Own kind-1 being revised as NIP-41 kind 1010 (null = normal compose / copy). */
   let shortNoteEditSource = $state<NostrEvent | null>(null);
   /** Last `?copy=` / `?edit=` id we applied, so the effect does not loop. */
@@ -148,6 +153,9 @@
     !shortNoteEditSource && kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
   );
   const showGrammar = $derived(grammarOn && kind !== 9802 && showBody);
+  const markupFormat = $derived(
+    showBody ? composeMarkupFormat(kind, content, previewEvent?.tags) : null
+  );
   const draftItems = $derived.by(() => {
     void draftRevision;
     return $session.pubkey ? listComposeDrafts($session.pubkey) : [];
@@ -183,6 +191,10 @@
       });
   }
 
+  function resetEditorMarkup(nextKind: number, nextContent: string, nextTags?: string[][]) {
+    editorMarkup = composeMarkupFormat(nextKind, nextContent, nextTags);
+  }
+
   function snapshotDraft() {
     return {
       kind,
@@ -192,6 +204,7 @@
       imetaTags: imetaTags.map((t) => [...t]),
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
+      markup: editorMarkup,
       updatedAt: Date.now()
     };
   }
@@ -204,6 +217,7 @@
     imetaTags: string[][];
     freeformTags: string[][];
     kind0Tags?: string[][];
+    markup?: 'djot' | 'asciidoc' | null;
   }) {
     kind = d.kind;
     pickerValue = d.kind;
@@ -220,6 +234,10 @@
       d.kind === 0 && d.kind0Tags?.length
         ? d.kind0Tags.map((t) => [...t])
         : emptyKind0TagRows();
+    editorMarkup =
+      d.markup === 'djot' || d.markup === 'asciidoc'
+        ? d.markup
+        : composeMarkupFormat(d.kind, d.content, d.freeformTags);
   }
 
   function persistCurrent() {
@@ -261,6 +279,8 @@
     grammarIssues = [];
     grammarCheckedSource = '';
     editorTab = 'edit';
+    advancedOpen = false;
+    editorMarkup = null;
     shortNoteEditSource = null;
     appliedIntentKey = null;
     bumpPreview();
@@ -397,6 +417,7 @@
         }
       }
     }
+    resetEditorMarkup(nextKind, content, freeformTags);
     bumpPreview();
   }
 
@@ -446,6 +467,7 @@
     kind0Tags = emptyKind0TagRows();
     editorTab = 'edit';
     formError = '';
+    resetEditorMarkup(n, content, freeformTags);
     bumpPreview();
   }
 
@@ -458,7 +480,8 @@
       imetaTags,
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
-      existingKind0
+      existingKind0,
+      markup: editorMarkup
     };
   }
 
@@ -497,6 +520,7 @@
   $effect(() => {
     void kind;
     void content;
+    void editorMarkup;
     void shortNoteEditSource;
     // Deep-read proxies: `void values` alone does not re-run on values[id] = … /
     // bind:value={values[id]} (e.g. 30040 title), so drafts never saved.
@@ -512,6 +536,21 @@
     return () => clearTimeout(t);
   });
 
+  // The debounce above is cleared on teardown. Flush if the tab is hidden first,
+  // including while the advanced editor is the only field on screen.
+  $effect(() => {
+    const flush = () => persistCurrent();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flush();
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  });
+
   // When the catalog publication-language field changes, seed the dropdown.
   // Do not override a manual dropdown pick while that field stays the same.
   let lastPublicationLanguage = $state<string | null>(null);
@@ -521,6 +560,10 @@
     lastPublicationLanguage = pub;
     if (!pub) return;
     grammarLang = languageToolCodeFrom(pub);
+  });
+
+  $effect(() => {
+    if (!markupFormat) advancedOpen = false;
   });
 
   $effect(() => {
@@ -593,13 +636,10 @@
     return mergeBlossomServers(user);
   }
 
-  async function onFilePicked(ev: { currentTarget: HTMLInputElement }) {
-    const file = ev.currentTarget.files?.[0];
-    ev.currentTarget.value = '';
-    if (!file) return;
+  async function uploadBlossomFile(file: File): Promise<{ url: string; mime: string; name: string }> {
     if (!$session.pubkey) {
       openLoginDialog();
-      return;
+      throw new Error('Sign in to upload.');
     }
     uploading = true;
     formError = '';
@@ -632,15 +672,28 @@
         height
       });
       imetaTags = [...imetaTags, tag];
-      if (showBody && !content.includes(result.url)) {
-        content = content ? `${content.trimEnd()}\n\n${result.url}` : result.url;
-      }
+      return { url: result.url, mime: file.type || '', name: file.name };
     } catch (err) {
       formError = err instanceof Error ? err.message : 'Upload failed.';
       const signFail = consumeSignFailure();
       if (signFail) formError = signFail;
+      throw new Error(formError);
     } finally {
       uploading = false;
+    }
+  }
+
+  async function onFilePicked(ev: { currentTarget: HTMLInputElement }) {
+    const file = ev.currentTarget.files?.[0];
+    ev.currentTarget.value = '';
+    if (!file) return;
+    try {
+      const uploaded = await uploadBlossomFile(file);
+      if (showBody && !content.includes(uploaded.url)) {
+        content = content ? `${content.trimEnd()}\n\n${uploaded.url}` : uploaded.url;
+      }
+    } catch {
+      /* uploadBlossomFile sets formError */
     }
   }
 
@@ -795,6 +848,7 @@
   });
 </script>
 
+<div class="compose-screen" inert={advancedOpen}>
 <TopBar />
 <main class="shell reading-body compose-page">
   <header class="page-header">
@@ -1086,26 +1140,42 @@
 
             {#if showBody}
               <div class="compose-content-block">
-                <label class="compose-field">
-                  <span>{contentMeta?.label ?? 'Content'}{#if contentMeta?.required}*{/if}</span>
-                  {#if kind !== 9802}
-                    <ComposeGrammarTextarea
-                      bind:value={content}
-                      rows={10}
-                      placeholder={contentMeta?.placeholder ?? ''}
-                      issues={grammarIssues}
-                      checkedSource={grammarCheckedSource}
-                      enabled={showGrammar}
-                      onApply={applyGrammarFix}
-                    />
-                  {:else}
-                    <textarea
-                      rows="10"
-                      bind:value={content}
-                      placeholder={contentMeta?.placeholder ?? ''}
-                    ></textarea>
+                <div class="compose-content-head">
+                  <label class="compose-content-label" for={kind === 9802 ? 'compose-body-plain' : 'compose-body'}>
+                    {contentMeta?.label ?? 'Content'}{#if contentMeta?.required}*{/if}
+                  </label>
+                  {#if markupFormat}
+                    <button
+                      type="button"
+                      class="btn compose-advanced-btn"
+                      onclick={() => (advancedOpen = true)}
+                    >
+                      Advanced Editor
+                    </button>
                   {/if}
-                </label>
+                </div>
+                <!-- Unmounted while the advanced editor is open so this field cannot overwrite that draft. -->
+                {#if advancedOpen}
+                  <p class="muted compose-advanced-open">Editing in the advanced editor.</p>
+                {:else if kind !== 9802}
+                  <ComposeGrammarTextarea
+                    id="compose-body"
+                    bind:value={content}
+                    rows={10}
+                    placeholder={contentMeta?.placeholder ?? ''}
+                    issues={grammarIssues}
+                    checkedSource={grammarCheckedSource}
+                    enabled={showGrammar}
+                    onApply={applyGrammarFix}
+                  />
+                {:else}
+                  <textarea
+                    id="compose-body-plain"
+                    rows="10"
+                    bind:value={content}
+                    placeholder={contentMeta?.placeholder ?? ''}
+                  ></textarea>
+                {/if}
                 {#if kind !== 9802}
                   <div class="compose-grammar-tools">
                     <label class="compose-grammar-check">
@@ -1219,6 +1289,28 @@
     {/if}
   {/if}
 </main>
+</div>
+
+{#if advancedOpen && markupFormat}
+  <AdvancedMarkupEditor
+    bind:content
+    format={editorMarkup ?? markupFormat ?? 'djot'}
+    onFormat={(next) => (editorMarkup = next)}
+    placeholder={contentMeta?.placeholder ?? ''}
+    issues={grammarIssues}
+    checkedSource={grammarCheckedSource}
+    bind:grammarOn
+    bind:grammarLang
+    {grammarBusy}
+    onApply={applyGrammarFix}
+    onClose={() => {
+      advancedOpen = false;
+      persistCurrent();
+    }}
+    onUploadMedia={uploadBlossomFile}
+    {uploading}
+  />
+{/if}
 
 <style>
   .compose-kind-fixed {
@@ -1373,10 +1465,30 @@
   .other-summary {
     font-size: 0.9rem;
   }
+  .compose-screen {
+    display: contents;
+  }
   .compose-content-block {
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+  }
+  .compose-content-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .compose-content-label {
+    font: inherit;
+  }
+  .compose-advanced-btn {
+    flex: 0 0 auto;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.82rem;
+  }
+  .compose-advanced-open {
+    margin: 0;
   }
   .compose-grammar-tools {
     display: flex;

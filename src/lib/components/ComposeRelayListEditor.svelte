@@ -25,8 +25,8 @@
     placeholder = 'wss://…'
   }: Props = $props();
 
-  let rows = $state<RelayRow[]>(relayRowsFromRaw(value, withMarkers));
-  let lastEmitted = $state(value);
+  let rows = $state<RelayRow[]>([]);
+  let lastEmitted = $state<string | null>(null);
 
   $effect(() => {
     if (value !== lastEmitted) {

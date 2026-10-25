@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSearchKey } from './search';
+import { nip19 } from 'nostr-tools';
+import { exactEventQuery, normalizeSearchKey } from './search';
 import { searchSnapshotFresh, searchSnapshotMatchesViewer, type SearchSnapshot } from './nostr/cache';
 
 describe('normalizeSearchKey', () => {
   it('folds case and whitespace so repeats hit the same snapshot', () => {
     expect(normalizeSearchKey('  Mansfield   Park ')).toBe('mansfield park');
     expect(normalizeSearchKey('MANSFIELD PARK')).toBe(normalizeSearchKey('mansfield park'));
+  });
+});
+
+describe('exactEventQuery', () => {
+  it('recognizes note, nevent, naddr, and hex ids, including a nostr: prefix', () => {
+    const id = 'ab'.repeat(32);
+    const nevent = nip19.neventEncode({ id });
+    const note = nip19.noteEncode(id);
+    const naddr = nip19.naddrEncode({ kind: 30023, pubkey: id, identifier: 'am-fluss' });
+    expect(exactEventQuery(nevent)).toBe('nevent');
+    expect(exactEventQuery(`nostr:${note}`)).toBe('note');
+    expect(exactEventQuery(naddr)).toBe('naddr');
+    expect(exactEventQuery(id)).toBe('hex');
+    expect(exactEventQuery('mansfield park')).toBeNull();
   });
 });
 

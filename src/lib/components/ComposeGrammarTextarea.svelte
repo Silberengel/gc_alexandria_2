@@ -5,22 +5,29 @@
     value?: string;
     rows?: number;
     placeholder?: string;
+    id?: string;
+    /** Stretch to the parent height (full-screen editor). */
+    fill?: boolean;
     /** Issues for the last successful check (only painted when source matches value). */
     issues?: GrammarIssue[];
     /** Exact text that was checked — underlines hide when it diverges from value. */
     checkedSource?: string;
     enabled?: boolean;
     onApply?: (issue: GrammarIssue, replacement: string) => void;
+    element?: HTMLTextAreaElement | null;
   }
 
   let {
     value = $bindable(''),
     rows = 10,
     placeholder = '',
+    id = '',
+    fill = false,
     issues = [],
     checkedSource = '',
     enabled = true,
-    onApply
+    onApply,
+    element = $bindable<HTMLTextAreaElement | null>(null)
   }: Props = $props();
 
   let wrapEl = $state<HTMLDivElement | null>(null);
@@ -172,6 +179,10 @@
   });
 
   $effect(() => {
+    element = taEl;
+  });
+
+  $effect(() => {
     const ta = taEl;
     if (!ta) return;
     const onScroll = () => {
@@ -198,13 +209,14 @@
   });
 </script>
 
-<div class="grammar-field" bind:this={wrapEl}>
+<div class="grammar-field" class:fill bind:this={wrapEl}>
   <div class="grammar-mirror" bind:this={mirrorEl} aria-hidden="true">{@html mirrorHtml}</div>
   <textarea
     bind:this={taEl}
     bind:value
     {rows}
     {placeholder}
+    id={id || undefined}
     class="grammar-textarea"
     spellcheck="false"
     onselect={onSelectOrClick}
@@ -232,6 +244,18 @@
   .grammar-field {
     position: relative;
     width: 100%;
+  }
+  .grammar-field.fill {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+  .grammar-field.fill .grammar-textarea {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    resize: none;
   }
   .grammar-mirror {
     position: absolute;

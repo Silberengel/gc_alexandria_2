@@ -5,6 +5,7 @@ import {
   validateCompose,
 } from './kind-compose';
 import { kind0SavePayload } from './compose-kind0';
+import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
 
 export type ComposeFormState = {
@@ -18,6 +19,8 @@ export type ComposeFormState = {
   kind0Tags?: string[][];
   existingKind0?: Record<string, unknown>;
   appMergeTags?: string[][];
+  /** Body markup chosen in the editor. Written as an `m` tag when set. */
+  markup?: 'djot' | 'asciidoc' | null;
 };
 
 export {
@@ -73,6 +76,9 @@ export function buildComposePartial(state: ComposeFormState): {
     for (const row of state.appMergeTags) {
       if (row.length) tags.push(row);
     }
+  }
+  if (state.markup === 'djot' || state.markup === 'asciidoc') {
+    tags = withMarkupTag(tags, state.markup);
   }
 
   return { kind, content, tags: withClientTag(tags) };

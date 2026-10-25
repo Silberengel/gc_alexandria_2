@@ -414,7 +414,8 @@
           }
           // Pointer kind wins over the URL prefix so a wiki naddr under /spec (or vice versa)
           // canonicalizes to the correct surface.
-          const pointerKind = isArticleKind(decoded.kind) ? decoded.kind : kind;
+          const fromPointer = decoded.kind;
+          const pointerKind = fromPointer != null && isArticleKind(fromPointer) ? fromPointer : kind;
           let fetched: Event | null = null;
           if (decoded.id) {
             fetched = memoryGetEvent(decoded.id) ?? (await fetchById(decoded.id));

@@ -320,7 +320,7 @@ export async function fetchById(id: string, opts?: FetchByIdOpts): Promise<Event
       8,
       4
     );
-    let hit =
+    let hit: Event | null =
       (
         await relayPool.query(primaryScope.relays, [filter], 5000, primaryScope.maxRelays)
       )[0] ?? null;

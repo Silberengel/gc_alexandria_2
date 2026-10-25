@@ -155,6 +155,10 @@ export function memoryGetEvent(id: string): Event | null {
   return hit;
 }
 
+export function memoryAllMetadata(): Event[] {
+  return [...byMetaPubkey.values()];
+}
+
 export function memoryFindMetadata(pubkey: string): Event | null {
   const pk = pubkey.trim().toLowerCase();
   const hit = byMetaPubkey.get(pk);

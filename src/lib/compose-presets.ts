@@ -3,6 +3,7 @@ import {
   kindPickerLabel,
   kindsWrittenBy,
 } from '@silberengel/kind-compose-catalog';
+import { resolveMarkup } from './markup';
 
 export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041] as const;
 export const COMPOSE_METADATA_KINDS = [0, 30315, 10133, 10002, 10006, 10012, 10243] as const;
@@ -59,6 +60,20 @@ export function showContentBox(kind: number): boolean {
   const encoding = getKind(kind)?.content?.encoding;
   if (!encoding || encoding === 'empty' || encoding === 'json') return false;
   return true;
+}
+
+/**
+ * Djot or AsciiDoc for this compose body.
+ * Plaintext kinds stay on the normal editor (NostrRichText).
+ */
+export function composeMarkupFormat(
+  kind: number,
+  content = '',
+  tags?: string[][]
+): 'djot' | 'asciidoc' | null {
+  const format = resolveMarkup(kind, content, tags);
+  if (format === 'plaintext') return null;
+  return format;
 }
 
 export function composeKindLabel(kind: number): string {

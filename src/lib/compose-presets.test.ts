@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { KIND } from './constants';
 import {
   COMPOSE_DOCUMENT_PRESETS,
   COMPOSE_METADATA_KINDS,
   COMPOSE_PICKER_EXCLUDED,
+  composeMarkupFormat,
   composePickerGroups,
   isMetadataComposeKind,
 } from './compose-presets';
@@ -31,6 +33,19 @@ describe('composePickerGroups', () => {
       expect(metaSet.has(kind)).toBe(false);
       expect(excluded.has(kind)).toBe(false);
     }
+  });
+
+  it('offers the markup editor for djot and asciidoc, not plaintext notes', () => {
+    expect(composeMarkupFormat(KIND.TEXT_NOTE, 'Hello **note**.')).toBeNull();
+    expect(composeMarkupFormat(KIND.COMMENT, 'A comment')).toBeNull();
+    expect(composeMarkupFormat(KIND.LONG_FORM, '# Chapter')).toBe('djot');
+    expect(composeMarkupFormat(KIND.WIKI, 'A short wiki paragraph.')).toBe('djot');
+    expect(composeMarkupFormat(KIND.SPEC, '= Looks like AsciiDoc')).toBe('djot');
+    expect(composeMarkupFormat(KIND.SECTION, '= Chapter\n\nHello.')).toBe('asciidoc');
+    expect(composeMarkupFormat(KIND.WIKI, '= Title\n\n== Section\n\nSome body.\n')).toBe(
+      'asciidoc'
+    );
+    expect(composeMarkupFormat(KIND.PUBLICATION, '')).toBeNull();
   });
 
   it('omits reaction/deletion/rating-style kinds from the picker', () => {

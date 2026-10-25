@@ -34,8 +34,8 @@
   let mine = $state<Event[]>([]);
   let listsOpen = $state(false);
   let shelfOpen = $state(false);
-  let listsPlace = $state<MenuPlacement>({ side: 'start', up: false, top: 0, left: 0 });
-  let shelfPlace = $state<MenuPlacement>({ side: 'start', up: false, top: 0, left: 0 });
+  let listsPlace = $state<MenuPlacement>({ side: 'start', up: false, top: 0, left: 0, maxHeight: 320 });
+  let shelfPlace = $state<MenuPlacement>({ side: 'start', up: false, top: 0, left: 0, maxHeight: 320 });
   let listsWrap: HTMLDivElement | undefined = $state();
   let shelfWrap: HTMLDivElement | undefined = $state();
   let busy = $state(false);
