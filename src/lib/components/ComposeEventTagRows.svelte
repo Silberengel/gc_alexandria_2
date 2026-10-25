@@ -1,12 +1,35 @@
 <script lang="ts">
   interface Props {
-    /** Each row is one Nostr tag: `[name, ...values]`. */
+    /** Each row is one multi-part entry: `[part0, part1, ...]`. */
     tags?: string[][];
+    label?: string;
+    hint?: string;
+    addRowLabel?: string;
+    removeRowLabel?: string;
+    /** When false, inputs keep typed spaces (identifiers); event tags trim. */
+    trimParts?: boolean;
+    partPlaceholder?: (part: number) => string;
   }
 
-  let { tags = $bindable([] as string[][]) }: Props = $props();
+  let {
+    tags = $bindable([] as string[][]),
+    label = 'Event tags',
+    hint = undefined,
+    addRowLabel = 'Add event tag',
+    removeRowLabel = 'Remove event tag',
+    trimParts = true,
+    partPlaceholder = defaultPartPlaceholder
+  }: Props = $props();
+
+  const showDefaultHint = $derived(hint === undefined && label === 'Event tags');
 
   const MIN_PARTS = 2;
+
+  function defaultPartPlaceholder(part: number): string {
+    if (part === 0) return 'name';
+    if (part === 1) return 'value';
+    return `value ${part}`;
+  }
 
   function blankRow(): string[] {
     return ['', ''];
@@ -24,7 +47,7 @@
     const next = tags.map((r) => [...r]);
     const cells = next[row] ?? blankRow();
     while (cells.length <= part) cells.push('');
-    cells[part] = value.trim();
+    cells[part] = trimParts ? value.trim() : value;
     next[row] = cells;
     tags = next;
   }
@@ -54,22 +77,20 @@
     const next = tags.filter((_, idx) => idx !== i);
     tags = next.length ? next : [blankRow()];
   }
-
-  function partPlaceholder(part: number): string {
-    if (part === 0) return 'name';
-    if (part === 1) return 'value';
-    return `value ${part}`;
-  }
 </script>
 
 <div class="tag-rows">
   <div class="tag-rows-head">
-    <span>Event tags</span>
-    <button type="button" class="tag-rows-icon" onclick={addRow} aria-label="Add event tag">+</button>
+    <span>{label}</span>
+    <button type="button" class="tag-rows-icon" onclick={addRow} aria-label={addRowLabel}>+</button>
   </div>
-  <p class="tag-rows-hint muted">
-    One row per tag. Add parts for multi-value tags (e.g. <code>e</code> id relay pubkey marker).
-  </p>
+  {#if showDefaultHint}
+    <p class="tag-rows-hint muted">
+      One row per tag. Add parts for multi-value tags (e.g. <code>e</code> id relay pubkey marker).
+    </p>
+  {:else if hint}
+    <p class="tag-rows-hint muted">{hint}</p>
+  {/if}
   {#each tags as row, i}
     <div class="tag-row event-tag-row">
       <div class="tag-parts">
@@ -104,7 +125,7 @@
         type="button"
         class="tag-rows-icon"
         onclick={() => removeRow(i)}
-        aria-label="Remove event tag"
+        aria-label={removeRowLabel}
         disabled={tags.length <= 1 && row.every((c) => !c.trim())}
         >−</button
       >

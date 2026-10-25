@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { parseKind0Json } from './kind-compose';
+import { buildKind0TagListFromEvent } from './compose-kind0';
 import { isMetadataComposeKind } from './compose-presets';
 
 /** Values + content for a replaceable metadata kind from a live event. */
@@ -7,33 +8,26 @@ export function valuesFromMetadataEvent(event: Event): {
   content: string;
   values: Record<string, string>;
   existingKind0?: Record<string, unknown>;
+  kind0Tags?: string[][];
 } {
   const kind = event.kind;
   if (kind === 0) {
     const existing = parseKind0Json(event.content);
+    const kind0Tags = buildKind0TagListFromEvent(event);
+    // Flat values kept for draft/compat; the kind-0 editor uses kind0Tags.
     const values: Record<string, string> = {};
-    for (const key of [
-      'name',
-      'display_name',
-      'about',
-      'picture',
-      'banner',
-      'nip05',
-      'lud16',
-      'website',
-      'bot'
-    ]) {
-      const v = existing[key];
+    for (const row of kind0Tags) {
+      const key = row[0];
+      if (!key || key in values) continue;
       if (key === 'bot') {
-        values.bot = v === true || v === 'true' ? 'true' : '';
+        const v = (row[1] ?? '').trim().toLowerCase();
+        values.bot = !v || v === 'true' ? 'true' : v === 'false' ? 'false' : '';
         continue;
       }
-      if (typeof v === 'string' && v.trim()) values[key] = v;
-      else if (key === 'display_name' && typeof existing.displayName === 'string') {
-        values.display_name = existing.displayName;
-      }
+      const v = (row[1] ?? '').trim();
+      if (v) values[key] = v;
     }
-    return { content: '', values, existingKind0: existing };
+    return { content: '', values, existingKind0: existing, kind0Tags };
   }
 
   if (kind === 30315) {

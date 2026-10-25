@@ -16,17 +16,50 @@ describe('buildComposePartial', () => {
     expect(partial.tags.some((t) => t[0] === 'title' && t[1] === 'Guide')).toBe(true);
   });
 
-  it('preserves unknown kind-0 JSON keys', () => {
-    const existing = { custom_key: 'keep-me', name: 'Old' };
+  it('publishes 30040 naddr sections as a-tags', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'a'.repeat(64);
+    const naddr = nip19.naddrEncode({
+      kind: 30041,
+      pubkey: pk,
+      identifier: 'intro',
+    });
+    const partial = buildComposePartial({
+      kind: 30040,
+      content: '',
+      values: {
+        title: 'Guide',
+        publication_author: 'Author',
+        publication_type: 'book',
+        sections: `${naddr}\n${pk}`,
+      },
+    });
+    expect(partial.tags).toContainEqual(['a', `30041:${pk}:intro`]);
+    expect(partial.tags).toContainEqual(['e', pk]);
+  });
+
+  it('builds kind-0 JSON and mirror tags from editor rows', () => {
     const partial = buildComposePartial({
       kind: 0,
       content: '',
-      values: { name: 'New' },
-      existingKind0: existing,
+      values: {},
+      kind0Tags: [
+        ['name', 'Ada'],
+        ['lud16', 'ada@example.com'],
+        ['website', 'https://a.example'],
+        ['website', 'https://b.example'],
+      ],
     });
     const json = parseKind0Json(partial.content);
-    expect(json.custom_key).toBe('keep-me');
-    expect(json.name).toBe('New');
+    expect(json.name).toBe('Ada');
+    expect(json.lud16).toBe('ada@example.com');
+    expect(json.website).toBe('https://a.example');
+    expect(partial.tags).toContainEqual(['name', 'Ada']);
+    expect(partial.tags).toContainEqual(['lud16', 'ada@example.com']);
+    expect(partial.tags.filter((t) => t[0] === 'website')).toEqual([
+      ['website', 'https://a.example'],
+      ['website', 'https://b.example'],
+    ]);
   });
 
   it('emits relay_list_rw r tags for kind 10002', () => {

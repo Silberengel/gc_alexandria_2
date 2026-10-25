@@ -6,6 +6,8 @@ import {
 
 export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041] as const;
 export const COMPOSE_METADATA_KINDS = [0, 30315, 10133, 10002, 10006, 10012, 10243] as const;
+/** Action / context kinds composed elsewhere — not offered in the picker. */
+export const COMPOSE_PICKER_EXCLUDED = [5, 7, 1621, 1985, 16375, 30045, 34259] as const;
 export const OTHER_KIND_SENTINEL = -1;
 
 export type ComposePickerGroup = {
@@ -18,7 +20,11 @@ const METADATA_SET = new Set<number>(COMPOSE_METADATA_KINDS);
 
 export function composePickerGroups(): ComposePickerGroup[] {
   const alexandriaKinds = kindsWrittenBy('alexandria');
-  const excluded = new Set<number>([...COMPOSE_DOCUMENT_PRESETS, ...COMPOSE_METADATA_KINDS]);
+  const excluded = new Set<number>([
+    ...COMPOSE_DOCUMENT_PRESETS,
+    ...COMPOSE_METADATA_KINDS,
+    ...COMPOSE_PICKER_EXCLUDED
+  ]);
   const otherKinds = alexandriaKinds.filter((k) => !excluded.has(k));
 
   return [

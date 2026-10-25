@@ -6,6 +6,17 @@
   import ComposeGrammarTextarea from '$lib/components/ComposeGrammarTextarea.svelte';
   import ComposeHashtagRows from '$lib/components/ComposeHashtagRows.svelte';
   import ComposeEventTagRows from '$lib/components/ComposeEventTagRows.svelte';
+  import ComposePublicationAuthorsEditor from '$lib/components/ComposePublicationAuthorsEditor.svelte';
+  import ComposePublishedOnField from '$lib/components/ComposePublishedOnField.svelte';
+  import ComposeUnixTimestampField from '$lib/components/ComposeUnixTimestampField.svelte';
+  import ComposePublicationSectionsEditor from '$lib/components/ComposePublicationSectionsEditor.svelte';
+  import ComposePublicationIdentifiersEditor from '$lib/components/ComposePublicationIdentifiersEditor.svelte';
+  import ComposeSpecKindsEditor from '$lib/components/ComposeSpecKindsEditor.svelte';
+  import ComposePaytoEditor from '$lib/components/ComposePaytoEditor.svelte';
+  import ComposeRelayListEditor from '$lib/components/ComposeRelayListEditor.svelte';
+  import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
+  import { emptyKind0TagRows } from '$lib/compose-kind0';
+  import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish, signUnsigned, consumeSignFailure } from '$lib/sign';
@@ -36,7 +47,8 @@
     loadComposeDraft,
     saveComposeDraft,
     deleteComposeDraft,
-    listComposeDrafts
+    listComposeDrafts,
+    isComposeDraftEmpty
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
   import {
@@ -77,6 +89,7 @@
   let hashtagRows = $state<string[]>(['']);
   let imetaTags = $state<string[][]>([]);
   let freeformTags = $state<string[][]>([['', '']]);
+  let kind0Tags = $state<string[][]>(emptyKind0TagRows());
   let existingKind0 = $state<Record<string, unknown>>({});
 
   let grammarOn = $state(true);
@@ -106,7 +119,9 @@
   const contentMeta = $derived(getKind(kind)?.content);
   const showBody = $derived(showContentBox(kind) || (!isCatalogued(kind) && otherLocked));
   const showHashtags = $derived(isCatalogued(kind) ? supportsHashtags(kind) : true);
-  const showFreeform = $derived(isCatalogued(kind) ? allowExtraTags(kind) : true);
+  const showFreeform = $derived(
+    kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
+  );
   const showGrammar = $derived(grammarOn && kind !== 9802 && showBody);
   const draftItems = $derived.by(() => {
     void draftRevision;
@@ -151,6 +166,7 @@
       hashtags: cleanedHashtags(hashtagRows),
       imetaTags: imetaTags.map((t) => [...t]),
       freeformTags: cleanedFreeformTags(freeformTags),
+      kind0Tags: kind0Tags.map((t) => [...t]),
       updatedAt: Date.now()
     };
   }
@@ -162,6 +178,7 @@
     hashtags: string[];
     imetaTags: string[][];
     freeformTags: string[][];
+    kind0Tags?: string[][];
   }) {
     kind = d.kind;
     pickerValue = d.kind;
@@ -174,12 +191,21 @@
     freeformTags = d.freeformTags.length
       ? d.freeformTags.map((t) => (t.length >= 2 ? [...t] : [t[0] ?? '', '']))
       : [['', '']];
+    kind0Tags =
+      d.kind === 0 && d.kind0Tags?.length
+        ? d.kind0Tags.map((t) => [...t])
+        : emptyKind0TagRows();
   }
 
   function persistCurrent() {
     const pk = $session.pubkey;
     if (!pk || otherMode) return;
-    saveComposeDraft(pk, snapshotDraft());
+    const draft = snapshotDraft();
+    if (isComposeDraftEmpty(draft, emptyValuesFor(draft.kind))) {
+      deleteComposeDraft(pk, draft.kind);
+    } else {
+      saveComposeDraft(pk, draft);
+    }
     refreshDraftList();
   }
 
@@ -204,6 +230,7 @@
     hashtagRows = [''];
     imetaTags = [];
     freeformTags = [['', '']];
+    kind0Tags = emptyKind0TagRows();
     existingKind0 = {};
     formError = '';
     grammarIssues = [];
@@ -233,6 +260,7 @@
     hashtagRows = [''];
     imetaTags = [];
     freeformTags = [['', '']];
+    kind0Tags = emptyKind0TagRows();
     existingKind0 = {};
     if (pk && shouldPreloadMetadata(nextKind)) {
       const live = pickLatestByKind(session.getMetadata(), nextKind);
@@ -241,6 +269,7 @@
         content = pre.content;
         values = { ...emptyValuesFor(nextKind), ...pre.values };
         if (pre.existingKind0) existingKind0 = pre.existingKind0;
+        if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
       } else if (isMetadataComposeKind(nextKind)) {
         // Fetch once if login metadata missed this kind.
         try {
@@ -256,6 +285,7 @@
             content = pre.content;
             values = { ...emptyValuesFor(nextKind), ...pre.values };
             if (pre.existingKind0) existingKind0 = pre.existingKind0;
+            if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
           }
         } catch {
           /* ignore */
@@ -281,8 +311,10 @@
 
   function validateOtherKind() {
     otherError = '';
-    const n = Number(otherKindText.trim());
-    if (!Number.isInteger(n) || n < 0 || n > 65535) {
+    // type=number bind may yield a number; never call string methods on it.
+    const raw = String(otherKindText ?? '').trim();
+    const n = Number(raw);
+    if (!raw || !Number.isInteger(n) || n < 0 || n > 65535) {
       otherError = 'Enter a kind number from 0 to 65535.';
       return;
     }
@@ -306,6 +338,9 @@
     hashtagRows = [''];
     imetaTags = [];
     freeformTags = [['', '']];
+    kind0Tags = emptyKind0TagRows();
+    editorTab = 'edit';
+    formError = '';
     bumpPreview();
   }
 
@@ -317,6 +352,7 @@
       hashtags: cleanedHashtags(hashtagRows),
       imetaTags,
       freeformTags: cleanedFreeformTags(freeformTags),
+      kind0Tags: kind0Tags.map((t) => [...t]),
       existingKind0
     };
   }
@@ -356,6 +392,7 @@
     void hashtagRows;
     void imetaTags;
     void freeformTags;
+    void kind0Tags;
     const t = setTimeout(() => {
       bumpPreview();
       persistCurrent();
@@ -412,8 +449,8 @@
   }
 
   function fieldOptions(field: FieldDef): string[] {
-    const opts = (field as FieldDef & { options?: string[] }).options;
-    return Array.isArray(opts) ? opts : [];
+    const options = (field as FieldDef & { options?: string[] }).options;
+    return Array.isArray(options) ? options : [];
   }
 
   async function blossomServerList(): Promise<string[]> {
@@ -530,6 +567,7 @@
         hashtagRows = [''];
         imetaTags = [];
         freeformTags = [['', '']];
+        kind0Tags = emptyKind0TagRows();
       }
       bumpPreview();
     } finally {
@@ -640,7 +678,14 @@
         </fieldset>
         <label>
           Kind number
-          <input type="number" min="0" max="65535" bind:value={otherKindText} />
+          <input
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            autocomplete="off"
+            placeholder="e.g. 1111"
+            bind:value={otherKindText}
+          />
         </label>
         {#if otherError}
           <p class="compose-error">{otherError}</p>
@@ -684,44 +729,141 @@
 
         {#if editorTab === 'edit'}
           <div class="compose-tab-panel" role="tabpanel">
-            {#each fields as field (field.id)}
-              <label class="compose-field">
-                <span
-                  >{field.label}{#if field.required}*{/if}</span
-                >
-                {#if field.widget === 'textarea' || field.multiline}
-                  <textarea
-                    rows="3"
+            {#if kind === 0}
+              <div class="compose-field">
+                <ComposeKind0Editor bind:tags={kind0Tags} />
+              </div>
+            {:else}
+              {#each fields as field (field.id)}
+                {#if field.id === 'publication_author'}
+                  <div class="compose-field">
+                    <ComposePublicationAuthorsEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.id === 'published_on'}
+                  <ComposePublishedOnField
                     bind:value={values[field.id]}
-                    placeholder={field.help ?? ''}
-                  ></textarea>
-                {:else if field.widget === 'select'}
-                  <select bind:value={values[field.id]}>
-                    <option value="">—</option>
-                    {#each fieldOptions(field) as opt}
-                      <option value={opt}>{opt}</option>
-                    {/each}
-                  </select>
-                {:else if field.widget === 'checkbox'}
-                  <input
-                    type="checkbox"
-                    checked={values[field.id] === 'true'}
-                    onchange={(e) => {
-                      values[field.id] = e.currentTarget.checked ? 'true' : '';
-                    }}
+                    label={field.label}
+                    required={!!field.required}
+                    help={field.help ?? 'Date as dd.mm.yyyy'}
+                  />
+                {:else if field.id === 'sections'}
+                  <div class="compose-field">
+                    <ComposePublicationSectionsEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.id === 'publication_identifiers'}
+                  <div class="compose-field">
+                    <ComposePublicationIdentifiersEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.id === 'spec_kinds'}
+                  <div class="compose-field">
+                    <ComposeSpecKindsEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.id === 'payto'}
+                  <div class="compose-field">
+                    <ComposePaytoEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.id === 'relays'}
+                  <div class="compose-field">
+                    <ComposeRelayListEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                      withMarkers={field.emit === 'relay_list_rw'}
+                      placeholder={kind === 10243 ? 'https://…' : 'wss://…'}
+                    />
+                  </div>
+                {:else if isUnixTimestampField(field, kind)}
+                  <ComposeUnixTimestampField
+                    bind:value={values[field.id]}
+                    label={field.label}
+                    required={!!field.required}
+                    help={field.help ?? 'Unix timestamp (seconds)'}
                   />
                 {:else}
-                  <input
-                    type={field.widget === 'url' ? 'url' : 'text'}
-                    bind:value={values[field.id]}
-                    placeholder={field.help ?? ''}
-                  />
+                  <label class="compose-field">
+                    <span
+                      >{field.label}{#if field.required}*{/if}</span
+                    >
+                    {#if field.widget === 'textarea' || field.multiline}
+                      <textarea rows="3" bind:value={values[field.id]}></textarea>
+                    {:else if field.widget === 'select'}
+                      {@const opts = fieldOptions(field)}
+                      {#if opts.length > 0 && opts.length <= 4}
+                        <div
+                          class="compose-option-group"
+                          role="radiogroup"
+                          aria-label={field.label}
+                        >
+                          {#each opts as opt}
+                            <label class="compose-option">
+                              <input
+                                type="radio"
+                                name={`compose-${kind}-${field.id}`}
+                                value={opt}
+                                checked={(values[field.id] || field.default || '') === opt}
+                                onchange={() => {
+                                  values[field.id] = opt;
+                                }}
+                              />
+                              <span>{opt}</span>
+                            </label>
+                          {/each}
+                        </div>
+                      {:else}
+                        <select bind:value={values[field.id]}>
+                          <option value="">—</option>
+                          {#each opts as opt}
+                            <option value={opt}>{opt}</option>
+                          {/each}
+                        </select>
+                      {/if}
+                    {:else if field.widget === 'checkbox'}
+                      <input
+                        type="checkbox"
+                        checked={values[field.id] === 'true'}
+                        onchange={(e) => {
+                          values[field.id] = e.currentTarget.checked ? 'true' : '';
+                        }}
+                      />
+                    {:else}
+                      <input
+                        type={field.widget === 'url' ? 'url' : 'text'}
+                        bind:value={values[field.id]}
+                      />
+                    {/if}
+                    {#if field.help}
+                      <small class="muted">{field.help}</small>
+                    {/if}
+                  </label>
                 {/if}
-                {#if field.help && field.widget !== 'textarea'}
-                  <small class="muted">{field.help}</small>
-                {/if}
-              </label>
-            {/each}
+              {/each}
+            {/if}
 
             {#if showBody}
               <div class="compose-content-block">
@@ -731,7 +873,7 @@
                     <ComposeGrammarTextarea
                       bind:value={content}
                       rows={10}
-                      placeholder={contentMeta?.placeholder ?? contentMeta?.help ?? ''}
+                      placeholder={contentMeta?.placeholder ?? ''}
                       issues={grammarIssues}
                       checkedSource={grammarCheckedSource}
                       enabled={showGrammar}
@@ -741,7 +883,7 @@
                     <textarea
                       rows="10"
                       bind:value={content}
-                      placeholder={contentMeta?.placeholder ?? contentMeta?.help ?? ''}
+                      placeholder={contentMeta?.placeholder ?? ''}
                     ></textarea>
                   {/if}
                 </label>
@@ -922,6 +1064,19 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+  }
+  .compose-option-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    align-items: center;
+  }
+  .compose-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    cursor: pointer;
   }
   .compose-classes {
     border: none;

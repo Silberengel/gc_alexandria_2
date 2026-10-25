@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COMPOSE_DOCUMENT_PRESETS,
   COMPOSE_METADATA_KINDS,
+  COMPOSE_PICKER_EXCLUDED,
   composePickerGroups,
   isMetadataComposeKind,
 } from './compose-presets';
@@ -24,9 +25,18 @@ describe('composePickerGroups', () => {
     expect(other).toBeDefined();
     const presetSet = new Set<number>(COMPOSE_DOCUMENT_PRESETS);
     const metaSet = new Set<number>(COMPOSE_METADATA_KINDS);
+    const excluded = new Set<number>(COMPOSE_PICKER_EXCLUDED);
     for (const kind of other!.kinds) {
       expect(presetSet.has(kind)).toBe(false);
       expect(metaSet.has(kind)).toBe(false);
+      expect(excluded.has(kind)).toBe(false);
+    }
+  });
+
+  it('omits reaction/deletion/rating-style kinds from the picker', () => {
+    const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
+    for (const kind of COMPOSE_PICKER_EXCLUDED) {
+      expect(listed.has(kind)).toBe(false);
     }
   });
 });

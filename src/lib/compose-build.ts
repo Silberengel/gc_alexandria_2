@@ -4,6 +4,7 @@ import {
   getKind,
   validateCompose,
 } from './kind-compose';
+import { kind0SavePayload } from './compose-kind0';
 import { withClientTag } from './sign';
 
 export type ComposeFormState = {
@@ -13,6 +14,8 @@ export type ComposeFormState = {
   hashtags?: string[];
   imetaTags?: string[][];
   freeformTags?: string[][];
+  /** Kind-0 editor rows (name/value[/…]); JSON + mirror tags are derived on publish. */
+  kind0Tags?: string[][];
   existingKind0?: Record<string, unknown>;
   appMergeTags?: string[][];
 };
@@ -36,21 +39,30 @@ export function buildComposePartial(state: ComposeFormState): {
 } {
   const { kind, values } = state;
   let content: string;
+  let tags: string[][];
 
   if (kind === 0) {
-    content = buildKind0Content(values, state.existingKind0 ?? {});
-  } else if (contentEncodingEmpty(kind)) {
-    content = '';
+    const payload = kind0SavePayload(state.kind0Tags ?? []);
+    content = payload.contentJson;
+    tags = [...payload.orderedTags];
+    if (state.freeformTags?.length) {
+      for (const row of state.freeformTags) {
+        if (row[0]?.trim()) tags.push(row);
+      }
+    }
   } else {
-    content = state.content?.trim() ? state.content : String(values.content ?? '');
+    if (contentEncodingEmpty(kind)) {
+      content = '';
+    } else {
+      content = state.content?.trim() ? state.content : String(values.content ?? '');
+    }
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content,
+      hashtags: state.hashtags,
+      freeformTags: state.freeformTags,
+    });
   }
-
-  const tags = buildTagsForKind(kind, values, {
-    app: 'alexandria',
-    content,
-    hashtags: state.hashtags,
-    freeformTags: state.freeformTags,
-  });
 
   if (state.imetaTags?.length) {
     for (const row of state.imetaTags) {

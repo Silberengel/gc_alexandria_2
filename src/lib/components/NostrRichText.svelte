@@ -200,16 +200,18 @@
       {:else}
         <code>{seg.raw}</code>
       {/if}
-    {:else if showEmbeds && resolved[i]}
+    {:else if seg.type === 'ref' && showEmbeds && resolved[i]}
       <div class="nrt-embed">
         <EmbedEventLine event={resolved[i]!} />
       </div>
-    {:else if showEmbeds && resolved[i] === null}
+    {:else if seg.type === 'ref' && showEmbeds && resolved[i] === null}
       <p class="muted">This item could not be found.</p>
-    {:else if showEmbeds}
+    {:else if seg.type === 'ref' && showEmbeds}
       <p class="muted">Opening…</p>
-    {:else}
+    {:else if seg.type === 'ref' && seg.bech32}
       <a href={`#/feed/${seg.bech32}`}>{seg.raw}</a>
+    {:else if seg.type === 'ref'}
+      <code>{seg.raw}</code>
     {/if}
   {/each}
   {#if maxLines != null}
