@@ -68,6 +68,8 @@
      * hero when rendering a nested section that repeats the same plate.
      */
     dedupeHeroUrls?: string[];
+    /** Live-chat Shield: skip painting images/video/audio. */
+    hideMedia?: boolean;
   }
 
   let {
@@ -79,7 +81,8 @@
     lineEmbeds = false,
     quotes = [],
     dedupeHeroImage = true,
-    dedupeHeroUrls = []
+    dedupeHeroUrls = [],
+    hideMedia = false
   }: Props = $props();
 
   /** NIP-41 kind-1010 author revision for kind-1 notes. */
@@ -137,7 +140,9 @@
 
   /** NIP-92 imeta tags plus bare image/video/audio URLs in the content. */
   const media = $derived(
-    displayEvent ? uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url)) : []
+    hideMedia || !displayEvent
+      ? []
+      : uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url))
   );
   const images = $derived(media.filter((item) => item.type === 'image'));
   const imageUrls = $derived(images.map((item) => item.url));

@@ -30,6 +30,7 @@
   import { cropRenderedUrlsInText } from '$lib/crop-url';
   import { resolveReactionEmoji } from '$lib/emoji-content';
   import { filterMuted, muteState, type MuteState } from '$lib/mute';
+  import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
   import { kindDescription } from '$lib/kind-label';
   import { libraryDocumentPath } from '$lib/metadata';
@@ -660,6 +661,8 @@
   $effect(() => {
     const target = threadTarget;
     void $session.pubkey;
+    // Live chat lane respects Shield (blocked relays); re-query when it flips.
+    void $liveChatShield;
     let cancelled = false;
     if (!target) {
       event = null;

@@ -4155,6 +4155,44 @@ a.embed-event-line:focus-visible {
   margin: 0.75rem 0;
 }
 
+.live-chat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.15rem;
+}
+.live-chat-head .section-title {
+  margin-bottom: 0;
+}
+.btn.btn-icon.live-chat-shield {
+  width: 1.75rem;
+  height: 1.75rem;
+  color: var(--text-muted);
+  border-color: transparent;
+  background: transparent;
+}
+.btn.btn-icon.live-chat-shield svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.btn.btn-icon.live-chat-shield:hover:not(:disabled),
+.btn.btn-icon.live-chat-shield:focus-visible {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--paper-light) 80%, transparent);
+}
+.btn.btn-icon.live-chat-shield.live-chat-shield-on,
+.btn.btn-icon.live-chat-shield[aria-pressed='true'] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+}
+.live-chat-media-hidden {
+  font-size: 0.85rem;
+  font-style: italic;
+}
 .live-chat-compose {
   margin: 0.5rem 0 0;
 }

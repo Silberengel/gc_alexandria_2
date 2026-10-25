@@ -9,6 +9,7 @@ import {
   documentStack,
   foreignRelaysAllowed,
   getSelectorContext,
+  liveChatWriteStack,
   profileStack,
   setSelectorContext,
   socialStack,
@@ -25,6 +26,7 @@ import type { BunkerLoginOptions, Signer, SignerType } from '../signer';
 import { BunkerSigner } from '../signers/bunker';
 import { Nip07Signer, clearNip07PagePubkeyCache } from '../signers/nip07';
 import { NostrConnectionSigner } from '../signers/nostr-connection';
+import { liveChatShield } from './live-chat-shield';
 
 /** Kinds that live on social/interaction relays (not Mercury's document index). */
 const SOCIAL_LOGIN_KINDS = [
@@ -617,12 +619,23 @@ function createSessionStore() {
       if (!more.length) return false;
       return (await relayPool.publish(more, event)) > 0;
     });
+    // Live chat / presence always fan out to the public lane (and blocked hosts when open).
+    const liveKinds = event.kind === KIND.LIVE_CHAT || event.kind === KIND.ROOM_PRESENCE;
+    const liveWrite = liveKinds
+      ? (() => {
+          const lane = liveChatWriteStack({ respectBlocked: liveChatShield.get() }).filter(
+            (url) => !ownKeys.has(url.replace(/\/+$/, '').toLowerCase())
+          );
+          if (!lane.length) return Promise.resolve(false);
+          return relayPool.publish(lane, event).then((accepted) => accepted > 0);
+        })()
+      : Promise.resolve(false);
     let timer = 0;
     const timeout = new Promise<boolean>((resolve) => {
       timer = window.setTimeout(() => resolve(false), 8_000);
     });
     try {
-      return await Promise.race([firstRelayAccept([ownWrite, extraWrite]), timeout]);
+      return await Promise.race([firstRelayAccept([ownWrite, extraWrite, liveWrite]), timeout]);
     } finally {
       window.clearTimeout(timer);
     }

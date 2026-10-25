@@ -4,6 +4,12 @@ import { referencesTarget, type WorkResponses } from './comments';
 import { commentParentId } from './comments';
 import { eventAddress } from './nostr/verify';
 import { NIP53_KIND, liveChatActivityAddress } from './nip53';
+import { filterMuted, type MuteState } from './mute';
+import { contentWithoutMediaUrls, uniqueMedia } from './media';
+import {
+  shouldHideEventByGrapevine,
+  type GrapevineTrustContext
+} from './grapevine-rank';
 
 export type LiveChatRow =
   | { type: 'message'; event: Event; replyToId: string | null }
@@ -195,4 +201,28 @@ export function localRoomPresence(
 export function liveChatNestParent(event: Event): string | null {
   if (event.kind !== KIND.LIVE_CHAT) return null;
   return commentParentId(event);
+}
+
+/**
+ * Shield-on display: mute list, optional GrapeRank gate, and media collapse.
+ * When Shield is off, callers should skip this and show every row.
+ */
+export function filterLiveChatForShield(
+  events: Event[],
+  muted: MuteState,
+  grapevine: GrapevineTrustContext | null
+): Event[] {
+  let next = filterMuted(events, muted);
+  if (grapevine?.trustFilterEnabled) {
+    next = next.filter((event) => !shouldHideEventByGrapevine(event, grapevine));
+  }
+  return next;
+}
+
+/** Text left after stripping media URLs; empty means the line was media-only. */
+export function liveChatShieldText(event: Event): { mediaOnly: boolean; text: string } {
+  const media = uniqueMedia(event);
+  if (!media.length) return { mediaOnly: false, text: event.content ?? '' };
+  const text = contentWithoutMediaUrls(event.content ?? '', media);
+  return { mediaOnly: !text, text };
 }

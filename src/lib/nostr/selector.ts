@@ -294,6 +294,27 @@ export function broadcastStack(): string[] {
   return writeWebSocketRelays(withoutBlocked([...PUBLIC_BROADCAST_RELAYS]));
 }
 
+/**
+ * Shared live-chat / presence lane ({@link PUBLIC_BROADCAST_RELAYS}).
+ * Not gated by GitCitadel or Outboxes prefs.
+ *
+ * - Open (`respectBlocked: false`, default): also dial the viewer's blocked
+ *   relays so streamers do not miss chatters on hosts they normally avoid.
+ * - Shield (`respectBlocked: true`): strip blocked relays again.
+ */
+export function liveChatStack(opts?: { respectBlocked?: boolean }): string[] {
+  const respectBlocked = opts?.respectBlocked === true;
+  if (respectBlocked) {
+    return stackUrls(withoutBlocked([...PUBLIC_BROADCAST_RELAYS]));
+  }
+  return stackUrls([...PUBLIC_BROADCAST_RELAYS, ...ctx.blocked]);
+}
+
+/** Write-safe live lane (drops read-only hosts). Same open/shield rules as {@link liveChatStack}. */
+export function liveChatWriteStack(opts?: { respectBlocked?: boolean }): string[] {
+  return writeWebSocketRelays(liveChatStack(opts));
+}
+
 export function stackFor(kind: StackKind): string[] {
   switch (kind) {
     case 'document':

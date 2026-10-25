@@ -5,11 +5,14 @@ import { emptyWorkResponses } from './comments';
 import {
   collectLiveChatRows,
   collectLivePresence,
+  filterLiveChatForShield,
   LIVE_PRESENCE_WINDOW_SEC,
+  liveChatShieldText,
   localRoomPresence,
   roomPresenceDraft
 } from './live-chat';
 import { assertReadyToSign } from './kind-compose';
+import type { MuteState } from './mute';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey' | 'tags'>): Event {
   return {
@@ -124,5 +127,68 @@ describe('collectLivePresence', () => {
     responses.other = [local];
     const people = collectLivePresence(activity, responses);
     expect(people.map((p) => p.pubkey)).toEqual([viewer]);
+  });
+});
+
+describe('live chat shield filters', () => {
+  it('keeps muted authors when shield filtering is not applied by the caller', () => {
+    const mutedPk = '1'.repeat(64);
+    const ok = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: '2'.repeat(64),
+      id: 'a'.repeat(64),
+      content: 'hi',
+      tags: [['a', '30311:f'.padEnd(70, '0') + ':r', '', 'root']]
+    });
+    const muted = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: mutedPk,
+      id: 'b'.repeat(64),
+      content: 'spam',
+      tags: [['a', '30311:f'.padEnd(70, '0') + ':r', '', 'root']]
+    });
+    // Open mode: callers pass the raw list — both stay.
+    expect([ok, muted].map((e) => e.pubkey)).toEqual([ok.pubkey, muted.pubkey]);
+  });
+
+  it('drops muted authors when shield filtering runs', () => {
+    const mutedPk = '1'.repeat(64);
+    const ok = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: '2'.repeat(64),
+      id: 'a'.repeat(64),
+      content: 'hi',
+      tags: []
+    });
+    const mutedEv = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: mutedPk,
+      id: 'b'.repeat(64),
+      content: 'spam',
+      tags: []
+    });
+    const muted: MuteState = { pubkeys: new Set([mutedPk]), eventIds: new Set() };
+    expect(filterLiveChatForShield([ok, mutedEv], muted, null).map((e) => e.id)).toEqual([ok.id]);
+  });
+
+  it('marks media-only chat lines for shield collapse', () => {
+    const url = 'https://cdn.example/pic.jpg';
+    const mediaOnly = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: '1'.repeat(64),
+      id: 'c'.repeat(64),
+      content: url,
+      tags: [['imeta', `url ${url}`, 'm image/jpeg']]
+    });
+    expect(liveChatShieldText(mediaOnly)).toEqual({ mediaOnly: true, text: '' });
+    const mixed = ev({
+      kind: KIND.LIVE_CHAT,
+      pubkey: '1'.repeat(64),
+      id: 'd'.repeat(64),
+      content: `hello\n${url}`,
+      tags: [['imeta', `url ${url}`, 'm image/jpeg']]
+    });
+    expect(liveChatShieldText(mixed).mediaOnly).toBe(false);
+    expect(liveChatShieldText(mixed).text).toContain('hello');
   });
 });

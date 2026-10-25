@@ -73,8 +73,8 @@ export const SOCIAL_SEARCH_RELAYS = viteList(env.VITE_SOCIAL_SEARCH_RELAYS, [
 ]);
 
 /**
- * Public write relays used when broadcasting while signed out
- * (“Broadcast to your outboxes” in the ⋯ menu).
+ * Shared public lane: signed-out broadcast (“Broadcast to your outboxes”) and
+ * NIP-53 live chat / room presence (pipe, thecitadel, freelay).
  */
 export const PUBLIC_BROADCAST_RELAYS = viteList(env.VITE_PUBLIC_BROADCAST_RELAYS, [
   'wss://pipe.imwald.eu',

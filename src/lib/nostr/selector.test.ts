@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { AGGR_RELAY, SOCIAL_SEARCH_RELAYS } from '../constants';
+import { AGGR_RELAY, PUBLIC_BROADCAST_RELAYS, SOCIAL_SEARCH_RELAYS } from '../constants';
 import { relayPrefs } from '../stores/relay-prefs';
 import {
   constrainRelays,
   documentStack,
+  liveChatStack,
   setSelectorContext,
   socialSearchStack,
   socialStack,
@@ -155,5 +156,22 @@ describe('nostr.land aggregator', () => {
       expect(social).not.toContain(url);
     }
     expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
+  });
+
+  it('liveChatStack stays open on blocked relays until shield respects blocks', () => {
+    setSelectorContext({
+      signedIn: true,
+      viewerPubkey: 'a'.repeat(64),
+      inbox: [],
+      outbox: [],
+      favorites: [],
+      local: [],
+      blocked: ['wss://noisy.example']
+    });
+    const open = liveChatStack({ respectBlocked: false });
+    expect(open).toEqual(expect.arrayContaining([...PUBLIC_BROADCAST_RELAYS, 'wss://noisy.example']));
+    const shielded = liveChatStack({ respectBlocked: true });
+    expect(shielded).toEqual(expect.arrayContaining([...PUBLIC_BROADCAST_RELAYS]));
+    expect(shielded).not.toContain('wss://noisy.example');
   });
 });

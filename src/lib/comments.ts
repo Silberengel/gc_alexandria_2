@@ -10,6 +10,7 @@ import {
   documentStack,
   foreignRelaysAllowed,
   highlightStack,
+  liveChatStack,
   socialSearchStack,
   socialStack
 } from './nostr/selector';
@@ -17,6 +18,7 @@ import { cachedEventsReferencing } from './nostr/cache';
 import { eventAddress } from './nostr/verify';
 import { splitNostrRefs } from './nostr-refs';
 import { ingestShortNoteEdit } from './short-note-edits';
+import { liveChatShield } from './stores/live-chat-shield';
 
 export type ThreadNode = {
   event: Event | null;
@@ -406,12 +408,20 @@ export function nip22TagsForTarget(target: Event, replyTo?: Event): string[][] {
 }
 
 /** Social + document (+ inbox/outbox when signed in). Kind 1 search relays are a follow-up. */
-function threadRelayUniverse(): string[] {
+function threadRelayUniverse(target?: Event): string[] {
   const urls = [...new Set([...highlightStack(), ...socialStack(), ...documentStack()])];
   const key = (u: string) => u.replace(/\/+$/, '').toLowerCase();
-  const aggr = urls.find((u) => key(u).includes('aggr.nostr.land'));
-  if (!aggr) return urls;
-  return [aggr, ...urls.filter((u) => key(u) !== key(aggr))];
+  const withLive =
+    target?.kind === KIND.LIVE_EVENT
+      ? [
+          ...liveChatStack({ respectBlocked: liveChatShield.get() }),
+          ...urls
+        ]
+      : urls;
+  const deduped = [...new Set(withLive)];
+  const aggr = deduped.find((u) => key(u).includes('aggr.nostr.land'));
+  if (!aggr) return deduped;
+  return [aggr, ...deduped.filter((u) => key(u) !== key(aggr))];
 }
 
 /**
@@ -459,7 +469,7 @@ export async function resolveMissingCommentParents(
 
     let still = missing.filter((id) => !byId.has(id));
     if (still.length) {
-      const threadScope = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
+      const threadScope = withPreferredRelays(threadRelayUniverse(target), opInbox, 4);
       const fromThread = await relayPool.query(
         threadScope.relays,
         [{ ids: still, limit: still.length }],
@@ -930,7 +940,11 @@ export async function fetchWorkResponses(
     filters.push({ '#I': scopes, limit }, { '#i': scopes, limit });
   }
 
-  const baseScoped = withPreferredRelays(threadRelayUniverse(), [], 4);
+  const liveLane =
+    target.kind === KIND.LIVE_EVENT
+      ? liveChatStack({ respectBlocked: liveChatShield.get() })
+      : [];
+  const baseScoped = withPreferredRelays(threadRelayUniverse(target), liveLane, 4, liveLane.length);
   const first = await relayPool.query(
     baseScoped.relays,
     filters,
@@ -948,7 +962,7 @@ export async function fetchWorkResponses(
   onCache?.(partitionWorkResponses([...byEventId.values()], target));
 
   const opInbox = await opInboxPromise;
-  const scoped = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
+  const scoped = withPreferredRelays(threadRelayUniverse(target), opInbox, 4);
   const relays = scoped.relays;
   const maxRelays = scoped.maxRelays;
 
