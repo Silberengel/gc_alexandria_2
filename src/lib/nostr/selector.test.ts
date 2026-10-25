@@ -47,12 +47,13 @@ describe('nostr.land aggregator', () => {
     expect(stack[aggrAt]).toBe(AGGR_RELAY);
   });
 
-  it('signed out, keeps GitCitadel relays and drops popular and random hosts', () => {
+  it('signed out, treats all three relay types as on', () => {
+    // Own lists N/A; GitCitadel preset and Outboxes are forced on.
     expect(constrainRelays(['wss://thecitadel.nostr1.com', 'wss://random.example'])).toEqual([
-      'wss://thecitadel.nostr1.com'
+      'wss://thecitadel.nostr1.com',
+      'wss://random.example'
     ]);
-    expect(constrainRelays(['wss://relay.damus.io'])).toEqual([]);
-    expect(socialSearchStack()).toEqual([]);
+    expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
     expect(documentStack().some((u) => u.includes('thecitadel.nostr1.com'))).toBe(true);
   });
 
@@ -81,6 +82,7 @@ describe('nostr.land aggregator', () => {
     expect(socialSearchStack()).toEqual([]);
 
     relayPrefs.setGitcitadel(true);
+    expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
     const kept = constrainRelays([
       'wss://thecitadel.nostr1.com',
       'wss://relay.damus.io',
@@ -95,7 +97,7 @@ describe('nostr.land aggregator', () => {
     expect(documentStack()).toContain('wss://mine.example');
   });
 
-  it('uses popular relays for missing notes only when Outboxes is on', () => {
+  it('uses popular relays for missing notes only when the GitCitadel preset is on', () => {
     setSelectorContext({
       signedIn: true,
       inbox: [],
@@ -103,11 +105,11 @@ describe('nostr.land aggregator', () => {
       favorites: [],
       local: []
     });
-    relayPrefs.setOutboxes(false);
+    relayPrefs.setGitcitadel(false);
     expect(socialSearchStack()).toEqual([]);
-    relayPrefs.setOutboxes(true);
+    relayPrefs.setGitcitadel(true);
     expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
-    expect(socialStack().some((u) => u.includes('relay.damus.io'))).toBe(false);
+    expect(socialStack().some((u) => u.includes('primus.nostr1.com'))).toBe(false);
   });
 
   it('does not add the nostr.land aggregator when GitCitadel relays are off', () => {
@@ -152,6 +154,6 @@ describe('nostr.land aggregator', () => {
     for (const url of SOCIAL_SEARCH_RELAYS) {
       expect(social).not.toContain(url);
     }
-    expect(socialSearchStack()).toEqual([]);
+    expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
   });
 });

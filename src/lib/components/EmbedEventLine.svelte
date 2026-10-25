@@ -43,7 +43,9 @@
                   ? 'Comment'
                   : event.kind === KIND.HIGHLIGHT
                     ? 'Highlight'
-                    : eventPreview(event).kindLine.replace(/^KIND:\s*\d+\s*·\s*/u, '') || 'Event'
+                    : event.kind === KIND.LIVE_EVENT
+                      ? 'Live'
+                      : eventPreview(event).kindLine.replace(/^KIND:\s*\d+\s*·\s*/u, '') || 'Event'
   );
   const title = $derived.by(() => {
     if (isPubLike) return displayTitle(event);

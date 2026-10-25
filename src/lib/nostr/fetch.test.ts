@@ -39,8 +39,18 @@ vi.mock('./pool', () => ({
 vi.mock('./selector', () => ({
   documentStack: () => ['wss://example.com'],
   wikiStack: () => ['wss://example.com'],
-  socialStack: () => ['wss://social.example.com']
+  socialStack: () => ['wss://social.example.com'],
+  socialSearchStack: () => ['wss://primus.example.com'],
+  foreignRelaysAllowed: () => true
 }));
+
+vi.mock('./mailboxes', async () => {
+  const actual = await vi.importActual<typeof import('./mailboxes')>('./mailboxes');
+  return {
+    ...actual,
+    authorOutbox: async () => ['wss://author-outbox.example.com']
+  };
+});
 
 function ev(partial: Partial<Event> & Pick<Event, 'id' | 'kind' | 'pubkey'>): Event {
   return {
@@ -146,6 +156,32 @@ describe('fetch cache fallback', () => {
     await expect(fetchById(live.id)).resolves.toBe(live);
     expect(mercuryFilter).not.toHaveBeenCalled();
     expect(query).toHaveBeenCalled();
+  });
+
+  it('hunts social-search relays when the primary id lookup misses', async () => {
+    const live = ev({ id: 'f'.repeat(64), kind: 1, pubkey: 'b'.repeat(64), tags: [] });
+    query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([live]);
+    const { fetchById } = await import('./fetch');
+    await expect(fetchById(live.id)).resolves.toBe(live);
+    expect(query).toHaveBeenCalledTimes(2);
+    const huntRelays = query.mock.calls[1]?.[0] as string[];
+    expect(huntRelays.some((u) => u.includes('primus.example.com'))).toBe(true);
+  });
+
+  it('queries social relays for live-event addresses', async () => {
+    const live = ev({
+      id: 'f'.repeat(64),
+      kind: 30311,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', 'stream-1']]
+    });
+    query.mockResolvedValue([live]);
+    const { fetchByAddress } = await import('./fetch');
+    await expect(fetchByAddress(`30311:${'b'.repeat(64)}:stream-1`)).resolves.toBe(live);
+    const relays = query.mock.calls[0]?.[0] as string[];
+    expect(relays).toContain('wss://social.example.com');
   });
 
   it('falls back to relays when Mercury misses', async () => {

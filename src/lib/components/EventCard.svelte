@@ -5,6 +5,7 @@
   import GenericCard from './GenericCard.svelte';
   import PictureCard from './PictureCard.svelte';
   import VideoCard from './VideoCard.svelte';
+  import LiveStreamCard from './LiveStreamCard.svelte';
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
@@ -52,6 +53,8 @@
       <VideoCard {event} />
     </div>
   </div>
+{:else if event.kind === KIND.LIVE_EVENT}
+  <LiveStreamCard {event} />
 {:else if isThreadNote}
   <div class="thread-node thread-embed-note">
     <div class="thread-head">

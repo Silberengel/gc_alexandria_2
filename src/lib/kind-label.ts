@@ -38,6 +38,8 @@ export function kindDescription(kind: number): string {
       return 'Music track';
     case KIND.WEB_BOOKMARK:
       return 'Web bookmark';
+    case KIND.LIVE_EVENT:
+      return 'Live event';
     case KIND.LABEL:
       return 'Label';
     case KIND.BOOKMARK:

@@ -129,27 +129,30 @@ function viewerListedNostrLand(): boolean {
   });
 }
 
-/** Signed out, or signed in with GitCitadel's relays left on. */
+/**
+ * GitCitadel preset relays. Forced on when signed out; when signed in, follows Settings.
+ */
 export function gitcitadelReadsAllowed(): boolean {
   if (!ctx.signedIn) return true;
   return relayPrefs.get().gitcitadel;
 }
 
 /**
- * Other people's relays. Only when signed in and the Outboxes setting is on.
- * Signed-out sessions stay on the hard-coded set.
+ * Other people's relays (outboxes, inboxes, tag hints).
+ * Forced on when signed out (all three relay types on); when signed in, follows Outboxes.
  */
 export function foreignRelaysAllowed(): boolean {
-  return ctx.signedIn && relayPrefs.get().outboxes;
+  if (!ctx.signedIn) return true;
+  return relayPrefs.get().outboxes;
 }
 
 /**
  * Drop every relay this session is not allowed to dial.
- * Signed out: GitCitadel's hard-coded relays only.
+ * Signed out: all three types on — URLs are not filtered here.
  * Signed in, Outboxes off: the viewer's lists, plus GitCitadel's when that toggle is on.
  * An empty viewer list falls back to theforest.
- * Signed in, Outboxes on: callers may also pass one author's inbox or outbox, or the
- * popular note-search relays. Those URLs are not rewritten here.
+ * Signed in, Outboxes on: callers may also pass one author's inbox or outbox.
+ * Those URLs are not rewritten here. Note-hunt relays are separate ({@link socialSearchStack}).
  */
 export function constrainRelays(urls: string[]): string[] {
   if (foreignRelaysAllowed()) return urls;
@@ -236,11 +239,11 @@ export function socialStack(): string[] {
 }
 
 /**
- * Damus, Primal, and the other popular relays used only to find a missing note.
- * Empty unless the signed-in viewer has Outboxes on.
+ * Popular relays used only to find a missing note / embed (Primus, nos.lol, …).
+ * Only when the GitCitadel preset relays setting is on (always for signed-out).
  */
 export function socialSearchStack(): string[] {
-  if (!foreignRelaysAllowed()) return [];
+  if (!gitcitadelReadsAllowed()) return [];
   return withoutBlocked(stackUrls([...SOCIAL_SEARCH_RELAYS]));
 }
 

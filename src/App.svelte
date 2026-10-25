@@ -18,7 +18,8 @@
     '/start': wrap({ asyncComponent: () => import('./routes/StartRedirect.svelte') }),
     '/contact': wrap({ asyncComponent: () => import('./routes/Contact.svelte') }),
     '/feed': wrap({ asyncComponent: () => import('./routes/Feed.svelte') }),
-    '/feed/:id': wrap({ asyncComponent: () => import('./routes/Feed.svelte') }),
+    /** Legacy `/feed/note1…` → `/feed?thread=` so the list route never remounts. */
+    '/feed/:id': wrap({ asyncComponent: () => import('./routes/FeedThreadRedirect.svelte') }),
     '/p/:id/:kind': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),
     '/p/:id': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),
     '/publication/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
@@ -50,7 +51,7 @@
     '*': wrap({ asyncComponent: () => import('./routes/NotFound.svelte') })
   };
 
-  /** Path-only — query changes (?section=, ?read=) must not reset an in-progress deep scroll. */
+  /** Path-only — query changes (?section=, ?thread=, ?tab=) must not reset scroll. */
   let lastScrollPath = '';
 
   $effect(() => {
@@ -58,6 +59,8 @@
     if (path === lastScrollPath) return;
     lastScrollPath = path;
     // Reader scrollY otherwise carries onto Home (mobile lands at the bottom).
+    // Feed list ↔ thread uses query params on `/feed`, so path stays `/feed` and
+    // scroll is owned by Feed.svelte (no remount, no forced jump here).
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   });
 

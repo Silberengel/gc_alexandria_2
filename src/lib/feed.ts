@@ -206,6 +206,63 @@ export function keepFeedPosts(shown: Event[], incoming: Event[]): Event[] {
   return incoming.length ? incoming : shown;
 }
 
+/** Merge by id and sort newest-first — does not drop rows already on screen. */
+export function mergeFeedPosts(shown: Event[], incoming: Event[]): Event[] {
+  if (!incoming.length) return shown;
+  const byId = new Map<string, Event>();
+  for (const event of shown) {
+    if (event?.id) byId.set(event.id.toLowerCase(), event);
+  }
+  for (const event of incoming) {
+    if (event?.id) byId.set(event.id.toLowerCase(), event);
+  }
+  return [...byId.values()].sort((a, b) => b.created_at - a.created_at);
+}
+
+/**
+ * After the feed has settled, newer posts are held for a "New Events" control
+ * instead of jumping into the timeline (which steals scroll).
+ */
+export function collectNewFeedEvents(
+  incoming: Event[],
+  opts: {
+    shown: Event[];
+    pending: Event[];
+    /** Max `created_at` already admitted to the timeline when it settled / last admit. */
+    watermark: number;
+  }
+): Event[] {
+  const known = new Set<string>();
+  for (const event of opts.shown) {
+    if (event?.id) known.add(event.id.toLowerCase());
+  }
+  for (const event of opts.pending) {
+    if (event?.id) known.add(event.id.toLowerCase());
+  }
+  const byId = new Map<string, Event>();
+  for (const event of opts.pending) {
+    if (event?.id) byId.set(event.id.toLowerCase(), event);
+  }
+  for (const event of incoming) {
+    if (!event?.id) continue;
+    const id = event.id.toLowerCase();
+    if (known.has(id)) continue;
+    if (event.created_at <= opts.watermark) continue;
+    byId.set(id, event);
+    known.add(id);
+  }
+  return [...byId.values()].sort((a, b) => b.created_at - a.created_at);
+}
+
+/** Newest `created_at` in a list (0 when empty). */
+export function feedEventsWatermark(events: Event[]): number {
+  let max = 0;
+  for (const event of events) {
+    if (event.created_at > max) max = event.created_at;
+  }
+  return max;
+}
+
 /** Newest original posts already in memory or the browser cache. */
 export async function recallFeedPosts(): Promise<Event[]> {
   const kinds = [KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS];
@@ -444,11 +501,23 @@ export async function fetchFeedEvent(id: string): Promise<Event | null> {
   return null;
 }
 
-export function feedThreadPath(event: Event): string {
-  return `/feed/${nip19.noteEncode(event.id)}`;
+/**
+ * In-feed thread URL on the same `/feed` route (query `thread=`).
+ * Staying on `/feed` avoids remounting the list when opening/closing a card.
+ */
+export function feedThreadPath(event: Event, tab: FeedTab = 'original'): string {
+  const q = new URLSearchParams();
+  q.set('thread', nip19.noteEncode(event.id));
+  if (tab !== 'original') q.set('tab', tab);
+  return `/feed?${q.toString()}`;
 }
 
-/** `note1…`, `nevent1…`, or a 64-char hex id from the feed route. */
+/** List URL for a feed tab (no open thread). */
+export function feedListPath(tab: FeedTab = 'original'): string {
+  return tab === 'original' ? '/feed' : `/feed?tab=${tab}`;
+}
+
+/** `note1…`, `nevent1…`, or a 64-char hex id from the feed route / `thread` query. */
 export function decodeFeedPointer(raw: string): string | null {
   const value = decodeURIComponent(raw).trim().replace(/^nostr:/i, '');
   if (/^[0-9a-f]{64}$/i.test(value)) return value.toLowerCase();
@@ -460,4 +529,11 @@ export function decodeFeedPointer(raw: string): string | null {
     return null;
   }
   return null;
+}
+
+/** Read `thread=` from the feed querystring. */
+export function parseFeedThreadParam(raw: string | null | undefined): string | null {
+  const thread = new URLSearchParams(raw ?? '').get('thread');
+  if (!thread?.trim()) return null;
+  return decodeFeedPointer(thread.trim());
 }

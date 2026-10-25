@@ -7,11 +7,26 @@
     prepareContentWithEmojis,
     type EmojiInfo
   } from '$lib/emoji-content';
+  import { KIND } from '$lib/constants';
   import { isAllowedHref } from '$lib/markup';
   import UserBadge from './UserBadge.svelte';
   import EmbedEventLine from './EmbedEventLine.svelte';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { lruGet, lruSet } from '$lib/compose-lru';
+
+  /** Kinds that need a full card (player, gallery, …) instead of a one-line blurb. */
+  function useRichEmbedCard(event: Event): boolean {
+    return (
+      event.kind === KIND.LIVE_EVENT ||
+      event.kind === KIND.VIDEO ||
+      event.kind === KIND.SHORT_VIDEO ||
+      event.kind === KIND.PICTURE ||
+      event.kind === KIND.PUBLICATION ||
+      event.kind === KIND.LONG_FORM ||
+      event.kind === KIND.WIKI ||
+      event.kind === KIND.SPEC
+    );
+  }
 
   interface Props {
     content: string;
@@ -153,10 +168,14 @@
             let hit: Event | null = null;
             if (seg.kind === 'naddr' && seg.naddr) {
               hit = await fetchByAddress(
-                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`
+                `${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`,
+                { hintRelays: seg.naddr.relays }
               );
             } else if (seg.id) {
-              hit = await fetchById(seg.id);
+              hit = await fetchById(seg.id, {
+                hintRelays: seg.relays,
+                authorPubkey: seg.pubkey
+              });
             }
             found[i] = hit;
             if (hit && cacheKey) lruSet(cacheKey, hit);
@@ -201,15 +220,21 @@
         <code>{seg.raw}</code>
       {/if}
     {:else if seg.type === 'ref' && showEmbeds && resolved[i]}
-      <div class="nrt-embed">
-        <EmbedEventLine event={resolved[i]!} />
+      <div class="nrt-embed" class:nrt-embed-card={useRichEmbedCard(resolved[i]!)}>
+        {#if useRichEmbedCard(resolved[i]!)}
+          {#await import('./EventCard.svelte') then mod}
+            <mod.default event={resolved[i]!} embedDepth={1} asCard />
+          {/await}
+        {:else}
+          <EmbedEventLine event={resolved[i]!} />
+        {/if}
       </div>
     {:else if seg.type === 'ref' && showEmbeds && resolved[i] === null}
       <p class="muted">This item could not be found.</p>
     {:else if seg.type === 'ref' && showEmbeds}
       <p class="muted">Opening…</p>
     {:else if seg.type === 'ref' && seg.bech32}
-      <a href={`#/feed/${seg.bech32}`}>{seg.raw}</a>
+      <a href={`#/feed?thread=${seg.bech32}`}>{seg.raw}</a>
     {:else if seg.type === 'ref'}
       <code>{seg.raw}</code>
     {/if}
@@ -246,6 +271,9 @@
   .nrt-mention {
     display: inline-flex;
     vertical-align: baseline;
+  }
+  .nrt-embed-card {
+    margin: 0.55rem 0;
   }
   .nrt-embed {
     margin: 0.5rem 0;

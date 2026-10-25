@@ -13,7 +13,7 @@
   } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
-  import { imetaMedia, omitMediaUrls, stripRenderedMedia } from '$lib/media';
+  import { omitMediaUrls, stripRenderedMedia, uniqueMedia } from '$lib/media';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
@@ -31,6 +31,7 @@
   import { embedPointersFromTags, resolveEmbedPointer } from '$lib/event-embeds';
   import { eventAddress } from '$lib/nostr/verify';
   import NostrRichText from './NostrRichText.svelte';
+  import LiveStreamCard from './LiveStreamCard.svelte';
 
   interface Props {
     event?: Event;
@@ -66,11 +67,12 @@
     dedupeHeroUrls = []
   }: Props = $props();
 
-  const imeta = $derived(
-    event ? imetaMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
+  /** NIP-92 imeta tags plus bare image/video/audio URLs in the content. */
+  const media = $derived(
+    event ? uniqueMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
   );
-  /** Drop imeta file URLs from the prose so a note is not a link and a player. */
-  const source = $derived(omitMediaUrls(event?.content ?? content, imeta));
+  /** Drop played file URLs from the prose so a note is not a link and a player. */
+  const source = $derived(omitMediaUrls(event?.content ?? content, media));
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
@@ -123,10 +125,15 @@
   async function fetchRef(seg: ContentSegment | RenderSegment): Promise<Event | null> {
     if (seg.type !== 'ref') return null;
     if (seg.kind === 'naddr' && seg.naddr) {
-      return fetchByAddress(`${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`);
+      return fetchByAddress(`${seg.naddr.kind}:${seg.naddr.pubkey}:${seg.naddr.identifier}`, {
+        hintRelays: seg.naddr.relays
+      });
     }
     if ((seg.kind === 'nevent' || seg.kind === 'note') && seg.id) {
-      return fetchById(seg.id);
+      return fetchById(seg.id, {
+        hintRelays: seg.relays,
+        authorPubkey: seg.pubkey
+      });
     }
     return null;
   }
@@ -177,7 +184,7 @@
       const found: Record<number, Event | null> = {};
       let next: Array<ContentSegment | RenderSegment> = [];
 
-      const shownMedia = imeta.flatMap((item) => [item.url, item.poster]);
+      const shownMedia = media.flatMap((item) => [item.url, item.poster]);
       const maybeDedupe = (html: string, early = true) => {
         let out = shownMedia.length ? stripRenderedMedia(html, shownMedia) : html;
         if (early && heroes.length) out = stripEarlyDuplicateHeroImage(out, heroes);
@@ -324,6 +331,9 @@
         <span>{reactionFace.raw}</span>
       {/if}
     </p>
+  {:else if event && sourceKind === KIND.LIVE_EVENT}
+    <!-- NIP-53: player + metadata; skip plaintext body and imeta thumbs. -->
+    <LiveStreamCard {event} />
   {:else if usePlaintextRich}
     <NostrRichText
       content={source}
@@ -364,29 +374,31 @@
       {@render embedCard(hit)}
     {/each}
   {/if}
-  {#each imeta as item (item.url)}
-    {#if item.type === 'video'}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        class="event-imeta"
-        src={item.url}
-        poster={item.poster}
-        controls
-        playsinline
-        preload="metadata"
-      ></video>
-    {:else if item.type === 'audio'}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <audio class="event-imeta" src={item.url} controls></audio>
-    {:else}
-      <img
-        class="event-imeta"
-        src={item.url}
-        alt={item.alt ?? ''}
-        loading="lazy"
-        width={item.width}
-        height={item.height}
-      />
-    {/if}
-  {/each}
+  {#if sourceKind !== KIND.LIVE_EVENT}
+    {#each media as item (item.url)}
+      {#if item.type === 'video'}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          class="event-imeta"
+          src={item.url}
+          poster={item.poster}
+          controls
+          playsinline
+          preload="metadata"
+        ></video>
+      {:else if item.type === 'audio'}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <audio class="event-imeta" src={item.url} controls></audio>
+      {:else}
+        <img
+          class="event-imeta"
+          src={item.url}
+          alt={item.alt ?? ''}
+          loading="lazy"
+          width={item.width}
+          height={item.height}
+        />
+      {/if}
+    {/each}
+  {/if}
 </div>

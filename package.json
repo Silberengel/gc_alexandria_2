@@ -21,6 +21,7 @@
     "@tiptap/extension-emoji": "^3.31.4",
     "bech32": "^2.0.0",
     "dompurify": "^3.2.6",
+    "hls.js": "^1.7.3",
     "nostr-tools": "^2.25.2",
     "qrcode": "^1.5.4",
     "svelte-spa-router": "^4.0.1"

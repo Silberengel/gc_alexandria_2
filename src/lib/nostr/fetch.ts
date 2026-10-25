@@ -6,16 +6,32 @@ import { preferRicherEvent, publicationSectionCount } from '../metadata';
 import { parseAddress } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
+import { authorOutbox, withPreferredRelays } from './mailboxes';
 import { mercuryFilter, isMercuryUnavailable } from './mercury';
 import { relayPool } from './pool';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
-import { documentStack, socialStack, wikiStack } from './selector';
+import {
+  documentStack,
+  foreignRelaysAllowed,
+  socialSearchStack,
+  socialStack,
+  wikiStack
+} from './selector';
 
 export type FetchByAddressOpts = {
   /** Skip Mercury HTTP — use document/wiki relays only (citadel-only trees). */
   relaysOnly?: boolean;
   /** Memory + Cache Storage only — never open Mercury or relay REQs. */
   localOnly?: boolean;
+  /** Relay hints from an naddr (tried before the social-search hunt). */
+  hintRelays?: string[];
+};
+
+export type FetchByIdOpts = {
+  /** Relay hints from a nevent / tag. */
+  hintRelays?: string[];
+  /** Author pubkey — when Outboxes is on, their write relays are queried too. */
+  authorPubkey?: string;
 };
 
 export function mergeById(...lists: Event[][]): Event[] {
@@ -46,9 +62,45 @@ export async function poolMap<T, R>(items: T[], limit: number, fn: (item: T) => 
   return out;
 }
 
+/** Library trees stay on document relays; social addressables (live, status, …) need social too. */
+function isLibraryAddressableKind(kind: number): boolean {
+  return (
+    kind === KIND.PUBLICATION ||
+    kind === KIND.SECTION ||
+    kind === KIND.LONG_FORM ||
+    kind === KIND.DIRECTORY ||
+    kind === KIND.WIKI ||
+    kind === KIND.SPEC ||
+    kind === KIND.WEB_BOOKMARK ||
+    kind === KIND.DJOT ||
+    kind === KIND.MUSIC
+  );
+}
+
 function stackForKind(kind: number): string[] {
   if (kind === KIND.WIKI || kind === KIND.SPEC) return wikiStack();
-  return documentStack();
+  if (isLibraryAddressableKind(kind)) return documentStack();
+  return [...new Set([...socialStack(), ...documentStack()])];
+}
+
+/** Second-pass hunt: popular note-search relays + optional author outbox / pointer hints. */
+async function huntFilter(
+  filter: Filter,
+  opts?: { hintRelays?: string[]; authorPubkey?: string }
+): Promise<Event | null> {
+  const hints = [...(opts?.hintRelays ?? [])];
+  if (opts?.authorPubkey && foreignRelaysAllowed()) {
+    try {
+      hints.push(...(await authorOutbox(opts.authorPubkey)).slice(0, 4));
+    } catch {
+      /* ignore mailbox miss */
+    }
+  }
+  const search = socialSearchStack();
+  if (!search.length && !hints.length) return null;
+  const scope = withPreferredRelays(search, hints, 6, 6);
+  const hits = await relayPool.query(scope.relays, [filter], 6000, scope.maxRelays);
+  return hits[0] ?? null;
 }
 
 async function hideIfDeleted(event: Event | null): Promise<Event | null> {
@@ -199,13 +251,20 @@ export async function fetchByAddress(
     // Citadel-only books: skip Mercury so a hung/empty /filter cannot stall the a-tag walk.
     const relaysOnly = opts?.relaysOnly === true || isMercuryUnavailable();
     const relayTimeout = relaysOnly ? 8_000 : 4_000;
+    const primaryHints = foreignRelaysAllowed() ? (opts?.hintRelays ?? []) : [];
+    const primaryScope = withPreferredRelays(
+      stackForKind(parsed.kind),
+      primaryHints,
+      isLibraryAddressableKind(parsed.kind) ? 5 : 8,
+      4
+    );
     const sources: Array<Promise<Event | null>> = [
       relayPool
         .query(
-          stackForKind(parsed.kind),
+          primaryScope.relays,
           [filter],
           relayTimeout,
-          5,
+          primaryScope.maxRelays,
           undefined,
           { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
         )
@@ -214,10 +273,17 @@ export async function fetchByAddress(
     if (!relaysOnly) {
       sources.unshift(mercuryFilter(filter).then(pick));
     }
-    const hit =
+    let hit =
       parsed.kind === KIND.PUBLICATION
         ? await bestAddressableEvent(sources)
         : await firstEvent(sources);
+    if (!hit && !relaysOnly) {
+      const hunted = await huntFilter(filter, {
+        hintRelays: opts?.hintRelays,
+        authorPubkey: parsed.pubkey
+      });
+      hit = hunted ? pick([hunted]) : null;
+    }
     if (hit && cached) {
       const chosen =
         publicationSectionCount(hit) >= publicationSectionCount(cached) ? hit : cached;
@@ -231,7 +297,7 @@ export async function fetchByAddress(
   }
 }
 
-export async function fetchById(id: string): Promise<Event | null> {
+export async function fetchById(id: string, opts?: FetchByIdOpts): Promise<Event | null> {
   let cached: Event | null = null;
   try {
     if (!/^[0-9a-f]{64}$/i.test(id)) return null;
@@ -247,10 +313,24 @@ export async function fetchById(id: string): Promise<Event | null> {
     if (cached) return hideIfDeleted(cached);
 
     const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-    const hit =
+    const primaryHints = foreignRelaysAllowed() ? (opts?.hintRelays ?? []) : [];
+    const primaryScope = withPreferredRelays(
+      [...documentStack(), ...socialStack()],
+      primaryHints,
+      8,
+      4
+    );
+    let hit =
       (
-        await relayPool.query([...documentStack(), ...socialStack()], [filter], 4000, 4)
+        await relayPool.query(primaryScope.relays, [filter], 5000, primaryScope.maxRelays)
       )[0] ?? null;
+    if (!hit) {
+      hit = await huntFilter(filter, {
+        hintRelays: opts?.hintRelays,
+        authorPubkey: opts?.authorPubkey
+      });
+    }
+    if (hit) rememberEvents([hit]);
     return hideIfDeleted(hit ?? cached);
   } catch {
     return cached ? hideIfDeleted(cached) : null;

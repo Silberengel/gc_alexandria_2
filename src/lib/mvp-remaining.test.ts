@@ -1334,6 +1334,20 @@ describe('media once', () => {
     expect(omitMediaUrls(`line one\n\n${url}`, imetaMedia(event))).toBe('line one');
   });
 
+  it('plays a bare content mp4 without an imeta tag', () => {
+    const video =
+      'https://blossom.primal.net/a0aab4383c0320f19aaa84525e99d8edf4ff9300acee5872c4ae4b43a6bcc336.mp4';
+    const event = ev({
+      kind: 1,
+      content: `⚡️🇺🇸 NEW - Obama: Iran didn't have nuclear weapons.\n${video}`,
+      tags: [['client', 'Primal iOS']]
+    });
+    expect(uniqueMedia(event)).toEqual([{ type: 'video', url: video }]);
+    expect(omitMediaUrls(event.content, uniqueMedia(event))).toBe(
+      "⚡️🇺🇸 NEW - Obama: Iran didn't have nuclear weapons."
+    );
+  });
+
   it('uses the imeta mime when the file URL has no extension', () => {
     const url = 'https://blossom.example/abcdef';
     const video = 'https://blossom.example/clip.mp4';

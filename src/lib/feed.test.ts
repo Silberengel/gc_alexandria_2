@@ -2,16 +2,22 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
+  collectNewFeedEvents,
+  feedEventsWatermark,
   feedFollowAuthors,
+  feedListPath,
   feedRelayGroups,
+  feedThreadPath,
   isFeedReplyRow,
   isNotificationForViewer,
   isOriginalPost,
   isRepliesTimelineEvent,
   isTopLevelWebComment,
   keepFeedPosts,
-  parseFeedTab
+  parseFeedTab,
+  parseFeedThreadParam
 } from './feed';
+import { nip19 } from 'nostr-tools';
 import { memoryEventsByKind, memoryEventsReferencing, rememberEvents } from './nostr/event-memory';
 import { setSelectorContext } from './nostr/selector';
 
@@ -221,6 +227,22 @@ describe('keepFeedPosts', () => {
   });
 });
 
+describe('collectNewFeedEvents', () => {
+  it('keeps only unseen events newer than the watermark', () => {
+    const shown = [ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE, created_at: 100 })];
+    const pending = collectNewFeedEvents(
+      [
+        ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE, created_at: 100 }),
+        ev({ id: '2'.repeat(64), kind: KIND.TEXT_NOTE, created_at: 90 }),
+        ev({ id: '3'.repeat(64), kind: KIND.TEXT_NOTE, created_at: 120 })
+      ],
+      { shown, pending: [], watermark: 100 }
+    );
+    expect(pending.map((e) => e.id)).toEqual(['3'.repeat(64)]);
+    expect(feedEventsWatermark(shown)).toBe(100);
+  });
+});
+
 describe('feedRelayGroups', () => {
   afterEach(() => {
     setSelectorContext({
@@ -302,5 +324,19 @@ describe('social event memory', () => {
     expect(memoryEventsReferencing(op.id).map((event) => event.id).sort()).toEqual(
       [reply.id, reaction.id, comment.id].sort()
     );
+  });
+});
+
+describe('feed thread query paths', () => {
+  it('keeps threads on /feed via ?thread= so the list route does not remount', () => {
+    const note = ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE });
+    expect(feedThreadPath(note)).toBe(`/feed?thread=${nip19.noteEncode(note.id)}`);
+    expect(feedThreadPath(note, 'replies')).toBe(
+      `/feed?thread=${nip19.noteEncode(note.id)}&tab=replies`
+    );
+    expect(feedListPath('replies')).toBe('/feed?tab=replies');
+    expect(parseFeedThreadParam(`thread=${nip19.noteEncode(note.id)}`)).toBe(note.id);
+    expect(parseFeedThreadParam(`thread=${note.id}&tab=replies`)).toBe(note.id);
+    expect(parseFeedThreadParam('tab=replies')).toBeNull();
   });
 });

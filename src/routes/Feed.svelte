@@ -7,6 +7,7 @@
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
+  import LiveStreamCard from '$lib/components/LiveStreamCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { KIND } from '$lib/constants';
@@ -17,7 +18,7 @@
   } from '$lib/comments';
   import { cropRenderedUrlsInText } from '$lib/crop-url';
   import { resolveReactionEmoji } from '$lib/emoji-content';
-  import { filterMuted, muteState } from '$lib/mute';
+  import { filterMuted, muteState, type MuteState } from '$lib/mute';
   import { eventPreview } from '$lib/event-preview';
   import { kindDescription } from '$lib/kind-label';
   import { libraryDocumentPath } from '$lib/metadata';
@@ -29,16 +30,19 @@
   } from '$lib/reactions';
   import { isRepostKind, peekRepostExcerpt, repostTargetId } from '$lib/repost';
   import {
-    decodeFeedPointer,
+    collectNewFeedEvents,
+    feedEventsWatermark,
     feedFollowAuthors,
+    feedListPath,
     feedRelayGroups,
     feedThreadPath,
     fetchFeedEvent,
-    keepFeedPosts,
+    mergeFeedPosts,
     loadFeed,
     loadFeedWithReplies,
     loadNotifications,
     parseFeedTab,
+    parseFeedThreadParam,
     recallFeedPosts,
     recallFeedWithReplies,
     recallNotifications,
@@ -51,9 +55,10 @@
   import { getSelectorContext, onSelectorContext } from '$lib/nostr/selector';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
 
-  let { params = {} }: { params?: { id?: string } } = $props();
+  let { params: _params = {} }: { params?: Record<string, string> } = $props();
 
-  const pointer = $derived(params.id ? decodeFeedPointer(params.id) : null);
+  /** Open thread id from `?thread=` — same `/feed` route, so the list never remounts. */
+  const pointer = $derived(parseFeedThreadParam($querystring));
   const signedIn = $derived(!!$session.pubkey);
   const feedTab = $derived(
     parseFeedTab(new URLSearchParams($querystring ?? '').get('tab'))
@@ -93,8 +98,18 @@
 
   function setFeedTab(next: FeedTab): void {
     if (next === feedTab) return;
-    const path = next === 'original' ? '/feed' : `/feed?tab=${next}`;
-    void replace(path);
+    pendingFocusId = null;
+    listRestorePending = false;
+    listRestoreGen += 1;
+    pendingNew = [];
+    feedWatermark = 0;
+    loadedTab = null;
+    items = [];
+    shown = {};
+    boostExcerpts = {};
+    listSettled = false;
+    listLoading = true;
+    void replace(feedListPath(next));
   }
 
   let items = $state<Event[]>([]);
@@ -110,13 +125,51 @@
   let shown = $state<Record<string, true>>({});
   /** Excerpt of the boosted note for kind 6/16 rows (imwald BoostedByCard). */
   let boostExcerpts = $state<Record<string, string>>({});
+  /** Row to scroll into view after Return (same component instance — list never remounts). */
+  let pendingFocusId: string | null = null;
+  let savedListScrollY = 0;
+  /** Non-reactive arm so restore runs once when `?thread=` clears (Return or back). */
+  let listRestorePending = false;
+  let listRestoreGen = 0;
+  /** Newer posts held above the timeline until the user clicks New Events. */
+  let pendingNew = $state<Event[]>([]);
+  /** Max created_at already in the timeline (or last admit). */
+  let feedWatermark = 0;
+
+  function ingestFeedEvents(incoming: Event[], muted: MuteState): void {
+    const next = filterMuted(incoming, muted);
+    if (!next.length) return;
+    const settled = untrack(() => listSettled);
+    const current = untrack(() => items);
+    if (!settled || !current.length) {
+      // Merge (don't replace) so streaming batches don't reshuffle the viewport.
+      items = mergeFeedPosts(current, next);
+      if (items.length) feedWatermark = feedEventsWatermark(items);
+      return;
+    }
+    pendingNew = collectNewFeedEvents(next, {
+      shown: current,
+      pending: untrack(() => pendingNew),
+      watermark: feedWatermark || feedEventsWatermark(current)
+    });
+  }
+
+  function admitNewEvents(): void {
+    const fresh = untrack(() => pendingNew);
+    if (!fresh.length) return;
+    items = mergeFeedPosts(untrack(() => items), fresh);
+    pendingNew = [];
+    feedWatermark = feedEventsWatermark(items);
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+  }
 
   function watchRow(node: HTMLElement, id: string) {
-    if (shown[id]) return { destroy() {} };
+    const key = id.toLowerCase();
+    if (shown[key]) return { destroy() {} };
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        shown = { ...shown, [id]: true };
+        shown = { ...shown, [key]: true };
         io.disconnect();
       },
       { rootMargin: '600px' }
@@ -161,7 +214,7 @@
   $effect(() => {
     const pending: Event[] = [];
     for (const item of visibleItems) {
-      if (!isRepostKind(item.kind) || !shown[item.id]) continue;
+      if (!isRepostKind(item.kind) || !shown[item.id.toLowerCase()]) continue;
       if (boostExcerpts[item.id] !== undefined) continue;
       const peek = peekRepostExcerpt(item);
       if (peek) {
@@ -209,6 +262,39 @@
     (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
   );
 
+  function armListRestore(focusId: string): void {
+    pendingFocusId = focusId.toLowerCase();
+    savedListScrollY = window.scrollY;
+    listRestorePending = true;
+    shown = { ...shown, [pendingFocusId]: true };
+  }
+
+  /** One-shot scroll restore after `?thread=` clears — never driven by reactive $state. */
+  function runListRestore(): void {
+    if (!listRestorePending) return;
+    listRestorePending = false;
+    const id = pendingFocusId;
+    const y = savedListScrollY;
+    pendingFocusId = null;
+    const gen = ++listRestoreGen;
+    const finish = () => {
+      if (gen !== listRestoreGen) return;
+      // List pane stays mounted (only `hidden`) so saved scrollY matches layout.
+      window.scrollTo({ top: y, left: 0, behavior: 'auto' });
+      if (!id) return;
+      const el = document.querySelector(`[data-feed-row="${id}"]`);
+      if (!(el instanceof HTMLElement)) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.top < 8 || rect.bottom > window.innerHeight - 8) {
+        el.scrollIntoView({ block: 'center', behavior: 'auto' });
+      }
+    };
+    // Double rAF: wait for the list pane to un-hide and lay out.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(finish);
+    });
+  }
+
   function openThread(item: Event, e: MouseEvent): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -220,12 +306,28 @@
       return;
     }
     const boostTargetId = isRepostKind(item.kind) ? repostTargetId(item) : null;
+    armListRestore(item.id);
+    warmNavEvent(item, boostTargetId);
     if (boostTargetId) {
-      window.location.hash = `#/feed/${boostTargetId}`;
-      return;
+      const q = new URLSearchParams();
+      q.set('thread', boostTargetId);
+      if (feedTab !== 'original') q.set('tab', feedTab);
+      void replace(`/feed?${q.toString()}`);
+    } else {
+      void replace(feedThreadPath(item, feedTab));
     }
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  }
+
+  function openThreadLink(item: Event): void {
+    armListRestore(item.id);
     warmNavEvent(item);
-    window.location.hash = `#${feedThreadPath(item)}`;
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  }
+
+  /** Back to the feed list at the card that was opened (same route — list state intact). */
+  function returnToFeedList(): void {
+    void replace(feedListPath(feedTab));
   }
 
   $effect(() => {
@@ -241,7 +343,8 @@
   });
 
   $effect(() => {
-    if (params.id) return;
+    // Keep loading the list even while a thread is open (background), but never
+    // wipe the in-memory timeline when only `?thread=` toggles.
     void feedRelays;
     const tab = feedTab;
     const pubkey = $session.pubkey;
@@ -250,37 +353,43 @@
     const muted = $muteState;
     let cancelled = false;
     listError = '';
+
     if (loadedTab !== tab) {
       items = [];
       shown = {};
       boostExcerpts = {};
+      pendingNew = [];
+      feedWatermark = 0;
       loadedTab = tab;
       listLoading = true;
       listSettled = false;
-    } else if (!untrack(() => items.length)) {
+    } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
       listLoading = true;
-      listSettled = false;
     }
 
     if (tab === 'notifications' && !pubkey) {
       items = [];
+      pendingNew = [];
       listLoading = false;
       listSettled = true;
       return;
     }
 
     if (pubkey && sessionLoading && !feedRelayGroups().personal.length && tab !== 'notifications') {
-      // Lists are still loading. Show anything already cached, but do not
-      // settle: theforest long-form is not this account's kind 1 feed.
       const recall =
         tab === 'replies' ? recallFeedWithReplies() : recallFeedPosts();
       void recall.then((cached) => {
-        if (cancelled) return;
-        const posts = filterMuted(cached, muted);
-        if (!posts.length) return;
-        items = keepFeedPosts(untrack(() => items), posts);
+        if (cancelled || !cached.length) return;
+        ingestFeedEvents(cached, muted);
         listLoading = false;
       });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Already settled for this tab — quiet polling handles New Events.
+    if (untrack(() => listSettled) && untrack(() => items.length)) {
       return () => {
         cancelled = true;
       };
@@ -314,7 +423,7 @@
 
     void recallForTab().then((cached) => {
       if (cancelled || !cached.length) return;
-      items = keepFeedPosts(untrack(() => items), filterMuted(cached, muted));
+      ingestFeedEvents(cached, muted);
       listLoading = false;
     });
 
@@ -323,22 +432,24 @@
         try {
           const events = await loadForTab((cached) => {
             if (cancelled || !cached.length) return;
-            items = keepFeedPosts(items, cached);
+            ingestFeedEvents(cached, muted);
             listLoading = false;
           });
           if (cancelled) return;
-          items = keepFeedPosts(items, events);
+          ingestFeedEvents(events, muted);
           const listsMissing =
             tab !== 'notifications' && !!pubkey && !feedRelayGroups().personal.length;
           if (items.length && !listsMissing) {
             listLoading = false;
             listSettled = true;
+            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
             return;
           }
           if (items.length) listLoading = false;
           if (tab === 'notifications' && items.length) {
             listLoading = false;
             listSettled = true;
+            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
             return;
           }
         } catch (err: unknown) {
@@ -346,6 +457,7 @@
           if (items.length) {
             listLoading = false;
             listSettled = true;
+            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
             return;
           }
           listError = err instanceof Error ? err.message : 'Could not load the feed.';
@@ -359,6 +471,7 @@
         if (!cancelled) {
           listLoading = false;
           listSettled = true;
+          feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
         }
         return;
       }
@@ -372,18 +485,54 @@
     };
   });
 
+  /** Quiet refresh: stage newer posts for the New Events control (never auto-insert). */
+  $effect(() => {
+    if (pointer || !listSettled) return;
+    const tab = feedTab;
+    const pubkey = $session.pubkey;
+    const meta = metadataEvents;
+    const muted = $muteState;
+    if (tab === 'notifications' && !pubkey) return;
+
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        let events: Event[] = [];
+        if (tab === 'notifications' && pubkey) {
+          events = await loadNotifications(pubkey, muted);
+        } else if (tab === 'replies') {
+          events = await loadFeedWithReplies(meta, muted);
+        } else {
+          events = await loadFeed(meta, muted);
+        }
+        if (cancelled) return;
+        ingestFeedEvents(events, muted);
+      } catch {
+        /* quiet */
+      }
+    };
+
+    const first = window.setTimeout(() => void pull(), 15_000);
+    const interval = window.setInterval(() => void pull(), 45_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(first);
+      window.clearInterval(interval);
+    };
+  });
+
   $effect(() => {
     const id = pointer;
-    if (!params.id) return;
     void $session.pubkey;
     let cancelled = false;
-    responses = emptyWorkResponses();
-    socialLoading = false;
     if (!id) {
       event = null;
       threadLoading = false;
+      responses = emptyWorkResponses();
       return;
     }
+    responses = emptyWorkResponses();
+    socialLoading = false;
     const warm = takePendingNavEvent();
     const seeded = warm && warm.id.toLowerCase() === id ? warm : null;
     event = seeded;
@@ -411,47 +560,69 @@
       cancelled = true;
     };
   });
+
+  /**
+   * When `?thread=` clears (Return or history.back), restore list scroll once.
+   * Restore flags are non-reactive so clearing them cannot cancel the rAF (the
+   * old $state pendingFocusId loop was fighting itself and the viewport).
+   */
+  $effect(() => {
+    if (pointer) return;
+    runListRestore();
+  });
 </script>
 
 <TopBar />
 <main class="shell reading-body feed-page">
-  {#if params.id}
-    <p class="feed-back"><a href="#/feed" use:link>Feed</a></p>
-    {#if threadLoading}
-      <LoadingHint message="Opening this thread…" />
-    {:else if event}
-      <article class="card reading-body">
-        {#if libraryKind}
-          <EditionHeader {event} />
+  {#if pointer}
+    <div class="feed-thread-pane">
+      <p class="feed-back">
+        <button type="button" class="btn feed-return-btn" onclick={returnToFeedList}>Return</button>
+      </p>
+      {#if threadLoading}
+        <LoadingHint message="Opening this thread…" />
+      {:else if event}
+        {#if event.kind === KIND.LIVE_EVENT}
+          <LiveStreamCard {event} />
+          <DetailsPanel {event} />
         {:else}
-          <header class="thread-head">
-            <UserBadge pubkey={event.pubkey} />
-            <time
-              class="thread-time muted"
-              datetime={new Date(event.created_at * 1000).toISOString()}
-              title={formatAbsoluteTime(event.created_at)}
-            >{formatRelativeTime(event.created_at)}</time>
-            <span class="feed-kind muted">{kindDescription(event.kind)}</span>
-          </header>
+          <article class="card reading-body">
+            {#if libraryKind}
+              <EditionHeader {event} />
+            {:else}
+              <header class="thread-head">
+                <UserBadge pubkey={event.pubkey} />
+                <time
+                  class="thread-time muted"
+                  datetime={new Date(event.created_at * 1000).toISOString()}
+                  title={formatAbsoluteTime(event.created_at)}
+                >{formatRelativeTime(event.created_at)}</time>
+                <span class="feed-kind muted">{kindDescription(event.kind)}</span>
+              </header>
+            {/if}
+            <EventBody {event} quotes={bodyHighlights} />
+            <DetailsPanel {event} />
+          </article>
         {/if}
-        <EventBody {event} quotes={bodyHighlights} />
-        <DetailsPanel {event} />
-      </article>
-      {#if fullPage}
-        <p class="feed-full-page"><a href={`#${fullPage}`} use:link>Open the full page</a></p>
+        {#if fullPage}
+          <p class="feed-full-page"><a href={`#${fullPage}`} use:link>Open the full page</a></p>
+        {/if}
+        <div class="card reading-width feed-comments">
+          <WorkCommentsPanel
+            target={event}
+            {responses}
+            focusId={focusComment}
+            loading={socialLoading}
+          />
+        </div>
+      {:else}
+        <p class="muted">This note was not on your relays.</p>
       {/if}
-      <div class="card reading-width feed-comments">
-        <WorkCommentsPanel
-          target={event}
-          {responses}
-          focusId={focusComment}
-          loading={socialLoading}
-        />
-      </div>
-    {:else}
-      <p class="muted">This note was not on your relays.</p>
-    {/if}
-  {:else}
+    </div>
+  {/if}
+
+  <!-- Keep the list mounted while a thread is open so Return can scroll to the same row. -->
+  <div class="feed-list-pane" hidden={!!pointer} aria-hidden={pointer ? 'true' : undefined}>
     <header class="page-header">
       <h1>Feed</h1>
       <p class="page-lede muted">{lede}</p>
@@ -463,6 +634,7 @@
         class="feed-tab"
         class:active={feedTab === 'original'}
         aria-selected={feedTab === 'original'}
+        tabindex={pointer ? -1 : 0}
         onclick={() => setFeedTab('original')}>Original Posts</button
       >
       <button
@@ -471,6 +643,7 @@
         class="feed-tab"
         class:active={feedTab === 'replies'}
         aria-selected={feedTab === 'replies'}
+        tabindex={pointer ? -1 : 0}
         onclick={() => setFeedTab('replies')}>Replies</button
       >
       <button
@@ -479,6 +652,7 @@
         class="feed-tab"
         class:active={feedTab === 'notifications'}
         aria-selected={feedTab === 'notifications'}
+        tabindex={pointer ? -1 : 0}
         onclick={() => setFeedTab('notifications')}>Notifications</button
       >
     </div>
@@ -509,7 +683,21 @@
           No original posts here yet.
         {/if}
       </p>
+      {#if pendingNew.length}
+        <p class="feed-new-wrap">
+          <button type="button" class="btn feed-new-events" onclick={admitNewEvents}>
+            New Events ({pendingNew.length})
+          </button>
+        </p>
+      {/if}
     {:else}
+      {#if pendingNew.length}
+        <p class="feed-new-wrap">
+          <button type="button" class="btn feed-new-events" onclick={admitNewEvents}>
+            New Events ({pendingNew.length})
+          </button>
+        </p>
+      {/if}
       <ul class="feed-list">
         {#each visibleItems as item (item.id)}
           {@const reactionRow = item.kind === KIND.REACTION || item.kind === 17}
@@ -518,11 +706,14 @@
           {@const boostExcerpt = boostRow
             ? boostExcerpts[item.id] ?? peekRepostExcerpt(item)
             : ''}
-          {@const threadHref = `#${boostTarget ? `/feed/${boostTarget}` : feedThreadPath(item)}`}
+          {@const threadHref = `#${boostTarget
+            ? `/feed?thread=${boostTarget}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}`
+            : feedThreadPath(item, feedTab)}`}
           <li
             class="card feed-row"
             class:feed-row-oneline={reactionRow}
             class:feed-row-boost={boostRow}
+            data-feed-row={item.id.toLowerCase()}
             use:watchRow={item.id}
           >
             <div
@@ -548,7 +739,7 @@
                   href={threadHref}
                   use:link
                   title={formatAbsoluteTime(item.created_at)}
-                  onclick={() => warmNavEvent(item)}
+                  onclick={() => openThreadLink(item)}
                 >{formatRelativeTime(item.created_at)}</a>
                 {#if !reactionRow && !boostRow}
                   <span class="feed-kind muted">{kindDescription(item.kind)}</span>
@@ -560,7 +751,7 @@
                 {/if}
               {:else}
                 <div class="feed-body">
-                  {#if shown[item.id]}
+                  {#if shown[item.id.toLowerCase()]}
                     <EventBody event={item} />
                   {:else}
                     <p class="feed-preview">{rowText(item)}</p>
@@ -572,12 +763,25 @@
         {/each}
       </ul>
     {/if}
-  {/if}
+  </div>
 </main>
 
 <style>
   .feed-back {
     margin: 0 0 0.75rem;
+  }
+  .feed-return-btn {
+    font-size: 0.9rem;
+    padding: 0.3rem 0.7rem;
+  }
+  .feed-new-wrap {
+    margin: 0 0 0.65rem;
+    max-width: 40rem;
+  }
+  .feed-new-events {
+    width: 100%;
+    justify-content: center;
+    font-weight: 650;
   }
   .feed-tabs {
     display: flex;
@@ -614,12 +818,14 @@
     flex-direction: column;
     gap: 0.5rem;
     max-width: 40rem;
+    overflow-anchor: none;
   }
   .feed-row {
     display: flex;
     flex-direction: column;
     max-height: 500px;
     padding: 0.55rem 0.75rem;
+    overflow-anchor: none;
   }
   .feed-row-oneline {
     max-height: none;
@@ -627,9 +833,6 @@
   }
   .feed-row-boost {
     max-height: none;
-    padding: 0.45rem 0.75rem;
-    background: color-mix(in srgb, var(--paper-light) 82%, var(--accent));
-    border-color: color-mix(in srgb, var(--accent) 28%, var(--rule));
   }
   .feed-boost-label {
     flex: 0 0 auto;
@@ -639,10 +842,16 @@
     color: color-mix(in srgb, var(--accent) 70%, var(--ink));
   }
   .feed-boost-excerpt {
-    margin-top: 0.2rem;
+    margin-top: 0.35rem;
+    padding: 0.45rem 0.65rem;
+    background: var(--reading-bg);
+    border-radius: 0.3rem;
+    font-family: var(--reading-font);
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: var(--ink-soft);
     -webkit-line-clamp: 2;
     line-clamp: 2;
-    opacity: 0.88;
   }
   .feed-hit {
     display: flex;

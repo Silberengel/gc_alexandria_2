@@ -436,9 +436,10 @@ export async function resolveMissingCommentParents(
     const hintRelays = foreign
       ? [...new Set(missing.flatMap((id) => hintMap.get(id) ?? []))]
       : [];
+    // Note-hunt list follows the GitCitadel preset; tag hints / OP inbox need Outboxes.
     const searchScope = withPreferredRelays(
-      foreign ? [...new Set([...hintRelays, ...socialSearchStack()])] : [],
-      opInbox,
+      [...new Set([...socialSearchStack(), ...hintRelays])],
+      foreign ? opInbox : [],
       6
     );
     const fromSearch = await relayPool.query(

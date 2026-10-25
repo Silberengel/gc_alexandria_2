@@ -149,9 +149,9 @@
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">Outboxes</span>
           <span class="muted">
-            Other people's relays: their write relays on a profile, their read relays when you
-            open or answer a thread, and popular relays when searching for a missing note. Off
-            leaves only your relays, plus GitCitadel's if that is on.
+            Other people's relays: their write relays on a profile and their read relays when you
+            open or answer a thread. Off leaves only your relays, plus GitCitadel's if that is on.
+            Signed-out sessions keep this on.
           </span>
         </span>
         <input

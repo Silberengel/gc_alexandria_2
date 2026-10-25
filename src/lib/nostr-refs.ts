@@ -10,6 +10,8 @@ export type RefSegment = {
   bech32: string;
   pubkey?: string;
   id?: string;
+  /** Relay hints from nevent / nprofile (and naddr via {@link naddr}.relays). */
+  relays?: string[];
   naddr?: { kind: number; pubkey: string; identifier: string; relays?: string[] };
 };
 export type ContentSegment = TextSegment | RefSegment;
@@ -43,7 +45,15 @@ export function decodeNostrBech32(token: string): RefSegment | null {
       return { type: 'ref', kind: 'note', raw: token, bech32, id: decoded.data };
     }
     if (decoded.type === 'nevent') {
-      return { type: 'ref', kind: 'nevent', raw: token, bech32, id: decoded.data.id, pubkey: decoded.data.author };
+      return {
+        type: 'ref',
+        kind: 'nevent',
+        raw: token,
+        bech32,
+        id: decoded.data.id,
+        pubkey: decoded.data.author,
+        relays: decoded.data.relays
+      };
     }
     if (decoded.type === 'naddr') {
       return {

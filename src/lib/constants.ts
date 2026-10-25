@@ -56,8 +56,7 @@ export const SOCIAL_RELAYS = viteList(env.VITE_SOCIAL_RELAYS, [
 
 /** Kind 1 / thread search (NIP-10 parents, replies). Comma-separated `VITE_SOCIAL_SEARCH_RELAYS`. */
 export const SOCIAL_SEARCH_RELAYS = viteList(env.VITE_SOCIAL_SEARCH_RELAYS, [
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
+  'wss://primus.nostr1.com',
   'wss://nos.lol',
   'wss://nostr.mom',
   'wss://nostrelites.org',
@@ -184,6 +183,8 @@ export const KIND = {
   FOLLOW_SET: 30000,
   /** NIP-30 emoji pack (addressable). */
   EMOJI_SET: 30030,
+  /** NIP-53 live activities / streams. */
+  LIVE_EVENT: 30311,
   STATUS: 30315,
   /** NKBIP-01 publication / entity rating. */
   RATING: 34259,
@@ -232,6 +233,7 @@ export const CACHE_KINDS = [
   KIND.SECTION,
   KIND.DIRECTORY,
   KIND.STATUS,
+  KIND.LIVE_EVENT,
   KIND.SPEC,
   KIND.WIKI,
   KIND.RATING,
