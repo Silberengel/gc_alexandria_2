@@ -18,6 +18,10 @@ export function kindDescription(kind: number): string {
       return 'Picture';
     case KIND.VIDEO:
       return 'Video';
+    case KIND.SHORT_VIDEO:
+      return 'Short video';
+    case KIND.VOICE:
+      return 'Voice message';
     case KIND.LONG_FORM:
       return 'Long-form article';
     case KIND.PUBLICATION:
@@ -29,7 +33,11 @@ export function kindDescription(kind: number): string {
     case KIND.SPEC:
       return 'Specification';
     case KIND.RATING:
-      return 'Rating';
+      return 'Publication rating';
+    case KIND.MUSIC:
+      return 'Music track';
+    case KIND.WEB_BOOKMARK:
+      return 'Web bookmark';
     case KIND.LABEL:
       return 'Label';
     case KIND.BOOKMARK:
@@ -45,10 +53,8 @@ export function kindDescription(kind: number): string {
     case KIND.ZAP:
       return 'Zap';
     case 1244:
-      return 'Review';
-    case 7:
-      return 'Reaction';
-    case 11:
+      return 'Voice comment';
+    case KIND.DJOT:
       return 'Discussion';
     default:
       return `Event (kind ${kind})`;

@@ -74,11 +74,11 @@ describe('buildComposePartial', () => {
     expect(partial.tags).toEqual([
       ['r', 'wss://relay.example'],
       ['r', 'wss://read.example', 'read'],
-      ['client', 'alexandria'],
+      ['client', 'Alexandria'],
     ]);
   });
 
-  it('replaces freeform client tags with ["client", "alexandria"]', () => {
+  it('replaces freeform client tags with ["client", "Alexandria"]', () => {
     const partial = buildComposePartial({
       kind: 1,
       content: 'hi',
@@ -88,7 +88,7 @@ describe('buildComposePartial', () => {
         ['e', 'aa'.repeat(32)],
       ],
     });
-    expect(partial.tags.filter((t) => t[0] === 'client')).toEqual([['client', 'alexandria']]);
+    expect(partial.tags.filter((t) => t[0] === 'client')).toEqual([['client', 'Alexandria']]);
     expect(partial.tags.some((t) => t[0] === 'e')).toBe(true);
   });
 });

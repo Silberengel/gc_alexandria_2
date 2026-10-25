@@ -104,9 +104,9 @@ export function grammarLanguageOptions(
   return out;
 }
 
+/** Compose grammar default — English, not the browser locale. */
 export function defaultGrammarLanguageToolCode(): string {
-  if (typeof navigator === 'undefined') return 'en-US';
-  return languageToolCodeFrom(navigator.language || 'en-US');
+  return 'en-US';
 }
 
 type LtMatch = {

@@ -11,6 +11,11 @@ import { fetchByAddress } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
 import { profileStack, socialStack } from './nostr/selector';
 import { memoryFindMetadata, rememberEvents } from './nostr/event-memory';
+import {
+  DEFAULT_LIKE_REACTION_CONTENT,
+  DEFAULT_LIKE_REACTION_DISPLAY_EMOJI,
+  isPositiveLikeContent
+} from './reactions';
 
 export const EMOJI_SHORT_CODE_MAX_INNER_LENGTH = 20 as const;
 
@@ -231,10 +236,19 @@ export function expandCustomEmojiPlaceholders(html: string, slots: readonly Emoj
   return html.replace(PLACEHOLDER_RE, (_full, num) => {
     const info = slots[Number(num)];
     const url = info ? normalizeEmojiUrl(info.url) : null;
-    if (!info || !url) return `:${num}:`;
+    if (!info || !url) {
+      // Never emit a truncated stub like ":cl" — restore the full shortcode.
+      const code = info?.shortcode?.trim();
+      return code ? `:${escapeHtmlAttr(code)}:` : '';
+    }
     const code = escapeHtmlAttr(info.shortcode);
     const src = escapeHtmlAttr(url);
-    return `<img class="content-emoji" src="${src}" alt=":${code}:" title=":${code}:" loading="lazy" decoding="async" />`;
+    // Prefer a Unicode alt when the shortcode is also a standard emoji (e.g. :clap: → 👏).
+    // Putting ":clap:" in alt inside a 1.35em box clips to ":cl" in Firefox when the
+    // image is still loading or fails — which then breaks shortcode rendering.
+    const native = nativeForShortcode(info.shortcode);
+    const alt = escapeHtmlAttr(native ?? '');
+    return `<img class="content-emoji" src="${src}" alt="${alt}" title=":${code}:" loading="lazy" decoding="async" />`;
   });
 }
 
@@ -347,4 +361,64 @@ export async function prepareContentWithEmojis(
     infos.map((e) => e.shortcode)
   );
   return protectCustomEmojis(withUnicode, infos);
+}
+
+const WHOLE_SHORTCODE = /^:([^:\n]{1,64}):$/;
+
+/**
+ * NIP-25 reaction face (kind 7/17): custom `:shortcode:` + `emoji` tag when present;
+ * otherwise Unicode. NIP-25 `+` / empty likes paint as the same generic heart imwald uses
+ * ({@link DEFAULT_LIKE_REACTION_DISPLAY_EMOJI}).
+ */
+export function resolveReactionEmoji(event: Event): {
+  shortcode: string;
+  url: string | null;
+  unicode: string | null;
+  raw: string;
+} | null {
+  if (event.kind !== KIND.REACTION && event.kind !== 17) return null;
+  const raw = event.content.trim();
+  if (raw) {
+    const infos = emojiInfosFromTags(event.tags);
+    const whole = WHOLE_SHORTCODE.exec(raw);
+    const shortcode = whole?.[1]?.trim() ?? '';
+    if (shortcode) {
+      const tagged =
+        infos.find((e) => e.shortcode.toLowerCase() === shortcode.toLowerCase()) ??
+        (infos.length === 1 ? infos[0] : undefined);
+      return {
+        shortcode: tagged?.shortcode ?? shortcode,
+        url: tagged?.url ?? null,
+        unicode: nativeForShortcode(shortcode),
+        raw
+      };
+    }
+    if (infos.length === 1 && raw === infos[0]!.shortcode) {
+      return {
+        shortcode: infos[0]!.shortcode,
+        url: infos[0]!.url,
+        unicode: nativeForShortcode(infos[0]!.shortcode),
+        raw
+      };
+    }
+  }
+  if (isPositiveLikeContent(raw)) {
+    const unicode =
+      raw === '' || raw === DEFAULT_LIKE_REACTION_CONTENT
+        ? DEFAULT_LIKE_REACTION_DISPLAY_EMOJI
+        : raw;
+    return {
+      shortcode: '',
+      url: null,
+      unicode,
+      raw: raw || DEFAULT_LIKE_REACTION_CONTENT
+    };
+  }
+  if (!raw) return null;
+  return {
+    shortcode: '',
+    url: null,
+    unicode: null,
+    raw
+  };
 }

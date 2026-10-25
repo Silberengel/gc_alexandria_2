@@ -9,7 +9,7 @@ import { showNotice, showPublishResult } from './stores/toast';
 import { Nip07Signer } from './signers/nip07';
 import type { BunkerSigner } from './signers/bunker';
 
-/** Strip every `client` tag, then append `["client", "alexandria"]`. */
+/** Strip every `client` tag, then append `["client", "Alexandria"]`. */
 export function withClientTag(tags: string[][]): string[][] {
   return [...tags.filter((t) => t[0] !== 'client'), ['client', ALEXANDRIA_CLIENT]];
 }

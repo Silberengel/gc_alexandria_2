@@ -3,15 +3,15 @@ import { ALEXANDRIA_CLIENT } from './constants';
 import { withClientTag } from './sign';
 
 describe('client tag', () => {
-  it('always strips client tags and appends ["client", "alexandria"]', () => {
-    expect(ALEXANDRIA_CLIENT).toBe('alexandria');
+  it('always strips client tags and appends ["client", "Alexandria"]', () => {
+    expect(ALEXANDRIA_CLIENT).toBe('Alexandria');
     expect(withClientTag([['d', 'book']])).toEqual([
       ['d', 'book'],
-      ['client', 'alexandria']
+      ['client', 'Alexandria']
     ]);
     expect(withClientTag([['client', 'Bookshelf'], ['a', '30040:aa:book']])).toEqual([
       ['a', '30040:aa:book'],
-      ['client', 'alexandria']
+      ['client', 'Alexandria']
     ]);
     expect(
       withClientTag([
@@ -21,7 +21,7 @@ describe('client tag', () => {
       ])
     ).toEqual([
       ['e', 'ab'],
-      ['client', 'alexandria']
+      ['client', 'Alexandria']
     ]);
   });
 });

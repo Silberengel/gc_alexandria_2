@@ -121,8 +121,8 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 
 /* Publication reader: wider frame; prose stays on --max-read inside .reading-content. */
 .shell.reading-page {
-  width: min(var(--max-read-frame), calc(100vw - 48px));
-  max-width: min(var(--max-read-frame), calc(100vw - 48px));
+  width: min(var(--max-read-frame), 100%);
+  max-width: min(var(--max-read-frame), 100%);
   margin-inline: auto;
   padding-top: 0;
 }
@@ -2439,6 +2439,18 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   box-shadow: none;
 }
 
+/* Phone: drop stacked gutters so the book text can use most of the screen. */
+@media (max-width: 639px) {
+  .shell.reading-page {
+    padding-inline: 0.4rem;
+    padding-bottom: 1.5rem;
+  }
+  .reader-layout .reading-sheet {
+    padding-inline: 0.45rem;
+    padding-bottom: 2rem;
+  }
+}
+
 .publication-search {
   display: flex;
   align-items: center;
@@ -2552,7 +2564,10 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .event-body img.content-emoji,
 .reading-body img.content-emoji,
 .reader-section img.content-emoji,
-.thread-body img.content-emoji {
+.thread-body img.content-emoji,
+.nostr-rich-text img.content-emoji,
+.feed-body img.content-emoji,
+.reaction-emoji {
   display: inline-block !important;
   width: 1.35em !important;
   height: 1.35em !important;
@@ -2562,6 +2577,25 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   vertical-align: -0.2em;
   object-fit: contain !important;
   border-radius: 0.15em;
+  overflow: visible;
+}
+/* Kind-7 reaction face — a bit larger so a custom gif is readable. */
+.reaction-face {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+.reaction-face .reaction-emoji {
+  width: 1.65em !important;
+  height: 1.65em !important;
+  max-width: 1.65em !important;
+  max-height: 1.65em !important;
+}
+.reaction-face-fallback {
+  font-size: 1rem;
+  opacity: 0.85;
 }
 
 /* Keep userbadges tiny even inside .reading-body (wiki header). */
@@ -6275,7 +6309,9 @@ a.user-status-line:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
   line-height: 1.45;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   overflow: auto;
   user-select: text;
   cursor: text;

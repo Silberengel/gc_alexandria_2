@@ -45,7 +45,7 @@
       <PictureCard {event} />
     </div>
   </div>
-{:else if event.kind === KIND.VIDEO}
+{:else if event.kind === KIND.VIDEO || event.kind === KIND.SHORT_VIDEO}
   <div class="result-card-wrap">
     <CopyPointerButton {event} class="generic-card-copy" />
     <div class="card-clip">

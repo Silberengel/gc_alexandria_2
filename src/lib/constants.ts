@@ -127,7 +127,7 @@ export const REPO_OWNER_HEX = viteHex(
 export const GRAPEVINE_RANK_MIN_DEFAULT = 10;
 
 /** NIP-89 client tag value on events this app signs. */
-export const ALEXANDRIA_CLIENT = 'alexandria';
+export const ALEXANDRIA_CLIENT = 'Alexandria';
 
 export const NIP32_BOOKLIST_LABEL = 'booklist';
 /** Personal “I have read this” mark — never shown as a list label. */
@@ -172,6 +172,10 @@ export const KIND = {
   READING_QUEUE: 16374,
   PICTURE: 20,
   VIDEO: 21,
+  /** NIP-71 short-form video. */
+  SHORT_VIDEO: 22,
+  /** NIP-A0 voice message. */
+  VOICE: 1222,
   LONG_FORM: 30023,
   PUBLICATION: 30040,
   SECTION: 30041,
@@ -181,10 +185,15 @@ export const KIND = {
   /** NIP-30 emoji pack (addressable). */
   EMOJI_SET: 30030,
   STATUS: 30315,
+  /** NKBIP-01 publication / entity rating. */
   RATING: 34259,
   WIKI: 30818,
   SPEC: 30817,
   DJOT: 11,
+  /** Music track (catalog kind). */
+  MUSIC: 36787,
+  /** NIP-B0 web bookmark. */
+  WEB_BOOKMARK: 39701,
   /** NIP-85 Trusted Assertions prefs (provider pointer). */
   NIP85_PREFS: 10040,
   /** NIP-85 Trusted Assertion score for a subject pubkey (`d` tag). */

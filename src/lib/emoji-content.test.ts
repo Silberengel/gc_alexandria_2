@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import type { Event } from 'nostr-tools';
+import { KIND } from './constants';
 import {
   emojiInfosFromTags,
   expandCustomEmojiPlaceholders,
   findEmojiShortcodes,
   protectCustomEmojis,
-  replaceStandardEmojiShortcodes
+  replaceStandardEmojiShortcodes,
+  resolveReactionEmoji
 } from './emoji-content';
+import { DEFAULT_LIKE_REACTION_DISPLAY_EMOJI } from './reactions';
+
+function reaction(content: string, tags: string[][] = []): Event {
+  return {
+    id: 'a'.repeat(64),
+    pubkey: 'b'.repeat(64),
+    created_at: 1,
+    kind: KIND.REACTION,
+    tags,
+    content,
+    sig: 'c'.repeat(128)
+  };
+}
 
 describe('emoji-content', () => {
   it('finds standard shortcodes without treating AsciiDoc macros as emoji', () => {
@@ -43,7 +59,22 @@ describe('emoji-content', () => {
     const html = expandCustomEmojiPlaceholders(`<p>${text}</p>`, slots);
     expect(html).toContain('content-emoji');
     expect(html).toContain('https://example.com/roger.webp');
-    expect(html).toContain('alt=":nostopus_roger:"');
+    // Shortcode stays in title; alt stays empty so a failed load cannot clip to ":no".
+    expect(html).toContain('title=":nostopus_roger:"');
+    expect(html).toContain('alt=""');
+  });
+
+  it('uses Unicode alt for shortcodes that are also standard emoji', () => {
+    const html = expandCustomEmojiPlaceholders('\uE000EMOJI0\uE000', [
+      {
+        shortcode: 'clap',
+        url: 'https://0x0.happytavern.co/9775c6c1ab336a09a582699fdd675764ffc179f80972204e4bb97e48536c4a7c.gif'
+      }
+    ]);
+    expect(html).toContain('content-emoji');
+    expect(html).toContain('alt="👏"');
+    expect(html).toContain('title=":clap:"');
+    expect(html).not.toContain('alt=":clap:"');
   });
 
   it('escapes shortcode and url for HTML attributes', () => {
@@ -53,7 +84,6 @@ describe('emoji-content', () => {
         url: 'https://example.com/e.png?x=1&y=2'
       }
     ]);
-    expect(html).toContain('alt=":test&amp;#34;onload&amp;#34;test:"');
     expect(html).toContain('title=":test&amp;#34;onload&amp;#34;test:"');
     expect(html).toContain('src="https://example.com/e.png?x=1&amp;y=2"');
     expect(html).not.toMatch(/\sonload=/i);
@@ -73,5 +103,13 @@ describe('emoji-content', () => {
     const long = 'a'.repeat(30);
     const hits = findEmojiShortcodes(`x:${long}:y`, [long]);
     expect(hits.map((m) => m.shortcode)).toEqual([long]);
+  });
+
+  it('shows NIP-25 + / empty likes as the generic heart', () => {
+    expect(resolveReactionEmoji(reaction('+'))?.unicode).toBe(DEFAULT_LIKE_REACTION_DISPLAY_EMOJI);
+    expect(resolveReactionEmoji(reaction(''))?.unicode).toBe(DEFAULT_LIKE_REACTION_DISPLAY_EMOJI);
+    expect(resolveReactionEmoji(reaction('❤️'))?.unicode).toBe('❤️');
+    expect(resolveReactionEmoji(reaction('👍'))?.unicode).toBeNull();
+    expect(resolveReactionEmoji(reaction('👍'))?.raw).toBe('👍');
   });
 });

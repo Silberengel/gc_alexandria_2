@@ -8,12 +8,12 @@
     renderWithFallback,
     markHighlights,
     resolveMarkup,
+    isAllowedMediaUrl,
     type HighlightQuote
   } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
   import { imetaMedia, omitMediaUrls, stripRenderedMedia } from '$lib/media';
-  import { isAllowedMediaUrl } from '$lib/markup';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
@@ -25,7 +25,8 @@
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import {
     expandCustomEmojiPlaceholders,
-    prepareContentWithEmojis
+    prepareContentWithEmojis,
+    resolveReactionEmoji
   } from '$lib/emoji-content';
   import { embedPointersFromTags, resolveEmbedPointer } from '$lib/event-embeds';
   import { eventAddress } from '$lib/nostr/verify';
@@ -74,6 +75,8 @@
   const sourceTags = $derived(event?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   const usePlaintextRich = $derived(markupFormat === 'plaintext');
+  /** Kind 7/17 custom emoji reactions — paint the tagged face, not clipped alt text. */
+  const reactionFace = $derived(event ? resolveReactionEmoji(event) : null);
   const heroUrls = $derived.by(() => {
     const urls: string[] = [...dedupeHeroUrls];
     if (dedupeHeroImage && event) urls.push(...eventHeroImageUrls(event));
@@ -302,7 +305,26 @@
 {/snippet}
 
 <div class="event-body" bind:this={bodyEl}>
-  {#if usePlaintextRich}
+  {#if reactionFace}
+    <p class="reaction-face">
+      {#if reactionFace.url && isAllowedMediaUrl(reactionFace.url)}
+        <img
+          class="reaction-emoji content-emoji"
+          src={reactionFace.url}
+          alt={reactionFace.unicode ?? ''}
+          title={reactionFace.shortcode ? `:${reactionFace.shortcode}:` : reactionFace.raw}
+          loading="lazy"
+          decoding="async"
+        />
+      {:else if reactionFace.unicode}
+        <span>{reactionFace.unicode}</span>
+      {:else if reactionFace.shortcode}
+        <span class="reaction-face-fallback">:{reactionFace.shortcode}:</span>
+      {:else}
+        <span>{reactionFace.raw}</span>
+      {/if}
+    </p>
+  {:else if usePlaintextRich}
     <NostrRichText
       content={source}
       {event}

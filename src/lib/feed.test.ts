@@ -1,7 +1,17 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { feedFollowAuthors, feedRelayGroups, isOriginalPost, keepFeedPosts } from './feed';
+import {
+  feedFollowAuthors,
+  feedRelayGroups,
+  isFeedReplyRow,
+  isNotificationForViewer,
+  isOriginalPost,
+  isRepliesTimelineEvent,
+  isTopLevelWebComment,
+  keepFeedPosts,
+  parseFeedTab
+} from './feed';
 import { memoryEventsByKind, memoryEventsReferencing, rememberEvents } from './nostr/event-memory';
 import { setSelectorContext } from './nostr/selector';
 
@@ -45,6 +55,142 @@ describe('isOriginalPost', () => {
         })
       )
     ).toBe(false);
+  });
+
+  it('keeps highlights, bookmarks, media, music, and publication ratings', () => {
+    expect(isOriginalPost(ev({ kind: KIND.HIGHLIGHT, tags: [['e', 'e'.repeat(64)]] }))).toBe(true);
+    expect(isOriginalPost(ev({ kind: KIND.WEB_BOOKMARK, tags: [['d', 'https://example.com']] }))).toBe(
+      true
+    );
+    expect(isOriginalPost(ev({ kind: KIND.SHORT_VIDEO }))).toBe(true);
+    expect(isOriginalPost(ev({ kind: KIND.VOICE }))).toBe(true);
+    expect(isOriginalPost(ev({ kind: KIND.MUSIC }))).toBe(true);
+    expect(
+      isOriginalPost(
+        ev({
+          kind: KIND.RATING,
+          tags: [
+            ['d', `30040:${'a'.repeat(64)}:book`],
+            ['a', `30040:${'a'.repeat(64)}:book`],
+            ['rating', '1']
+          ]
+        })
+      )
+    ).toBe(true);
+  });
+
+  it('keeps top-level web comments and drops note-thread comments', () => {
+    const web = ev({
+      kind: KIND.COMMENT,
+      tags: [
+        ['I', 'https://example.com/article'],
+        ['K', 'web']
+      ]
+    });
+    expect(isTopLevelWebComment(web)).toBe(true);
+    expect(isOriginalPost(web)).toBe(true);
+    expect(
+      isOriginalPost(
+        ev({
+          kind: KIND.COMMENT,
+          tags: [
+            ['e', 'e'.repeat(64)],
+            ['E', 'e'.repeat(64)],
+            ['K', '1']
+          ]
+        })
+      )
+    ).toBe(false);
+  });
+});
+
+describe('replies timeline', () => {
+  it('treats kind 1 replies and comments as reply rows', () => {
+    expect(isFeedReplyRow(ev({ kind: KIND.TEXT_NOTE, tags: [['e', 'e'.repeat(64)]] }))).toBe(true);
+    expect(isFeedReplyRow(ev({ kind: KIND.COMMENT, tags: [['e', 'e'.repeat(64)]] }))).toBe(true);
+    expect(isFeedReplyRow(ev({ kind: KIND.TEXT_NOTE, tags: [] }))).toBe(false);
+  });
+
+  it('keeps OPs and replies on the Replies tab, not reactions', () => {
+    expect(isRepliesTimelineEvent(ev({ kind: KIND.TEXT_NOTE, tags: [] }))).toBe(true);
+    expect(
+      isRepliesTimelineEvent(ev({ kind: KIND.TEXT_NOTE, tags: [['e', 'e'.repeat(64)]] }))
+    ).toBe(true);
+    expect(isRepliesTimelineEvent(ev({ kind: KIND.COMMENT }))).toBe(true);
+    expect(isRepliesTimelineEvent(ev({ kind: KIND.REACTION, content: '+' }))).toBe(false);
+  });
+});
+
+describe('notifications', () => {
+  const viewer = 'a'.repeat(64);
+  const other = 'b'.repeat(64);
+
+  it('keeps another pubkey’s #p-tagged response', () => {
+    expect(
+      isNotificationForViewer(
+        ev({
+          pubkey: other,
+          kind: KIND.REACTION,
+          content: '+',
+          tags: [
+            ['e', 'c'.repeat(64)],
+            ['p', viewer]
+          ]
+        }),
+        viewer
+      )
+    ).toBe(true);
+  });
+
+  it('keeps kind 6 and 16 boosts that #p-tag the viewer', () => {
+    expect(
+      isNotificationForViewer(
+        ev({
+          pubkey: other,
+          kind: KIND.REPOST,
+          tags: [
+            ['e', 'c'.repeat(64)],
+            ['p', viewer]
+          ]
+        }),
+        viewer
+      )
+    ).toBe(true);
+    expect(
+      isNotificationForViewer(
+        ev({
+          pubkey: other,
+          kind: KIND.GENERIC_REPOST,
+          tags: [
+            ['e', 'c'.repeat(64)],
+            ['p', viewer],
+            ['k', '1111']
+          ]
+        }),
+        viewer
+      )
+    ).toBe(true);
+  });
+
+  it('drops the viewer’s own events and untagged noise', () => {
+    expect(
+      isNotificationForViewer(
+        ev({ pubkey: viewer, kind: KIND.TEXT_NOTE, tags: [['p', viewer]] }),
+        viewer
+      )
+    ).toBe(false);
+    expect(
+      isNotificationForViewer(ev({ pubkey: other, kind: KIND.TEXT_NOTE, tags: [] }), viewer)
+    ).toBe(false);
+  });
+});
+
+describe('parseFeedTab', () => {
+  it('defaults to original and accepts replies/notifications', () => {
+    expect(parseFeedTab(null)).toBe('original');
+    expect(parseFeedTab('replies')).toBe('replies');
+    expect(parseFeedTab('notifications')).toBe('notifications');
+    expect(parseFeedTab('nope')).toBe('original');
   });
 });
 
