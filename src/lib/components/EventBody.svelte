@@ -4,7 +4,12 @@
   import UserBadge from './UserBadge.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import { KIND } from '$lib/constants';
-  import { renderWithFallback, markHighlights, type HighlightQuote } from '$lib/markup';
+  import {
+    renderWithFallback,
+    markHighlights,
+    resolveMarkup,
+    type HighlightQuote
+  } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
   import { imetaMedia, omitMediaUrls, stripRenderedMedia } from '$lib/media';
@@ -24,6 +29,7 @@
   } from '$lib/emoji-content';
   import { embedPointersFromTags, resolveEmbedPointer } from '$lib/event-embeds';
   import { eventAddress } from '$lib/nostr/verify';
+  import NostrRichText from './NostrRichText.svelte';
 
   interface Props {
     event?: Event;
@@ -66,6 +72,8 @@
   const source = $derived(omitMediaUrls(event?.content ?? content, imeta));
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(event?.tags ?? []);
+  const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
+  const usePlaintextRich = $derived(markupFormat === 'plaintext');
   const heroUrls = $derived.by(() => {
     const urls: string[] = [...dedupeHeroUrls];
     if (dedupeHeroImage && event) urls.push(...eventHeroImageUrls(event));
@@ -143,6 +151,7 @@
     const k = sourceKind;
     const tags = sourceTags;
     const whole = wholeDocument;
+    const plaintext = usePlaintextRich;
     const qSnap = quotesSig;
     const q = untrack(() => quotes);
     const heroes = heroUrls;
@@ -150,6 +159,13 @@
     const ev = event;
     void qSnap;
     let cancelled = false;
+    if (plaintext) {
+      bodyPending = false;
+      segments = [];
+      resolved = {};
+      extraEmbeds = [];
+      return;
+    }
     bodyPending = true;
     segments = [];
     resolved = {};
@@ -286,37 +302,46 @@
 {/snippet}
 
 <div class="event-body" bind:this={bodyEl}>
-  {#if bodyPending}
-    <LoadingHint message={loadingLabel} />
-  {/if}
-  {#each blocks as block, i (i)}
-    {#if block.type === 'html'}
-      {@html block.html}
-    {:else if block.type === 'flow'}
-      <p class="event-inline">
-        {#each block.parts as part, pi (pi)}
-          {#if part.type === 'html'}
-            {@html part.html}
-          {:else}
-            <UserBadge pubkey={part.pubkey} compact />
-          {/if}
-        {/each}
-      </p>
-    {:else if !showEmbeds}
-      <!-- Caller asked to omit embedded event cards. -->
-    {:else if embedDepth > 1}
-      <span class="muted">Embedded event</span>
-    {:else if resolved[block.index]}
-      {@render embedCard(resolved[block.index]!)}
-    {:else if resolved[block.index] === null}
-      <p class="muted">This item could not be found.</p>
-    {:else}
-      <p class="muted">Opening…</p>
+  {#if usePlaintextRich}
+    <NostrRichText
+      content={source}
+      {event}
+      kind={sourceKind}
+      showEmbeds={showEmbeds && embedDepth <= 1}
+    />
+  {:else}
+    {#if bodyPending}
+      <LoadingHint message={loadingLabel} />
     {/if}
-  {/each}
-  {#each extraEmbeds as hit (hit.id)}
-    {@render embedCard(hit)}
-  {/each}
+    {#each blocks as block, i (i)}
+      {#if block.type === 'html'}
+        {@html block.html}
+      {:else if block.type === 'flow'}
+        <p class="event-inline">
+          {#each block.parts as part, pi (pi)}
+            {#if part.type === 'html'}
+              {@html part.html}
+            {:else}
+              <UserBadge pubkey={part.pubkey} compact />
+            {/if}
+          {/each}
+        </p>
+      {:else if !showEmbeds}
+        <!-- Caller asked to omit embedded event cards. -->
+      {:else if embedDepth > 1}
+        <span class="muted">Embedded event</span>
+      {:else if resolved[block.index]}
+        {@render embedCard(resolved[block.index]!)}
+      {:else if resolved[block.index] === null}
+        <p class="muted">This item could not be found.</p>
+      {:else}
+        <p class="muted">Opening…</p>
+      {/if}
+    {/each}
+    {#each extraEmbeds as hit (hit.id)}
+      {@render embedCard(hit)}
+    {/each}
+  {/if}
   {#each imeta as item (item.url)}
     {#if item.type === 'video'}
       <!-- svelte-ignore a11y_media_has_caption -->

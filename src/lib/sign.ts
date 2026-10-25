@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { ALEXANDRIA_CLIENT } from './constants';
+import { assertReadyToSign } from './kind-compose';
 import { cacheGetEvent } from './nostr/cache';
 import { memoryGetEvent } from './nostr/event-memory';
 import { ingestEvent } from './nostr/verify';
@@ -8,11 +9,8 @@ import { showNotice, showPublishResult } from './stores/toast';
 import { Nip07Signer } from './signers/nip07';
 import type { BunkerSigner } from './signers/bunker';
 
-/** One `client` tag naming this app. Replaces any other client tag on the draft. */
+/** Strip every `client` tag, then append `["client", "alexandria"]`. */
 export function withClientTag(tags: string[][]): string[][] {
-  if (tags.some((t) => t[0] === 'client' && t[1] === ALEXANDRIA_CLIENT && t.length === 2)) {
-    return tags;
-  }
   return [...tags.filter((t) => t[0] !== 'client'), ['client', ALEXANDRIA_CLIENT]];
 }
 
@@ -118,6 +116,12 @@ export async function signUnsigned(partial: {
       } catch {
         /* sign may still work */
       }
+    }
+
+    const ready = assertReadyToSign(partial);
+    if (!ready.ok) {
+      noteSignFailure(ready.error);
+      return null;
     }
 
     const signed = await signer.signEvent({

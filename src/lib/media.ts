@@ -296,7 +296,7 @@ export function posterUrl(event: Event): string | undefined {
  */
 export function rewriteBareImageUrls(
   src: string,
-  format: 'asciidoc' | 'djot' | 'markdown'
+  format: 'asciidoc' | 'djot' | 'plaintext'
 ): string {
   if (!src) return src;
   return src.replace(BARE_IMAGE_URL_RE, (url, offset: number) => {

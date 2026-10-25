@@ -537,6 +537,9 @@ function createSessionStore() {
       } catch {
         /* ignore */
       }
+      void import('../compose-drafts').then(({ clearComposeDraftsForPubkey }) => {
+        clearComposeDraftsForPubkey(previousPubkey);
+      });
     }
   }
 

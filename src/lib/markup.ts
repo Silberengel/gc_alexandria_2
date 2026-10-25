@@ -1,14 +1,13 @@
 import DOMPurify from 'dompurify';
 import { parse as parseDjot, renderHTML as renderDjot } from '@djot/djot';
-import MarkdownIt from 'markdown-it';
+import { getKind } from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import { normalizeDTag } from './dtag';
 import { cropRenderedUrlsInHtml } from './crop-url';
 import { promoteImageAutolinks, rewriteBareImageUrls } from './media';
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
-
-export type MarkupFormat = 'asciidoc' | 'djot' | 'markdown';
+/** Catalog-driven body formats. Markdown is not a catalog encoding. */
+export type MarkupFormat = 'asciidoc' | 'djot' | 'plaintext';
 
 const REFERENCE_LINK = /(?<!!)\[([^\]\n]+)]\[([^\]]*)]/;
 const DJOT_ATTR = /\{[#.][^}\n]+\}/;
@@ -26,7 +25,9 @@ export function markupFromMime(value: string | undefined): MarkupFormat | null {
   const v = value.trim().toLowerCase();
   if (v.includes('asciidoc') || v.includes('asciidoctor')) return 'asciidoc';
   if (v.includes('djot')) return 'djot';
-  if (v.includes('markdown') || v.includes('commonmark') || v === 'text/markup') return 'markdown';
+  // Legacy markdown tags map to djot (cleanup runs before parse).
+  if (v.includes('markdown') || v.includes('commonmark') || v === 'text/markup') return 'djot';
+  if (v.includes('plain') || v === 'text/plain') return 'plaintext';
   return null;
 }
 
@@ -65,48 +66,100 @@ export function looksLikeNativeAsciidoc(content: string): boolean {
   return false;
 }
 
-/** Classic CommonMark signals for kind 11 fallback. */
-export function looksLikeLegacyMarkdown(content: string): boolean {
-  if (!content.trim()) return false;
-  if (/^#{1,6}\s+\S/m.test(content)) return true;
-  if (/^```/m.test(content)) return true;
-  if (/^>\s?\S/m.test(content)) return true;
-  if (/!\[[^\]]*]\([^)\s]+\)/.test(content)) return true;
-  if (/(?<!!)\[([^\]\n]+)]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/.test(content)) return true;
-  if (/\*\*[^*\n]+\*\*|__[^_\n]+__/.test(content)) return true;
-  if (/(?<!\*)\*[^*\s][^*\n]*\*(?!\*)|(?<!_)_[^_\s][^_\n]*_(?!_)/.test(content)) return true;
-  if (/^(?:[*+-]|\d+\.)\s+\S/m.test(content)) return true;
-  return false;
+/**
+ * Collapse CommonMark double-marker emphasis to Djot singles on non-fenced lines.
+ * Skips inline `code` spans. Does not touch `****` thematic breaks (no inner text).
+ * Port of imwald DjotPreprocessor.normalizeMarkdownEmphasis.
+ */
+export function normalizeMarkdownEmphasis(content: string): string {
+  return processLinesSkippingFences(content, (line) =>
+    transformSkippingInlineCode(line, (segment) => {
+      let s = segment;
+      s = s.replace(/\*\*(?!\*)([^*\n]+?)\*\*(?!\*)/g, '*$1*');
+      s = s.replace(/__(?!_)([^_\n]+?)__(?!_)/g, '_$1_');
+      s = s.replace(/~~(?!~)([^~\n]+?)~~(?!~)/g, '{-$1-}');
+      return s;
+    })
+  );
+}
+
+function processLinesSkippingFences(content: string, transform: (line: string) => string): string {
+  const lines = content.split('\n');
+  let inFence = false;
+  return lines
+    .map((line) => {
+      if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
+        inFence = !inFence;
+        return line;
+      }
+      return inFence ? line : transform(line);
+    })
+    .join('\n');
+}
+
+function transformSkippingInlineCode(line: string, transform: (segment: string) => string): string {
+  if (!line.includes('`')) return transform(line);
+  const out: string[] = [];
+  let i = 0;
+  while (i < line.length) {
+    const open = line.indexOf('`', i);
+    if (open < 0) {
+      out.push(transform(line.slice(i)));
+      break;
+    }
+    if (open > i) out.push(transform(line.slice(i, open)));
+    const close = line.indexOf('`', open + 1);
+    if (close < 0) {
+      out.push(line.slice(open));
+      break;
+    }
+    out.push(line.slice(open, close + 1));
+    i = close + 1;
+  }
+  return out.join('');
+}
+
+function escapePlainHtml(src: string): string {
+  return src
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 /**
- * Pick a renderer.
- * - 30041 is always AsciiDoc
- * - 30818 prefers native AsciiDoc signals, else Djot (tagged, signals, or default)
- * - 11 is Djot unless tags or CommonMark (without Djot signals) say otherwise
- * - everything else is CommonMark
+ * Pick a renderer from catalog `content.encoding` (imwald ContentMarkupDetector).
+ * - asciidoc → AsciiDoc
+ * - djot → Djot (wiki may still select AsciiDoc on native AD signals)
+ * - plaintext / json / empty / url / unknown → plaintext (NostrRichText)
  */
 export function resolveMarkup(kind: number, content = '', tags?: string[][]): MarkupFormat {
   const tagged = markupFromTags(tags);
-  if (kind === KIND.SECTION) return 'asciidoc';
-  if (kind === KIND.WIKI) {
-    if (tagged === 'asciidoc' || tagged === 'djot') return tagged;
-    // Prefer AsciiDoc when document-level AD signals are present — Djot-first
-    // mis-classifies GitCitadel wiki bodies that also contain `[[wikilinks]]`.
-    if (looksLikeNativeAsciidoc(content)) return 'asciidoc';
-    if (looksLikeDjot(content)) return 'djot';
+  const encoding = getKind(kind)?.content?.encoding;
+
+  if (kind === KIND.SECTION || encoding === 'asciidoc') return 'asciidoc';
+
+  // Catalog djot kinds (and wiki, which is catalogued as djot).
+  if (encoding === 'djot' || kind === KIND.WIKI) {
+    if (tagged === 'asciidoc') return 'asciidoc';
+    if (tagged === 'djot') return 'djot';
+    // Wiki may still publish native AsciiDoc when Djot signals are absent.
+    if (
+      kind === KIND.WIKI &&
+      looksLikeNativeAsciidoc(content) &&
+      !looksLikeDjot(content)
+    ) {
+      return 'asciidoc';
+    }
     return 'djot';
   }
-  if (kind === KIND.DJOT) {
-    if (tagged === 'markdown' || tagged === 'djot') return tagged;
-    if (looksLikeDjot(content)) return 'djot';
-    if (looksLikeLegacyMarkdown(content)) return 'markdown';
-    return 'djot';
-  }
-  return 'markdown';
+
+  if (tagged === 'asciidoc') return 'asciidoc';
+  if (tagged === 'djot') return 'djot';
+  return 'plaintext';
 }
 
-export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown'): string {
+export function rewriteWikilinks(src: string, format: MarkupFormat = 'djot'): string {
   const hrefFor = (slug: string) => `#/search?d=${encodeURIComponent(slug)}`;
 
   /** Asciidoctor default sectids: idprefix `_`, idseparator `_`, lowercased. */
@@ -152,7 +205,6 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown')
 
   let out = src;
 
-  // [[target|label]] and [[target]] — allow #section / page#section; skip citation:: markers
   out = out.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (match, target: string, label: string) => {
     if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     return toLink(String(label), String(target));
@@ -163,13 +215,11 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown')
     return toLink(text, text);
   });
 
-  // Djot/MD unresolved reference links: [text][]
   out = out.replace(/\[([^\]\n]+)\]\[\]/g, (_m, target: string) => {
     const text = String(target).trim();
     return toLink(text, text);
   });
 
-  // Existing markdown / already-rewritten wiki or d-search links → normalize to d-search
   out = out.replace(
     /\[([^\]]+)\]\((#\/(?:wiki\/d\/|search\?d=)([^)#\s]+))\)/g,
     (_m, label: string, _href: string, raw: string) => {
@@ -178,7 +228,6 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'markdown')
     }
   );
 
-  // AsciiDoc link:#/wiki/d/slug[label] → d-search
   if (format === 'asciidoc') {
     out = out.replace(
       /link:#\/wiki\/d\/([^[\s\]]+)\[([^\]]*)\]/g,
@@ -197,7 +246,6 @@ const ALLOWED_URI = /^(?:(?:https?|mailto):|\/|#)/i;
 export function isAllowedHref(href: string): boolean {
   const trimmed = href.trim();
   if (!trimmed || trimmed.toLowerCase().startsWith('javascript:')) return false;
-  // In-app routes (#/…), plain in-page anchors (#_section), and root-relative paths.
   if (trimmed.startsWith('#') || trimmed.startsWith('/')) return true;
   try {
     const url = new URL(trimmed);
@@ -263,16 +311,26 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
 }
 
 export function renderDjotHtml(src: string): string {
-  return renderDjot(parseDjot(src));
-}
-
-export function renderMarkdownHtml(src: string): string {
-  return md.render(src);
+  const normalized = normalizeMarkdownEmphasis(src);
+  try {
+    return renderDjot(parseDjot(normalized));
+  } catch {
+    return `<pre>${escapePlainHtml(normalized)}</pre>`;
+  }
 }
 
 async function renderAsciidocHtml(src: string): Promise<string> {
   const convert = await loadAsciidoctor();
   return convert(src);
+}
+
+/** Escaped paragraphs for catalog plaintext when NostrRichText is not used. */
+export function renderPlaintextHtml(src: string): string {
+  const escaped = escapePlainHtml(src);
+  return escaped
+    .split(/\n\n+/)
+    .map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`)
+    .join('');
 }
 
 /** Hashtag after start or a non-word character. Body is letters, numbers, underscore. */
@@ -327,15 +385,15 @@ function presentHtml(html: string): string {
 }
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
+  if (format === 'plaintext') {
+    return presentHtml(renderPlaintextHtml(content ?? ''));
+  }
   const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
   try {
     if (format === 'asciidoc') return presentHtml(await renderAsciidocHtml(rewritten));
-    if (format === 'djot') return presentHtml(renderDjotHtml(rewritten));
-    return presentHtml(renderMarkdownHtml(rewritten));
+    return presentHtml(renderDjotHtml(rewritten));
   } catch {
-    return presentHtml(
-      renderMarkdownHtml(rewriteBareImageUrls(rewriteWikilinks(content ?? '', 'markdown'), 'markdown'))
-    );
+    return presentHtml(renderPlaintextHtml(content ?? ''));
   }
 }
 
@@ -357,7 +415,7 @@ export async function renderWithFallback(
 
 export type HighlightQuote = { quote: string; pubkey?: string };
 
-/** Allow markup tags / whitespace between words so quotes still match after AsciiDoc/Markdown render. */
+/** Allow markup tags / whitespace between words so quotes still match after AsciiDoc/Djot render. */
 export function flexibleQuotePattern(quote: string): string {
   const words = quote
     .replace(/\s+/g, ' ')
@@ -386,7 +444,6 @@ export function markHighlights(html: string, quotes: Array<string | HighlightQuo
     const open = highlightOpenTag(pubkey);
     const close = '</span></mark>';
 
-    // Prefer an exact contiguous match when the rendered HTML still has plain text.
     const exact = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const exactRe = new RegExp(exact, 'i');
     if (exactRe.test(out) && !out.match(exactRe)?.[0]?.includes('<mark')) {

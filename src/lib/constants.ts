@@ -127,7 +127,7 @@ export const REPO_OWNER_HEX = viteHex(
 export const GRAPEVINE_RANK_MIN_DEFAULT = 10;
 
 /** NIP-89 client tag value on events this app signs. */
-export const ALEXANDRIA_CLIENT = 'Alexandria';
+export const ALEXANDRIA_CLIENT = 'alexandria';
 
 export const NIP32_BOOKLIST_LABEL = 'booklist';
 /** Personal “I have read this” mark — never shown as a list label. */

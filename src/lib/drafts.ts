@@ -6,9 +6,10 @@ import {
   nip22TagsForTarget,
   shouldReplyWithKind1
 } from './comments';
-import { ratingTags } from './ratings';
+import { PUBLICATION_RATING_MARK, ratingTags } from './ratings';
 import { eventAddress } from './nostr/verify';
 import { slugifyPublicationLabel } from './publication-lists';
+import { buildComposePartial } from './compose-build';
 
 const TRACKER_PARAMETERS = new Set([
   'fbclid',
@@ -25,26 +26,31 @@ export function publicationLabelDraft(
   label: string = NIP32_BOOKLIST_LABEL
 ): { kind: number; content: string; tags: string[][] } {
   const slug = slugifyPublicationLabel(label);
-  return {
+  const draft = buildComposePartial({
     kind: KIND.LABEL,
     content: '',
-    tags: [
-      ['L', NIP32_UGC_NAMESPACE],
-      ['l', slug, NIP32_UGC_NAMESPACE],
-      ['a', eventAddress(publication)]
-    ]
-  };
+    values: {
+      namespace_L: NIP32_UGC_NAMESPACE,
+      label_l: slug,
+      target_a: eventAddress(publication)
+    }
+  });
+  // NIP-32 ugc labels carry the namespace as the third `l` element.
+  const tags = draft.tags.map((t) =>
+    t[0] === 'l' && t[1] && !t[2] ? ['l', t[1], NIP32_UGC_NAMESPACE] : t
+  );
+  return { ...draft, tags };
 }
 
 export function deletionDraft(target: Event): { kind: number; content: string; tags: string[][] } {
-  return {
+  return buildComposePartial({
     kind: KIND.DELETION,
     content: '',
-    tags: [
-      ['e', target.id],
-      ['k', String(target.kind)]
-    ]
-  };
+    values: {
+      e: target.id,
+      k: String(target.kind)
+    }
+  });
 }
 
 export function commentDraft(
@@ -81,11 +87,30 @@ export function ratingDraft(
   review = ''
 ): { kind: number; content: string; tags: string[][] } {
   const content = review.trim();
-  return {
+  const address = eventAddress(publication);
+  const catalog = buildComposePartial({
     kind: KIND.RATING,
     content,
-    tags: ratingTags(publication, stars, content.length > 0)
-  };
+    values: {
+      d: address,
+      stars: String(Math.min(5, Math.max(1, Math.round(stars)))),
+      mark_m: PUBLICATION_RATING_MARK,
+      c: content.length > 0 ? 'true' : ''
+    }
+  });
+  // Catalog owns rating/s/m/d/c; app still merges a/A/e/k/p pointers.
+  const pointers = ratingTags(publication, stars, content.length > 0).filter(
+    (t) => t[0] === 'a' || t[0] === 'A' || t[0] === 'e' || t[0] === 'k' || t[0] === 'p'
+  );
+  const seen = new Set(catalog.tags.map((t) => t.join('\0')));
+  const tags = [...catalog.tags];
+  for (const row of pointers) {
+    const key = row.join('\0');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(row);
+  }
+  return { kind: KIND.RATING, content, tags };
 }
 
 /** `kind:pubkey:d` with a lowercase pubkey, matching Bookshelf highlight coordinates. */

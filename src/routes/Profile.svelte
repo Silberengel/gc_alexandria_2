@@ -732,6 +732,11 @@
     <header class="page-header">
       <p class="page-kicker">Reader</p>
       <h1>{isKindFiltered ? kindHeading : 'Profile'}</h1>
+      {#if isOwnProfile && !isKindFiltered}
+        <p class="page-lede">
+          <a class="btn" href="#/compose?kind=0" use:link>Edit profile</a>
+        </p>
+      {/if}
     </header>
     {#if !isKindFiltered || isBlogMode}
       <div class="profile-filter-row">

@@ -4,6 +4,7 @@ import { eventAddress } from './nostr/verify';
 import { cachedEventsReferencing } from './nostr/cache';
 import { relayPool } from './nostr/pool';
 import { socialStack } from './nostr/selector';
+import { buildComposePartial } from './compose-build';
 
 /** NIP-25 default positive reaction content (not a Unicode heart). */
 export const DEFAULT_LIKE_REACTION_CONTENT = '+' as const;
@@ -72,21 +73,21 @@ export function reactionDraft(
   target: Event,
   content: string = DEFAULT_LIKE_REACTION_CONTENT
 ): { kind: number; content: string; tags: string[][] } {
-  const tags: string[][] = [
-    ['e', target.id.toLowerCase()],
-    ['p', target.pubkey.toLowerCase()]
-  ];
+  const values: Record<string, string> = {
+    e: target.id.toLowerCase(),
+    p: target.pubkey.toLowerCase()
+  };
   if (target.kind !== KIND.TEXT_NOTE) {
-    tags.push(['k', String(target.kind)]);
+    values.k = String(target.kind);
   }
   if (target.kind >= 10000) {
-    tags.push(['a', eventAddress(target)]);
+    values.a = eventAddress(target);
   }
-  return {
+  return buildComposePartial({
     kind: KIND.REACTION,
     content,
-    tags
-  };
+    values
+  });
 }
 
 export async function fetchReactionsForIds(

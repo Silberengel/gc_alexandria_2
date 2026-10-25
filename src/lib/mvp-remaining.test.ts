@@ -43,14 +43,14 @@ function ev(over: Partial<Event> & { tags?: string[][] }): Event {
 
 describe('wikilinks', () => {
   it('rewrites djot/markdown wikilinks to d-tag search', () => {
-    expect(rewriteWikilinks('see [[constantinople]]', 'markdown')).toContain(
+    expect(rewriteWikilinks('see [[constantinople]]', 'djot')).toContain(
       '#/search?d=constantinople'
     );
     expect(rewriteWikilinks('[[constantinople|Byzantium]]', 'djot')).toContain('Byzantium');
     expect(rewriteWikilinks('[[constantinople|Byzantium]]', 'djot')).toContain(
       '#/search?d=constantinople'
     );
-    expect(rewriteWikilinks('[constantinople][]', 'markdown')).toContain('#/search?d=constantinople');
+    expect(rewriteWikilinks('[constantinople][]', 'djot')).toContain('#/search?d=constantinople');
   });
 
   it('rewrites asciidoc wikilinks as link: macros so they become hyperlinks', () => {
@@ -61,7 +61,7 @@ describe('wikilinks', () => {
   });
 
   it('normalizes existing wiki hash links to d-tag search', () => {
-    expect(rewriteWikilinks('[NKBIP-01](#/wiki/d/nkbip-01)', 'markdown')).toContain(
+    expect(rewriteWikilinks('[NKBIP-01](#/wiki/d/nkbip-01)', 'djot')).toContain(
       '#/search?d=nkbip-01'
     );
     expect(rewriteWikilinks('link:#/wiki/d/nkbip-01[NKBIP-01]', 'asciidoc')).toContain(
@@ -76,7 +76,7 @@ describe('wikilinks', () => {
     );
     expect(adoc).toContain("link:#_publications[twenty-three children's tales]");
     expect(adoc).not.toContain('[[#Publications');
-    expect(rewriteWikilinks('[[#Publications]]', 'markdown')).toContain('[Publications](#_publications)');
+    expect(rewriteWikilinks('[[#Publications]]', 'djot')).toContain('[Publications](#_publications)');
     expect(isAllowedHref('#_publications')).toBe(true);
   });
 });
@@ -1316,9 +1316,9 @@ describe('media once', () => {
 
   it('rewrites bare image urls into inline image markup', () => {
     const gif = 'https://c.tenor.com/slhfg2cHPXgAAAAd/tenor.gif';
-    expect(rewriteBareImageUrls(`before\n${gif}\nafter`, 'markdown')).toContain(`![](${gif})`);
+    expect(rewriteBareImageUrls(`before\n${gif}\nafter`, 'djot')).toContain(`![](${gif})`);
     expect(rewriteBareImageUrls(gif, 'asciidoc')).toContain(`image::${gif}[]`);
-    expect(rewriteBareImageUrls(`![](${gif})`, 'markdown')).toBe(`![](${gif})`);
+    expect(rewriteBareImageUrls(`![](${gif})`, 'djot')).toBe(`![](${gif})`);
   });
 
   it('renders a NIP-92 imeta file instead of leaving the URL as text', () => {

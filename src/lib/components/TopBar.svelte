@@ -104,6 +104,11 @@
     <a href="#/feed" use:link aria-current={($location ?? '').startsWith('/feed') ? 'page' : undefined}
       >Feed</a
     >
+    <a
+      href="#/compose"
+      use:link
+      aria-current={($location ?? '').startsWith('/compose') ? 'page' : undefined}>Compose</a
+    >
     <a href="#/about" use:link>About</a>
     {#if $session.pubkey}
       <a href="#/contact" use:link>Contact</a>

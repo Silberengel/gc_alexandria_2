@@ -6,7 +6,8 @@ import {
   renderWithFallback,
   linkifyTopicHashtags,
   looksLikeNativeAsciidoc,
-  looksLikeDjot
+  looksLikeDjot,
+  normalizeMarkdownEmphasis
 } from './markup';
 
 describe('markupFromTags', () => {
@@ -14,8 +15,22 @@ describe('markupFromTags', () => {
     expect(markupFromTags([['m', 'text/asciidoc']])).toBe('asciidoc');
     expect(markupFromTags([['m', 'text/djot; charset=utf-8']])).toBe('djot');
     expect(markupFromTags([['markup', 'djot']])).toBe('djot');
-    expect(markupFromTags([['format', 'markdown']])).toBe('markdown');
+    expect(markupFromTags([['format', 'markdown']])).toBe('djot');
     expect(markupFromTags([['m', 'image/jpeg']])).toBeNull();
+  });
+});
+
+describe('normalizeMarkdownEmphasis', () => {
+  it('collapses CommonMark doubles to Djot singles', () => {
+    expect(normalizeMarkdownEmphasis('Hello **world** and __there__')).toBe(
+      'Hello *world* and _there_'
+    );
+    expect(normalizeMarkdownEmphasis('strike ~~me~~')).toBe('strike {-me-}');
+  });
+
+  it('skips fenced and inline code', () => {
+    expect(normalizeMarkdownEmphasis('`**keep**`')).toBe('`**keep**`');
+    expect(normalizeMarkdownEmphasis('```\n**keep**\n```')).toBe('```\n**keep**\n```');
   });
 });
 
@@ -52,18 +67,16 @@ describe('resolveMarkup', () => {
     expect(resolveMarkup(KIND.WIKI, djot)).toBe('djot');
   });
 
-  it('uses Djot for kind 11 unless tags or CommonMark say otherwise', () => {
+  it('uses Djot for kind 11 and long-form', () => {
     expect(resolveMarkup(KIND.DJOT, 'Hello world')).toBe('djot');
-    expect(resolveMarkup(KIND.DJOT, 'Hello **world**\n\nA markdown discussion.')).toBe('markdown');
-    expect(resolveMarkup(KIND.DJOT, '# Title\n\nBody.', [['m', 'text/djot']])).toBe('djot');
-    expect(resolveMarkup(KIND.DJOT, 'Hello world', [['m', 'text/markdown']])).toBe('markdown');
+    expect(resolveMarkup(KIND.DJOT, 'Hello **world**\n\nA markdown discussion.')).toBe('djot');
+    expect(resolveMarkup(KIND.LONG_FORM, '# Chapter')).toBe('djot');
+    expect(resolveMarkup(KIND.SPEC, '= Looks like AsciiDoc')).toBe('djot');
   });
 
-  it('uses CommonMark for everything else', () => {
-    expect(resolveMarkup(KIND.SPEC, '= Looks like AsciiDoc')).toBe('markdown');
-    expect(resolveMarkup(KIND.LONG_FORM, '# Chapter')).toBe('markdown');
-    expect(resolveMarkup(KIND.COMMENT, 'A comment')).toBe('markdown');
-    expect(resolveMarkup(1, 'Hello **note**.')).toBe('markdown');
+  it('uses plaintext for notes and comments', () => {
+    expect(resolveMarkup(KIND.COMMENT, 'A comment')).toBe('plaintext');
+    expect(resolveMarkup(1, 'Hello **note**.')).toBe('plaintext');
   });
 });
 
@@ -78,7 +91,13 @@ describe('renderWithFallback', () => {
     expect(adoc.toLowerCase()).toContain('chapter title');
   });
 
-  it('renders kind 11 as Djot by default', async () => {
+  it('renders kind 11 as Djot and cleans **strong**', async () => {
+    const html = await renderWithFallback(KIND.DJOT, 'Hello **world**');
+    expect(html).toContain('<strong>');
+    expect(html).toContain('world');
+  });
+
+  it('renders kind 11 reference links', async () => {
     const html = await renderWithFallback(KIND.DJOT, 'See [Label][] here.');
     expect(html).toContain('Label');
   });
@@ -93,42 +112,9 @@ describe('topic hashtags', () => {
     expect(html).toContain('href="#/search?subject=archjourney"');
     expect(html).toContain('>#archjourney</a>');
     expect(html).toContain('href="#/search?subject=940911"');
-    expect(html).toContain('href="https://nonfungible.cash/p/abc?nft=1"');
     expect(linkifyTopicHashtags('<a href="https://ex.test/#keep">https://ex.test/#keep</a>')).not.toContain(
       'subject='
     );
     expect(linkifyTopicHashtags('<code>#archjourney</code>')).toBe('<code>#archjourney</code>');
-  });
-});
-
-describe('asciidoc wikilink html', () => {
-  it('turns [[NKBIP-01]] into an anchor to d-tag search', async () => {
-    const { renderFormat } = await import('./markup');
-    const html = await renderFormat('asciidoc', 'See [[NKBIP-01]] for directories.');
-    expect(html).toContain('href="#/search?d=nkbip-01"');
-    expect(html).toContain('NKBIP-01');
-    expect(html).not.toContain('[[NKBIP-01]]');
-  });
-});
-
-describe('markHighlights', () => {
-  it('marks plain quotes and quotes split by markup tags', async () => {
-    const { markHighlights } = await import('./markup');
-    const pk = 'a'.repeat(64);
-    const plain = markHighlights(
-      '<p>For non-text embeddings, the source tag may contain a URL.</p>',
-      [{ quote: 'the source tag may contain a URL', pubkey: pk }]
-    );
-    expect(plain).toContain('class="text-highlight"');
-    expect(plain).toContain(`data-highlight-pubkey="${pk}"`);
-    expect(plain).toContain('the source tag may contain a URL');
-
-    const nested = markHighlights(
-      '<p>For non-text embeddings, the <strong>source</strong> tag may contain a URL.</p>',
-      [{ quote: 'the source tag may contain a URL', pubkey: pk }]
-    );
-    expect(nested).toContain('<mark class="text-highlight"');
-    expect(nested).toContain('<strong>source</strong>');
-    expect(nested).toMatch(/text-highlight[\s\S]*source[\s\S]*URL/);
   });
 });

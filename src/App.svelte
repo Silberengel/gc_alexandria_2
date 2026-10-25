@@ -12,6 +12,7 @@
     '/': wrap({ asyncComponent: () => import('./routes/Home.svelte') }),
     '/search': wrap({ asyncComponent: () => import('./routes/Search.svelte') }),
     '/settings': wrap({ asyncComponent: () => import('./routes/Settings.svelte') }),
+    '/compose': wrap({ asyncComponent: () => import('./routes/Compose.svelte') }),
     '/about': wrap({ asyncComponent: () => import('./routes/About.svelte') }),
     '/booklists': wrap({ asyncComponent: () => import('./routes/Booklists.svelte') }),
     '/start': wrap({ asyncComponent: () => import('./routes/StartRedirect.svelte') }),
