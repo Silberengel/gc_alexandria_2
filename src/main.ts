@@ -1,5 +1,6 @@
 import { mount } from 'svelte';
 import './app.css';
+import './lib/hljs-theme.css';
 import './lib/stores/appearance';
 import { registerPwa } from './lib/pwa';
 import { rewritePathDeepLinkToHash } from './lib/path-to-hash';

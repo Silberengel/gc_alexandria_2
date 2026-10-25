@@ -90,8 +90,8 @@ describe('coverPlaceholderSvg', () => {
     expect(svg).toContain('font-weight="700"');
     expect(svg).not.toContain('#713b32'); // no oxblood medallion
     expect(svg).not.toContain('rotate(90)');
-    expect(svg).toContain('width="180" height="280"'); // parchment inset
-    expect(svg).toMatch(/y="274"[^>]*>WIKI</);
+    expect(svg).toContain('width="200" height="300"'); // full-bleed parchment plate
+    expect(svg).toMatch(/y="282"[^>]*>WIKI</);
   });
 
   it('uses a slate blueprint plate for specs, distinct from wiki parchment', () => {

@@ -17,9 +17,11 @@
   interface Props {
     pubkey: string;
     compact?: boolean;
+    /** Avatar only — no display name (live-room strips, etc.). */
+    avatarOnly?: boolean;
   }
 
-  let { pubkey, compact = false }: Props = $props();
+  let { pubkey, compact = false, avatarOnly = false }: Props = $props();
 
   let name = $state('');
   let picture = $state('');
@@ -144,14 +146,17 @@
 {#if pubkey && !muted}
   <a
     class="userbadge"
+    class:userbadge-avatar-only={avatarOnly}
     href={`#/p/${npub || pubkey}`}
     use:link
+    title={avatarOnly ? name || npub || pubkey : undefined}
+    aria-label={avatarOnly ? name || npub || 'Profile' : undefined}
     onpointerdown={() => {
       const meta = memoryFindMetadata(pubkey);
       if (meta) rememberEvents([meta]);
     }}
   >
-    {#if !compact}
+    {#if !compact || avatarOnly}
       {#if displayPicture && !pictureFailed}
         <img
           class="userbadge-avatar"
@@ -169,6 +174,8 @@
         </svg>
       {/if}
     {/if}
-    <span>{name || '…'}</span>
+    {#if !avatarOnly}
+      <span>{name || '…'}</span>
+    {/if}
   </a>
 {/if}

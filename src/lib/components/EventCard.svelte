@@ -14,15 +14,18 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import { eventPreview } from '$lib/event-preview';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
+  import type { LivePresencePerson } from '$lib/live-chat';
 
   interface Props {
     event: Event;
     embedDepth?: number;
     /** Citation inside a post: listing card, not the compact note. */
     asCard?: boolean;
+    /** Kind 10312 listeners for live event cards. */
+    presence?: LivePresencePerson[];
   }
 
-  let { event, embedDepth = 0, asCard = false }: Props = $props();
+  let { event, embedDepth = 0, asCard = false, presence = [] }: Props = $props();
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -57,14 +60,22 @@
     </div>
   </div>
 {:else if event.kind === KIND.LIVE_EVENT}
-  <LiveStreamCard {event} />
+  <LiveStreamCard {event} {presence} />
 {:else if event.kind === KIND.MEETING_SPACE}
   <MeetingSpaceCard {event} />
 {:else if event.kind === KIND.MEETING_ROOM}
   <MeetingRoomCard {event} />
 {:else if event.kind === KIND.ROOM_PRESENCE}
   <RoomPresenceCard {event} />
-{:else if isThreadNote || event.kind === KIND.LIVE_CHAT}
+{:else if event.kind === KIND.LIVE_CHAT}
+  <div class="live-chat-line">
+    <UserBadge pubkey={event.pubkey} />
+    <span class="live-chat-colon" aria-hidden="true">:</span>
+    <div class="live-chat-body">
+      <EventBody {event} embedDepth={embedDepth} showEmbeds={false} />
+    </div>
+  </div>
+{:else if isThreadNote}
   <div class="thread-node thread-embed-note">
     <div class="thread-head">
       <UserBadge pubkey={event.pubkey} />

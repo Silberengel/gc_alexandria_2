@@ -1,4 +1,6 @@
 @import './theme-tokens.css';
+@import 'katex/dist/katex.min.css';
+/* highlight.js theme is imported from main.ts after this file so token colors win. */
 
 :root {
   --ui-font: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -1617,10 +1619,11 @@ a.listing-row:hover,
   min-width: 0;
 }
 .edition-cover {
-  flex: 0 0 calc(400px * 2 / 3);
-  height: 400px;
-  width: calc(400px * 2 / 3);
-  max-width: calc(400px * 2 / 3);
+  --edition-cover-h: 400px;
+  flex: 0 0 calc(var(--edition-cover-h) * 2 / 3);
+  height: var(--edition-cover-h);
+  width: calc(var(--edition-cover-h) * 2 / 3);
+  max-width: calc(var(--edition-cover-h) * 2 / 3);
   aspect-ratio: 2 / 3;
   align-self: flex-start;
   border-radius: 0.45rem;
@@ -1628,6 +1631,11 @@ a.listing-row:hover,
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   background: var(--surface-2);
   box-shadow: var(--shadow-soft);
+}
+/* Wiki / spec plates are document-shaped — keep the hero snug, not book-shelf tall. */
+.edition-header-wiki .edition-cover,
+.edition-header-spec .edition-cover {
+  --edition-cover-h: 13.5rem;
 }
 .edition-cover .cover-frame {
   display: block;
@@ -1660,8 +1668,8 @@ a.listing-row:hover,
   }
   .edition-cover {
     flex: 0 0 auto;
-    height: min(400px, calc(72vw * 3 / 2));
-    width: min(calc(400px * 2 / 3), 72vw);
+    height: min(var(--edition-cover-h), calc(72vw * 3 / 2));
+    width: min(calc(var(--edition-cover-h) * 2 / 3), 72vw);
     max-width: 100%;
   }
 }
@@ -2368,11 +2376,15 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   border-radius: 0.35rem;
   overflow: hidden;
 }
-.card-cover .cover-frame { height: auto; }
+.card-cover .cover-frame {
+  height: 10rem;
+}
 .card-cover img {
   width: 100%;
-  max-height: 10rem;
-  object-fit: contain;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  object-position: center top;
   border-radius: 0.35rem;
 }
 .book-badge {
@@ -2555,9 +2567,58 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   margin-block: 1.35rem;
   max-width: calc(100% - 1.7rem) !important;
 }
-.embed-event-thumb img,
-.cover-frame img {
-  margin-block: 0;
+/*
+ * Book covers / heroes must fill their frame (crop, don't letterbox).
+ * Match prose `:not(.content-emoji):not(.userbadge-avatar)` specificity (0,3,1+)
+ * or the gutter `max-width: calc(100% - 1.7rem)` wins and letterboxes the plate.
+ */
+.cover-frame img:not(.content-emoji):not(.userbadge-avatar),
+.edition-cover img:not(.content-emoji):not(.userbadge-avatar),
+.pub-card-cover img:not(.content-emoji):not(.userbadge-avatar),
+.listing-row-cover img:not(.content-emoji):not(.userbadge-avatar),
+.listing-table-cover img:not(.content-emoji):not(.userbadge-avatar),
+.embed-event-thumb img:not(.content-emoji):not(.userbadge-avatar),
+.event-body .cover-frame img:not(.content-emoji):not(.userbadge-avatar),
+.event-body .edition-cover img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .cover-frame img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .edition-cover img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .pub-card-cover img:not(.content-emoji):not(.userbadge-avatar),
+.reader-section .cover-frame img:not(.content-emoji):not(.userbadge-avatar),
+.thread-body .cover-frame img:not(.content-emoji):not(.userbadge-avatar) {
+  margin: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center center;
+  display: block;
+}
+.cover-frame,
+.edition-cover .cover-frame,
+.pub-card-cover .cover-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Full-bleed article heroes: fixed height so object-fit can crop. */
+.section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.event-body .section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.reader-section .section-hero img:not(.content-emoji):not(.userbadge-avatar) {
+  margin: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+  height: 22rem !important;
+  max-height: 22rem !important;
+  object-fit: cover !important;
+  object-position: center top;
+  display: block;
+}
+.reader-edition-hero .section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .reader-edition-hero .section-hero img:not(.content-emoji):not(.userbadge-avatar) {
+  height: 19.6rem !important;
+  max-height: 19.6rem !important;
 }
 
 /* NIP-30 / shortcode custom emoji — stay inline with text, not block media. */
@@ -2622,7 +2683,87 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .event-body pre,
 .reader-section pre {
   max-width: 100%;
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.85rem;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.reading-body pre code,
+.event-body pre code,
+.reader-section pre code,
+.reading-body .listingblock code,
+.event-body .listingblock code,
+.reader-section .listingblock code,
+.reading-body .literalblock code,
+.event-body .literalblock code,
+.reader-section .literalblock code {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Inline monospace — keep smaller than reading body, lightly marked. */
+.reading-body :not(pre) > code,
+.event-body :not(pre) > code,
+.reader-section :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  line-height: 1.35;
+  padding: 0.08em 0.28em;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--surface-2) 65%, var(--surface));
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* KaTeX — inherit reading ink; center display stems. */
+.reading-body .katex,
+.event-body .katex,
+.reader-section .katex {
+  color: var(--ink);
+  font-size: 1.05em;
+}
+
+.reading-body .stemblock,
+.event-body .stemblock,
+.reader-section .stemblock {
+  margin: 1rem 0;
   overflow-x: auto;
+  text-align: center;
+}
+
+.reading-body .stemblock .content,
+.event-body .stemblock .content,
+.reader-section .stemblock .content {
+  display: inline-block;
+  max-width: 100%;
+  text-align: initial;
+}
+
+.reading-body .katex-display,
+.event-body .katex-display,
+.reader-section .katex-display {
+  margin: 0.85rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* Asciidoctor wraps tables in .tableblock — scroll the wrapper, keep table layout. */
@@ -3431,6 +3572,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   vertical-align: middle;
   max-width: 100%;
 }
+.userbadge-avatar-only {
+  gap: 0;
+}
 .userbadge-avatar {
   width: 1.35rem;
   height: 1.35rem;
@@ -3925,6 +4069,44 @@ a.embed-event-line:focus-visible {
 .thread-node {
   margin: 0.75rem 0;
 }
+
+/* Twitch-style live chat: avatar + name: message — no timestamps or action buttons. */
+.live-chat-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+.live-chat-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.35rem;
+  margin: 0.4rem 0;
+  min-width: 0;
+}
+.live-chat-line .userbadge {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 650;
+}
+.live-chat-colon {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+}
+.live-chat-body {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.live-chat-body .event-body,
+.live-chat-body .nostr-rich-text {
+  display: inline;
+}
+.live-chat-body .event-body p,
+.live-chat-body .nrt-line {
+  display: inline;
+  margin: 0;
+}
+
 .thread-head {
   display: flex;
   flex-wrap: nowrap;
@@ -5319,18 +5501,8 @@ mark.text-highlight.highlight-flash,
 :root.top-bar-concealed .section-hero {
   scroll-margin-top: 1rem;
 }
-.section-hero img {
-  display: block;
-  width: 100%;
-  max-height: 22rem;
-  object-fit: cover;
-  object-position: center;
-}
 .reader-section.reader-edition .section-hero {
   margin-bottom: 0;
-}
-.reader-section.reader-edition .section-hero img {
-  max-height: 19.6rem;
 }
 .reader-edition-hero {
   position: relative;
@@ -5347,9 +5519,6 @@ mark.text-highlight.highlight-flash,
   margin: 0;
 }
 .reader-edition-hero-generated .section-hero img {
-  width: 100%;
-  max-height: 19.6rem;
-  object-fit: cover;
   object-position: center top;
 }
 /* Reading-page cover: bookplate fade, not the info-page cinematic veil. */

@@ -290,7 +290,7 @@ export function assemblePublicationAsciidoc(
   header.push(':allow-uri-read:');
   header.push(':toc:');
   header.push(':toclevels: 2');
-  header.push(':stem:');
+  header.push(':stem: latexmath');
   header.push(':page-break-mode: auto');
   header.push(':sectnums!:');
   header.push(':imagesdir:');

@@ -299,11 +299,28 @@ let asciidoctorLoading: Promise<void> | null = null;
 async function loadAsciidoctor(): Promise<(src: string) => string> {
   if (asciidoctorConvert) return asciidoctorConvert;
   if (!asciidoctorLoading) {
-    asciidoctorLoading = import('@asciidoctor/core').then((mod) => {
+    asciidoctorLoading = Promise.all([
+      import('@asciidoctor/core'),
+      import('./highlight'),
+      import('./katex-math')
+    ]).then(([mod, { highlightAsciidoctorHtml }, { renderAsciidoctorMath }]) => {
       const factory = mod.default;
       const processor = typeof factory === 'function' ? factory() : factory;
-      asciidoctorConvert = (src: string) =>
-        String(processor.convert(src, { safe: 'secure', standalone: false, doctype: 'article' }));
+      asciidoctorConvert = (src: string) => {
+        const html = String(
+          processor.convert(src, {
+            safe: 'secure',
+            standalone: false,
+            doctype: 'article',
+            attributes: {
+              'source-highlighter': 'highlight.js',
+              // Prefer TeX/LaTeX so stem:/latexmath: emit \(…\) / \[…\] for KaTeX.
+              stem: 'latexmath'
+            }
+          })
+        );
+        return renderAsciidoctorMath(highlightAsciidoctorHtml(html));
+      };
     });
   }
   await asciidoctorLoading;

@@ -12,6 +12,8 @@
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import UserBadge from './UserBadge.svelte';
   import EmbedEventLine from './EmbedEventLine.svelte';
+  import YouTubeEmbed from './YouTubeEmbed.svelte';
+  import { parseYouTubeUrl } from '$lib/youtube';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { lruGet, lruSet } from '$lib/compose-lru';
 
@@ -70,6 +72,8 @@
   function linkifyBody(text: string): string {
     let s = escapeHtml(text);
     s = s.replace(URL_RE, (url) => {
+      // YouTube / Music links are lifted out as players — skip bare anchors here.
+      if (parseYouTubeUrl(url)) return url;
       if (!isAllowedHref(url)) return url;
       return `<a href="${url}" rel="noopener noreferrer" target="_blank">${url}</a>`;
     });
@@ -77,6 +81,31 @@
       return `${prefix}<a href="#/search?subject=${encodeURIComponent(tag)}">#${tag}</a>`;
     });
     return s;
+  }
+
+  /** Pull YouTube / YouTube Music watch URLs into embed segments. */
+  function splitYouTube(
+    text: string
+  ): Array<{ type: 'text' | 'youtube'; value: string }> {
+    const hits: Array<{ index: number; end: number; value: string }> = [];
+    URL_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = URL_RE.exec(text))) {
+      const value = m[1] ?? m[0];
+      if (!parseYouTubeUrl(value)) continue;
+      hits.push({ index: m.index, end: m.index + m[0].length, value });
+    }
+    if (!hits.length) return [{ type: 'text', value: text }];
+    const out: Array<{ type: 'text' | 'youtube'; value: string }> = [];
+    let last = 0;
+    for (const hit of hits) {
+      if (hit.index < last) continue;
+      if (hit.index > last) out.push({ type: 'text', value: text.slice(last, hit.index) });
+      out.push({ type: 'youtube', value: hit.value });
+      last = hit.end;
+    }
+    if (last < text.length) out.push({ type: 'text', value: text.slice(last) });
+    return out;
   }
 
   function renderInline(body: string): string {
@@ -211,7 +240,13 @@
             <span class="muted">Monero address</span>
           </div>
         {:else}
-          {@html expandCustomEmojiPlaceholders(renderPlainBlock(part.value), emojiSlots)}
+          {#each splitYouTube(part.value) as bit}
+            {#if bit.type === 'youtube'}
+              <YouTubeEmbed url={bit.value} />
+            {:else if bit.value.trim()}
+              {@html expandCustomEmojiPlaceholders(renderPlainBlock(bit.value), emojiSlots)}
+            {/if}
+          {/each}
         {/if}
       {/each}
     {:else if seg.kind === 'npub' || seg.kind === 'nprofile'}

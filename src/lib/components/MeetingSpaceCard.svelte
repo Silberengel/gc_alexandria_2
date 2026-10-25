@@ -131,7 +131,7 @@
     margin: 0;
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: 0.35rem 0.55rem;
     font-size: 0.9rem;
   }

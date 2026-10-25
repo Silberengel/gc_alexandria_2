@@ -5,6 +5,7 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LiveStreamPlayer from './LiveStreamPlayer.svelte';
   import { isAllowedMediaUrl } from '$lib/markup';
+  import type { LivePresencePerson } from '$lib/live-chat';
   import {
     isInPagePlayableMediaUrl,
     liveStreamPlaybackUrl,
@@ -13,9 +14,11 @@
 
   interface Props {
     event: Event;
+    /** Kind 10312 listeners to show under the player. */
+    presence?: LivePresencePerson[];
   }
 
-  let { event }: Props = $props();
+  let { event, presence = [] }: Props = $props();
 
   const info = $derived(parseLiveStream(event));
   const playUrl = $derived(liveStreamPlaybackUrl(info));
@@ -25,6 +28,7 @@
   const metaLine = $derived(
     [info.whenLabel, info.viewersLabel].filter(Boolean).join(' · ')
   );
+  const room = $derived(presence.slice(0, 24));
 </script>
 
 <article class="card live-stream-card" data-live-status={info.status}>
@@ -77,6 +81,19 @@
           >
         </p>
       {/if}
+    {/if}
+
+    {#if room.length}
+      <div class="live-stream-room">
+        <span class="live-stream-room-label muted">In the room:</span>
+        <ul class="live-stream-room-avatars">
+          {#each room as person (person.pubkey)}
+            <li class="live-stream-room-person" class:hand-raised={person.handRaised}>
+              <UserBadge pubkey={person.pubkey} avatarOnly />
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
   </div>
 </article>
@@ -164,7 +181,7 @@
     margin: 0;
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: 0.35rem 0.55rem;
     font-size: 0.9rem;
   }
@@ -184,5 +201,39 @@
   .live-stream-open {
     margin: 0.15rem 0 0;
     font-size: 0.9rem;
+  }
+  .live-stream-room {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+    margin-top: 0.35rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+  .live-stream-room-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .live-stream-room-avatars {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .live-stream-room-person {
+    margin: 0;
+    line-height: 0;
+  }
+  .live-stream-room-person.hand-raised :global(.userbadge-avatar) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 75%, transparent);
+  }
+  .live-stream-room :global(.userbadge-avatar-only .userbadge-avatar) {
+    width: 1.85rem;
+    height: 1.85rem;
   }
 </style>

@@ -264,15 +264,15 @@ function wikiDocumentSvg(event: Event): string {
     : '';
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
-<rect width="200" height="300" fill="${palette.cloth}"/>
-<rect x="10" y="10" width="180" height="280" rx="3" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.2"/>
-<rect x="22" y="24" width="156" height="7" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
-<rect x="22" y="38" width="118" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.22"/>
-<rect x="22" y="48" width="136" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.18"/>
+<rect width="200" height="300" fill="${palette.panel}"/>
+<rect x="0" y="0" width="200" height="300" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+<rect x="10" y="12" width="180" height="7" rx="2" fill="${palette.gold}" fill-opacity="0.35"/>
+<rect x="10" y="26" width="136" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.22"/>
+<rect x="10" y="36" width="154" height="5" rx="2" fill="${palette.gold}" fill-opacity="0.18"/>
 ${titleTs}
 ${rule}
 ${authorTs}
-<text x="100" y="274" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" letter-spacing="0.14em" fill="${palette.ink}" fill-opacity="0.55">WIKI</text>
+<text x="100" y="282" text-anchor="middle" font-size="12" font-family="system-ui,sans-serif" letter-spacing="0.14em" fill="${palette.ink}" fill-opacity="0.55">WIKI</text>
 </svg>`;
 }
 
@@ -309,16 +309,16 @@ function specDocumentSvg(event: Event): string {
     .join('');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" preserveAspectRatio="xMidYMid slice">
-<rect width="200" height="300" fill="${palette.cloth}"/>
-<rect x="8" y="8" width="184" height="284" fill="${palette.panel}" stroke="${palette.gold}" stroke-width="1.4"/>
-<rect x="8" y="8" width="184" height="36" fill="${palette.accent}" fill-opacity="0.85"/>
-<text x="100" y="32" text-anchor="middle" font-size="11" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.28em" fill="${palette.ink}">SPEC</text>
+<rect width="200" height="300" fill="${palette.panel}"/>
+<rect width="200" height="300" fill="none" stroke="${palette.gold}" stroke-width="2.4"/>
+<rect width="200" height="36" fill="${palette.accent}" fill-opacity="0.85"/>
+<text x="100" y="24" text-anchor="middle" font-size="11" font-weight="700" font-family="ui-sans-serif,system-ui,sans-serif" letter-spacing="0.28em" fill="${palette.ink}">SPEC</text>
 ${rules}
 ${titleTs}
 ${authorLines.length ? `<line x1="52" y1="${authorY - 14}" x2="148" y2="${authorY - 14}" stroke="${palette.gold}" stroke-width="0.9" stroke-opacity="0.55"/>` : ''}
 ${authorTs}
-<rect x="8" y="268" width="184" height="24" fill="${palette.cloth}" fill-opacity="0.55"/>
-<text x="100" y="284" text-anchor="middle" font-size="10" font-family="ui-monospace,monospace" letter-spacing="0.08em" fill="${palette.gold}" fill-opacity="0.85">30817</text>
+<rect y="276" width="200" height="24" fill="${palette.cloth}" fill-opacity="0.55"/>
+<text x="100" y="292" text-anchor="middle" font-size="10" font-family="ui-monospace,monospace" letter-spacing="0.08em" fill="${palette.gold}" fill-opacity="0.85">30817</text>
 </svg>`;
 }
 

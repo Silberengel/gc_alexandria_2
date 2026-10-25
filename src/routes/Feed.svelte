@@ -9,9 +9,11 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
+  import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { KIND } from '$lib/constants';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
+  import { collectLivePresence } from '$lib/live-chat';
   import {
     emptyWorkResponses,
     fetchWorkResponses,
@@ -259,6 +261,17 @@
   const fullPage = $derived(event && libraryKind ? libraryDocumentPath(event) : '');
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
   const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
+  const livePresence = $derived(
+    event?.kind === KIND.LIVE_EVENT ? collectLivePresence(event, responses) : []
+  );
+  /** Presence is shown on the live card — keep it out of the comments “other” list. */
+  const panelResponses = $derived.by(() => {
+    if (event?.kind !== KIND.LIVE_EVENT) return responses;
+    return {
+      ...responses,
+      other: responses.other.filter((e) => e.kind !== KIND.ROOM_PRESENCE)
+    };
+  });
   const focusComment = $derived(
     (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
   );
@@ -584,7 +597,7 @@
         <LoadingHint message="Opening this thread…" />
       {:else if event}
         {#if isNip53Kind(event.kind) && event.kind !== NIP53_KIND.LIVE_CHAT}
-          <EventCard {event} asCard />
+          <EventCard {event} asCard presence={livePresence} />
           <DetailsPanel {event} />
         {:else}
           <article class="card reading-body">
@@ -609,12 +622,20 @@
           <p class="feed-full-page"><a href={`#${fullPage}`} use:link>Open the full page</a></p>
         {/if}
         <div class="card reading-width feed-comments">
-          <WorkCommentsPanel
-            target={event}
-            {responses}
-            focusId={focusComment}
-            loading={socialLoading}
-          />
+          {#if event.kind === KIND.LIVE_EVENT}
+            <LiveChatFeed
+              target={event}
+              responses={panelResponses}
+              loading={socialLoading}
+            />
+          {:else}
+            <WorkCommentsPanel
+              target={event}
+              responses={panelResponses}
+              focusId={focusComment}
+              loading={socialLoading}
+            />
+          {/if}
         </div>
       {:else}
         <p class="muted">This note was not on your relays.</p>

@@ -101,6 +101,24 @@ describe('renderWithFallback', () => {
     const html = await renderWithFallback(KIND.DJOT, 'See [Label][] here.');
     expect(html).toContain('Label');
   });
+
+  it('syntax-highlights AsciiDoc source blocks with highlight.js', async () => {
+    const src = '[source,json]\n----\n{"title":"NKBIP-01","n":1}\n----\n';
+    const html = await renderWithFallback(KIND.WIKI, src, [['m', 'text/asciidoc']]);
+    expect(html).toContain('language-json');
+    expect(html).toContain('hljs-attr');
+    expect(html).toContain('hljs-string');
+    expect(html).toContain('hljs-number');
+  });
+
+  it('renders AsciiDoc latexmath with KaTeX', async () => {
+    const src = ':stem: latexmath\n\nInline latexmath:[\\frac{a}{b}].\n\n[latexmath]\n++++\nE = mc^2\n++++\n';
+    const html = await renderWithFallback(KIND.WIKI, src, [['m', 'text/asciidoc']]);
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('katex-display');
+    expect(html).not.toContain('\\(');
+    expect(html).not.toContain('\\[');
+  });
 });
 
 describe('topic hashtags', () => {

@@ -249,7 +249,11 @@
     {/if}
   </div>
 {:else}
-  <div class="edition-header">
+  <div
+    class="edition-header"
+    class:edition-header-wiki={event.kind === KIND.WIKI}
+    class:edition-header-spec={event.kind === KIND.SPEC}
+  >
     <div class="edition-hero">
       <div class="edition-cover">
         <Cover {event} {sections} enlargeOnClick />

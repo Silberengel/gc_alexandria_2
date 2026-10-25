@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { eventAddress } from '$lib/nostr/verify';
+  import { replaceableCoord } from '$lib/nostr/replaceable';
   import { eventSources } from '$lib/nostr/event-sources';
   import {
     exportPublicationDownload,
@@ -36,7 +36,8 @@
     }
     toggleOpCompose(event.id);
   }
-  const coord = $derived(eventAddress(event));
+  /** NIP-01 coordinate — only replaceable (`kind:pubkey`) and addressable (`kind:pubkey:d`). */
+  const coord = $derived(replaceableCoord(event));
   const sources = $derived.by(() => {
     const tracked = eventSources(event.id);
     const extra = !found ? [] : Array.isArray(found) ? found : found.split(/[\n,]+/).map((s) => s.trim());
@@ -115,8 +116,10 @@
     <dl class="details-list">
       <dt>Event id</dt>
       <dd><code>{event.id}</code></dd>
-      <dt>Coordinate</dt>
-      <dd><code>{coord}</code></dd>
+      {#if coord}
+        <dt>Coordinate</dt>
+        <dd><code>{coord}</code></dd>
+      {/if}
       <dt>Where it was found</dt>
       <dd>
         {#if sources.length}

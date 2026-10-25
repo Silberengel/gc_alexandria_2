@@ -1,0 +1,303 @@
+/*
+ * highlight.js tokens — high-contrast on paper, still keyed to scheme vars
+ * for light/dark + antique/gray. Previous mixes washed into ink and looked unhighlighted.
+ */
+.reading-body pre.highlight .hljs,
+.event-body pre.highlight .hljs,
+.reader-section pre.highlight .hljs,
+.reading-body pre.highlightjs .hljs,
+.event-body pre.highlightjs .hljs,
+.reader-section pre.highlightjs .hljs {
+  color: var(--ink) !important;
+  background: transparent;
+}
+
+.reading-body pre.highlight .hljs-comment,
+.event-body pre.highlight .hljs-comment,
+.reader-section pre.highlight .hljs-comment,
+.reading-body pre.highlightjs .hljs-comment,
+.event-body pre.highlightjs .hljs-comment,
+.reader-section pre.highlightjs .hljs-comment,
+.reading-body pre.highlight .hljs-quote,
+.event-body pre.highlight .hljs-quote,
+.reader-section pre.highlight .hljs-quote,
+.reading-body pre.highlightjs .hljs-quote,
+.event-body pre.highlightjs .hljs-quote,
+.reader-section pre.highlightjs .hljs-quote {
+  color: var(--ink-soft) !important;
+  font-style: italic !important;
+}
+
+.reading-body pre.highlight .hljs-keyword,
+.event-body pre.highlight .hljs-keyword,
+.reader-section pre.highlight .hljs-keyword,
+.reading-body pre.highlightjs .hljs-keyword,
+.event-body pre.highlightjs .hljs-keyword,
+.reader-section pre.highlightjs .hljs-keyword,
+.reading-body pre.highlight .hljs-selector-tag,
+.event-body pre.highlight .hljs-selector-tag,
+.reader-section pre.highlight .hljs-selector-tag,
+.reading-body pre.highlightjs .hljs-selector-tag,
+.event-body pre.highlightjs .hljs-selector-tag,
+.reader-section pre.highlightjs .hljs-selector-tag,
+.reading-body pre.highlight .hljs-meta .hljs-keyword,
+.event-body pre.highlight .hljs-meta .hljs-keyword,
+.reader-section pre.highlight .hljs-meta .hljs-keyword,
+.reading-body pre.highlightjs .hljs-meta .hljs-keyword,
+.event-body pre.highlightjs .hljs-meta .hljs-keyword,
+.reader-section pre.highlightjs .hljs-meta .hljs-keyword {
+  color: var(--accent-strong) !important;
+  font-weight: 700 !important;
+}
+
+.reading-body pre.highlight .hljs-string,
+.event-body pre.highlight .hljs-string,
+.reader-section pre.highlight .hljs-string,
+.reading-body pre.highlightjs .hljs-string,
+.event-body pre.highlightjs .hljs-string,
+.reader-section pre.highlightjs .hljs-string,
+.reading-body pre.highlight .hljs-regexp,
+.event-body pre.highlight .hljs-regexp,
+.reader-section pre.highlight .hljs-regexp,
+.reading-body pre.highlightjs .hljs-regexp,
+.event-body pre.highlightjs .hljs-regexp,
+.reader-section pre.highlightjs .hljs-regexp,
+.reading-body pre.highlight .hljs-addition,
+.event-body pre.highlight .hljs-addition,
+.reader-section pre.highlight .hljs-addition,
+.reading-body pre.highlightjs .hljs-addition,
+.event-body pre.highlightjs .hljs-addition,
+.reader-section pre.highlightjs .hljs-addition {
+  color: #2a6b45 !important;
+}
+
+:root.dark .reading-body pre.highlight .hljs-string,
+:root.dark .event-body pre.highlight .hljs-string,
+:root.dark .reader-section pre.highlight .hljs-string,
+:root.dark .reading-body pre.highlightjs .hljs-string,
+:root.dark .event-body pre.highlightjs .hljs-string,
+:root.dark .reader-section pre.highlightjs .hljs-string,
+:root.dark .reading-body pre.highlight .hljs-regexp,
+:root.dark .event-body pre.highlight .hljs-regexp,
+:root.dark .reader-section pre.highlight .hljs-regexp,
+:root.dark .reading-body pre.highlightjs .hljs-regexp,
+:root.dark .event-body pre.highlightjs .hljs-regexp,
+:root.dark .reader-section pre.highlightjs .hljs-regexp,
+:root.dark .reading-body pre.highlight .hljs-addition,
+:root.dark .event-body pre.highlight .hljs-addition,
+:root.dark .reader-section pre.highlight .hljs-addition,
+:root.dark .reading-body pre.highlightjs .hljs-addition,
+:root.dark .event-body pre.highlightjs .hljs-addition,
+:root.dark .reader-section pre.highlightjs .hljs-addition {
+  color: #8fd4a4 !important;
+}
+
+.reading-body pre.highlight .hljs-number,
+.event-body pre.highlight .hljs-number,
+.reader-section pre.highlight .hljs-number,
+.reading-body pre.highlightjs .hljs-number,
+.event-body pre.highlightjs .hljs-number,
+.reader-section pre.highlightjs .hljs-number,
+.reading-body pre.highlight .hljs-literal,
+.event-body pre.highlight .hljs-literal,
+.reader-section pre.highlight .hljs-literal,
+.reading-body pre.highlightjs .hljs-literal,
+.event-body pre.highlightjs .hljs-literal,
+.reader-section pre.highlightjs .hljs-literal,
+.reading-body pre.highlight .hljs-symbol,
+.event-body pre.highlight .hljs-symbol,
+.reader-section pre.highlight .hljs-symbol,
+.reading-body pre.highlightjs .hljs-symbol,
+.event-body pre.highlightjs .hljs-symbol,
+.reader-section pre.highlightjs .hljs-symbol,
+.reading-body pre.highlight .hljs-bullet,
+.event-body pre.highlight .hljs-bullet,
+.reader-section pre.highlight .hljs-bullet,
+.reading-body pre.highlightjs .hljs-bullet,
+.event-body pre.highlightjs .hljs-bullet,
+.reader-section pre.highlightjs .hljs-bullet,
+.reading-body pre.highlight .hljs-link,
+.event-body pre.highlight .hljs-link,
+.reader-section pre.highlight .hljs-link,
+.reading-body pre.highlightjs .hljs-link,
+.event-body pre.highlightjs .hljs-link,
+.reader-section pre.highlightjs .hljs-link {
+  color: #a85a1a !important;
+  font-weight: 600 !important;
+}
+
+:root.dark .reading-body pre.highlight .hljs-number,
+:root.dark .event-body pre.highlight .hljs-number,
+:root.dark .reader-section pre.highlight .hljs-number,
+:root.dark .reading-body pre.highlightjs .hljs-number,
+:root.dark .event-body pre.highlightjs .hljs-number,
+:root.dark .reader-section pre.highlightjs .hljs-number,
+:root.dark .reading-body pre.highlight .hljs-literal,
+:root.dark .event-body pre.highlight .hljs-literal,
+:root.dark .reader-section pre.highlight .hljs-literal,
+:root.dark .reading-body pre.highlightjs .hljs-literal,
+:root.dark .event-body pre.highlightjs .hljs-literal,
+:root.dark .reader-section pre.highlightjs .hljs-literal {
+  color: #e0a35a !important;
+}
+
+.reading-body pre.highlight .hljs-attr,
+.event-body pre.highlight .hljs-attr,
+.reader-section pre.highlight .hljs-attr,
+.reading-body pre.highlightjs .hljs-attr,
+.event-body pre.highlightjs .hljs-attr,
+.reader-section pre.highlightjs .hljs-attr,
+.reading-body pre.highlight .hljs-attribute,
+.event-body pre.highlight .hljs-attribute,
+.reader-section pre.highlight .hljs-attribute,
+.reading-body pre.highlightjs .hljs-attribute,
+.event-body pre.highlightjs .hljs-attribute,
+.reader-section pre.highlightjs .hljs-attribute,
+.reading-body pre.highlight .hljs-variable,
+.event-body pre.highlight .hljs-variable,
+.reader-section pre.highlight .hljs-variable,
+.reading-body pre.highlightjs .hljs-variable,
+.event-body pre.highlightjs .hljs-variable,
+.reader-section pre.highlightjs .hljs-variable,
+.reading-body pre.highlight .hljs-template-variable,
+.event-body pre.highlight .hljs-template-variable,
+.reader-section pre.highlight .hljs-template-variable,
+.reading-body pre.highlightjs .hljs-template-variable,
+.event-body pre.highlightjs .hljs-template-variable,
+.reader-section pre.highlightjs .hljs-template-variable,
+.reading-body pre.highlight .hljs-params,
+.event-body pre.highlight .hljs-params,
+.reader-section pre.highlight .hljs-params,
+.reading-body pre.highlightjs .hljs-params,
+.event-body pre.highlightjs .hljs-params,
+.reader-section pre.highlightjs .hljs-params {
+  color: var(--accent-strong) !important;
+  font-weight: 650 !important;
+}
+
+.reading-body pre.highlight .hljs-title,
+.event-body pre.highlight .hljs-title,
+.reader-section pre.highlight .hljs-title,
+.reading-body pre.highlightjs .hljs-title,
+.event-body pre.highlightjs .hljs-title,
+.reader-section pre.highlightjs .hljs-title,
+.reading-body pre.highlight .hljs-section,
+.event-body pre.highlight .hljs-section,
+.reader-section pre.highlight .hljs-section,
+.reading-body pre.highlightjs .hljs-section,
+.event-body pre.highlightjs .hljs-section,
+.reader-section pre.highlightjs .hljs-section,
+.reading-body pre.highlight .hljs-name,
+.event-body pre.highlight .hljs-name,
+.reader-section pre.highlight .hljs-name,
+.reading-body pre.highlightjs .hljs-name,
+.event-body pre.highlightjs .hljs-name,
+.reader-section pre.highlightjs .hljs-name,
+.reading-body pre.highlight .hljs-built_in,
+.event-body pre.highlight .hljs-built_in,
+.reader-section pre.highlight .hljs-built_in,
+.reading-body pre.highlightjs .hljs-built_in,
+.event-body pre.highlightjs .hljs-built_in,
+.reader-section pre.highlightjs .hljs-built_in,
+.reading-body pre.highlight .hljs-type,
+.event-body pre.highlight .hljs-type,
+.reader-section pre.highlight .hljs-type,
+.reading-body pre.highlightjs .hljs-type,
+.event-body pre.highlightjs .hljs-type,
+.reader-section pre.highlightjs .hljs-type {
+  color: #2c5f8a !important;
+  font-weight: 650 !important;
+}
+
+:root.dark .reading-body pre.highlight .hljs-title,
+:root.dark .event-body pre.highlight .hljs-title,
+:root.dark .reader-section pre.highlight .hljs-title,
+:root.dark .reading-body pre.highlightjs .hljs-title,
+:root.dark .event-body pre.highlightjs .hljs-title,
+:root.dark .reader-section pre.highlightjs .hljs-title,
+:root.dark .reading-body pre.highlight .hljs-built_in,
+:root.dark .event-body pre.highlight .hljs-built_in,
+:root.dark .reader-section pre.highlight .hljs-built_in,
+:root.dark .reading-body pre.highlightjs .hljs-built_in,
+:root.dark .event-body pre.highlightjs .hljs-built_in,
+:root.dark .reader-section pre.highlightjs .hljs-built_in,
+:root.dark .reading-body pre.highlight .hljs-type,
+:root.dark .event-body pre.highlight .hljs-type,
+:root.dark .reader-section pre.highlight .hljs-type,
+:root.dark .reading-body pre.highlightjs .hljs-type,
+:root.dark .event-body pre.highlightjs .hljs-type,
+:root.dark .reader-section pre.highlightjs .hljs-type {
+  color: #7eb6e0 !important;
+}
+
+.reading-body pre.highlight .hljs-meta,
+.event-body pre.highlight .hljs-meta,
+.reader-section pre.highlight .hljs-meta,
+.reading-body pre.highlightjs .hljs-meta,
+.event-body pre.highlightjs .hljs-meta,
+.reader-section pre.highlightjs .hljs-meta,
+.reading-body pre.highlight .hljs-subst,
+.event-body pre.highlight .hljs-subst,
+.reader-section pre.highlight .hljs-subst,
+.reading-body pre.highlightjs .hljs-subst,
+.event-body pre.highlightjs .hljs-subst,
+.reader-section pre.highlightjs .hljs-subst,
+.reading-body pre.highlight .hljs-tag,
+.event-body pre.highlight .hljs-tag,
+.reader-section pre.highlight .hljs-tag,
+.reading-body pre.highlightjs .hljs-tag,
+.event-body pre.highlightjs .hljs-tag,
+.reader-section pre.highlightjs .hljs-tag,
+.reading-body pre.highlight .hljs-punctuation,
+.event-body pre.highlight .hljs-punctuation,
+.reader-section pre.highlight .hljs-punctuation,
+.reading-body pre.highlightjs .hljs-punctuation,
+.event-body pre.highlightjs .hljs-punctuation,
+.reader-section pre.highlightjs .hljs-punctuation {
+  color: var(--ink-soft) !important;
+}
+
+.reading-body pre.highlight .hljs-deletion,
+.event-body pre.highlight .hljs-deletion,
+.reader-section pre.highlight .hljs-deletion,
+.reading-body pre.highlightjs .hljs-deletion,
+.event-body pre.highlightjs .hljs-deletion,
+.reader-section pre.highlightjs .hljs-deletion {
+  color: var(--accent-strong) !important;
+}
+
+.reading-body pre.highlight .hljs-emphasis,
+.event-body pre.highlight .hljs-emphasis,
+.reader-section pre.highlight .hljs-emphasis,
+.reading-body pre.highlightjs .hljs-emphasis,
+.event-body pre.highlightjs .hljs-emphasis,
+.reader-section pre.highlightjs .hljs-emphasis {
+  font-style: italic !important;
+}
+
+.reading-body pre.highlight .hljs-strong,
+.event-body pre.highlight .hljs-strong,
+.reader-section pre.highlight .hljs-strong,
+.reading-body pre.highlightjs .hljs-strong,
+.event-body pre.highlightjs .hljs-strong,
+.reader-section pre.highlightjs .hljs-strong {
+  font-weight: 700 !important;
+}
+
+:root[data-theme='gray'] .reading-body pre.highlight .hljs-string,
+:root[data-theme='gray'] .event-body pre.highlight .hljs-string,
+:root[data-theme='gray'] .reader-section pre.highlight .hljs-string,
+:root[data-theme='gray'] .reading-body pre.highlightjs .hljs-string,
+:root[data-theme='gray'] .event-body pre.highlightjs .hljs-string,
+:root[data-theme='gray'] .reader-section pre.highlightjs .hljs-string {
+  color: #1f6b45 !important;
+}
+
+:root.dark[data-theme='gray'] .reading-body pre.highlight .hljs-string,
+:root.dark[data-theme='gray'] .event-body pre.highlight .hljs-string,
+:root.dark[data-theme='gray'] .reader-section pre.highlight .hljs-string,
+:root.dark[data-theme='gray'] .reading-body pre.highlightjs .hljs-string,
+:root.dark[data-theme='gray'] .event-body pre.highlightjs .hljs-string,
+:root.dark[data-theme='gray'] .reader-section pre.highlightjs .hljs-string {
+  color: #7dcca0 !important;
+}
