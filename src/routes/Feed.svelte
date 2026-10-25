@@ -451,6 +451,8 @@
     // Never wipe the in-memory timeline when only `?thread=` toggles.
     // Pause list REQs while a thread is open so comment fetches keep pool slots
     // (list load uses priority and was starving "Loading comments…").
+    // Read deps first, then bail before any listLoading setup — otherwise opening
+    // a thread falsely paints the feed as "Loading…".
     void feedRelays;
     const tab = feedTab;
     const author = feedAuthor;
@@ -461,6 +463,13 @@
     const muted = $muteState;
     const threadOpen = !!pointer;
     let cancelled = false;
+
+    if (threadOpen) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     listError = '';
 
     if (loadedTab !== listKey) {
@@ -475,12 +484,6 @@
       listSettled = false;
     } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
       listLoading = true;
-    }
-
-    if (threadOpen) {
-      return () => {
-        cancelled = true;
-      };
     }
 
     if (tab === 'notifications' && !pubkey) {
