@@ -107,7 +107,43 @@ export function splitNostrRefs(content: string): ContentSegment[] {
   }
   if (last < content.length) segments.push({ type: 'text', text: content.slice(last) });
   if (!segments.length) segments.push({ type: 'text', text: content });
-  return segments;
+  return trimAdjacentToBlockEmbeds(segments);
+}
+
+/** note / nevent / naddr render as block cards — not inline mentions. */
+export function isBlockEmbedRef(seg: ContentSegment): boolean {
+  return (
+    seg.type === 'ref' && (seg.kind === 'note' || seg.kind === 'nevent' || seg.kind === 'naddr')
+  );
+}
+
+/** Trailing blank lines only — keep a single space for inline citations. */
+function stripTrailingBlankLines(text: string): string {
+  return text.replace(/(?:[ \t]*\r?\n)+[ \t]*$/g, '');
+}
+
+function stripLeadingBlankLines(text: string): string {
+  return text.replace(/^[ \t]*(?:\r?\n[ \t]*)+/g, '');
+}
+
+/**
+ * Drop blank lines glued to block embeds so cards sit tight under prose
+ * (`text\n\nnostr:nevent1…` should not leave an empty padded line).
+ */
+export function trimAdjacentToBlockEmbeds(segments: ContentSegment[]): ContentSegment[] {
+  if (segments.length < 2) return segments;
+  const out: ContentSegment[] = segments.map((s) =>
+    s.type === 'text' ? { type: 'text', text: s.text } : { ...s }
+  );
+  for (let i = 0; i < out.length; i++) {
+    const seg = out[i]!;
+    if (seg.type !== 'text') continue;
+    let text = seg.text;
+    if (i > 0 && isBlockEmbedRef(out[i - 1]!)) text = stripLeadingBlankLines(text);
+    if (i + 1 < out.length && isBlockEmbedRef(out[i + 1]!)) text = stripTrailingBlankLines(text);
+    out[i] = { type: 'text', text };
+  }
+  return out.filter((s) => s.type !== 'text' || s.text.length > 0);
 }
 
 type Hit = { start: number; end: number; ref: RefSegment };
@@ -288,6 +324,33 @@ export function coalesceInlineMentions(segments: RenderSegment[]): InlineBodyBlo
 }
 
 /** Re-split rendered HTML on placeholders into html chunks and ref embeds. */
+function stripTrailingBlankHtml(html: string): string {
+  return html
+    .replace(/(?:<p(?:\s[^>]*)?>\s*(?:<br\s*\/?>)?\s*<\/p>\s*)+$/gi, '')
+    .replace(/(?:<br\s*\/?>\s*)+$/gi, '');
+}
+
+function stripLeadingBlankHtml(html: string): string {
+  return html
+    .replace(/^(?:\s*<p(?:\s[^>]*)?>\s*(?:<br\s*\/?>)?\s*<\/p>)+/gi, '')
+    .replace(/^(?:\s*<br\s*\/?>)+/gi, '');
+}
+
+/** Collapse empty paragraphs glued to block embeds in rendered markup. */
+export function trimHtmlAdjacentToBlockEmbeds(segments: RenderSegment[]): RenderSegment[] {
+  if (segments.length < 2) return segments;
+  const out = segments.map((s) => (s.type === 'html' ? { ...s } : { ...s }));
+  for (let i = 0; i < out.length; i++) {
+    const seg = out[i]!;
+    if (seg.type !== 'html') continue;
+    let html = seg.html;
+    if (i > 0 && isBlockEmbedRef(out[i - 1]!)) html = stripLeadingBlankHtml(html);
+    if (i + 1 < out.length && isBlockEmbedRef(out[i + 1]!)) html = stripTrailingBlankHtml(html);
+    out[i] = { type: 'html', html };
+  }
+  return out.filter((s) => s.type !== 'html' || s.html.length > 0);
+}
+
 export function expandNostrRefPlaceholders(html: string, refs: RefSegment[]): RenderSegment[] {
   if (!refs.length) return [{ type: 'html', html }];
   const segments: RenderSegment[] = [];
@@ -306,5 +369,5 @@ export function expandNostrRefPlaceholders(html: string, refs: RefSegment[]): Re
   }
   if (last < html.length) segments.push({ type: 'html', html: html.slice(last) });
   if (!segments.length) segments.push({ type: 'html', html });
-  return segments;
+  return trimHtmlAdjacentToBlockEmbeds(segments);
 }

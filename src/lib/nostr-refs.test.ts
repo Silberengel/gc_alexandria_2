@@ -118,4 +118,32 @@ describe('splitNostrRefs', () => {
     expect(parts).toHaveLength(3);
     expect(parts[1]?.type).toBe('ref');
   });
+
+  it('trims blank lines glued to block embeds', () => {
+    const note = nip19.noteEncode('b'.repeat(64));
+    const parts = splitNostrRefs(`Hello everyone\n\nnostr:${note}\n\nMore.`);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toEqual({ type: 'text', text: 'Hello everyone' });
+    expect(parts[1]?.type).toBe('ref');
+    expect(parts[2]).toEqual({ type: 'text', text: 'More.' });
+  });
+});
+
+describe('expandNostrRefPlaceholders', () => {
+  it('strips empty paragraphs glued to block embeds', () => {
+    const id = 'c'.repeat(64);
+    const note = nip19.noteEncode(id);
+    const ref = splitNostrRefs(`nostr:${note}`)[0];
+    expect(ref?.type).toBe('ref');
+    if (ref?.type !== 'ref') return;
+    const segs = expandNostrRefPlaceholders(
+      `<p>Intro</p><p></p>${nostrRefPlaceholder(0)}<p><br></p><p>Outro</p>`,
+      [ref]
+    );
+    expect(segs).toEqual([
+      { type: 'html', html: '<p>Intro</p>' },
+      ref,
+      { type: 'html', html: '<p>Outro</p>' }
+    ]);
+  });
 });

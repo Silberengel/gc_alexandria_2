@@ -34,15 +34,18 @@
 <style>
   .youtube-embed {
     display: grid;
-    gap: 0.35rem;
-    margin: 0.55rem 0;
+    gap: 0.3rem;
+    margin: 0.35rem 0 0.5rem;
     max-width: 36rem;
   }
   .youtube-embed-frame {
     display: block;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
     aspect-ratio: 16 / 9;
-    height: auto;
+    height: auto !important;
+    margin: 0 !important;
     border: 0;
     border-radius: 0.4rem;
     background: color-mix(in srgb, var(--surface-2) 80%, #000);

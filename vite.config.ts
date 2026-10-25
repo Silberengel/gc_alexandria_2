@@ -27,6 +27,16 @@ export default defineConfig(({ mode }) => {
       mercuryTarget = 'https://mercury-relay.imwald.eu';
     }
   }
+  // unfold OG preview (embed/embed) — same host imwald blog uses.
+  let ogPreviewTarget = 'https://blog.imwald.eu';
+  const ogProxy = (fileEnv.VITE_OG_PREVIEW_PROXY_TARGET || '').trim();
+  if (ogProxy) {
+    try {
+      ogPreviewTarget = new URL(ogProxy).origin;
+    } catch {
+      ogPreviewTarget = 'https://blog.imwald.eu';
+    }
+  }
 
   return {
   plugins: [
@@ -48,7 +58,7 @@ export default defineConfig(({ mode }) => {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/, /^\/seeds\//],
+        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/, /^\/api\//, /^\/seeds\//],
         runtimeCaching: [
           {
             // Manifest must follow a new export. Shard URLs are versioned (?v=) and stay CacheFirst.
@@ -146,6 +156,24 @@ export default defineConfig(({ mode }) => {
             if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
               res.writeHead(502, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'asciidoctor unavailable', detail: msg }));
+            }
+          });
+        }
+      },
+      // Open Graph previews — unfold POST /og-preview/ (embed/embed).
+      '/api/og-preview': {
+        target: ogPreviewTarget,
+        changeOrigin: true,
+        agent: ipv4Https,
+        rewrite: () => '/og-preview/',
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, res) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
+              res.writeHead(502, { 'Content-Type': 'text/plain' });
+              res.end('og-preview unavailable');
+            } else {
+              console.warn('[vite] og-preview proxy error:', msg);
             }
           });
         }

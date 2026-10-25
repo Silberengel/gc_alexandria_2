@@ -24,6 +24,14 @@ export const ASCIIDOCTOR_SERVER_URL =
   (import.meta.env.VITE_ASCIIDOCTOR_SERVER_URL as string | undefined)?.trim() ||
   '/api/asciidoctor';
 
+/**
+ * Open Graph preview sidecar (`POST {url}` JSON → HTML card or 204).
+ * Same contract as unfold `/og-preview/` (embed/embed on blog.imwald.eu).
+ * Unset, the client uses same-origin `/api/og-preview` (Vite proxy in dev).
+ */
+export const OG_PREVIEW_URL =
+  (import.meta.env.VITE_OG_PREVIEW_URL as string | undefined)?.trim() || '/api/og-preview';
+
 export const THIRD_PARTY_RELAYS = viteList(env.VITE_THIRD_PARTY_RELAYS, [
   'wss://nostr.land',
   'wss://nostr21.com',

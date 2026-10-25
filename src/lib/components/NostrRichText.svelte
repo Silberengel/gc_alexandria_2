@@ -13,7 +13,9 @@
   import UserBadge from './UserBadge.svelte';
   import EmbedEventLine from './EmbedEventLine.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
+  import OgLinkPreviewCard from './OgLinkPreviewCard.svelte';
   import { parseYouTubeUrl } from '$lib/youtube';
+  import { shouldOgPreview, tidyLinkUrl } from '$lib/og-preview';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { lruGet, lruSet } from '$lib/compose-lru';
 
@@ -72,8 +74,9 @@
   function linkifyBody(text: string): string {
     let s = escapeHtml(text);
     s = s.replace(URL_RE, (url) => {
-      // YouTube / Music links are lifted out as players — skip bare anchors here.
+      // YouTube / OG cards are lifted out as embeds — skip bare anchors here.
       if (parseYouTubeUrl(url)) return url;
+      if (shouldOgPreview(url)) return url;
       if (!isAllowedHref(url)) return url;
       return `<a href="${url}" rel="noopener noreferrer" target="_blank">${url}</a>`;
     });
@@ -83,29 +86,45 @@
     return s;
   }
 
-  /** Pull YouTube / YouTube Music watch URLs into embed segments. */
-  function splitYouTube(
-    text: string
-  ): Array<{ type: 'text' | 'youtube'; value: string }> {
-    const hits: Array<{ index: number; end: number; value: string }> = [];
+  type LinkEmbedBit = { type: 'text' | 'youtube' | 'og'; value: string };
+
+  /** Pull YouTube players and Open Graph link cards out of plaintext. */
+  function splitLinkEmbeds(text: string): LinkEmbedBit[] {
+    const hits: Array<{ index: number; end: number; type: 'youtube' | 'og'; value: string }> =
+      [];
     URL_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = URL_RE.exec(text))) {
-      const value = m[1] ?? m[0];
-      if (!parseYouTubeUrl(value)) continue;
-      hits.push({ index: m.index, end: m.index + m[0].length, value });
+      const raw = m[1] ?? m[0];
+      const value = tidyLinkUrl(raw);
+      let type: 'youtube' | 'og' | null = null;
+      if (parseYouTubeUrl(value)) type = 'youtube';
+      else if (shouldOgPreview(value)) type = 'og';
+      if (!type) continue;
+      hits.push({ index: m.index, end: m.index + m[0].length, type, value });
     }
     if (!hits.length) return [{ type: 'text', value: text }];
-    const out: Array<{ type: 'text' | 'youtube'; value: string }> = [];
+    const out: LinkEmbedBit[] = [];
     let last = 0;
     for (const hit of hits) {
       if (hit.index < last) continue;
       if (hit.index > last) out.push({ type: 'text', value: text.slice(last, hit.index) });
-      out.push({ type: 'youtube', value: hit.value });
+      out.push({ type: hit.type, value: hit.value });
       last = hit.end;
     }
     if (last < text.length) out.push({ type: 'text', value: text.slice(last) });
-    return out;
+    // Collapse blank lines glued to embeds (keep mid-paragraph spaces).
+    for (let i = 0; i < out.length; i++) {
+      const bit = out[i]!;
+      if (bit.type !== 'text') continue;
+      let value = bit.value;
+      const prevEmbed = i > 0 && out[i - 1]!.type !== 'text';
+      const nextEmbed = i + 1 < out.length && out[i + 1]!.type !== 'text';
+      if (prevEmbed) value = value.replace(/^[ \t]*(?:\r?\n[ \t]*)+/g, '');
+      if (nextEmbed) value = value.replace(/(?:[ \t]*\r?\n)+[ \t]*$/g, '');
+      out[i] = { type: 'text', value };
+    }
+    return out.filter((bit) => bit.type !== 'text' || bit.value.length > 0);
   }
 
   function renderInline(body: string): string {
@@ -240,9 +259,11 @@
             <span class="muted">Monero address</span>
           </div>
         {:else}
-          {#each splitYouTube(part.value) as bit}
+          {#each splitLinkEmbeds(part.value) as bit}
             {#if bit.type === 'youtube'}
               <YouTubeEmbed url={bit.value} />
+            {:else if bit.type === 'og'}
+              <OgLinkPreviewCard url={bit.value} />
             {:else if bit.value.trim()}
               {@html expandCustomEmojiPlaceholders(renderPlainBlock(bit.value), emojiSlots)}
             {/if}
@@ -309,10 +330,10 @@
     vertical-align: baseline;
   }
   .nrt-embed-card {
-    margin: 0.55rem 0;
+    margin: 0.35rem 0 0.5rem;
   }
   .nrt-embed {
-    margin: 0.5rem 0;
+    margin: 0.35rem 0 0.5rem;
   }
   .nrt-pay {
     display: flex;
