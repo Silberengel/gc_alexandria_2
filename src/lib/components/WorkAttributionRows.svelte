@@ -29,16 +29,18 @@
 {#if hasAny}
   <div class="work-attribution">
     {#if apps.length}
-      <div class="work-attribution-row">
-        <span class="work-attribution-label">Apps:</span>
-        <div class="work-attribution-apps">
-          {#each apps.slice(0, 24) as app (app.event.id)}
+      <div class="work-attribution-row work-attribution-apps-row">
+        <span class="work-attribution-label work-attribution-apps-label">Apps</span>
+        <p class="work-attribution-apps">
+          {#each apps.slice(0, 24) as app, i (app.event.id)}
+            {#if i > 0}<span class="work-attribution-apps-sep" aria-hidden="true">·</span>{/if}
             <AppHandlerIcon {app} />
           {/each}
           {#if apps.length > 24}
+            <span class="work-attribution-apps-sep" aria-hidden="true">·</span>
             <span class="work-attribution-more muted">+{apps.length - 24}</span>
           {/if}
-        </div>
+        </p>
       </div>
     {/if}
     {#if bookmarkedBy.length}
@@ -104,8 +106,7 @@
     letter-spacing: 0.01em;
     opacity: 0.78;
   }
-  .work-attribution-badges,
-  .work-attribution-apps {
+  .work-attribution-badges {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -120,7 +121,30 @@
     width: 1.35rem;
     height: 1.35rem;
   }
+  .work-attribution-apps-row {
+    align-items: baseline;
+  }
+  .work-attribution-apps-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    opacity: 0.55;
+  }
+  .work-attribution-apps {
+    margin: 0;
+    min-width: 0;
+    flex: 1 1 12rem;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    opacity: 0.85;
+  }
+  .work-attribution-apps-sep {
+    margin: 0 0.55rem;
+    opacity: 0.4;
+  }
   .work-attribution-more {
     font-size: 0.8rem;
+  }
+  .work-attribution-apps .work-attribution-more {
+    font-size: inherit;
   }
 </style>

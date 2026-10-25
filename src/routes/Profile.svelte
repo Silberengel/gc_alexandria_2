@@ -19,6 +19,7 @@
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
+  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent, cacheGetProfilePageSnapshot, cachePutProfilePageSnapshot, peekProfilePageSnapshot, profilePageSnapshotFresh, type ProfilePageSnapshot } from '$lib/nostr/cache';
@@ -148,14 +149,17 @@
     void push(profileKindPath(id, parsed));
   }
   const filteredProduced = $derived.by(() => {
-    let list = filterMuted(produced, $muteState);
+    $deletionRevision;
+    let list = filterDeletedEvents(filterMuted(produced, $muteState));
     if (kindFilter != null) list = list.filter((e) => e.kind === kindFilter);
     return list;
   });
   const visibleProduced = $derived(filterPageEvents(filteredProduced, pageFilter));
-  const visibleInteracted = $derived(
-    isKindFiltered ? [] : filterPageEvents(filterMuted(interacted, $muteState), pageFilter)
-  );
+  const visibleInteracted = $derived.by(() => {
+    $deletionRevision;
+    if (isKindFiltered) return [];
+    return filterPageEvents(filterDeletedEvents(filterMuted(interacted, $muteState)), pageFilter);
+  });
   const pagedProduced = $derived(visibleProduced.slice((producedPage - 1) * pageSize, producedPage * pageSize));
   const pagedInteracted = $derived(
     visibleInteracted.slice((interactedPage - 1) * pageSize, interactedPage * pageSize)

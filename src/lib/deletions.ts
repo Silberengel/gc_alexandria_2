@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { writable } from 'svelte/store';
 import { KIND } from './constants';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { cacheDeleteEvent } from './nostr/cache';
@@ -16,6 +17,16 @@ const deletedIds = new Map<string, string>();
  * Value is the deletion's created_at — hide matching events with created_at <= that.
  */
 const deletedAddrs = new Map<string, number>();
+
+/**
+ * Bumps whenever in-memory tombstones change. Subscribe in list UIs so
+ * `$derived` re-runs `filterDeletedEvents` after a local delete.
+ */
+export const deletionRevision = writable(0);
+
+function bumpDeletionRevision(): void {
+  deletionRevision.update((n) => n + 1);
+}
 
 function normalizeAddr(raw: string): string | null {
   const parts = raw.trim().split(':');
@@ -38,6 +49,7 @@ function addrVariants(kind: number, pubkey: string, d: string): string[] {
 export function rememberDeletion(deletion: Event): void {
   if (deletion.kind !== KIND.DELETION || !deletion.pubkey) return;
   const pk = deletion.pubkey.toLowerCase();
+  let changed = false;
 
   for (const tag of deletion.tags) {
     if (tag[0] === 'e' && tag[1] && HEX64.test(tag[1])) {
@@ -46,21 +58,44 @@ export function rememberDeletion(deletion: Event): void {
       const hinted = tag[3]?.toLowerCase();
       if (hinted && !HEX64.test(hinted)) continue;
       if (hinted && hinted !== pk) continue;
-      deletedIds.set(id, pk);
+      if (deletedIds.get(id) !== pk) {
+        deletedIds.set(id, pk);
+        changed = true;
+      }
     }
     if (tag[0] === 'a' && tag[1]) {
       const addr = normalizeAddr(tag[1]);
       if (!addr) continue;
       const addrPk = addr.split(':')[1];
       if (addrPk !== pk) continue;
-      const prev = deletedAddrs.get(addr) ?? 0;
-      if (deletion.created_at >= prev) deletedAddrs.set(addr, deletion.created_at);
+      const prev = deletedAddrs.get(addr);
+      if (prev === undefined || deletion.created_at > prev) {
+        deletedAddrs.set(addr, deletion.created_at);
+        changed = true;
+      }
     }
   }
+  if (changed) bumpDeletionRevision();
 }
 
 export function rememberDeletions(events: Event[]): void {
   for (const event of events) rememberDeletion(event);
+}
+
+/**
+ * After a local delete publish: record the kind-5 and always tombstone the
+ * concrete target id (covers drafts that only emitted an `a` tag).
+ */
+export function rememberDeletedTarget(target: Event, deletion: Event): void {
+  rememberDeletion(deletion);
+  if (!target?.id || !target.pubkey || !deletion?.pubkey) return;
+  const pk = deletion.pubkey.toLowerCase();
+  if (target.pubkey.toLowerCase() !== pk) return;
+  const id = target.id.toLowerCase();
+  if (!HEX64.test(id)) return;
+  if (deletedIds.get(id) === pk) return;
+  deletedIds.set(id, pk);
+  bumpDeletionRevision();
 }
 
 export function isEventDeleted(event: Event): boolean {
@@ -162,4 +197,5 @@ export function scheduleDeletionSweep(): void {
 export function resetDeletionStateForTests(): void {
   deletedIds.clear();
   deletedAddrs.clear();
+  deletionRevision.set(0);
 }

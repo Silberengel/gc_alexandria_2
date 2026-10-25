@@ -16,6 +16,8 @@
   import { broadcastEvent } from '$lib/broadcast';
   import { fetchRepostsForId, myRepostOf, repostDraft } from '$lib/repost';
   import { deletionDraft } from '$lib/drafts';
+  import { rememberDeletedTarget } from '$lib/deletions';
+  import { cacheDeleteEvent } from '$lib/nostr/cache';
   import { consumeSignFailure, publishSigned, signUnsigned } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -101,7 +103,10 @@
   const showRequestMerge = $derived(canRequestWikiMerge(event, $session.pubkey));
   const showDefer = $derived(canDeferToWikiEvent(event, $session.pubkey));
   const showCreateRedirect = $derived(isWikiOrSpecKind(event.kind));
+  /** Own events (except kind-5 itself) can be NIP-09 deleted. */
+  const showDeleteEvent = $derived(isOwnEvent && event.kind !== KIND.DELETION);
   let deferPending = $state(false);
+  let deletePending = $state(false);
 
   function openComposeCopy(): void {
     if (!$session.pubkey) {
@@ -373,6 +378,8 @@
         showNotice('The deletion was signed, but no relay accepted it.');
         return;
       }
+      rememberDeletedTarget(target, signed);
+      void cacheDeleteEvent(target.id);
       myRepost = null;
       reposted = false;
       showNotice('Repost deleted.', true);
@@ -380,6 +387,35 @@
       timer = window.setTimeout(() => close(), 900);
     } finally {
       repostPending = false;
+    }
+  }
+
+  async function deleteThisEvent(): Promise<void> {
+    if (deletePending || !showDeleteEvent) return;
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    deletePending = true;
+    try {
+      const signed = await signUnsigned(deletionDraft(event));
+      if (!signed) {
+        showNotice(consumeSignFailure() ?? 'The deletion could not be signed.');
+        return;
+      }
+      const wrote = await publishSigned(signed);
+      if (!wrote) {
+        showNotice('The deletion was signed, but no relay accepted it.');
+        return;
+      }
+      rememberDeletedTarget(event, signed);
+      void cacheDeleteEvent(event.id);
+      showNotice('Event deleted.', true);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => close(), 900);
+    } finally {
+      deletePending = false;
     }
   }
 
@@ -665,6 +701,23 @@
           {broadcastPending ? 'Broadcasting…' : 'Broadcast to your outboxes'}
         </button>
       </li>
+      {#if showDeleteEvent}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={deletePending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void deleteThisEvent();
+            }}
+          >
+            {deletePending ? 'Deleting…' : 'Delete this event'}
+          </button>
+        </li>
+      {/if}
       <li role="none">
         <button
           class="menu-item"

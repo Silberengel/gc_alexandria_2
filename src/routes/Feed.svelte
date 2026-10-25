@@ -30,6 +30,7 @@
   import { cropRenderedUrlsInText } from '$lib/crop-url';
   import { resolveReactionEmoji } from '$lib/emoji-content';
   import { filterMuted, muteState, type MuteState } from '$lib/mute';
+  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
   import { kindDescription } from '$lib/kind-label';
@@ -147,14 +148,17 @@
   }
 
   let items = $state<Event[]>([]);
-  const visibleItems = $derived(
-    filterMuted(
-      feedAuthor
-        ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
-        : items,
-      $muteState
-    )
-  );
+  const visibleItems = $derived.by(() => {
+    $deletionRevision;
+    return filterDeletedEvents(
+      filterMuted(
+        feedAuthor
+          ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
+          : items,
+        $muteState
+      )
+    );
+  });
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
   let listLoading = $state(true);

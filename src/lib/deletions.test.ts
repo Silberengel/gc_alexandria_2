@@ -1,9 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { get } from 'svelte/store';
 import {
+  deletionRevision,
   filterDeletedEvents,
   isEventDeleted,
+  rememberDeletedTarget,
   rememberDeletion,
   resetDeletionStateForTests
 } from './deletions';
@@ -99,5 +102,54 @@ describe('deletions', () => {
     );
     expect(isEventDeleted(older)).toBe(true);
     expect(isEventDeleted(newer)).toBe(false);
+  });
+
+  it('bumps deletionRevision when a tombstone is recorded', () => {
+    const before = get(deletionRevision);
+    rememberDeletion(
+      ev({
+        id: 'c'.repeat(64),
+        pubkey: 'b'.repeat(64),
+        kind: KIND.DELETION,
+        created_at: 200,
+        tags: [['e', 'a'.repeat(64)]]
+      })
+    );
+    expect(get(deletionRevision)).toBe(before + 1);
+    rememberDeletion(
+      ev({
+        id: 'd'.repeat(64),
+        pubkey: 'b'.repeat(64),
+        kind: KIND.DELETION,
+        created_at: 201,
+        tags: [['e', 'a'.repeat(64)]]
+      })
+    );
+    expect(get(deletionRevision)).toBe(before + 1);
+  });
+
+  it('rememberDeletedTarget hides the concrete event even when kind-5 only has an a-tag', () => {
+    const pk = 'b'.repeat(64);
+    const target = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      kind: 31990,
+      created_at: 100,
+      tags: [['d', 'lmwald']]
+    });
+    rememberDeletedTarget(
+      target,
+      ev({
+        id: 'c'.repeat(64),
+        pubkey: pk,
+        kind: KIND.DELETION,
+        created_at: 200,
+        tags: [
+          ['a', `31990:${pk}:other-d`],
+          ['k', '31990']
+        ]
+      })
+    );
+    expect(isEventDeleted(target)).toBe(true);
   });
 });

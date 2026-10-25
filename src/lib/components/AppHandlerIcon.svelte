@@ -15,36 +15,34 @@
 
 {#if asLink}
   <a
-    class="work-app-handle"
+    class="work-app-link"
     href={app.href}
     target="_blank"
     rel="noopener noreferrer"
     title={label}
   >{app.name}</a>
 {:else}
-  <span class="work-app-handle" title={label}>{app.name}</span>
+  <span class="work-app-link" title={label}>{app.name}</span>
 {/if}
 
 <style>
-  .work-app-handle {
-    display: inline-flex;
-    align-items: center;
-    max-width: 14rem;
-    padding: 0.15rem 0.45rem;
-    border-radius: 0.3rem;
-    background: color-mix(in srgb, currentColor 10%, transparent);
+  .work-app-link {
     color: inherit;
-    text-decoration: none;
-    font-size: 0.82rem;
-    font-weight: 600;
-    line-height: 1.25;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: inherit;
+    font-weight: 400;
+    line-height: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 28%, transparent);
+    text-underline-offset: 0.12em;
+    opacity: 0.72;
   }
-  a.work-app-handle:hover,
-  a.work-app-handle:focus-visible {
-    background: color-mix(in srgb, currentColor 16%, transparent);
+  a.work-app-link:hover,
+  a.work-app-link:focus-visible {
+    opacity: 0.95;
+    text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
     outline: none;
+  }
+  span.work-app-link {
+    text-decoration: none;
   }
 </style>

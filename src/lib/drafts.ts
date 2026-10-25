@@ -43,13 +43,18 @@ export function publicationLabelDraft(
 }
 
 export function deletionDraft(target: Event): { kind: number; content: string; tags: string[][] } {
+  const values: Record<string, string> = {
+    e: target.id.toLowerCase(),
+    k: String(target.kind)
+  };
+  // NIP-09: also tag the addressable coordinate so clients can hide the whole replaceable series.
+  if (target.kind >= 30_000 && target.kind < 40_000) {
+    values.a = eventAddress(target);
+  }
   return buildComposePartial({
     kind: KIND.DELETION,
     content: '',
-    values: {
-      e: target.id,
-      k: String(target.kind)
-    }
+    values
   });
 }
 
