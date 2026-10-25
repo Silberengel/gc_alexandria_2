@@ -20,6 +20,10 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { showNotice } from '$lib/stores/toast';
+  import {
+    canCopyEventToCompose,
+    canEditAsShortNote
+  } from '$lib/event-compose-preload';
 
   interface Props {
     event: Event;
@@ -79,6 +83,30 @@
   /** Repost only others' events (signed-out users see the item and get the login dialog). */
   const showRepost = $derived(!isOwnEvent);
   const hasMyRepost = $derived(!!myRepost);
+  const showCopyEvent = $derived(canCopyEventToCompose(event.kind));
+  const showEditEvent = $derived(canEditAsShortNote(event, $session.pubkey));
+
+  function openComposeCopy(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    window.location.hash = `#/compose?copy=${event.id.toLowerCase()}`;
+  }
+
+  function openComposeEdit(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    window.location.hash = `#/compose?edit=${event.id.toLowerCase()}`;
+  }
 
   $effect(() => {
     const target = event;
@@ -408,6 +436,38 @@
           >
             Open in a thread
           </a>
+        </li>
+      {/if}
+      {#if showCopyEvent}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeCopy();
+            }}
+          >
+            Copy this event
+          </button>
+        </li>
+      {/if}
+      {#if showEditEvent}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeEdit();
+            }}
+          >
+            Edit this event
+          </button>
         </li>
       {/if}
       {#if showRepost}

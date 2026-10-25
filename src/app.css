@@ -3738,6 +3738,70 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   word-break: break-word;
   font-size: 0.8em;
 }
+.details-edits {
+  min-width: 0;
+}
+.details-edit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+.details-edit-item {
+  min-width: 0;
+}
+.details-edit-meta {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+}
+.details-edit-empty {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.details-edit-diff {
+  margin: 0.15rem 0 0;
+  padding: 0.55rem 0.65rem;
+  max-width: 100%;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--paper) 55%, var(--paper-light));
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.details-edit-diff code {
+  display: block;
+  max-width: none;
+  font-size: inherit;
+}
+.details-edit-diff .diff-line {
+  display: block;
+  padding: 0.05rem 0.2rem;
+  margin: 0 -0.2rem;
+  border-radius: 0.2rem;
+}
+.details-edit-diff .diff-del {
+  background: color-mix(in srgb, #b42318 14%, transparent);
+  color: color-mix(in srgb, #b42318 75%, var(--ink));
+}
+.details-edit-diff .diff-add {
+  background: color-mix(in srgb, #067647 14%, transparent);
+  color: color-mix(in srgb, #067647 75%, var(--ink));
+}
+.details-edit-diff .diff-same {
+  color: var(--text-muted);
+}
+:root.dark .details-edit-diff .diff-del {
+  background: color-mix(in srgb, #f97066 18%, transparent);
+  color: color-mix(in srgb, #f97066 70%, var(--ink));
+}
+:root.dark .details-edit-diff .diff-add {
+  background: color-mix(in srgb, #47cd89 18%, transparent);
+  color: color-mix(in srgb, #47cd89 70%, var(--ink));
+}
 .found-list {
   list-style: none;
   margin: 0;
@@ -3758,6 +3822,13 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   .details-list dt {
     margin: 0;
     padding-top: 0.15rem;
+  }
+  .details-list dd.details-edits {
+    grid-column: 1 / -1;
+  }
+  .details-list dt:has(+ dd.details-edits) {
+    grid-column: 1 / -1;
+    margin-top: 0.35rem;
   }
 }
 

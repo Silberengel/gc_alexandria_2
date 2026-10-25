@@ -10,9 +10,27 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { opComposeId, registerOpReplyToolbar, toggleOpCompose } from '$lib/stores/op-reply';
+  import { KIND } from '$lib/constants';
+  import {
+    isShortNoteEdited,
+    onShortNoteEdits,
+    shortNoteEditState,
+    type ShortNoteEditState
+  } from '$lib/short-note-edits';
+  import { diffHasChanges, diffLines, type DiffLine } from '$lib/text-diff';
+  import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
+
+  type EditRevision = {
+    edit: Event;
+    index: number;
+    lines: DiffLine[];
+    hasChanges: boolean;
+    relative: string;
+    absolute: string;
+  };
 
   interface Props {
     event: Event;
@@ -26,6 +44,65 @@
   let { event, found, getSeedEvents, canExport = false }: Props = $props();
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
+
+  let noteEditState = $state<ShortNoteEditState | null>(null);
+  let noteEditTick = $state(0);
+
+  $effect(() => {
+    const ev = event;
+    if (ev.kind !== KIND.TEXT_NOTE) {
+      noteEditState = null;
+      return;
+    }
+    return onShortNoteEdits(ev.id, () => {
+      noteEditTick += 1;
+    });
+  });
+
+  $effect(() => {
+    const ev = event;
+    void noteEditTick;
+    if (ev.kind !== KIND.TEXT_NOTE) {
+      noteEditState = null;
+      return;
+    }
+    let cancelled = false;
+    void shortNoteEditState(ev).then((state) => {
+      if (!cancelled) noteEditState = state;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  /** Each author 1010 in time order, diffed against the previous text (original → … → latest). */
+  const editRevisions = $derived.by((): EditRevision[] => {
+    if (event.kind !== KIND.TEXT_NOTE || !noteEditState?.authorEdits.length) return [];
+    const out: EditRevision[] = [];
+    let prev = event.content ?? '';
+    let n = 0;
+    for (const edit of noteEditState.authorEdits) {
+      const next = edit.content ?? '';
+      if (next === prev) continue;
+      n += 1;
+      const lines = diffLines(prev, next);
+      out.push({
+        edit,
+        index: n,
+        lines,
+        hasChanges: diffHasChanges(lines),
+        relative: formatRelativeTime(edit.created_at),
+        absolute: formatAbsoluteTime(edit.created_at)
+      });
+      prev = next;
+    }
+    return out;
+  });
+  const showEditDiffs = $derived(
+    event.kind === KIND.TEXT_NOTE &&
+      isShortNoteEdited(event, noteEditState?.latestAuthorEdit) &&
+      editRevisions.length > 0
+  );
 
   $effect(() => registerOpReplyToolbar(event.id));
 
@@ -132,6 +209,46 @@
           <span class="muted">Not yet observed on a relay</span>
         {/if}
       </dd>
+      {#if showEditDiffs}
+        <dt>Edits</dt>
+        <dd class="details-edits">
+          <ol class="details-edit-list">
+            {#each editRevisions as rev (rev.edit.id)}
+              <li class="details-edit-item">
+                <p class="details-edit-meta muted">
+                  #{rev.index}
+                  · kind 1010
+                  {#if rev.relative}
+                    ·
+                    <time
+                      datetime={new Date(rev.edit.created_at * 1000).toISOString()}
+                      title={rev.absolute}>{rev.relative}</time
+                    >
+                  {/if}
+                  · <code title={rev.edit.id}>{rev.edit.id.slice(0, 12)}…</code>
+                </p>
+                {#if rev.hasChanges}
+                  <pre
+                    class="details-edit-diff"
+                    aria-label={`Diff for edit ${rev.index}`}
+                  ><code
+                      >{#each rev.lines as line, i (i)}<span
+                          class="diff-line"
+                          class:diff-add={line.type === 'add'}
+                          class:diff-del={line.type === 'del'}
+                          class:diff-same={line.type === 'same'}
+                          >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                    ></pre
+                  >
+                {:else}
+                  <p class="muted details-edit-empty">No line changes.</p>
+                {/if}
+              </li>
+            {/each}
+          </ol>
+        </dd>
+      {/if}
     </dl>
   </details>
   {#if busy && formatLabel}

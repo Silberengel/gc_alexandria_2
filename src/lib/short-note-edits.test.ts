@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
+  baselineContentForEdit,
   buildShortNoteEditState,
   getEditTargetId,
   getReplyEditId,
   isAuthorEdit,
   isShortNoteEdited,
   mergeEditedShortNote,
-  mergeShortNoteEditEvents
+  mergeShortNoteEditEvents,
+  shortNoteEditDraft
 } from './short-note-edits';
 
 const kind1Author = 'aa'.repeat(32);
@@ -111,5 +113,18 @@ describe('short-note-edits', () => {
       sig: 'sig'
     };
     expect(getReplyEditId(reply)).toBe(editId);
+  });
+
+  it('baseline prefers latest author edit content', () => {
+    const e1 = editEvent('11'.repeat(32), kind1Author, 'revised', 200);
+    expect(baselineContentForEdit(kind1, e1)).toBe('revised');
+    expect(baselineContentForEdit(kind1, null)).toBe(kind1.content);
+  });
+
+  it('drafts kind 1010 with e tag pointing at the note', () => {
+    const draft = shortNoteEditDraft(kind1, 'new text');
+    expect(draft.kind).toBe(KIND.SHORT_NOTE_EDIT);
+    expect(draft.content).toBe('new text');
+    expect(draft.tags[0]).toEqual(['e', noteId, '', kind1Author]);
   });
 });

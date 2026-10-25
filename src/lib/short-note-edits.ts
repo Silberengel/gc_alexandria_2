@@ -78,6 +78,35 @@ export function isShortNoteEdited(kind1: Event, latestAuthorEdit: Event | null |
   return !!latestAuthorEdit && latestAuthorEdit.content !== kind1.content;
 }
 
+/** Baseline text when opening Compose for an author short-note edit. */
+export function baselineContentForEdit(
+  kind1: Event,
+  latestAuthorEdit: Event | null | undefined
+): string {
+  if (latestAuthorEdit?.content != null) return latestAuthorEdit.content;
+  return kind1.content ?? '';
+}
+
+/**
+ * Unsigned NIP-41 kind-1010 author edit (imwald ShortNoteEditDraftBuilder parity).
+ * `e` tag 4th cell is the original note author pubkey.
+ */
+export function shortNoteEditDraft(
+  original: Event,
+  content: string
+): { kind: number; content: string; tags: string[][] } {
+  if (original.kind !== KIND.TEXT_NOTE) {
+    throw new Error('Short-note edits only apply to kind 1');
+  }
+  const noteId = original.id.trim().toLowerCase();
+  if (!HEX_64.test(noteId)) throw new Error('Original note id missing');
+  return {
+    kind: KIND.SHORT_NOTE_EDIT,
+    content,
+    tags: [['e', noteId, '', original.pubkey.toLowerCase()]]
+  };
+}
+
 /** Kind-1111 reply: `e` tag with marker `edit` referencing a kind-1010 revision. */
 export function getReplyEditId(reply: Event): string | null {
   const tag = reply.tags.find(

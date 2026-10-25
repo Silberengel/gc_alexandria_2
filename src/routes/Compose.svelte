@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Event as NostrEvent } from 'nostr-tools';
-  import { querystring } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import TopBar from '$lib/components/TopBar.svelte';
+  import { feedThreadPath } from '$lib/feed';
+  import { warmNavEvent } from '$lib/nav-warm';
   import EventBody from '$lib/components/EventBody.svelte';
   import ComposeGrammarTextarea from '$lib/components/ComposeGrammarTextarea.svelte';
   import ComposeHashtagRows from '$lib/components/ComposeHashtagRows.svelte';
@@ -19,7 +21,7 @@
   import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { signAndPublish, signUnsigned, consumeSignFailure } from '$lib/sign';
+  import { signAndPublish, signUnsigned, consumeSignFailure, withClientTag } from '$lib/sign';
   import { showNotice, showPublishResult } from '$lib/stores/toast';
   import {
     composerFieldSpecs,
@@ -57,6 +59,16 @@
     valuesFromMetadataEvent
   } from '$lib/compose-preload';
   import {
+    canEditAsShortNote,
+    eventToComposeDraft
+  } from '$lib/event-compose-preload';
+  import {
+    baselineContentForEdit,
+    ingestShortNoteEdit,
+    shortNoteEditDraft,
+    shortNoteEditState
+  } from '$lib/short-note-edits';
+  import {
     checkGrammar,
     defaultGrammarLanguageToolCode,
     grammarLanguageOptions,
@@ -72,6 +84,10 @@
   import { lruGet, lruSet } from '$lib/compose-lru';
   import { relayPool } from '$lib/nostr/pool';
   import { profileStack } from '$lib/nostr/selector';
+  import { memoryGetEvent } from '$lib/nostr/event-memory';
+  import { cacheGetEvent } from '$lib/nostr/cache';
+  import { fetchById } from '$lib/nostr/fetch';
+  import { KIND } from '$lib/constants';
 
   const groups = composePickerGroups();
   const classIds = eventClassIds();
@@ -110,6 +126,10 @@
   let draftRevision = $state(0);
   type EditorTab = 'edit' | 'preview' | 'json';
   let editorTab = $state<EditorTab>('edit');
+  /** Own kind-1 being revised as NIP-41 kind 1010 (null = normal compose / copy). */
+  let shortNoteEditSource = $state<NostrEvent | null>(null);
+  /** Last `?copy=` / `?edit=` id we applied, so the effect does not loop. */
+  let appliedIntentKey = $state<string | null>(null);
 
   const fields = $derived.by((): FieldDef[] => {
     if (isCatalogued(kind)) return composerFieldSpecs(kind);
@@ -118,9 +138,11 @@
   });
   const contentMeta = $derived(getKind(kind)?.content);
   const showBody = $derived(showContentBox(kind) || (!isCatalogued(kind) && otherLocked));
-  const showHashtags = $derived(isCatalogued(kind) ? supportsHashtags(kind) : true);
+  const showHashtags = $derived(
+    !shortNoteEditSource && (isCatalogued(kind) ? supportsHashtags(kind) : true)
+  );
   const showFreeform = $derived(
-    kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
+    !shortNoteEditSource && kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
   );
   const showGrammar = $derived(grammarOn && kind !== 9802 && showBody);
   const draftItems = $derived.by(() => {
@@ -199,7 +221,7 @@
 
   function persistCurrent() {
     const pk = $session.pubkey;
-    if (!pk || otherMode) return;
+    if (!pk || otherMode || shortNoteEditSource) return;
     const draft = snapshotDraft();
     if (isComposeDraftEmpty(draft, emptyValuesFor(draft.kind))) {
       deleteComposeDraft(pk, draft.kind);
@@ -235,6 +257,52 @@
     formError = '';
     grammarIssues = [];
     grammarCheckedSource = '';
+    editorTab = 'edit';
+    shortNoteEditSource = null;
+    appliedIntentKey = null;
+    bumpPreview();
+  }
+
+  async function resolveIntentEvent(id: string): Promise<NostrEvent | null> {
+    const hex = id.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hex)) return null;
+    return (
+      memoryGetEvent(hex) ??
+      (await cacheGetEvent(hex).catch(() => null)) ??
+      (await fetchById(hex)) ??
+      null
+    );
+  }
+
+  async function applyCopyIntent(source: NostrEvent): Promise<void> {
+    persistCurrent();
+    shortNoteEditSource = null;
+    const draft = eventToComposeDraft(source);
+    applyDraft(draft);
+    formError = '';
+    editorTab = 'edit';
+    bumpPreview();
+  }
+
+  async function applyEditIntent(source: NostrEvent): Promise<void> {
+    const pk = $session.pubkey;
+    if (!canEditAsShortNote(source, pk)) {
+      formError = 'Only your own kind 1 notes can be edited this way.';
+      return;
+    }
+    persistCurrent();
+    const edits = await shortNoteEditState(source);
+    const baseline = baselineContentForEdit(source, edits.latestAuthorEdit);
+    shortNoteEditSource = source;
+    applyDraft({
+      kind: KIND.TEXT_NOTE,
+      content: baseline,
+      values: {},
+      hashtags: [],
+      imetaTags: [],
+      freeformTags: []
+    });
+    formError = '';
     editorTab = 'edit';
     bumpPreview();
   }
@@ -359,9 +427,13 @@
 
   function bumpPreview() {
     const gen = ++previewGen;
-    const state = formState();
-    const partial = buildComposePartial(state);
     const pk = $session.pubkey ?? '0'.repeat(64);
+    const partial = shortNoteEditSource
+      ? (() => {
+          const draft = shortNoteEditDraft(shortNoteEditSource, content);
+          return { ...draft, tags: withClientTag(draft.tags) };
+        })()
+      : buildComposePartial(formState());
     previewJson = JSON.stringify(
       {
         kind: partial.kind,
@@ -388,6 +460,7 @@
   $effect(() => {
     void kind;
     void content;
+    void shortNoteEditSource;
     // Deep-read proxies: `void values` alone does not re-run on values[id] = … /
     // bind:value={values[id]} (e.g. 30040 title), so drafts never saved.
     void JSON.stringify(values);
@@ -544,14 +617,41 @@
       openLoginDialog();
       return;
     }
-    const state = formState();
-    const gate = validateComposeForm(state);
-    if (!gate.ok) {
-      formError = gate.error;
-      return;
-    }
     posting = true;
     try {
+      if (shortNoteEditSource) {
+        const text = content.trim();
+        if (!text) {
+          formError = 'Edited notes need some content.';
+          return;
+        }
+        const partial = shortNoteEditDraft(shortNoteEditSource, text);
+        const signed = await signAndPublish(partial);
+        if (!signed) {
+          formError = consumeSignFailure() ?? 'Could not sign or publish.';
+          showPublishResult(false);
+          return;
+        }
+        const editedNote = shortNoteEditSource;
+        ingestShortNoteEdit(signed, editedNote);
+        deleteComposeDraft($session.pubkey, KIND.TEXT_NOTE);
+        refreshDraftList();
+        showPublishResult(true);
+        showNotice('Edit published.');
+        shortNoteEditSource = null;
+        appliedIntentKey = null;
+        content = '';
+        warmNavEvent(editedNote);
+        void push(feedThreadPath(editedNote));
+        return;
+      }
+
+      const state = formState();
+      const gate = validateComposeForm(state);
+      if (!gate.ok) {
+        formError = gate.error;
+        return;
+      }
       const partial = buildComposePartial(state);
       const signed = await signAndPublish(partial);
       if (!signed) {
@@ -582,7 +682,9 @@
     const pk = $session.pubkey;
     if (!pk || bootstrappedFor === pk) return;
     bootstrappedFor = pk;
-    const rawKind = new URLSearchParams($querystring ?? '').get('kind');
+    const params = new URLSearchParams($querystring ?? '');
+    if (params.get('copy') || params.get('edit')) return;
+    const rawKind = params.get('kind');
     const qKind =
       rawKind != null && rawKind.trim() !== '' ? Number(rawKind.trim()) : Number.NaN;
     const allowed = new Set<number>([
@@ -593,16 +695,49 @@
     const start = Number.isInteger(qKind) && allowed.has(qKind) ? qKind : kind;
     void loadKind(start);
   });
+
+  $effect(() => {
+    const pk = $session.pubkey;
+    const params = new URLSearchParams($querystring ?? '');
+    const copyId = (params.get('copy') ?? '').trim().toLowerCase();
+    const editId = (params.get('edit') ?? '').trim().toLowerCase();
+    const intentKey = copyId ? `copy:${copyId}` : editId ? `edit:${editId}` : '';
+    if (!pk || !intentKey) return;
+    if (appliedIntentKey === intentKey) return;
+    let cancelled = false;
+    void (async () => {
+      const id = copyId || editId;
+      const source = await resolveIntentEvent(id);
+      if (cancelled) return;
+      if (!source) {
+        formError = 'That event could not be loaded for compose.';
+        appliedIntentKey = intentKey;
+        return;
+      }
+      appliedIntentKey = intentKey;
+      if (copyId) await applyCopyIntent(source);
+      else await applyEditIntent(source);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <TopBar />
 <main class="shell reading-body compose-page">
   <header class="page-header">
     <p class="page-kicker">Publish</p>
-    <h1>Compose</h1>
+    <h1>{shortNoteEditSource ? 'Edit note' : 'Compose'}</h1>
     <p class="page-lede muted">
-      Fields and tags come from the kind catalog. Drafts stay in this browser tab until you publish or
-      sign out.
+      {#if shortNoteEditSource}
+        Publishing saves a kind {KIND.SHORT_NOTE_EDIT} revision (NIP-41) for your original note. Your
+        pubkey, a fresh timestamp, and the Alexandria client tag are set when you sign.
+      {:else}
+        Fields and tags come from the kind catalog. Drafts stay in this browser tab until you publish
+        or sign out. Copying an event preloads its fields as you — id, signature, and client tag are
+        reminted on publish.
+      {/if}
     </p>
   </header>
 
@@ -615,27 +750,38 @@
     <div class="compose-toolbar">
       <label class="compose-kind">
         <span>Kind</span>
-        <select bind:value={pickerValue} onchange={onPickerChange}>
-          {#each groups as group}
-            <optgroup label={group.label}>
-              {#each group.kinds as k}
-                <option value={k}>{composeKindLabel(k)}</option>
-              {/each}
-            </optgroup>
-          {/each}
-          <option value={OTHER_KIND_SENTINEL}>Other…</option>
-        </select>
+        {#if shortNoteEditSource}
+          <p class="compose-kind-fixed" title={`Editing note ${shortNoteEditSource.id}`}>
+            {KIND.SHORT_NOTE_EDIT} – Short-note edit (NIP-41)
+            <span class="muted compose-kind-fixed-target"
+              >target {shortNoteEditSource.id.slice(0, 12)}…</span
+            >
+          </p>
+        {:else}
+          <select bind:value={pickerValue} onchange={onPickerChange}>
+            {#each groups as group}
+              <optgroup label={group.label}>
+                {#each group.kinds as k}
+                  <option value={k}>{composeKindLabel(k)}</option>
+                {/each}
+              </optgroup>
+            {/each}
+            <option value={OTHER_KIND_SENTINEL}>Other…</option>
+          </select>
+        {/if}
       </label>
-      {#if otherLocked}
+      {#if otherLocked && !shortNoteEditSource}
         <span class="muted other-summary"
           >{kind} · {getEventClass(otherClass).label} · {isCatalogued(kind)
             ? kindPickerLabel(kind)
             : 'Custom'}</span
         >
       {/if}
-      <button type="button" class="btn" onclick={() => (draftListOpen = !draftListOpen)}>
-        Drafts ({draftItems.length})
-      </button>
+      {#if !shortNoteEditSource}
+        <button type="button" class="btn" onclick={() => (draftListOpen = !draftListOpen)}>
+          Drafts ({draftItems.length})
+        </button>
+      {/if}
     </div>
 
     {#if draftListOpen && draftItems.length}
@@ -951,7 +1097,13 @@
 
         <div class="compose-actions">
           <button class="btn btn-primary" type="submit" disabled={posting || uploading}>
-            {posting ? 'Publishing…' : 'Publish'}
+            {#if posting}
+              Publishing…
+            {:else if shortNoteEditSource}
+              Publish edit
+            {:else}
+              Publish
+            {/if}
           </button>
           <button
             class="btn"
@@ -961,6 +1113,7 @@
           >
             Clear
           </button>
+          {#if !shortNoteEditSource}
           <label
             class="btn btn-icon compose-upload-btn"
             class:is-busy={uploading}
@@ -989,6 +1142,7 @@
               onchange={(e) => void onFilePicked(e)}
             />
           </label>
+          {/if}
         </div>
       </form>
     {/if}
@@ -996,6 +1150,20 @@
 </main>
 
 <style>
+  .compose-kind-fixed {
+    margin: 0;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--paper) 70%, var(--paper-light));
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+  .compose-kind-fixed-target {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8rem;
+  }
   .compose-toolbar {
     display: flex;
     flex-wrap: wrap;
