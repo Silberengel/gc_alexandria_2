@@ -11,11 +11,13 @@
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
+  import FeedBoosters from '$lib/components/FeedBoosters.svelte';
   import { KIND } from '$lib/constants';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import { collectLivePresence } from '$lib/live-chat';
   import {
     emptyWorkResponses,
+    eventsPointingAtId,
     fetchWorkResponses,
     type WorkResponses
   } from '$lib/comments';
@@ -31,7 +33,7 @@
     DEFAULT_LIKE_REACTION_DISPLAY_EMOJI,
     isPositiveLikeContent
   } from '$lib/reactions';
-  import { isRepostKind, peekRepostExcerpt, repostTargetId } from '$lib/repost';
+  import { collapseFeedReposts, peekRepostTarget } from '$lib/repost';
   import {
     collectNewFeedEvents,
     feedEventsWatermark,
@@ -43,12 +45,17 @@
     feedThreadPointerFromId,
     fetchFeedThreadTarget,
     mergeFeedPosts,
+    loadAuthorFeed,
+    loadAuthorFeedWithReplies,
     loadFeed,
     loadFeedWithReplies,
     loadNotifications,
+    parseFeedAuthorParam,
     parseFeedTab,
     parseFeedThreadParam,
     parseFeedThreadTarget,
+    recallAuthorFeedPosts,
+    recallAuthorFeedWithReplies,
     recallFeedPosts,
     recallFeedWithReplies,
     recallNotifications,
@@ -67,13 +74,23 @@
   const threadTarget = $derived(parseFeedThreadTarget($querystring));
   const pointer = $derived(threadTarget ? parseFeedThreadParam($querystring) : null);
   const signedIn = $derived(!!$session.pubkey);
+  const feedQuery = $derived(new URLSearchParams($querystring ?? ''));
+  const feedAuthor = $derived(parseFeedAuthorParam(feedQuery.get('author')));
   const feedTab = $derived(
-    parseFeedTab(new URLSearchParams($querystring ?? '').get('tab'))
+    feedAuthor && parseFeedTab(feedQuery.get('tab')) === 'notifications'
+      ? 'replies'
+      : parseFeedTab(feedQuery.get('tab'))
   );
   let metadataEvents = $state<Event[]>([]);
   const lede = $derived.by(() => {
     void $session.pubkey;
     void feedTab;
+    void feedAuthor;
+    if (feedAuthor) {
+      return feedTab === 'replies'
+        ? 'Original posts and replies from this reader.'
+        : 'Original posts from this reader.';
+    }
     if (feedTab === 'notifications') {
       return signedIn
         ? 'Replies, comments, reactions, boosts, highlights, quotes, and zaps aimed at you.'
@@ -104,6 +121,7 @@
   });
 
   function setFeedTab(next: FeedTab): void {
+    if (feedAuthor && next === 'notifications') return;
     if (next === feedTab) return;
     pendingFocusId = null;
     listRestorePending = false;
@@ -113,25 +131,37 @@
     loadedTab = null;
     items = [];
     shown = {};
-    boostExcerpts = {};
+    boostTargets = {};
+    boostFetchQueued = {};
     listSettled = false;
     listLoading = true;
-    void replace(feedListPath(next));
+    void replace(feedListPath(next, { author: feedAuthor }));
   }
 
   let items = $state<Event[]>([]);
-  const visibleItems = $derived(filterMuted(items, $muteState));
+  const visibleItems = $derived(
+    filterMuted(
+      feedAuthor
+        ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
+        : items,
+      $muteState
+    )
+  );
+  /** Reposts collapse onto the target event; boosters show as profile pics. */
+  const feedRows = $derived(collapseFeedReposts(visibleItems));
   let listLoading = $state(true);
   /** True only after a load finishes once the viewer's relay lists are in place. */
   let listSettled = $state(false);
   let listError = $state('');
   let feedRelays = $state(0);
-  /** Last tab whose list is currently shown — wipe rows when the tab changes. */
-  let loadedTab = $state<FeedTab | null>(null);
+  /** Last tab+author whose list is currently shown — wipe rows when the scope changes. */
+  let loadedTab = $state<string | null>(null);
   /** Rows in view. Each one renders its body and embedded cards; the rest stay a preview. */
   let shown = $state<Record<string, true>>({});
-  /** Excerpt of the boosted note for kind 6/16 rows (imwald BoostedByCard). */
-  let boostExcerpts = $state<Record<string, string>>({});
+  /** Resolved target events for collapsed boost-only rows (undefined = not fetched). */
+  let boostTargets = $state<Record<string, Event | null>>({});
+  /** Target ids already handed to fetchById (avoid re-queue on effect re-entry). */
+  let boostFetchQueued = $state<Record<string, true>>({});
   /** Row to scroll into view after Return (same component instance — list never remounts). */
   let pendingFocusId: string | null = null;
   let savedListScrollY = 0;
@@ -204,10 +234,6 @@
       return face;
     }
     if (item.kind === KIND.ZAP) return 'Zap receipt';
-    if (isRepostKind(item.kind)) {
-      const excerpt = boostExcerpts[item.id] ?? peekRepostExcerpt(item);
-      return excerpt ? cropRenderedUrlsInText(excerpt) : '';
-    }
     const preview = eventPreview(item);
     const text =
       item.kind === KIND.TEXT_NOTE
@@ -218,31 +244,35 @@
     return cropRenderedUrlsInText(text);
   }
 
+  /** Resolve boosted note bodies for collapsed boost-only rows. */
   $effect(() => {
-    const pending: Event[] = [];
-    for (const item of visibleItems) {
-      if (!isRepostKind(item.kind) || !shown[item.id.toLowerCase()]) continue;
-      if (boostExcerpts[item.id] !== undefined) continue;
-      const peek = peekRepostExcerpt(item);
-      if (peek) {
-        boostExcerpts = { ...boostExcerpts, [item.id]: peek };
+    const pending: string[] = [];
+    const seed: Record<string, Event | null> = {};
+    for (const row of feedRows) {
+      if (row.type !== 'boost-only') continue;
+      if (boostTargets[row.targetId] !== undefined || boostFetchQueued[row.targetId]) continue;
+      const fromBoost = peekRepostTarget(row.boosts[0]!);
+      if (fromBoost) {
+        seed[row.targetId] = fromBoost;
         continue;
       }
-      if (repostTargetId(item)) pending.push(item);
-      else boostExcerpts = { ...boostExcerpts, [item.id]: '' };
+      pending.push(row.targetId);
+    }
+    if (Object.keys(seed).length) {
+      boostTargets = { ...boostTargets, ...seed };
     }
     if (!pending.length) return;
+    boostFetchQueued = {
+      ...boostFetchQueued,
+      ...Object.fromEntries(pending.map((id) => [id, true as const]))
+    };
     let cancelled = false;
     void (async () => {
-      for (const item of pending) {
-        const id = repostTargetId(item);
-        if (!id || cancelled) continue;
+      for (const id of pending) {
+        if (cancelled) return;
         const target = await fetchById(id);
         if (cancelled) return;
-        boostExcerpts = {
-          ...boostExcerpts,
-          [item.id]: peekRepostExcerpt(item) || target?.content?.trim() || ''
-        };
+        boostTargets = { ...boostTargets, [id]: target };
       }
     })();
     return () => {
@@ -265,6 +295,29 @@
   const fullPage = $derived(event && libraryKind ? libraryDocumentPath(event) : '');
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
   const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
+  /**
+   * Kind 6 / 16 for the open thread OP.
+   * Prefer list-row boosts for an instant strip, then merge relay responses.
+   */
+  const threadBoosts = $derived.by(() => {
+    if (!event) return [] as Event[];
+    const id = event.id.toLowerCase();
+    const byId = new Map<string, Event>();
+    for (const row of feedRows) {
+      const boosts =
+        row.type === 'event' && row.event.id.toLowerCase() === id
+          ? row.boosts
+          : row.type === 'boost-only' && row.targetId === id
+            ? row.boosts
+            : null;
+      if (!boosts) continue;
+      for (const boost of boosts) byId.set(boost.id.toLowerCase(), boost);
+    }
+    for (const boost of eventsPointingAtId(responses.boosts ?? [], id)) {
+      byId.set(boost.id.toLowerCase(), boost);
+    }
+    return [...byId.values()];
+  });
   const livePresence = $derived(
     event?.kind === KIND.LIVE_EVENT ? collectLivePresence(event, responses) : []
   );
@@ -313,39 +366,45 @@
     });
   }
 
-  function openThread(item: Event, e: MouseEvent): void {
+  function openThreadForEvent(item: Event, e: MouseEvent, restoreId: string): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
     if (
       target.closest(
-        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap'
+        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge'
       )
     ) {
       return;
     }
-    const boostTargetId = isRepostKind(item.kind) ? repostTargetId(item) : null;
-    armListRestore(item.id);
-    warmNavEvent(item, boostTargetId);
-    if (boostTargetId) {
-      const q = new URLSearchParams();
-      q.set('thread', feedThreadPointerFromId(boostTargetId));
-      if (feedTab !== 'original') q.set('tab', feedTab);
-      void replace(`/feed?${q.toString()}`);
-    } else {
-      void replace(feedThreadPath(item, feedTab));
-    }
+    armListRestore(restoreId);
+    warmNavEvent(item);
+    void replace(feedThreadPath(item, feedTab, { author: feedAuthor }));
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
-  function openThreadLink(item: Event): void {
-    armListRestore(item.id);
+  function openThreadForTargetId(targetId: string, e: MouseEvent, warm?: Event | null): void {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('a, button, input, textarea, video, audio, .userbadge')) return;
+    armListRestore(targetId);
+    if (warm) warmNavEvent(warm);
+    const q = new URLSearchParams();
+    q.set('thread', feedThreadPointerFromId(targetId));
+    if (feedTab !== 'original') q.set('tab', feedTab);
+    if (feedAuthor) q.set('author', feedAuthor);
+    void replace(`/feed?${q.toString()}`);
+    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  }
+
+  function openThreadLink(item: Event, restoreId = item.id): void {
+    armListRestore(restoreId);
     warmNavEvent(item);
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   /** Back to the feed list at the card that was opened (same route — list state intact). */
   function returnToFeedList(): void {
-    void replace(feedListPath(feedTab));
+    void replace(feedListPath(feedTab, { author: feedAuthor }));
   }
 
   $effect(() => {
@@ -365,6 +424,8 @@
     // wipe the in-memory timeline when only `?thread=` toggles.
     void feedRelays;
     const tab = feedTab;
+    const author = feedAuthor;
+    const listKey = `${tab}:${author ?? ''}`;
     const pubkey = $session.pubkey;
     const sessionLoading = $session.loading;
     const meta = metadataEvents;
@@ -372,13 +433,14 @@
     let cancelled = false;
     listError = '';
 
-    if (loadedTab !== tab) {
+    if (loadedTab !== listKey) {
       items = [];
       shown = {};
-      boostExcerpts = {};
+      boostTargets = {};
+      boostFetchQueued = {};
       pendingNew = [];
       feedWatermark = 0;
-      loadedTab = tab;
+      loadedTab = listKey;
       listLoading = true;
       listSettled = false;
     } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
@@ -394,8 +456,13 @@
     }
 
     if (pubkey && sessionLoading && !feedRelayGroups().personal.length && tab !== 'notifications') {
-      const recall =
-        tab === 'replies' ? recallFeedWithReplies() : recallFeedPosts();
+      const recall = author
+        ? tab === 'replies'
+          ? recallAuthorFeedWithReplies(author)
+          : recallAuthorFeedPosts(author)
+        : tab === 'replies'
+          ? recallFeedWithReplies()
+          : recallFeedPosts();
       void recall.then((cached) => {
         if (cancelled || !cached.length) return;
         ingestFeedEvents(cached, muted);
@@ -427,6 +494,11 @@
       if (tab === 'notifications') {
         return loadNotifications(pubkey!, muted, onCache);
       }
+      if (author) {
+        return tab === 'replies'
+          ? loadAuthorFeedWithReplies(author, muted, onCache)
+          : loadAuthorFeed(author, muted, onCache);
+      }
       if (tab === 'replies') {
         return loadFeedWithReplies(meta, muted, onCache);
       }
@@ -435,6 +507,11 @@
 
     const recallForTab = (): Promise<Event[]> => {
       if (tab === 'notifications' && pubkey) return recallNotifications(pubkey);
+      if (author) {
+        return tab === 'replies'
+          ? recallAuthorFeedWithReplies(author)
+          : recallAuthorFeedPosts(author);
+      }
       if (tab === 'replies') return recallFeedWithReplies();
       return recallFeedPosts();
     };
@@ -507,6 +584,7 @@
   $effect(() => {
     if (pointer || !listSettled) return;
     const tab = feedTab;
+    const author = feedAuthor;
     const pubkey = $session.pubkey;
     const meta = metadataEvents;
     const muted = $muteState;
@@ -518,6 +596,11 @@
         let events: Event[] = [];
         if (tab === 'notifications' && pubkey) {
           events = await loadNotifications(pubkey, muted);
+        } else if (author) {
+          events =
+            tab === 'replies'
+              ? await loadAuthorFeedWithReplies(author, muted)
+              : await loadAuthorFeed(author, muted);
         } else if (tab === 'replies') {
           events = await loadFeedWithReplies(meta, muted);
         } else {
@@ -605,6 +688,7 @@
           <DetailsPanel {event} />
         {:else}
           <article class="card reading-body">
+            <FeedBoosters boosts={threadBoosts} />
             {#if libraryKind}
               <EditionHeader {event} />
             {:else}
@@ -652,6 +736,12 @@
     <header class="page-header">
       <h1>Feed</h1>
       <p class="page-lede muted">{lede}</p>
+      {#if feedAuthor}
+        <p class="feed-author-filter">
+          <UserBadge pubkey={feedAuthor} />
+          <a class="btn" href="#/feed?tab=replies" use:link>Clear author filter</a>
+        </p>
+      {/if}
     </header>
     <div class="feed-tabs" role="tablist" aria-label="Feed view">
       <button
@@ -672,15 +762,17 @@
         tabindex={pointer ? -1 : 0}
         onclick={() => setFeedTab('replies')}>Replies</button
       >
-      <button
-        type="button"
-        role="tab"
-        class="feed-tab"
-        class:active={feedTab === 'notifications'}
-        aria-selected={feedTab === 'notifications'}
-        tabindex={pointer ? -1 : 0}
-        onclick={() => setFeedTab('notifications')}>Notifications</button
-      >
+      {#if !feedAuthor}
+        <button
+          type="button"
+          role="tab"
+          class="feed-tab"
+          class:active={feedTab === 'notifications'}
+          aria-selected={feedTab === 'notifications'}
+          tabindex={pointer ? -1 : 0}
+          onclick={() => setFeedTab('notifications')}>Notifications</button
+        >
+      {/if}
     </div>
     {#if feedTab === 'notifications' && !signedIn}
       <p class="muted">
@@ -725,57 +817,44 @@
         </p>
       {/if}
       <ul class="feed-list">
-        {#each visibleItems as item (item.id)}
-          {@const reactionRow = item.kind === KIND.REACTION || item.kind === 17}
-          {@const boostRow = isRepostKind(item.kind)}
-          {@const boostTarget = boostRow ? repostTargetId(item) : null}
-          {@const boostExcerpt = boostRow
-            ? boostExcerpts[item.id] ?? peekRepostExcerpt(item)
-            : ''}
-          {@const threadHref = `#${boostTarget
-            ? `/feed?thread=${feedThreadPointerFromId(boostTarget)}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}`
-            : feedThreadPath(item, feedTab)}`}
-          <li
-            class="card feed-row"
-            class:feed-row-oneline={reactionRow}
-            class:feed-row-boost={boostRow}
-            data-feed-row={item.id.toLowerCase()}
-            use:watchRow={item.id}
-          >
-            <div
-              class="feed-hit"
-              class:feed-hit-oneline={reactionRow}
-              role="link"
-              tabindex="0"
-              onclick={(e) => openThread(item, e)}
-              onkeydown={(e) => {
-                if (e.target !== e.currentTarget) return;
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                openThread(item, e as unknown as MouseEvent);
-              }}
+        {#each feedRows as row (row.type === 'event' ? row.event.id : `boost:${row.targetId}`)}
+          {#if row.type === 'event'}
+            {@const item = row.event}
+            {@const reactionRow = item.kind === KIND.REACTION || item.kind === 17}
+            {@const threadHref = `#${feedThreadPath(item, feedTab, { author: feedAuthor })}`}
+            <li
+              class="card feed-row"
+              class:feed-row-oneline={reactionRow}
+              data-feed-row={item.id.toLowerCase()}
+              use:watchRow={item.id}
             >
-              <div class="thread-head">
-                {#if boostRow}
-                  <span class="feed-boost-label">Boosted by</span>
-                {/if}
-                <UserBadge pubkey={item.pubkey} />
-                <a
-                  class="thread-time muted"
-                  href={threadHref}
-                  use:link
-                  title={formatAbsoluteTime(item.created_at)}
-                  onclick={() => openThreadLink(item)}
-                >{formatRelativeTime(item.created_at)}</a>
-                {#if !reactionRow && !boostRow}
-                  <span class="feed-kind muted">{kindDescription(item.kind)}</span>
-                {/if}
-              </div>
-              {#if boostRow}
-                {#if boostExcerpt}
-                  <p class="feed-preview feed-boost-excerpt">{cropRenderedUrlsInText(boostExcerpt)}</p>
-                {/if}
-              {:else}
+              <div
+                class="feed-hit"
+                class:feed-hit-oneline={reactionRow}
+                role="link"
+                tabindex="0"
+                onclick={(e) => openThreadForEvent(item, e, item.id)}
+                onkeydown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  openThreadForEvent(item, e as unknown as MouseEvent, item.id);
+                }}
+              >
+                <FeedBoosters boosts={row.boosts} />
+                <div class="thread-head">
+                  <UserBadge pubkey={item.pubkey} />
+                  <a
+                    class="thread-time muted"
+                    href={threadHref}
+                    use:link
+                    title={formatAbsoluteTime(item.created_at)}
+                    onclick={() => openThreadLink(item)}
+                  >{formatRelativeTime(item.created_at)}</a>
+                  {#if !reactionRow}
+                    <span class="feed-kind muted">{kindDescription(item.kind)}</span>
+                  {/if}
+                </div>
                 <div class="feed-body">
                   {#if shown[item.id.toLowerCase()]}
                     <EventBody event={item} />
@@ -783,9 +862,56 @@
                     <p class="feed-preview">{rowText(item)}</p>
                   {/if}
                 </div>
-              {/if}
-            </div>
-          </li>
+              </div>
+            </li>
+          {:else}
+            {@const target = boostTargets[row.targetId]}
+            {@const threadHref = `#/feed?thread=${feedThreadPointerFromId(row.targetId)}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}${feedAuthor ? `&author=${feedAuthor}` : ''}`}
+            <li
+              class="card feed-row feed-row-boost"
+              data-feed-row={row.targetId}
+              use:watchRow={row.targetId}
+            >
+              <div
+                class="feed-hit"
+                role="link"
+                tabindex="0"
+                onclick={(e) => openThreadForTargetId(row.targetId, e, target)}
+                onkeydown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  openThreadForTargetId(row.targetId, e as unknown as MouseEvent, target);
+                }}
+              >
+                <FeedBoosters boosts={row.boosts} />
+                {#if target}
+                  <div class="thread-head">
+                    <UserBadge pubkey={target.pubkey} />
+                    <a
+                      class="thread-time muted"
+                      href={threadHref}
+                      use:link
+                      title={formatAbsoluteTime(target.created_at)}
+                      onclick={() => openThreadLink(target, row.targetId)}
+                    >{formatRelativeTime(target.created_at)}</a>
+                    <span class="feed-kind muted">{kindDescription(target.kind)}</span>
+                  </div>
+                  <div class="feed-body">
+                    {#if shown[row.targetId]}
+                      <EventBody event={target} />
+                    {:else}
+                      <p class="feed-preview">{rowText(target)}</p>
+                    {/if}
+                  </div>
+                {:else if target === null}
+                  <p class="muted feed-boost-missing">That note was not on your relays.</p>
+                {:else}
+                  <p class="muted feed-boost-missing">Loading reposted note…</p>
+                {/if}
+              </div>
+            </li>
+          {/if}
         {/each}
       </ul>
     {/if}
@@ -808,6 +934,13 @@
     width: 100%;
     justify-content: center;
     font-weight: 650;
+  }
+  .feed-author-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.85rem;
+    margin: 0.35rem 0 0;
   }
   .feed-tabs {
     display: flex;
@@ -860,24 +993,9 @@
   .feed-row-boost {
     max-height: none;
   }
-  .feed-boost-label {
-    flex: 0 0 auto;
-    font-size: 0.78rem;
-    font-weight: 650;
-    letter-spacing: 0.02em;
-    color: color-mix(in srgb, var(--accent) 70%, var(--ink));
-  }
-  .feed-boost-excerpt {
-    margin-top: 0.35rem;
-    padding: 0.45rem 0.65rem;
-    background: var(--reading-bg);
-    border-radius: 0.3rem;
-    font-family: var(--reading-font);
-    font-size: 0.95rem;
-    line-height: 1.45;
-    color: var(--ink-soft);
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+  .feed-boost-missing {
+    margin: 0.15rem 0 0;
+    font-size: 0.92rem;
   }
   .feed-hit {
     display: flex;

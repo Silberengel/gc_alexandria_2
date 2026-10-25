@@ -5,15 +5,18 @@ import {
   collectNewFeedEvents,
   feedEventsWatermark,
   feedFollowAuthors,
+  feedAuthorRepliesPath,
   feedListPath,
   feedRelayGroups,
   feedThreadPath,
   isFeedReplyRow,
   isNotificationForViewer,
+  isFeedRepost,
   isOriginalPost,
   isRepliesTimelineEvent,
   isTopLevelWebComment,
   keepFeedPosts,
+  parseFeedAuthorParam,
   parseFeedTab,
   parseFeedThreadParam
 } from './feed';
@@ -44,6 +47,30 @@ describe('isOriginalPost', () => {
     expect(isOriginalPost(ev({ kind: KIND.TEXT_NOTE, tags: [['e', 'e'.repeat(64)]] }))).toBe(false);
     expect(isOriginalPost(ev({ kind: KIND.COMMENT }))).toBe(false);
     expect(isOriginalPost(ev({ kind: KIND.REACTION, content: '+' }))).toBe(false);
+  });
+
+  it('keeps kind 6 / 16 reposts on author timelines', () => {
+    const boost = ev({
+      kind: KIND.REPOST,
+      tags: [
+        ['e', 'e'.repeat(64), 'wss://relay.example'],
+        ['p', 'f'.repeat(64)]
+      ]
+    });
+    const generic = ev({
+      kind: KIND.GENERIC_REPOST,
+      tags: [
+        ['e', 'e'.repeat(64), 'wss://relay.example'],
+        ['k', '30023'],
+        ['p', 'f'.repeat(64)]
+      ]
+    });
+    expect(isFeedRepost(boost)).toBe(true);
+    expect(isFeedRepost(generic)).toBe(true);
+    expect(isOriginalPost(boost)).toBe(true);
+    expect(isOriginalPost(generic)).toBe(true);
+    expect(isRepliesTimelineEvent(boost)).toBe(true);
+    expect(isRepliesTimelineEvent(generic)).toBe(true);
   });
 
   it('keeps articles and drops ones marked as replies', () => {
@@ -197,6 +224,25 @@ describe('parseFeedTab', () => {
     expect(parseFeedTab('replies')).toBe('replies');
     expect(parseFeedTab('notifications')).toBe('notifications');
     expect(parseFeedTab('nope')).toBe('original');
+  });
+});
+
+describe('parseFeedAuthorParam', () => {
+  it('accepts hex and npub, rejects junk', () => {
+    const pk = 'a'.repeat(64);
+    expect(parseFeedAuthorParam(pk)).toBe(pk);
+    expect(parseFeedAuthorParam(nip19.npubEncode(pk))).toBe(pk);
+    expect(parseFeedAuthorParam('not-a-key')).toBeNull();
+    expect(parseFeedAuthorParam(null)).toBeNull();
+  });
+});
+
+describe('feedAuthorRepliesPath', () => {
+  it('builds a replies tab URL scoped to the author', () => {
+    const pk = 'a'.repeat(64);
+    expect(feedAuthorRepliesPath(pk)).toBe(`/feed?tab=replies&author=${pk}`);
+    expect(feedListPath('replies', { author: pk })).toBe(`/feed?tab=replies&author=${pk}`);
+    expect(feedListPath('original', { author: pk })).toBe(`/feed?author=${pk}`);
   });
 });
 

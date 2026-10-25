@@ -7,6 +7,7 @@ import {
   DEFAULT_LIKE_REACTION_DISPLAY_EMOJI,
   isPositiveLikeContent,
   likeCount,
+  likePubkeys,
   myLikeReaction,
   reactionDraft
 } from './reactions';
@@ -903,6 +904,7 @@ describe('reactions', () => {
       tags: [['e', target]]
     });
     expect(likeCount([a, aNewer, b, dislike])).toBe(2);
+    expect(likePubkeys([a, aNewer, b, dislike])).toEqual(['p'.repeat(64), 'q'.repeat(64)]);
     expect(myLikeReaction([a, aNewer, b], 'p'.repeat(64))?.id).toBe(aNewer.id);
     expect(myLikeReaction([a, b], null)).toBeNull();
   });
@@ -1327,9 +1329,23 @@ describe('media once', () => {
     const event = ev({
       kind: 1,
       content: url,
-      tags: [['imeta', `url ${url}`, 'm image/jpeg', 'thumbhash YFkKJwZflVdteHhjeHh5WHeH9pt44KAH', 'dim 1229x1280']]
+      tags: [
+        [
+          'imeta',
+          `url ${url}`,
+          'm image/jpeg',
+          'alt A plate of pasta',
+          'thumbhash YFkKJwZflVdteHhjeHh5WHeH9pt44KAH',
+          'dim 1229x1280'
+        ]
+      ]
     });
-    expect(imetaMedia(event)).toEqual([{ type: 'image', url, width: 1229, height: 1280 }]);
+    expect(imetaMedia(event)).toEqual([
+      { type: 'image', url, alt: 'A plate of pasta', width: 1229, height: 1280 }
+    ]);
+    expect(uniqueMedia(event)).toEqual([
+      { type: 'image', url, alt: 'A plate of pasta', width: 1229, height: 1280 }
+    ]);
     expect(omitMediaUrls(event.content, imetaMedia(event))).toBe('');
     expect(omitMediaUrls(`line one\n\n${url}`, imetaMedia(event))).toBe('line one');
   });

@@ -68,7 +68,18 @@ export const SOCIAL_SEARCH_RELAYS = viteList(env.VITE_SOCIAL_SEARCH_RELAYS, [
   'wss://nos.lol',
   'wss://nostr.mom',
   'wss://nostrelites.org',
-  'wss://pipe.imwald.eu'
+  'wss://pipe.imwald.eu',
+  'wss://wheat.happytavern.co'
+]);
+
+/**
+ * Public write relays used when broadcasting while signed out
+ * (“Broadcast to your outboxes” in the ⋯ menu).
+ */
+export const PUBLIC_BROADCAST_RELAYS = viteList(env.VITE_PUBLIC_BROADCAST_RELAYS, [
+  'wss://pipe.imwald.eu',
+  'wss://thecitadel.nostr1.com',
+  'wss://freelay.sovbit.host'
 ]);
 
 /** Kind-0 / profile mirrors — same set as jumble `PROFILE_RELAY_URLS` (not Mercury). */

@@ -136,6 +136,16 @@ describe('splitNostrRefs', () => {
     expect(parts[1]?.type).toBe('ref');
   });
 
+  it('does not tear hash-router URLs that embed an npub in the path', () => {
+    const npub = nip19.npubEncode('a'.repeat(64));
+    const url =
+      `https://gc-alexandria.imwald.eu/#/publication/d/bible/p/${npub}?read=1&book=matthew&chapter=22`;
+    const parts = splitNostrRefs(`See\n\n${url}\n\nDone.`);
+    expect(parts).toEqual([
+      { type: 'text', text: `See\n\n${url}\n\nDone.` }
+    ]);
+  });
+
   it('trims blank lines glued to block embeds', () => {
     const note = nip19.noteEncode('b'.repeat(64));
     const parts = splitNostrRefs(`Hello everyone\n\nnostr:${note}\n\nMore.`);

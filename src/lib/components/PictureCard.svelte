@@ -15,12 +15,14 @@
     uniqueMedia(event).filter((m) => m.type === 'image' && isAllowedMediaUrl(m.url))
   );
   const imageUrls = $derived(images.map((img) => img.url));
+  const imageAlts = $derived(images.map((img) => img.alt?.trim() || ''));
   const title = $derived(displayTitle(event));
 
   function openGallery(url: string): void {
     openMediaViewer({
       url,
       urls: imageUrls,
+      alts: imageAlts,
       title: title !== 'Untitled' ? title : undefined
     });
   }
@@ -31,14 +33,15 @@
   {#if title !== 'Untitled'}<h3>{title}</h3>{/if}
   <div class="picture-gallery">
     {#each images as img}
+      {@const alt = img.alt?.trim() || ''}
       <button
         class="picture-gallery-btn"
         type="button"
-        title={imageUrls.length > 1 ? 'View gallery' : 'View image'}
-        aria-label={imageUrls.length > 1 ? 'View gallery' : 'View image'}
+        title={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
+        aria-label={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
         onclick={() => openGallery(img.url)}
       >
-        <img src={img.url} alt="" loading="lazy" />
+        <img src={img.url} {alt} loading="lazy" />
       </button>
     {/each}
   </div>

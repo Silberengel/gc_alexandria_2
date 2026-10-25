@@ -7,6 +7,7 @@ import {
   MERCURY_HTTP,
   MERCURY_WSS,
   PROFILE_RELAYS,
+  PUBLIC_BROADCAST_RELAYS,
   SOCIAL_RELAYS,
   SOCIAL_SEARCH_RELAYS,
   THIRD_PARTY_RELAYS,
@@ -265,6 +266,18 @@ export function writeStack(): string[] {
   return writeWebSocketRelays(
     forestFallback(withoutBlocked(dedupe([...ctx.outbox, ...ctx.favorites, ...ctx.local])))
   );
+}
+
+/**
+ * Relays for “Broadcast to your outboxes”:
+ * signed in → viewer's write stack; signed out → {@link PUBLIC_BROADCAST_RELAYS}.
+ */
+export function broadcastStack(): string[] {
+  if (ctx.signedIn) {
+    const own = writeStack();
+    if (own.length) return own;
+  }
+  return writeWebSocketRelays(withoutBlocked([...PUBLIC_BROADCAST_RELAYS]));
 }
 
 export function stackFor(kind: StackKind): string[] {

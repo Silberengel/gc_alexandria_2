@@ -1,5 +1,6 @@
 import { nip19 } from 'nostr-tools';
 import { KIND } from './constants';
+import { kindDescription } from './kind-label';
 import { hexPubkey } from './metadata';
 import { lookupNip05Pubkey, splitNip05Identifier } from './nip05';
 
@@ -49,14 +50,19 @@ export async function resolveProfilePubkey(rawId: string): Promise<string | null
   return null;
 }
 
-/** Friendly heading for a kind-filtered profile listing. */
+/**
+ * Friendly heading for a kind-filtered profile listing.
+ * Library shelves keep plural titles; everything else uses the compose catalog label.
+ */
 export function profileKindHeading(kind: number): string {
   if (kind === KIND.LONG_FORM) return 'Articles';
   if (kind === KIND.PUBLICATION) return 'Publications';
   if (kind === KIND.WIKI) return 'Wiki pages';
   if (kind === KIND.SPEC) return 'Specifications';
   if (kind === KIND.SECTION) return 'Sections';
-  return `Kind ${kind}`;
+  const label = kindDescription(kind);
+  if (label.startsWith('Event (kind ')) return `Kind ${kind}`;
+  return label;
 }
 
 /** Sort key for blog posts: published_at tag when numeric, else created_at. */

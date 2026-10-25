@@ -58,7 +58,7 @@
   import { localReadingQueue } from '$lib/stores/local-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
   import { publicationPath } from '$lib/metadata';
-  import { link } from 'svelte-spa-router';
+  import { link, push } from 'svelte-spa-router';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import {
     parseKindParam,
@@ -67,6 +67,7 @@
     profileKindHeading,
     profileKindPath
   } from '$lib/profile-route';
+  import { feedAuthorRepliesPath } from '$lib/feed';
 
   interface Props {
     params?: { id?: string; kind?: string };
@@ -79,6 +80,8 @@
   /** Path id as opened (npub or nip05) — used for shareable kind URLs. */
   let profilePathId = $state('');
   let kindFilter = $state<number | null>(null);
+  /** Draft for the kind jump field (kept in sync when the route kind changes). */
+  let kindDraft = $state('');
   let kindInvalid = $state(false);
   let resolveFailed = $state(false);
   let resolving = $state(false);
@@ -129,7 +132,21 @@
   const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
   const profileShareId = $derived(profilePathId || npub || pubkey);
   const blogPath = $derived(profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : '');
+  const feedPath = $derived(pubkey ? feedAuthorRepliesPath(pubkey) : '');
   const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
+
+  $effect(() => {
+    if (kindFilter != null) kindDraft = String(kindFilter);
+  });
+
+  function submitKindJump(e: SubmitEvent): void {
+    e.preventDefault();
+    const parsed = parseKindParam(kindDraft.trim());
+    if (parsed === null) return;
+    const id = profileShareId;
+    if (!id || parsed === kindFilter) return;
+    void push(profileKindPath(id, parsed));
+  }
   const filteredProduced = $derived.by(() => {
     let list = filterMuted(produced, $muteState);
     if (kindFilter != null) list = list.filter((e) => e.kind === kindFilter);
@@ -732,6 +749,43 @@
     <header class="page-header">
       <p class="page-kicker">Reader</p>
       <h1>{isKindFiltered ? kindHeading : 'Profile'}</h1>
+      {#if isKindFiltered}
+        <form class="profile-kind-jump" onsubmit={submitKindJump}>
+          <label class="profile-kind-jump-label" for="profile-kind-input">Kind</label>
+          <input
+            id="profile-kind-input"
+            class="profile-kind-jump-input"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            spellcheck="false"
+            bind:value={kindDraft}
+            aria-label="Kind number"
+          />
+          <button
+            type="submit"
+            class="btn btn-icon profile-kind-jump-go"
+            title="Show this kind"
+            aria-label="Show this kind"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="6.5"></circle>
+              <path d="M16.5 16.5 21 21"></path>
+            </svg>
+          </button>
+        </form>
+      {/if}
       {#if isOwnProfile && !isKindFiltered}
         <p class="page-lede">
           <a class="btn" href="#/compose?kind=0" use:link>Edit profile</a>
@@ -745,12 +799,21 @@
         {:else}
           <span class="profile-filter-row-spacer" aria-hidden="true"></span>
         {/if}
-        {#if profileShareId}
-          {#if isBlogMode}
-            <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link>View the full profile</a>
-          {:else}
-            <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
-          {/if}
+        {#if profileShareId || feedPath}
+          <div class="profile-view-toggles">
+            {#if feedPath}
+              <a class="btn profile-view-toggle" href={`#${feedPath}`} use:link>View the feed</a>
+            {/if}
+            {#if profileShareId}
+              {#if isBlogMode}
+                <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link
+                  >View the full profile</a
+                >
+              {:else}
+                <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
+              {/if}
+            {/if}
+          </div>
         {/if}
       </div>
     {/if}

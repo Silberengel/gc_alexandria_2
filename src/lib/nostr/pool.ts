@@ -360,16 +360,36 @@ class RelayPool {
   /**
    * How many relays accepted the event.
    * Resolves on the first OK so the UI can paint immediately, or when every relay has rejected.
-   * Never throws.
+   * Never throws. Requires a signed-in session (new publishes).
    */
   async publish(relays: string[], event: Event): Promise<number> {
     if (!this.signedIn) return 0;
+    return this.publishAlreadySigned(relays, event, { settle: 'first-ok' });
+  }
+
+  /**
+   * Re-send an already-signed event (no session required).
+   * Waits for every relay so the caller can report how many accepted.
+   */
+  async broadcast(relays: string[], event: Event): Promise<number> {
+    return this.publishAlreadySigned(relays, event, { settle: 'all' });
+  }
+
+  private async publishAlreadySigned(
+    relays: string[],
+    event: Event,
+    opts: { settle: 'first-ok' | 'all' }
+  ): Promise<number> {
     try {
       const wssRelays = writeWebSocketRelays(constrainRelays(relays));
       if (!wssRelays.length) return 0;
       // SimplePool.publish returns Promise[] — one per relay, fulfilled on OK.
       const pubs = this.pool.publish(wssRelays, event);
       if (!pubs.length) return 0;
+      if (opts.settle === 'all') {
+        const results = await Promise.allSettled(pubs.map((pub) => Promise.resolve(pub)));
+        return results.filter((r) => r.status === 'fulfilled').length;
+      }
       return await new Promise<number>((resolve) => {
         let accepted = 0;
         let pending = pubs.length;

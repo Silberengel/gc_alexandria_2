@@ -112,6 +112,23 @@ function pushUnique(out: MediaItem[], url: string, type: MediaItem['type']): voi
   out.push({ type, url });
 }
 
+/** Keep NIP-92 fields (`alt`, poster, dims) when merging an imeta row into the list. */
+function mergeMediaItem(out: MediaItem[], item: MediaItem): void {
+  pushUnique(out, item.url, item.type);
+  const stored = out.find((row) => sameMedia(row.url, item.url));
+  if (!stored) return;
+  if (item.alt) stored.alt = item.alt;
+  if (item.poster) stored.poster = item.poster;
+  if (item.width) stored.width = item.width;
+  if (item.height) stored.height = item.height;
+}
+
+/** Alt text for a URL from a media list (same-file variants match). */
+export function mediaAltForUrl(media: MediaItem[], url: string): string {
+  const hit = media.find((item) => sameMedia(item.url, url));
+  return hit?.alt?.trim() ?? '';
+}
+
 function imetaField(parts: string[], name: string): string {
   const prefix = `${name} `;
   const inline = parts.find((item) => item.startsWith(prefix));
@@ -149,14 +166,7 @@ export function imetaMedia(event: Event): MediaItem[] {
   for (const tag of event.tags) {
     if (tag[0] !== 'imeta') continue;
     const item = parseImeta(tag);
-    if (!item) continue;
-    pushUnique(out, item.url, item.type);
-    const stored = out.find((row) => sameMedia(row.url, item.url));
-    if (!stored) continue;
-    if (item.alt) stored.alt = item.alt;
-    if (item.poster) stored.poster = item.poster;
-    if (item.width) stored.width = item.width;
-    if (item.height) stored.height = item.height;
+    if (item) mergeMediaItem(out, item);
   }
   return out;
 }
@@ -166,8 +176,7 @@ export function uniqueMedia(event: Event): MediaItem[] {
   for (const tag of event.tags) {
     if (tag[0] === 'imeta') {
       const meta = parseImeta(tag);
-      if (!meta) continue;
-      pushUnique(out, meta.url, meta.type);
+      if (meta) mergeMediaItem(out, meta);
     }
     if ((tag[0] === 'image' || tag[0] === 'img') && tag[1]) {
       pushUnique(out, tag[1], 'image');

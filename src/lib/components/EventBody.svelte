@@ -37,6 +37,8 @@
   import RoomPresenceCard from './RoomPresenceCard.svelte';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import { openMediaViewer } from '$lib/stores/media-viewer';
+  import { webBookmarkUrl } from '$lib/web-bookmark';
+  import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
 
   interface Props {
     event?: Event;
@@ -76,10 +78,21 @@
   const media = $derived(
     event ? uniqueMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
   );
-  const imageUrls = $derived(media.filter((item) => item.type === 'image').map((item) => item.url));
+  const images = $derived(media.filter((item) => item.type === 'image'));
+  const imageUrls = $derived(images.map((item) => item.url));
+  const imageAlts = $derived(images.map((item) => item.alt?.trim() || ''));
+  /** NIP-B0 URL from tags when content is empty / does not already include it. */
+  const bookmarkUrl = $derived.by(() => {
+    if (!event) return null;
+    const url = webBookmarkUrl(event);
+    if (!url) return null;
+    const body = (event.content ?? content ?? '').toLowerCase();
+    if (body.includes(url.toLowerCase())) return null;
+    return url;
+  });
 
   function openImageGallery(url: string): void {
-    openMediaViewer({ url, urls: imageUrls });
+    openMediaViewer({ url, urls: imageUrls, alts: imageAlts });
   }
   /** Drop played file URLs from the prose so a note is not a link and a player. */
   const source = $derived(omitMediaUrls(event?.content ?? content, media));
@@ -389,6 +402,9 @@
       {@render embedCard(hit)}
     {/each}
   {/if}
+  {#if bookmarkUrl}
+    <WebBookmarkEmbed url={bookmarkUrl} />
+  {/if}
   {#if !isNip53Kind(sourceKind) || sourceKind === NIP53_KIND.LIVE_CHAT}
     {#each media as item (item.url)}
       {#if item.type === 'video'}
@@ -408,14 +424,14 @@
         <button
           class="event-imeta-btn"
           type="button"
-          title={imageUrls.length > 1 ? 'View gallery' : 'View image'}
+          title={item.alt?.trim() || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
           aria-label={item.alt?.trim() || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
           onclick={() => openImageGallery(item.url)}
         >
           <img
             class="event-imeta"
             src={item.url}
-            alt={item.alt ?? ''}
+            alt={item.alt?.trim() || ''}
             loading="lazy"
             width={item.width}
             height={item.height}

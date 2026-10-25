@@ -6,6 +6,8 @@ export type MediaViewerState = {
   url: string;
   /** Full gallery; length 1 for a single image. */
   urls: string[];
+  /** Parallel to `urls` — NIP-92 imeta `alt` (empty string when missing). */
+  alts: string[];
   index: number;
   title: string;
   /** Optional in-app hash path (e.g. publication). */
@@ -16,6 +18,7 @@ const empty: MediaViewerState = {
   open: false,
   url: '',
   urls: [],
+  alts: [],
   index: 0,
   title: ''
 };
@@ -38,33 +41,44 @@ function ensurePopStateListener(): void {
   window.addEventListener('popstate', onPopState);
 }
 
-function normalizeUrls(urls: string[]): string[] {
-  const out: string[] = [];
+function normalizeSlides(
+  urls: string[],
+  alts?: Array<string | undefined>
+): { urls: string[]; alts: string[] } {
+  const outUrls: string[] = [];
+  const outAlts: string[] = [];
   const seen = new Set<string>();
-  for (const raw of urls) {
+  urls.forEach((raw, i) => {
     const url = raw.trim();
-    if (!url) continue;
+    if (!url) return;
     const key = url.toLowerCase();
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
-    out.push(url);
-  }
-  return out;
+    outUrls.push(url);
+    outAlts.push((alts?.[i] ?? '').trim());
+  });
+  return { urls: outUrls, alts: outAlts };
 }
 
 export function openMediaViewer(opts: {
   url?: string;
   /** When provided (and length > 1), the viewer becomes a slideshow. */
   urls?: string[];
+  /** Parallel to `urls` — imeta alt text for each slide. */
+  alts?: Array<string | undefined>;
   /** Starting index into `urls` (or into `[url]`). */
   index?: number;
   title?: string;
   href?: string;
 }): void {
   const primary = (opts.url ?? '').trim();
-  const list = normalizeUrls(
-    opts.urls?.length ? opts.urls : primary ? [primary] : []
-  );
+  const rawUrls = opts.urls?.length ? opts.urls : primary ? [primary] : [];
+  const rawAlts = opts.urls?.length
+    ? opts.alts
+    : primary
+      ? [opts.alts?.[0]]
+      : undefined;
+  const { urls: list, alts } = normalizeSlides(rawUrls, rawAlts);
   if (!list.length) return;
 
   let index = 0;
@@ -80,6 +94,7 @@ export function openMediaViewer(opts: {
   mediaViewer.set({
     open: true,
     urls: list,
+    alts,
     index,
     url: list[index]!,
     title: (opts.title ?? '').trim(),

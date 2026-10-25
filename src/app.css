@@ -169,6 +169,8 @@ body:has(main.reading-page) .top-bar {
   grid-column: 1;
   grid-row: 1;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .top-bar-session {
   grid-column: 2;
@@ -258,16 +260,22 @@ body:has(main.reading-page) .top-bar {
   }
 }
 
-/* Wide: brand | search | session on one row; tabs centered underneath. */
-@media (min-width: 960px) {
+/*
+ * Quite wide only: brand | search | session on one row; tabs centered under.
+ * Below this, search stays on its own row so it never fights the title.
+ */
+@media (min-width: 1200px) {
   .top-bar.top-bar-with-search {
-    grid-template-columns: minmax(0, 1fr) minmax(16rem, 34rem) minmax(0, 1fr);
+    grid-template-columns: auto minmax(14rem, 32rem) auto;
+    justify-content: space-between;
     align-items: center;
+    column-gap: 1.25rem;
   }
   .top-bar.top-bar-with-search .brand {
     grid-column: 1;
     grid-row: 1;
     justify-self: start;
+    max-width: min(100%, 22rem);
   }
   .top-bar.top-bar-with-search .top-bar-search,
   .top-bar.top-bar-with-search .search-form.top-bar-search {
@@ -281,6 +289,8 @@ body:has(main.reading-page) .top-bar {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;
+    max-width: min(100%, 16rem);
+    overflow: hidden;
   }
   .top-bar.top-bar-with-search nav {
     grid-column: 1 / -1;
@@ -6342,11 +6352,78 @@ a.user-status-line:hover {
   flex: 1 1 auto;
   min-width: 0;
 }
+.profile-view-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem 0.65rem;
+  margin-left: auto;
+}
 .profile-view-toggle {
   flex: 0 0 auto;
-  margin-left: auto;
   text-decoration: none;
   white-space: nowrap;
+}
+.profile-kind-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+}
+.profile-kind-jump-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  opacity: 0.75;
+}
+/* Beat global input[type=text] (width:100%, heavy padding). */
+.profile-kind-jump input.profile-kind-jump-input[type='text'] {
+  width: 3.6rem;
+  max-width: 3.6rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.08rem 0.3rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 85%, transparent);
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--paper-light) 55%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  box-shadow: none;
+}
+.profile-kind-jump input.profile-kind-jump-input[type='text']:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--rule));
+}
+.profile-kind-jump input.profile-kind-jump-input[type='text']:focus,
+.profile-kind-jump input.profile-kind-jump-input[type='text']:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--rule));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.profile-kind-jump .btn.btn-icon.profile-kind-jump-go {
+  width: 1.45rem;
+  height: 1.45rem;
+  min-width: 1.45rem;
+  padding: 0;
+  opacity: 0.7;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+}
+.profile-kind-jump .btn.btn-icon.profile-kind-jump-go svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+.profile-kind-jump .btn.btn-icon.profile-kind-jump-go:hover,
+.profile-kind-jump .btn.btn-icon.profile-kind-jump-go:focus-visible {
+  opacity: 1;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .profile-kind-feed {
   margin: 1.25rem 0 2rem;
@@ -6434,6 +6511,16 @@ a.user-status-line:hover {
   margin: 0;
   padding: 0.25rem 0.85rem 0;
   font-size: 0.8rem;
+}
+.media-viewer-caption {
+  margin: 0.55rem 0 0;
+  padding: 0 0.85rem 0.15rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+  max-width: 42rem;
+  align-self: center;
+  width: 100%;
 }
 .media-viewer-stage-wrap {
   position: relative;

@@ -93,6 +93,9 @@ export function splitNostrRefs(content: string): ContentSegment[] {
   while ((match = re.exec(content))) {
     const full = match[0];
     const token = match[1]!;
+    // Leave npub/naddr inside http(s) / AsciiDoc link targets intact
+    // (e.g. `#/publication/…/p/npub1…?read=1`).
+    if (isInsideAsciiDocTarget(content, match.index)) continue;
     if (match.index > last) segments.push({ type: 'text', text: content.slice(last, match.index) });
     const ref = decodeNostrBech32(token);
     if (ref) {

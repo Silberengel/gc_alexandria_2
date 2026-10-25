@@ -3,10 +3,12 @@
   import { link } from 'svelte-spa-router';
   import UserBadge from './UserBadge.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import { eventPreview } from '$lib/event-preview';
-  import { dedupeMediaUrls, uniqueMedia } from '$lib/media';
+  import { dedupeMediaUrls, mediaAltForUrl, uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
   import { openMediaViewer } from '$lib/stores/media-viewer';
+  import { webBookmarkUrl } from '$lib/web-bookmark';
 
   interface Props {
     event: Event;
@@ -17,12 +19,14 @@
 
   const preview = $derived(eventPreview(event));
   const media = $derived(uniqueMedia(event));
+  const bookmarkUrl = $derived(webBookmarkUrl(event));
   const galleryUrls = $derived(
     dedupeMediaUrls([
       ...preview.imageUrls,
       ...media.filter((m) => m.type === 'image').map((m) => m.url)
     ]).filter((url) => isAllowedMediaUrl(url))
   );
+  const galleryAlts = $derived(galleryUrls.map((url) => mediaAltForUrl(media, url)));
 
   function openGallery(url: string, e: MouseEvent): void {
     e.preventDefault();
@@ -30,6 +34,7 @@
     openMediaViewer({
       url,
       urls: galleryUrls,
+      alts: galleryAlts,
       title: preview.headline || undefined
     });
   }
@@ -53,14 +58,15 @@
     </div>
   {/if}
   {#each galleryUrls.slice(0, 4) as url}
+    {@const alt = mediaAltForUrl(media, url)}
     <button
       class="event-imeta-btn"
       type="button"
-      title={galleryUrls.length > 1 ? 'View gallery' : 'View image'}
-      aria-label={galleryUrls.length > 1 ? 'View gallery' : 'View image'}
+      title={alt || (galleryUrls.length > 1 ? 'View gallery' : 'View image')}
+      aria-label={alt || (galleryUrls.length > 1 ? 'View gallery' : 'View image')}
       onclick={(e) => openGallery(url, e)}
     >
-      <img class="generic-media" src={url} alt="" loading="lazy" />
+      <img class="generic-media" src={url} {alt} loading="lazy" />
     </button>
   {/each}
   {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}
@@ -71,12 +77,15 @@
       <audio src={item.url} controls></audio>
     {/if}
   {/each}
+  {#if bookmarkUrl}
+    <WebBookmarkEmbed url={bookmarkUrl} />
+  {/if}
   {#if preview.summary && preview.summary !== preview.body}
     <p class="generic-card-summary muted">{preview.summary}</p>
   {/if}
   {#if preview.body}
     <p class="generic-card-body muted">{preview.body}</p>
-  {:else if !preview.summary && !media.length && !preview.imageUrls.length}
+  {:else if !preview.summary && !media.length && !preview.imageUrls.length && !bookmarkUrl}
     <p class="muted generic-card-empty">No text in this event.</p>
   {/if}
   </div>

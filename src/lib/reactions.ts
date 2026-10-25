@@ -63,6 +63,13 @@ export function likeCount(reactions: Event[]): number {
   return likesByPubkey(reactions).size;
 }
 
+/** Newest-first unique liker pubkeys (one per pubkey). */
+export function likePubkeys(reactions: Event[]): string[] {
+  return [...likesByPubkey(reactions).entries()]
+    .sort((a, b) => b[1].created_at - a[1].created_at)
+    .map(([pk]) => pk);
+}
+
 export function myLikeReaction(reactions: Event[], pubkey: string | null | undefined): Event | null {
   if (!pubkey) return null;
   return likesByPubkey(reactions).get(pubkey) ?? null;

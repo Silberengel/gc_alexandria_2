@@ -13,6 +13,13 @@
   import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
   import { warmNavEvent } from '$lib/nav-warm';
   import { openRawEvent } from '$lib/stores/raw-event-viewer';
+  import { broadcastEvent } from '$lib/broadcast';
+  import { fetchRepostsForId, myRepostOf, repostDraft } from '$lib/repost';
+  import { deletionDraft } from '$lib/drafts';
+  import { consumeSignFailure, publishSigned, signUnsigned } from '$lib/sign';
+  import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
+  import { showNotice } from '$lib/stores/toast';
 
   interface Props {
     event: Event;
@@ -41,6 +48,11 @@
   let open = $state(false);
   let copied = $state(false);
   let linkCopied = $state(false);
+  let repostPending = $state(false);
+  let reposted = $state(false);
+  let broadcastPending = $state(false);
+  /** Viewer's existing kind 6/16 of this event (for Delete Repost). */
+  let myRepost = $state<Event | null>(null);
   let timer = 0;
   let root: HTMLDivElement | undefined = $state();
   let panel: HTMLUListElement | undefined = $state();
@@ -60,6 +72,33 @@
   const isCurrentThreadOp = $derived.by(() => {
     const target = parseFeedThreadTarget($querystring);
     return !!target && eventMatchesThreadTarget(event, target);
+  });
+  const isOwnEvent = $derived(
+    !!$session.pubkey && $session.pubkey.toLowerCase() === event.pubkey.toLowerCase()
+  );
+  /** Repost only others' events (signed-out users see the item and get the login dialog). */
+  const showRepost = $derived(!isOwnEvent);
+  const hasMyRepost = $derived(!!myRepost);
+
+  $effect(() => {
+    const target = event;
+    const pubkey = $session.pubkey;
+    if (!showRepost || !pubkey || !target?.id) {
+      myRepost = null;
+      return;
+    }
+    let cancelled = false;
+    myRepost = null;
+    void fetchRepostsForId(target.id, 40, (cached) => {
+      if (cancelled) return;
+      myRepost = myRepostOf(cached, pubkey, target);
+    }).then((hits) => {
+      if (cancelled) return;
+      myRepost = myRepostOf(hits, pubkey, target);
+    });
+    return () => {
+      cancelled = true;
+    };
   });
   /** Prefer an explicit reader share URL; otherwise the Alexandria document (or njump). */
   const hyperlink = $derived.by(() => {
@@ -142,12 +181,14 @@
     if (!open) {
       copied = false;
       linkCopied = false;
+      reposted = false;
       clearTimeout(timer);
     }
   }
 
   function close(): void {
     open = false;
+    reposted = false;
   }
 
   function openInThread(e: MouseEvent): void {
@@ -161,6 +202,93 @@
     e.preventDefault();
     close();
     window.location.hash = threadHref;
+  }
+
+  async function repost(): Promise<void> {
+    if (repostPending || isOwnEvent) return;
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    if (myRepost) {
+      await deleteRepost();
+      return;
+    }
+    repostPending = true;
+    try {
+      const signed = await signUnsigned(repostDraft(event));
+      if (!signed) {
+        showNotice(consumeSignFailure() ?? 'The repost could not be signed.');
+        return;
+      }
+      const wrote = await publishSigned(signed);
+      if (!wrote) {
+        showNotice('The repost was signed, but no relay accepted it.');
+        return;
+      }
+      myRepost = signed;
+      reposted = true;
+      showNotice('Reposted.', true);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        reposted = false;
+        close();
+      }, 900);
+    } finally {
+      repostPending = false;
+    }
+  }
+
+  async function deleteRepost(): Promise<void> {
+    const target = myRepost;
+    if (repostPending || !target) return;
+    repostPending = true;
+    try {
+      const signed = await signUnsigned(deletionDraft(target));
+      if (!signed) {
+        showNotice(consumeSignFailure() ?? 'The deletion could not be signed.');
+        return;
+      }
+      const wrote = await publishSigned(signed);
+      if (!wrote) {
+        showNotice('The deletion was signed, but no relay accepted it.');
+        return;
+      }
+      myRepost = null;
+      reposted = false;
+      showNotice('Repost deleted.', true);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => close(), 900);
+    } finally {
+      repostPending = false;
+    }
+  }
+
+  async function broadcast(): Promise<void> {
+    if (broadcastPending) return;
+    broadcastPending = true;
+    try {
+      const { accepted, attempted } = await broadcastEvent(event);
+      if (!attempted) {
+        showNotice('No write relays are available to broadcast to.');
+        return;
+      }
+      if (!accepted) {
+        showNotice('No relay accepted the broadcast.');
+        return;
+      }
+      showNotice(
+        accepted === 1
+          ? 'Broadcast to 1 relay.'
+          : `Broadcast to ${accepted} of ${attempted} relays.`,
+        true
+      );
+      clearTimeout(timer);
+      timer = window.setTimeout(() => close(), 900);
+    } finally {
+      broadcastPending = false;
+    }
   }
 
   function onPanelClick(e: MouseEvent): void {
@@ -282,6 +410,46 @@
           </a>
         </li>
       {/if}
+      {#if showRepost}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={repostPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void repost();
+            }}
+          >
+            {#if repostPending}
+              {hasMyRepost ? 'Deleting…' : 'Reposting…'}
+            {:else if hasMyRepost}
+              Delete Repost
+            {:else if reposted}
+              Reposted
+            {:else}
+              Repost
+            {/if}
+          </button>
+        </li>
+      {/if}
+      <li role="none">
+        <button
+          class="menu-item"
+          type="button"
+          role="menuitem"
+          disabled={broadcastPending}
+          onclick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void broadcast();
+          }}
+        >
+          {broadcastPending ? 'Broadcasting…' : 'Broadcast to your outboxes'}
+        </button>
+      </li>
       <li role="none">
         <button
           class="menu-item"

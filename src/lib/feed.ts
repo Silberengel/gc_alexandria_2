@@ -2,6 +2,7 @@ import type { Event, Filter } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
 import { KIND } from './constants';
 import { isKind1Reply } from './comments';
+import { hexPubkey } from './metadata';
 import { filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { uniqueRelayUrls } from './nostr/mailboxes';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
@@ -46,7 +47,16 @@ const FEED_KINDS = new Set<number>([KIND.TEXT_NOTE, ...FEED_POST_KINDS]);
 /** Responses shown on the Replies tab alongside original posts. */
 const REPLY_ROW_KINDS = new Set<number>([KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS]);
 
+/** NIP-18 boosts shown on an author's profile feed (collapsed onto the target). */
+const FEED_REPOST_KINDS = [KIND.REPOST, KIND.GENERIC_REPOST] as const;
+const FEED_REPOST_KIND_SET = new Set<number>(FEED_REPOST_KINDS);
+
 const HTTP_URL = /^https?:\/\//i;
+
+/** Kind 6 / 16 — kept on author timelines so you can see what they boosted. */
+export function isFeedRepost(event: Event): boolean {
+  return FEED_REPOST_KIND_SET.has(event.kind);
+}
 
 /** First HTTP(S) page URL from NIP-73 `i` / `I` tags (value or URL hint). */
 function httpUrlFromITags(event: Event): string | null {
@@ -96,6 +106,12 @@ export function parseFeedTab(raw: string | null | undefined): FeedTab {
   return 'original';
 }
 
+/** Lowercase hex pubkey from `?author=` (hex, npub, or nprofile). */
+export function parseFeedAuthorParam(raw: string | null | undefined): string | null {
+  const hex = hexPubkey((raw ?? '').trim());
+  return hex ? hex.toLowerCase() : null;
+}
+
 function tagMarkedRootOrReply(tag: string[]): boolean {
   return tag[2] === 'root' || tag[2] === 'reply' || tag[3] === 'root' || tag[3] === 'reply';
 }
@@ -107,6 +123,7 @@ function tagMarkedRootOrReply(tag: string[]): boolean {
  * `e`/`a` tag is marked root or reply.
  */
 export function isOriginalPost(event: Event): boolean {
+  if (isFeedRepost(event)) return true;
   if (isTopLevelWebComment(event)) return true;
   if (!FEED_KINDS.has(event.kind)) return false;
   if (event.kind === KIND.TEXT_NOTE) return !isKind1Reply(event);
@@ -127,6 +144,7 @@ export function isFeedReplyRow(event: Event): boolean {
 
 /** Events that belong on the Replies timeline (OPs plus kind 1 / 1111 responses). */
 export function isRepliesTimelineEvent(event: Event): boolean {
+  if (isFeedRepost(event)) return true;
   if (!REPLY_ROW_KINDS.has(event.kind)) return false;
   if (event.kind === KIND.COMMENT) return true;
   if (event.kind === KIND.TEXT_NOTE) return true;
@@ -173,6 +191,11 @@ function postFilters(): Filter[] {
   return [{ kinds: [...FEED_POST_KINDS], limit: 24 }];
 }
 
+/** Kind 6 / 16 alone so boosts are not crowded out of the post REQ. */
+function repostFilters(): Filter[] {
+  return [{ kinds: [...FEED_REPOST_KINDS], limit: 40 }];
+}
+
 /** Kind 1111 alone so relays can return web comments without crowding the post REQ. */
 function commentFilters(): Filter[] {
   return [{ kinds: [KIND.COMMENT], limit: 40 }];
@@ -195,9 +218,15 @@ export function feedFollowAuthors(metadataEvents: Event[], muted: MuteState): st
 function followNoteFilters(authors: string[]): Filter[] {
   const filters: Filter[] = [];
   for (let i = 0; i < authors.length; i += FOLLOW_AUTHOR_BATCH) {
+    const batch = authors.slice(i, i + FOLLOW_AUTHOR_BATCH);
     filters.push({
       kinds: [KIND.TEXT_NOTE],
-      authors: authors.slice(i, i + FOLLOW_AUTHOR_BATCH),
+      authors: batch,
+      limit: 15
+    });
+    filters.push({
+      kinds: [...FEED_REPOST_KINDS],
+      authors: batch,
       limit: 15
     });
   }
@@ -270,7 +299,7 @@ export function feedEventsWatermark(events: Event[]): number {
 
 /** Newest original posts already in memory or the browser cache. */
 export async function recallFeedPosts(): Promise<Event[]> {
-  const kinds = [KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS];
+  const kinds = [KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS, ...FEED_REPOST_KINDS];
   const stored = (await Promise.all(kinds.map((kind) => cachedEventsByKind(kind)))).flat();
   return stored
     .filter(isOriginalPost)
@@ -316,8 +345,9 @@ export async function loadFeed(
     Promise.all([
       relayPool.query(urls, noteFilters(), 7000, maxRelays, absorb, queryOpts),
       relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, commentFilters(), 7000, maxRelays, absorb, queryOpts)
-    ]).then(([notes, posts, webComments]) => [...notes, ...posts, ...webComments]);
+      relayPool.query(urls, commentFilters(), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(urls, repostFilters(), 7000, maxRelays, absorb, queryOpts)
+    ]).then((batches) => batches.flat());
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
     personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
     shipped.length ? ask(shipped, 4) : Promise.resolve([]),
@@ -340,13 +370,14 @@ function followReplyFilters(authors: string[]): Filter[] {
     const batch = authors.slice(i, i + FOLLOW_AUTHOR_BATCH);
     filters.push({ kinds: [KIND.TEXT_NOTE], authors: batch, limit: 20 });
     filters.push({ kinds: [KIND.COMMENT], authors: batch, limit: 15 });
+    filters.push({ kinds: [...FEED_REPOST_KINDS], authors: batch, limit: 15 });
   }
   return filters;
 }
 
 /** Newest OPs already in cache, plus kind 1 replies and kind 1111 comments. */
 export async function recallFeedWithReplies(): Promise<Event[]> {
-  const kinds = [KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS];
+  const kinds = [KIND.TEXT_NOTE, KIND.COMMENT, ...FEED_POST_KINDS, ...FEED_REPOST_KINDS];
   const stored = (await Promise.all(kinds.map((kind) => cachedEventsByKind(kind)))).flat();
   return stored
     .filter(isRepliesTimelineEvent)
@@ -391,7 +422,8 @@ export async function loadFeedWithReplies(
     Promise.all([
       relayPool.query(urls, noteFilters(), 7000, maxRelays, absorb, queryOpts),
       relayPool.query(urls, commentFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts)
+      relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(urls, repostFilters(), 7000, maxRelays, absorb, queryOpts)
     ]).then((batches) => batches.flat());
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
     personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
@@ -404,6 +436,133 @@ export async function loadFeedWithReplies(
   ]);
   for (const event of [...fromPersonal, ...fromShipped, ...fromFollows]) {
     if (!isRepliesTimelineEvent(event)) continue;
+    byId.set(event.id, event);
+  }
+  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+}
+
+function authorNoteFilters(author: string): Filter[] {
+  return [
+    { kinds: [KIND.TEXT_NOTE], authors: [author], limit: 40 },
+    { kinds: [KIND.COMMENT], authors: [author], limit: 40 },
+    { kinds: [...FEED_POST_KINDS], authors: [author], limit: 24 },
+    // Own REQ so articles/media do not crowd out the author's boosts.
+    { kinds: [...FEED_REPOST_KINDS], authors: [author], limit: 40 }
+  ];
+}
+
+function isAuthorEvent(event: Event, authorPubkey: string): boolean {
+  return event.pubkey.toLowerCase() === authorPubkey;
+}
+
+/** Cached replies-timeline events from one author. */
+export async function recallAuthorFeedWithReplies(authorPubkey: string): Promise<Event[]> {
+  const pk = authorPubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return [];
+  return (await recallFeedWithReplies())
+    .filter((event) => isAuthorEvent(event, pk))
+    .slice(0, 60);
+}
+
+/** Cached original posts from one author. */
+export async function recallAuthorFeedPosts(authorPubkey: string): Promise<Event[]> {
+  const pk = authorPubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return [];
+  return (await recallFeedPosts())
+    .filter((event) => isAuthorEvent(event, pk))
+    .slice(0, 40);
+}
+
+/**
+ * One author's posts and replies (Replies tab scoped to a profile).
+ * Uses the same relay groups as the main feed; only `authors` filters.
+ */
+export async function loadAuthorFeedWithReplies(
+  authorPubkey: string,
+  muted: MuteState = emptyMute,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
+  const pk = authorPubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return [];
+  const cached = filterMuted(await recallAuthorFeedWithReplies(pk), muted);
+  const byId = new Map<string, Event>();
+  const paint = (): void => {
+    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    if (posts.length) onCache?.(posts);
+  };
+  for (const event of cached) {
+    if (isRepliesTimelineEvent(event)) byId.set(event.id, event);
+  }
+  if (byId.size) paint();
+  const { personal, shipped } = feedRelayGroups();
+  const relays = uniqueRelayUrls([...personal, ...shipped]);
+  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const filters = authorNoteFilters(pk);
+  const queryOpts = { priority: true, includeCooling: true };
+  const absorb = (batch: Event[]): void => {
+    let added = false;
+    for (const event of batch) {
+      if (!isAuthorEvent(event, pk) || !isRepliesTimelineEvent(event) || byId.has(event.id)) {
+        continue;
+      }
+      byId.set(event.id, event);
+      added = true;
+    }
+    if (added) paint();
+  };
+  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
+    relayPool.query(urls, filters, 7000, maxRelays, absorb, queryOpts).catch(() => [] as Event[]);
+  const [fromPersonal, fromShipped] = await Promise.all([
+    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
+    shipped.length ? ask(shipped, 4) : Promise.resolve([])
+  ]);
+  for (const event of [...fromPersonal, ...fromShipped]) {
+    if (!isAuthorEvent(event, pk) || !isRepliesTimelineEvent(event)) continue;
+    byId.set(event.id, event);
+  }
+  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+}
+
+/** One author's original posts (Original Posts tab scoped to a profile). */
+export async function loadAuthorFeed(
+  authorPubkey: string,
+  muted: MuteState = emptyMute,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
+  const pk = authorPubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return [];
+  const cached = filterMuted(await recallAuthorFeedPosts(pk), muted);
+  const byId = new Map<string, Event>();
+  const paint = (): void => {
+    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    if (posts.length) onCache?.(posts);
+  };
+  for (const event of cached) {
+    if (isOriginalPost(event)) byId.set(event.id, event);
+  }
+  if (byId.size) paint();
+  const { personal, shipped } = feedRelayGroups();
+  const relays = uniqueRelayUrls([...personal, ...shipped]);
+  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const filters = authorNoteFilters(pk);
+  const queryOpts = { priority: true, includeCooling: true };
+  const absorb = (batch: Event[]): void => {
+    let added = false;
+    for (const event of batch) {
+      if (!isAuthorEvent(event, pk) || !isOriginalPost(event) || byId.has(event.id)) continue;
+      byId.set(event.id, event);
+      added = true;
+    }
+    if (added) paint();
+  };
+  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
+    relayPool.query(urls, filters, 7000, maxRelays, absorb, queryOpts).catch(() => [] as Event[]);
+  const [fromPersonal, fromShipped] = await Promise.all([
+    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
+    shipped.length ? ask(shipped, 4) : Promise.resolve([])
+  ]);
+  for (const event of [...fromPersonal, ...fromShipped]) {
+    if (!isAuthorEvent(event, pk) || !isOriginalPost(event)) continue;
     byId.set(event.id, event);
   }
   return filterMuted(sortFeedEvents([...byId.values()]), muted);
@@ -532,16 +691,37 @@ export function feedThreadPointerFromId(id: string): string {
  * In-feed thread URL on the same `/feed` route (query `thread=`).
  * Staying on `/feed` avoids remounting the list when opening/closing a card.
  */
-export function feedThreadPath(event: Event, tab: FeedTab = 'original'): string {
+export type FeedListOpts = { author?: string | null };
+
+function appendFeedAuthor(q: URLSearchParams, author?: string | null): void {
+  const hex = author?.trim().toLowerCase();
+  if (hex && /^[0-9a-f]{64}$/.test(hex)) q.set('author', hex);
+}
+
+export function feedThreadPath(
+  event: Event,
+  tab: FeedTab = 'original',
+  opts: FeedListOpts = {}
+): string {
   const q = new URLSearchParams();
   q.set('thread', feedThreadPointer(event));
   if (tab !== 'original') q.set('tab', tab);
+  appendFeedAuthor(q, opts.author);
   return `/feed?${q.toString()}`;
 }
 
 /** List URL for a feed tab (no open thread). */
-export function feedListPath(tab: FeedTab = 'original'): string {
-  return tab === 'original' ? '/feed' : `/feed?tab=${tab}`;
+export function feedListPath(tab: FeedTab = 'original', opts: FeedListOpts = {}): string {
+  const q = new URLSearchParams();
+  if (tab !== 'original') q.set('tab', tab);
+  appendFeedAuthor(q, opts.author);
+  const s = q.toString();
+  return s ? `/feed?${s}` : '/feed';
+}
+
+/** Profile → Replies tab filtered to that pubkey. */
+export function feedAuthorRepliesPath(authorPubkey: string): string {
+  return feedListPath('replies', { author: authorPubkey });
 }
 
 export type FeedThreadTarget =

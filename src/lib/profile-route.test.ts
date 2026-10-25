@@ -38,8 +38,9 @@ describe('decodeProfileIdSegment', () => {
 });
 
 describe('profileKindHeading', () => {
-  it('labels long-form as Articles', () => {
+  it('uses shelf plurals and catalog labels', () => {
     expect(profileKindHeading(KIND.LONG_FORM)).toBe('Articles');
+    expect(profileKindHeading(KIND.PICTURE)).toBe('Picture');
     expect(profileKindHeading(42)).toBe('Kind 42');
   });
 });

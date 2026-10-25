@@ -19,7 +19,9 @@ export type InlineToken =
 
 const BULLET_LINE = /^(\s*)([*\-])\s+(.*)$/;
 const ORDERED_LINE = /^(\s*)(\d+)\.\s+(.*)$/;
-const QUOTE_LINE = /^(\s*)>\s+(.*)$/;
+/** `>` / `> ` / `> body` — bare `>` is an empty quote (relays often strip trailing spaces). */
+const QUOTE_LINE = /^(\s*)>\s*(.*)$/;
+/** `>greentext` with no space after `>` (4chan-style); checked before quotes. */
 const GREENTEXT_LINE = /^(\s*)>(?! )(.+)$/;
 const BOLD = /\*([^*\n]+)\*/;
 const ITALIC = /_([^_\n]+)_/;

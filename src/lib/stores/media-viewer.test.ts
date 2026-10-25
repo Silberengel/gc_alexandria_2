@@ -11,7 +11,7 @@ describe('mediaViewer slideshow', () => {
   beforeEach(() => {
     closeMediaViewer();
     // closeMediaViewer may try history.back; force a clean empty state.
-    mediaViewer.set({ open: false, url: '', urls: [], index: 0, title: '' });
+    mediaViewer.set({ open: false, url: '', urls: [], alts: [], index: 0, title: '' });
   });
 
   it('opens a single image without a multi-slide list', () => {
@@ -57,5 +57,17 @@ describe('mediaViewer slideshow', () => {
       'https://cdn.example/A.jpg',
       'https://cdn.example/b.jpg'
     ]);
+  });
+
+  it('keeps per-slide imeta alt text aligned with urls', () => {
+    openMediaViewer({
+      urls: ['https://cdn.example/a.jpg', 'https://cdn.example/b.jpg'],
+      alts: ['First photo', 'Second photo'],
+      url: 'https://cdn.example/b.jpg'
+    });
+    const state = get(mediaViewer);
+    expect(state.index).toBe(1);
+    expect(state.alts).toEqual(['First photo', 'Second photo']);
+    expect(state.alts[state.index]).toBe('Second photo');
   });
 });

@@ -18,6 +18,10 @@
   const slideLabel = $derived(
     isSlideshow ? `${$mediaViewer.index + 1} / ${slideCount}` : ''
   );
+  const slideAlt = $derived(($mediaViewer.alts[$mediaViewer.index] ?? '').trim());
+  const imageAlt = $derived(
+    slideAlt || $mediaViewer.title || (isSlideshow ? `Image ${slideLabel}` : 'Image')
+  );
 
   $effect(() => {
     if (!$mediaViewer.open) return;
@@ -283,7 +287,7 @@
             <img
               class="media-viewer-image"
               src={$mediaViewer.url}
-              alt={$mediaViewer.title || (isSlideshow ? `Image ${slideLabel}` : 'Image')}
+              alt={imageAlt}
               draggable="false"
               style={`transform: translate(${offsetX}px, ${offsetY}px) scale(${zoom});`}
             />
@@ -301,6 +305,9 @@
           </button>
         {/if}
       </div>
+      {#if slideAlt}
+        <p class="media-viewer-caption muted">{slideAlt}</p>
+      {/if}
     </div>
   </div>
 {/if}

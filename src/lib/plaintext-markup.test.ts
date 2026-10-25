@@ -13,6 +13,9 @@ describe('plaintext-markup', () => {
       prefix: '',
       body: 'quoted'
     });
+    // Bare `>` (trailing space stripped) is an empty quote, not a lone chevron.
+    expect(prepareLine('>')).toEqual({ kind: 'quote', prefix: '', body: '' });
+    expect(prepareLine('> ')).toEqual({ kind: 'quote', prefix: '', body: '' });
   });
 
   it('normalizes list markers', () => {
