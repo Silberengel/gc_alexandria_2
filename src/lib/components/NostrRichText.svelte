@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { prepareLines, tokenizeInline } from '$lib/plaintext-markup';
-  import { splitNostrRefs, type ContentSegment } from '$lib/nostr-refs';
+  import {
+    coalescePlainMentionFlows,
+    splitNostrRefs,
+    type ContentSegment,
+    type PlainBodyBlock
+  } from '$lib/nostr-refs';
   import {
     expandCustomEmojiPlaceholders,
     prepareContentWithEmojis,
@@ -14,8 +19,10 @@
   import EmbedEventLine from './EmbedEventLine.svelte';
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import OgLinkPreviewCard from './OgLinkPreviewCard.svelte';
+  import ExpandableUrlEventLink from './ExpandableUrlEventLink.svelte';
   import { parseYouTubeUrl } from '$lib/youtube';
   import { shouldOgPreview, tidyLinkUrl } from '$lib/og-preview';
+  import { urlEmbedsNostrEvent } from '$lib/nostr-entity';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { lruGet, lruSet } from '$lib/compose-lru';
 
@@ -74,8 +81,9 @@
   function linkifyBody(text: string): string {
     let s = escapeHtml(text);
     s = s.replace(URL_RE, (url) => {
-      // YouTube / OG cards are lifted out as embeds — skip bare anchors here.
+      // YouTube / OG / njump-event links are lifted out — skip bare anchors here.
       if (parseYouTubeUrl(url)) return url;
+      if (urlEmbedsNostrEvent(url)) return url;
       if (shouldOgPreview(url)) return url;
       if (!isAllowedHref(url)) return url;
       return `<a href="${url}" rel="noopener noreferrer" target="_blank">${url}</a>`;
@@ -86,19 +94,24 @@
     return s;
   }
 
-  type LinkEmbedBit = { type: 'text' | 'youtube' | 'og'; value: string };
+  type LinkEmbedBit = { type: 'text' | 'youtube' | 'og' | 'url-event'; value: string };
 
-  /** Pull YouTube players and Open Graph link cards out of plaintext. */
+  /** Pull YouTube, njump-event chevrons, and Open Graph cards out of plaintext. */
   function splitLinkEmbeds(text: string): LinkEmbedBit[] {
-    const hits: Array<{ index: number; end: number; type: 'youtube' | 'og'; value: string }> =
-      [];
+    const hits: Array<{
+      index: number;
+      end: number;
+      type: 'youtube' | 'og' | 'url-event';
+      value: string;
+    }> = [];
     URL_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = URL_RE.exec(text))) {
       const raw = m[1] ?? m[0];
       const value = tidyLinkUrl(raw);
-      let type: 'youtube' | 'og' | null = null;
+      let type: 'youtube' | 'og' | 'url-event' | null = null;
       if (parseYouTubeUrl(value)) type = 'youtube';
+      else if (urlEmbedsNostrEvent(value)) type = 'url-event';
       else if (shouldOgPreview(value)) type = 'og';
       if (!type) continue;
       hits.push({ index: m.index, end: m.index + m[0].length, type, value });
@@ -151,6 +164,29 @@
         return `<div class="nrt-line">${inner || '&nbsp;'}</div>`;
       })
       .join('');
+  }
+
+  /** Inline-safe lines so a UserBadge can sit mid-sentence without a hard break. */
+  function renderFlowText(text: string): string {
+    const lines = prepareLines(text);
+    return lines
+      .map((line) => {
+        const inner = `${escapeHtml(line.prefix)}${renderInline(line.body)}`;
+        if (line.kind === 'greentext') {
+          return `<span class="nrt-greentext">${inner || '&nbsp;'}</span>`;
+        }
+        if (line.kind === 'quote') {
+          return `<span class="nrt-quote">${inner || '&nbsp;'}</span>`;
+        }
+        return `<span class="nrt-phrase">${inner}</span>`;
+      })
+      .join('<br>');
+  }
+
+  const bodyBlocks = $derived(coalescePlainMentionFlows(segments));
+
+  function flowHasMention(block: PlainBodyBlock): boolean {
+    return block.type === 'flow' && block.parts.some((p) => p.type === 'mention');
   }
 
   function splitPayments(text: string): Array<{ type: 'text' | 'ln' | 'xmr'; value: string }> {
@@ -240,60 +276,89 @@
   });
 </script>
 
+{#snippet richTextChunk(text: string, inline: boolean)}
+  {#each splitPayments(text) as pay}
+    {#if pay.type === 'ln'}
+      <div class="nrt-pay" data-kind="lightning">
+        <code>{pay.value.slice(0, 24)}…</code>
+        <span class="muted">Lightning invoice</span>
+      </div>
+    {:else if pay.type === 'xmr'}
+      <div class="nrt-pay" data-kind="monero">
+        <code>{pay.value.slice(0, 16)}…</code>
+        <span class="muted">Monero address</span>
+      </div>
+    {:else}
+      {#each splitLinkEmbeds(pay.value) as bit}
+        {#if bit.type === 'youtube'}
+          <YouTubeEmbed url={bit.value} />
+        {:else if bit.type === 'url-event'}
+          <ExpandableUrlEventLink url={bit.value} />
+        {:else if bit.type === 'og'}
+          <OgLinkPreviewCard url={bit.value} />
+        {:else if inline ? bit.value.length > 0 : bit.value.trim()}
+          {@html expandCustomEmojiPlaceholders(
+            inline ? renderFlowText(bit.value) : renderPlainBlock(bit.value),
+            emojiSlots
+          )}
+        {/if}
+      {/each}
+    {/if}
+  {/each}
+{/snippet}
+
 <div
   class="nostr-rich-text"
   class:clamped={maxLines != null && !expanded}
   style={maxLines != null && !expanded ? `--nrt-max-lines: ${maxLines}` : undefined}
 >
-  {#each segments as seg, i}
-    {#if seg.type === 'text'}
-      {#each splitPayments(seg.text) as part}
-        {#if part.type === 'ln'}
-          <div class="nrt-pay" data-kind="lightning">
-            <code>{part.value.slice(0, 24)}…</code>
-            <span class="muted">Lightning invoice</span>
-          </div>
-        {:else if part.type === 'xmr'}
-          <div class="nrt-pay" data-kind="monero">
-            <code>{part.value.slice(0, 16)}…</code>
-            <span class="muted">Monero address</span>
-          </div>
-        {:else}
-          {#each splitLinkEmbeds(part.value) as bit}
-            {#if bit.type === 'youtube'}
-              <YouTubeEmbed url={bit.value} />
-            {:else if bit.type === 'og'}
-              <OgLinkPreviewCard url={bit.value} />
-            {:else if bit.value.trim()}
-              {@html expandCustomEmojiPlaceholders(renderPlainBlock(bit.value), emojiSlots)}
+  {#each bodyBlocks as block}
+    {#if block.type === 'flow'}
+      {#if flowHasMention(block)}
+        <div class="nrt-flow">
+          {#each block.parts as part}
+            {#if part.type === 'mention'}
+              <span class="nrt-mention"><UserBadge pubkey={part.pubkey} compact /></span>
+            {:else}
+              {@render richTextChunk(part.text, true)}
             {/if}
           {/each}
-        {/if}
-      {/each}
-    {:else if seg.kind === 'npub' || seg.kind === 'nprofile'}
-      {#if seg.pubkey}
-        <span class="nrt-mention"><UserBadge pubkey={seg.pubkey} compact /></span>
+        </div>
       {:else}
+        {#each block.parts as part}
+          {#if part.type === 'text'}
+            {@render richTextChunk(part.text, false)}
+          {/if}
+        {/each}
+      {/if}
+    {:else}
+      {@const seg = segments[block.index]}
+      {@const i = block.index}
+      {#if seg?.type === 'ref' && (seg.kind === 'npub' || seg.kind === 'nprofile')}
+        {#if seg.pubkey}
+          <span class="nrt-mention"><UserBadge pubkey={seg.pubkey} compact /></span>
+        {:else}
+          <code>{seg.raw}</code>
+        {/if}
+      {:else if seg?.type === 'ref' && showEmbeds && resolved[i]}
+        <div class="nrt-embed" class:nrt-embed-card={useRichEmbedCard(resolved[i]!)}>
+          {#if useRichEmbedCard(resolved[i]!)}
+            {#await import('./EventCard.svelte') then mod}
+              <mod.default event={resolved[i]!} embedDepth={1} asCard />
+            {/await}
+          {:else}
+            <EmbedEventLine event={resolved[i]!} />
+          {/if}
+        </div>
+      {:else if seg?.type === 'ref' && showEmbeds && resolved[i] === null}
+        <p class="muted">This item could not be found.</p>
+      {:else if seg?.type === 'ref' && showEmbeds}
+        <p class="muted">Opening…</p>
+      {:else if seg?.type === 'ref' && seg.bech32}
+        <a href={`#/feed?thread=${seg.bech32}`}>{seg.raw}</a>
+      {:else if seg?.type === 'ref'}
         <code>{seg.raw}</code>
       {/if}
-    {:else if seg.type === 'ref' && showEmbeds && resolved[i]}
-      <div class="nrt-embed" class:nrt-embed-card={useRichEmbedCard(resolved[i]!)}>
-        {#if useRichEmbedCard(resolved[i]!)}
-          {#await import('./EventCard.svelte') then mod}
-            <mod.default event={resolved[i]!} embedDepth={1} asCard />
-          {/await}
-        {:else}
-          <EmbedEventLine event={resolved[i]!} />
-        {/if}
-      </div>
-    {:else if seg.type === 'ref' && showEmbeds && resolved[i] === null}
-      <p class="muted">This item could not be found.</p>
-    {:else if seg.type === 'ref' && showEmbeds}
-      <p class="muted">Opening…</p>
-    {:else if seg.type === 'ref' && seg.bech32}
-      <a href={`#/feed?thread=${seg.bech32}`}>{seg.raw}</a>
-    {:else if seg.type === 'ref'}
-      <code>{seg.raw}</code>
     {/if}
   {/each}
   {#if maxLines != null}
@@ -311,7 +376,11 @@
     line-clamp: var(--nrt-max-lines, 6);
     overflow: hidden;
   }
-  :global(.nrt-line) {
+  .nrt-flow {
+    word-break: break-word;
+  }
+  :global(.nrt-line),
+  :global(.nrt-phrase) {
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -324,6 +393,9 @@
     padding-left: 0.75rem;
     border-left: 3px solid color-mix(in srgb, currentColor 25%, transparent);
     color: color-mix(in srgb, currentColor 75%, transparent);
+  }
+  .nrt-flow :global(.nrt-quote) {
+    margin: 0;
   }
   .nrt-mention {
     display: inline-flex;

@@ -18,7 +18,7 @@
     '/start': wrap({ asyncComponent: () => import('./routes/StartRedirect.svelte') }),
     '/contact': wrap({ asyncComponent: () => import('./routes/Contact.svelte') }),
     '/feed': wrap({ asyncComponent: () => import('./routes/Feed.svelte') }),
-    /** Legacy `/feed/note1…` → `/feed?thread=` so the list route never remounts. */
+    /** Legacy `/feed/nevent1…` or `/feed/note1…` → `/feed?thread=` so the list never remounts. */
     '/feed/:id': wrap({ asyncComponent: () => import('./routes/FeedThreadRedirect.svelte') }),
     '/p/:id/:kind': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),
     '/p/:id': wrap({ asyncComponent: () => import('./routes/Profile.svelte') }),

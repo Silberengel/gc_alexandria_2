@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import {
   coalesceInlineMentions,
+  coalescePlainMentionFlows,
   expandNostrRefPlaceholders,
   nostrRefPlaceholder,
   protectNostrRefsForMarkup,
@@ -108,6 +109,22 @@ describe('coalesceInlineMentions', () => {
       ]
     });
     expect(blocks[1]).toEqual({ type: 'html', html: '<p>Next.</p>' });
+  });
+});
+
+describe('coalescePlainMentionFlows', () => {
+  it('keeps plaintext npub mentions on the same line as surrounding words', () => {
+    const npub = nip19.npubEncode('a'.repeat(64));
+    const parts = splitNostrRefs(`over at nostr:${npub} \nhttps://cdn.example/x.gif`);
+    const blocks = coalescePlainMentionFlows(parts);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type).toBe('flow');
+    if (blocks[0]?.type !== 'flow') return;
+    expect(blocks[0].parts).toEqual([
+      { type: 'text', text: 'over at ' },
+      { type: 'mention', pubkey: 'a'.repeat(64) },
+      { type: 'text', text: ' \nhttps://cdn.example/x.gif' }
+    ]);
   });
 });
 

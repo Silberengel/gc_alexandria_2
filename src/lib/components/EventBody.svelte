@@ -36,6 +36,7 @@
   import MeetingRoomCard from './MeetingRoomCard.svelte';
   import RoomPresenceCard from './RoomPresenceCard.svelte';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
+  import { openMediaViewer } from '$lib/stores/media-viewer';
 
   interface Props {
     event?: Event;
@@ -75,6 +76,11 @@
   const media = $derived(
     event ? uniqueMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
   );
+  const imageUrls = $derived(media.filter((item) => item.type === 'image').map((item) => item.url));
+
+  function openImageGallery(url: string): void {
+    openMediaViewer({ url, urls: imageUrls });
+  }
   /** Drop played file URLs from the prose so a note is not a link and a player. */
   const source = $derived(omitMediaUrls(event?.content ?? content, media));
   const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
@@ -399,14 +405,22 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <audio class="event-imeta" src={item.url} controls></audio>
       {:else}
-        <img
-          class="event-imeta"
-          src={item.url}
-          alt={item.alt ?? ''}
-          loading="lazy"
-          width={item.width}
-          height={item.height}
-        />
+        <button
+          class="event-imeta-btn"
+          type="button"
+          title={imageUrls.length > 1 ? 'View gallery' : 'View image'}
+          aria-label={item.alt?.trim() || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
+          onclick={() => openImageGallery(item.url)}
+        >
+          <img
+            class="event-imeta"
+            src={item.url}
+            alt={item.alt ?? ''}
+            loading="lazy"
+            width={item.width}
+            height={item.height}
+          />
+        </button>
       {/if}
     {/each}
   {/if}

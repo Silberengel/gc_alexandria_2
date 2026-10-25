@@ -6,6 +6,7 @@
   import { eventPreview } from '$lib/event-preview';
   import { dedupeMediaUrls, uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
+  import { openMediaViewer } from '$lib/stores/media-viewer';
 
   interface Props {
     event: Event;
@@ -16,6 +17,22 @@
 
   const preview = $derived(eventPreview(event));
   const media = $derived(uniqueMedia(event));
+  const galleryUrls = $derived(
+    dedupeMediaUrls([
+      ...preview.imageUrls,
+      ...media.filter((m) => m.type === 'image').map((m) => m.url)
+    ]).filter((url) => isAllowedMediaUrl(url))
+  );
+
+  function openGallery(url: string, e: MouseEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    openMediaViewer({
+      url,
+      urls: galleryUrls,
+      title: preview.headline || undefined
+    });
+  }
 </script>
 
 <article class="card generic-card">
@@ -35,13 +52,16 @@
       {/each}
     </div>
   {/if}
-  {#each dedupeMediaUrls([
-    ...preview.imageUrls,
-    ...media.filter((m) => m.type === 'image').map((m) => m.url)
-  ]).slice(0, 4) as url}
-    {#if isAllowedMediaUrl(url)}
+  {#each galleryUrls.slice(0, 4) as url}
+    <button
+      class="event-imeta-btn"
+      type="button"
+      title={galleryUrls.length > 1 ? 'View gallery' : 'View image'}
+      aria-label={galleryUrls.length > 1 ? 'View gallery' : 'View image'}
+      onclick={(e) => openGallery(url, e)}
+    >
       <img class="generic-media" src={url} alt="" loading="lazy" />
-    {/if}
+    </button>
   {/each}
   {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}
     {#if item.type === 'video' && isAllowedMediaUrl(item.url)}

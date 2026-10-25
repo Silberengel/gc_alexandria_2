@@ -1,6 +1,7 @@
 import { OG_PREVIEW_URL } from './constants';
 import { isAllowedHref } from './markup';
 import { isImageUrl } from './media';
+import { urlEmbedsNostrEvent } from './nostr-entity';
 import { parseYouTubeUrl } from './youtube';
 
 export type OgPreview = {
@@ -36,6 +37,7 @@ export function shouldOgPreview(raw: string): boolean {
     return false;
   }
   if (parseYouTubeUrl(url)) return false;
+  if (urlEmbedsNostrEvent(url)) return false;
   if (isImageUrl(url)) return false;
   if (MEDIA_FILE.test(url)) return false;
   return true;

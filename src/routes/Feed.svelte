@@ -38,14 +38,17 @@
     feedFollowAuthors,
     feedListPath,
     feedRelayGroups,
+    eventMatchesThreadTarget,
     feedThreadPath,
-    fetchFeedEvent,
+    feedThreadPointerFromId,
+    fetchFeedThreadTarget,
     mergeFeedPosts,
     loadFeed,
     loadFeedWithReplies,
     loadNotifications,
     parseFeedTab,
     parseFeedThreadParam,
+    parseFeedThreadTarget,
     recallFeedPosts,
     recallFeedWithReplies,
     recallNotifications,
@@ -60,8 +63,9 @@
 
   let { params: _params = {} }: { params?: Record<string, string> } = $props();
 
-  /** Open thread id from `?thread=` — same `/feed` route, so the list never remounts. */
-  const pointer = $derived(parseFeedThreadParam($querystring));
+  /** Open thread from `?thread=` (nevent / naddr / hex) — same `/feed` route. */
+  const threadTarget = $derived(parseFeedThreadTarget($querystring));
+  const pointer = $derived(threadTarget ? parseFeedThreadParam($querystring) : null);
   const signedIn = $derived(!!$session.pubkey);
   const feedTab = $derived(
     parseFeedTab(new URLSearchParams($querystring ?? '').get('tab'))
@@ -324,7 +328,7 @@
     warmNavEvent(item, boostTargetId);
     if (boostTargetId) {
       const q = new URLSearchParams();
-      q.set('thread', boostTargetId);
+      q.set('thread', feedThreadPointerFromId(boostTargetId));
       if (feedTab !== 'original') q.set('tab', feedTab);
       void replace(`/feed?${q.toString()}`);
     } else {
@@ -536,10 +540,10 @@
   });
 
   $effect(() => {
-    const id = pointer;
+    const target = threadTarget;
     void $session.pubkey;
     let cancelled = false;
-    if (!id) {
+    if (!target) {
       event = null;
       threadLoading = false;
       responses = emptyWorkResponses();
@@ -548,11 +552,11 @@
     responses = emptyWorkResponses();
     socialLoading = false;
     const warm = takePendingNavEvent();
-    const seeded = warm && warm.id.toLowerCase() === id ? warm : null;
+    const seeded = warm && eventMatchesThreadTarget(warm, target) ? warm : null;
     event = seeded;
     threadLoading = !seeded;
     void (async () => {
-      const found = seeded ?? (await fetchFeedEvent(id));
+      const found = seeded ?? (await fetchFeedThreadTarget(target));
       if (cancelled) return;
       event = found;
       threadLoading = false;
@@ -729,7 +733,7 @@
             ? boostExcerpts[item.id] ?? peekRepostExcerpt(item)
             : ''}
           {@const threadHref = `#${boostTarget
-            ? `/feed?thread=${boostTarget}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}`
+            ? `/feed?thread=${feedThreadPointerFromId(boostTarget)}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}`
             : feedThreadPath(item, feedTab)}`}
           <li
             class="card feed-row"

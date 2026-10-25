@@ -4,19 +4,30 @@
   import { loginDialogOpen, openLoginDialog, closeLoginDialog } from '$lib/stores/login-ui';
   import UserBadge from './UserBadge.svelte';
   import LoginDialog from './LoginDialog.svelte';
-  import { suggestTitles, npubFromInput, isNsec } from '$lib/search';
+  import SearchForm from './SearchForm.svelte';
 
   interface Props {
+    /**
+     * Show the global search field above the nav.
+     * Defaults on; forced off on `/search` (that page has its own field).
+     */
     showSearch?: boolean;
     /** Publication reader: hide on scroll down, show on scroll up. */
     autoHideOnScroll?: boolean;
   }
 
-  let { showSearch = false, autoHideOnScroll = false }: Props = $props();
-  let query = $state('');
-  let suggestions = $state<string[]>([]);
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let { showSearch = true, autoHideOnScroll = false }: Props = $props();
   let concealed = $state(false);
+
+  const path = $derived(($location ?? '').split('?')[0] || '');
+  const onSearchPage = $derived(path === '/search');
+  const searchVisible = $derived(showSearch && !onSearchPage);
+  const onHome = $derived(path === '/' || path === '');
+  const onFeed = $derived(path.startsWith('/feed'));
+  const onCompose = $derived(path.startsWith('/compose'));
+  const onContact = $derived(path.startsWith('/contact'));
+  const onSettings = $derived(path.startsWith('/settings'));
+  const onAbout = $derived(path.startsWith('/about'));
 
   $effect(() => {
     if (!autoHideOnScroll) {
@@ -60,81 +71,13 @@
       document.documentElement.classList.remove('top-bar-concealed');
     };
   });
-
-  function submitSearch(e: Event) {
-    e.preventDefault();
-    const q = query.trim();
-    if (!q || isNsec(q)) {
-      query = '';
-      return;
-    }
-    const npub = npubFromInput(q);
-    if (npub) {
-      window.location.hash = `#/p/${npub}`;
-      return;
-    }
-    window.location.hash = `#/search?q=${encodeURIComponent(q)}`;
-  }
-
-  function onInput(): void {
-    suggestions = [];
-    if (timer) clearTimeout(timer);
-    const q = query.trim();
-    if (q.length < 2 || isNsec(q)) return;
-    timer = setTimeout(() => {
-      void suggestTitles(q).then((hits) => {
-        suggestions = hits.slice(0, 8);
-      });
-    }, 200);
-  }
-
-  function pick(hit: string): void {
-    query = hit;
-    suggestions = [];
-    window.location.hash = `#/search?q=${encodeURIComponent(hit)}`;
-  }
 </script>
 
-<header class="top-bar" class:is-concealed={concealed}>
+<header class="top-bar" class:is-concealed={concealed} class:top-bar-with-search={searchVisible}>
   <a class="brand" href="#/" use:link>
     <img src="/favicon.png" width="32" height="32" alt="" />
     <span>Library of Alexandria</span>
   </a>
-  <nav>
-    <a href="#/feed" use:link aria-current={($location ?? '').startsWith('/feed') ? 'page' : undefined}
-      >Feed</a
-    >
-    <a
-      href="#/compose"
-      use:link
-      aria-current={($location ?? '').startsWith('/compose') ? 'page' : undefined}>Compose</a
-    >
-    <a href="#/about" use:link>About</a>
-    {#if $session.pubkey}
-      <a href="#/contact" use:link>Contact</a>
-    {/if}
-    <a href="#/settings" use:link>Settings</a>
-  </nav>
-  {#if showSearch}
-    <form class="search-form" onsubmit={submitSearch}>
-      <input
-        type="search"
-        placeholder="Search books, wiki, events…"
-        bind:value={query}
-        oninput={onInput}
-        autocomplete="off"
-      />
-      {#if suggestions.length}
-        <ul class="suggest-list">
-          {#each suggestions as hit}
-            <li>
-              <button type="button" onclick={() => pick(hit)}>{hit}</button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </form>
-  {/if}
   <div class="top-bar-session">
     {#if $session.pubkey}
       <UserBadge pubkey={$session.pubkey} />
@@ -164,16 +107,29 @@
         {#if $session.loading}
           <span class="jump-busy-spinner" aria-hidden="true"></span>
         {:else}
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"
-          />
-        </svg>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M11 7 9.6 8.4l2.6 2.6H2v2h10.2l-2.6 2.6L11 17l5-5-5-5zm9 12h-8v2h8c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-8v2h8v14z"
+            />
+          </svg>
         {/if}
       </button>
     {/if}
   </div>
+  {#if searchVisible}
+    <SearchForm class="top-bar-search" />
+  {/if}
+  <nav>
+    <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
+    <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
+    <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
+    <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
+    {#if $session.pubkey}
+      <a href="#/contact" use:link aria-current={onContact ? 'page' : undefined}>Contact</a>
+    {/if}
+    <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
+  </nav>
 </header>
 
 <LoginDialog open={$loginDialogOpen} onClose={closeLoginDialog} />

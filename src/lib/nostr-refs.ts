@@ -117,6 +117,54 @@ export function isBlockEmbedRef(seg: ContentSegment): boolean {
   );
 }
 
+export function isInlineMentionRef(seg: ContentSegment): boolean {
+  return seg.type === 'ref' && (seg.kind === 'npub' || seg.kind === 'nprofile') && !!seg.pubkey;
+}
+
+export type PlainMentionPart =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; pubkey: string };
+
+export type PlainBodyBlock =
+  | { type: 'flow'; parts: PlainMentionPart[] }
+  | { type: 'segment'; index: number };
+
+/**
+ * Keep npub/nprofile badges inside the sentence they were written in.
+ * Plaintext rich-text previously rendered each text chunk as a block `<div>`,
+ * which forced a hard break around every mention.
+ */
+export function coalescePlainMentionFlows(segments: ContentSegment[]): PlainBodyBlock[] {
+  const blocks: PlainBodyBlock[] = [];
+  let flow: PlainMentionPart[] | null = null;
+
+  const flush = (): void => {
+    if (!flow?.length) {
+      flow = null;
+      return;
+    }
+    blocks.push({ type: 'flow', parts: flow });
+    flow = null;
+  };
+
+  segments.forEach((seg, index) => {
+    if (seg.type === 'text') {
+      if (!flow) flow = [];
+      flow.push({ type: 'text', text: seg.text });
+      return;
+    }
+    if (isInlineMentionRef(seg) && seg.pubkey) {
+      if (!flow) flow = [];
+      flow.push({ type: 'mention', pubkey: seg.pubkey });
+      return;
+    }
+    flush();
+    blocks.push({ type: 'segment', index });
+  });
+  flush();
+  return blocks;
+}
+
 /** Trailing blank lines only — keep a single space for inline citations. */
 function stripTrailingBlankLines(text: string): string {
   return text.replace(/(?:[ \t]*\r?\n)+[ \t]*$/g, '');

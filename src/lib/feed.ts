@@ -6,9 +6,11 @@ import { filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { uniqueRelayUrls } from './nostr/mailboxes';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { cachedEventsByKind, cacheGetEvent } from './nostr/cache';
+import { fetchByAddress } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { forestRelay, getSelectorContext, socialStack } from './nostr/selector';
+import { firstTag } from './nostr/verify';
 
 const FOLLOW_AUTHOR_BATCH = 50;
 const FOLLOW_AUTHOR_CAP = 200;
@@ -504,13 +506,35 @@ export async function fetchFeedEvent(id: string): Promise<Event | null> {
   return null;
 }
 
+/** Preferred share/thread pointer: naddr for parameterized replaceables, else nevent1. */
+export function feedThreadPointer(event: Event): string {
+  const d = firstTag(event, 'd');
+  if (d != null && event.kind >= 30_000 && event.kind < 40_000) {
+    return nip19.naddrEncode({
+      kind: event.kind,
+      pubkey: event.pubkey,
+      identifier: d
+    });
+  }
+  return nip19.neventEncode({
+    id: event.id,
+    author: event.pubkey,
+    kind: event.kind
+  });
+}
+
+/** `nevent1…` from an id alone (boost targets, legacy `/feed/note1…` redirects). */
+export function feedThreadPointerFromId(id: string): string {
+  return nip19.neventEncode({ id: id.toLowerCase() });
+}
+
 /**
  * In-feed thread URL on the same `/feed` route (query `thread=`).
  * Staying on `/feed` avoids remounting the list when opening/closing a card.
  */
 export function feedThreadPath(event: Event, tab: FeedTab = 'original'): string {
   const q = new URLSearchParams();
-  q.set('thread', nip19.noteEncode(event.id));
+  q.set('thread', feedThreadPointer(event));
   if (tab !== 'original') q.set('tab', tab);
   return `/feed?${q.toString()}`;
 }
@@ -520,23 +544,121 @@ export function feedListPath(tab: FeedTab = 'original'): string {
   return tab === 'original' ? '/feed' : `/feed?tab=${tab}`;
 }
 
-/** `note1…`, `nevent1…`, or a 64-char hex id from the feed route / `thread` query. */
-export function decodeFeedPointer(raw: string): string | null {
+export type FeedThreadTarget =
+  | { type: 'id'; id: string; author?: string; relays?: string[] }
+  | {
+      type: 'addr';
+      kind: number;
+      pubkey: string;
+      identifier: string;
+      relays?: string[];
+      /** Stable key for effects / warm-cache compare (coord or id). */
+      key: string;
+    };
+
+/**
+ * Resolve `nevent1…`, `naddr1…`, legacy `note1…`, or a 64-char hex id.
+ * Does not dig bech32 out of HTTP wrappers — those stay links with a chevron.
+ */
+export function decodeFeedThreadTarget(raw: string): FeedThreadTarget | null {
   const value = decodeURIComponent(raw).trim().replace(/^nostr:/i, '');
-  if (/^[0-9a-f]{64}$/i.test(value)) return value.toLowerCase();
+  if (/^[0-9a-f]{64}$/i.test(value)) {
+    return { type: 'id', id: value.toLowerCase() };
+  }
   try {
     const decoded = nip19.decode(value);
-    if (decoded.type === 'note') return decoded.data;
-    if (decoded.type === 'nevent') return decoded.data.id;
+    if (decoded.type === 'nevent') {
+      return {
+        type: 'id',
+        id: decoded.data.id,
+        author: decoded.data.author,
+        relays: decoded.data.relays
+      };
+    }
+    if (decoded.type === 'note') {
+      return { type: 'id', id: decoded.data };
+    }
+    if (decoded.type === 'naddr') {
+      const { kind, pubkey, identifier, relays } = decoded.data;
+      return {
+        type: 'addr',
+        kind,
+        pubkey,
+        identifier,
+        relays,
+        key: `${kind}:${pubkey.toLowerCase()}:${identifier}`
+      };
+    }
   } catch {
     return null;
   }
   return null;
 }
 
-/** Read `thread=` from the feed querystring. */
+/**
+ * Event id from `nevent1…`, legacy `note1…`, or a 64-char hex id.
+ * Prefer {@link decodeFeedThreadTarget} when naddr must resolve.
+ */
+export function decodeFeedPointer(raw: string): string | null {
+  const target = decodeFeedThreadTarget(raw);
+  return target?.type === 'id' ? target.id : null;
+}
+
+/** Load the OP for a feed thread (by id or naddr address). */
+export async function fetchFeedThreadTarget(
+  target: FeedThreadTarget
+): Promise<Event | null> {
+  if (target.type === 'id') {
+    const cached = memoryGetEvent(target.id) ?? (await cacheGetEvent(target.id).catch(() => null));
+    if (cached) {
+      rememberEvents([cached]);
+      return cached;
+    }
+    if (target.relays?.length || target.author) {
+      const { fetchById } = await import('./nostr/fetch');
+      const hit = await fetchById(target.id, {
+        hintRelays: target.relays,
+        authorPubkey: target.author
+      });
+      if (hit) return hit;
+    }
+    return fetchFeedEvent(target.id);
+  }
+  return fetchByAddress(`${target.kind}:${target.pubkey}:${target.identifier}`, {
+    hintRelays: target.relays
+  });
+}
+
+/** Stable compare key for an open thread target. */
+export function feedThreadTargetKey(target: FeedThreadTarget): string {
+  return target.type === 'id' ? target.id : target.key;
+}
+
+/** True when this event is the OP for the open thread target. */
+export function eventMatchesThreadTarget(event: Event, target: FeedThreadTarget): boolean {
+  if (target.type === 'id') return event.id.toLowerCase() === target.id;
+  const d = firstTag(event, 'd');
+  return (
+    event.kind === target.kind &&
+    event.pubkey.toLowerCase() === target.pubkey.toLowerCase() &&
+    d === target.identifier
+  );
+}
+
+/** Read `thread=` from the feed querystring (hex / nevent / naddr). */
 export function parseFeedThreadParam(raw: string | null | undefined): string | null {
   const thread = new URLSearchParams(raw ?? '').get('thread');
   if (!thread?.trim()) return null;
-  return decodeFeedPointer(thread.trim());
+  const target = decodeFeedThreadTarget(thread.trim());
+  if (!target) return null;
+  return feedThreadTargetKey(target);
+}
+
+/** Full thread target from the feed querystring. */
+export function parseFeedThreadTarget(
+  raw: string | null | undefined
+): FeedThreadTarget | null {
+  const thread = new URLSearchParams(raw ?? '').get('thread');
+  if (!thread?.trim()) return null;
+  return decodeFeedThreadTarget(thread.trim());
 }

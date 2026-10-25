@@ -52,7 +52,11 @@
         error = 'Could not sign or publish the issue.';
         return;
       }
-      issueHref = `${ISSUES_BASE}/${nip19.noteEncode(signed.id)}`;
+      issueHref = `${ISSUES_BASE}/${nip19.neventEncode({
+        id: signed.id,
+        author: signed.pubkey,
+        kind: signed.kind
+      })}`;
       success = 'Issue published. Thank you.';
     } finally {
       sending = false;

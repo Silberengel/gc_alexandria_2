@@ -328,15 +328,38 @@ describe('social event memory', () => {
 });
 
 describe('feed thread query paths', () => {
-  it('keeps threads on /feed via ?thread= so the list route does not remount', () => {
-    const note = ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE });
-    expect(feedThreadPath(note)).toBe(`/feed?thread=${nip19.noteEncode(note.id)}`);
-    expect(feedThreadPath(note, 'replies')).toBe(
-      `/feed?thread=${nip19.noteEncode(note.id)}&tab=replies`
-    );
+  it('keeps threads on /feed via ?thread=nevent1 so the list route does not remount', () => {
+    const note = ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE, pubkey: 'a'.repeat(64) });
+    const nevent = nip19.neventEncode({
+      id: note.id,
+      author: note.pubkey,
+      kind: note.kind
+    });
+    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}`);
+    expect(feedThreadPath(note, 'replies')).toBe(`/feed?thread=${nevent}&tab=replies`);
     expect(feedListPath('replies')).toBe('/feed?tab=replies');
-    expect(parseFeedThreadParam(`thread=${nip19.noteEncode(note.id)}`)).toBe(note.id);
+    expect(parseFeedThreadParam(`thread=${nevent}`)).toBe(note.id);
     expect(parseFeedThreadParam(`thread=${note.id}&tab=replies`)).toBe(note.id);
+    // Legacy note1 bookmarks still resolve.
+    expect(parseFeedThreadParam(`thread=${nip19.noteEncode(note.id)}`)).toBe(note.id);
     expect(parseFeedThreadParam('tab=replies')).toBeNull();
+  });
+
+  it('uses naddr1 for parameterized replaceables such as live events', () => {
+    const live = ev({
+      id: '2'.repeat(64),
+      kind: KIND.LIVE_EVENT,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', 'room-1']]
+    });
+    const naddr = nip19.naddrEncode({
+      kind: live.kind,
+      pubkey: live.pubkey,
+      identifier: 'room-1'
+    });
+    expect(feedThreadPath(live)).toBe(`/feed?thread=${naddr}`);
+    expect(parseFeedThreadParam(`thread=${naddr}`)).toBe(
+      `${live.kind}:${live.pubkey}:room-1`
+    );
   });
 });

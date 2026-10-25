@@ -1,10 +1,15 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { Event } from 'nostr-tools';
+  import { querystring } from 'svelte-spa-router';
   import { copyPointerForEvent } from '$lib/publication-load';
   import { libraryDocumentPath } from '$lib/metadata';
   import { KIND } from '$lib/constants';
-  import { feedThreadPath } from '$lib/feed';
+  import {
+    eventMatchesThreadTarget,
+    feedThreadPath,
+    parseFeedThreadTarget
+  } from '$lib/feed';
   import { placeMenuPanel, type MenuPlacement } from '$lib/menu-placement';
   import { warmNavEvent } from '$lib/nav-warm';
   import { openRawEvent } from '$lib/stores/raw-event-viewer';
@@ -51,6 +56,11 @@
   const ptr = $derived(copyPointerForEvent(event));
   const njumpUrl = $derived(`https://njump.me/${ptr.text}`);
   const threadHref = $derived(`#${feedThreadPath(event)}`);
+  /** Already the open feed-thread OP — don't offer a no-op "Open in a thread". */
+  const isCurrentThreadOp = $derived.by(() => {
+    const target = parseFeedThreadTarget($querystring);
+    return !!target && eventMatchesThreadTarget(event, target);
+  });
   /** Prefer an explicit reader share URL; otherwise the Alexandria document (or njump). */
   const hyperlink = $derived.by(() => {
     const explicit = shareUrl.trim();
@@ -260,16 +270,18 @@
           {copied ? 'Copied' : ptr.label}
         </button>
       </li>
-      <li role="none">
-        <a
-          class="menu-item"
-          role="menuitem"
-          href={threadHref}
-          onclick={openInThread}
-        >
-          Open in a thread
-        </a>
-      </li>
+      {#if !isCurrentThreadOp}
+        <li role="none">
+          <a
+            class="menu-item"
+            role="menuitem"
+            href={threadHref}
+            onclick={openInThread}
+          >
+            Open in a thread
+          </a>
+        </li>
+      {/if}
       <li role="none">
         <button
           class="menu-item"

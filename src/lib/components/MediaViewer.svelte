@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { closeMediaViewer, mediaViewer } from '$lib/stores/media-viewer';
+  import { closeMediaViewer, mediaViewer, stepMediaViewer } from '$lib/stores/media-viewer';
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 4;
@@ -13,8 +13,16 @@
   let status = $state('');
   let dragOrigin = { x: 0, y: 0, ox: 0, oy: 0 };
 
+  const slideCount = $derived($mediaViewer.urls.length);
+  const isSlideshow = $derived(slideCount > 1);
+  const slideLabel = $derived(
+    isSlideshow ? `${$mediaViewer.index + 1} / ${slideCount}` : ''
+  );
+
   $effect(() => {
     if (!$mediaViewer.open) return;
+    // Reset pan/zoom whenever the open slide changes.
+    void $mediaViewer.url;
     zoom = 1;
     offsetX = 0;
     offsetY = 0;
@@ -31,6 +39,10 @@
       if (e.key === 'Escape') {
         e.preventDefault();
         closeMediaViewer();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if ($mediaViewer.urls.length < 2) return;
+        e.preventDefault();
+        stepMediaViewer(e.key === 'ArrowLeft' ? -1 : 1);
       } else if (e.key === '+' || e.key === '=') {
         e.preventDefault();
         bumpZoom(ZOOM_STEP);
@@ -143,7 +155,7 @@
   async function shareOrCopy(): Promise<void> {
     const url = $mediaViewer.url;
     if (!url) return;
-    const title = $mediaViewer.title || 'Cover';
+    const title = $mediaViewer.title || 'Image';
     try {
       if (typeof navigator.share === 'function') {
         await navigator.share({ title, url });
@@ -178,13 +190,42 @@
       role="dialog"
       tabindex="-1"
       aria-modal="true"
-      aria-label={$mediaViewer.title ? `Cover: ${$mediaViewer.title}` : 'Cover image'}
+      aria-label={$mediaViewer.title
+        ? isSlideshow
+          ? `${$mediaViewer.title} (${slideLabel})`
+          : `Image: ${$mediaViewer.title}`
+        : isSlideshow
+          ? `Image gallery ${slideLabel}`
+          : 'Image'}
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
     >
       <header class="media-viewer-toolbar">
-        <p class="media-viewer-title">{$mediaViewer.title || 'Cover'}</p>
+        <p class="media-viewer-title">
+          {$mediaViewer.title || (isSlideshow ? 'Gallery' : 'Image')}
+          {#if isSlideshow}
+            <span class="media-viewer-count muted">{slideLabel}</span>
+          {/if}
+        </p>
         <div class="media-viewer-actions">
+          {#if isSlideshow}
+            <button
+              class="btn media-viewer-btn"
+              type="button"
+              title="Previous image (←)"
+              aria-label="Previous image"
+              onclick={() => stepMediaViewer(-1)}
+              >‹</button
+            >
+            <button
+              class="btn media-viewer-btn"
+              type="button"
+              title="Next image (→)"
+              aria-label="Next image"
+              onclick={() => stepMediaViewer(1)}
+              >›</button
+            >
+          {/if}
           <button class="btn media-viewer-btn" type="button" title="Zoom out (−)" onclick={() => bumpZoom(-ZOOM_STEP)}
             >−</button
           >
@@ -214,25 +255,51 @@
       {#if status}
         <p class="media-viewer-status muted" aria-live="polite">{status}</p>
       {/if}
-      <div
-        class="media-viewer-stage"
-        class:media-viewer-stage-zoom={zoom > 1}
-        role="region"
-        aria-label="Zoomable cover image"
-        tabindex="-1"
-        onwheel={onWheel}
-        onpointerdown={onPointerDown}
-        onpointermove={onPointerMove}
-        onpointerup={onPointerUp}
-        onpointercancel={onPointerUp}
-      >
-        <img
-          class="media-viewer-image"
-          src={$mediaViewer.url}
-          alt={$mediaViewer.title || 'Cover'}
-          draggable="false"
-          style={`transform: translate(${offsetX}px, ${offsetY}px) scale(${zoom});`}
-        />
+      <div class="media-viewer-stage-wrap">
+        {#if isSlideshow}
+          <button
+            class="media-viewer-nav media-viewer-nav-prev"
+            type="button"
+            title="Previous image (←)"
+            aria-label="Previous image"
+            onclick={() => stepMediaViewer(-1)}
+          >
+            <span aria-hidden="true">‹</span>
+          </button>
+        {/if}
+        <div
+          class="media-viewer-stage"
+          class:media-viewer-stage-zoom={zoom > 1}
+          role="region"
+          aria-label={isSlideshow ? `Zoomable image ${slideLabel}` : 'Zoomable image'}
+          tabindex="-1"
+          onwheel={onWheel}
+          onpointerdown={onPointerDown}
+          onpointermove={onPointerMove}
+          onpointerup={onPointerUp}
+          onpointercancel={onPointerUp}
+        >
+          {#key $mediaViewer.url}
+            <img
+              class="media-viewer-image"
+              src={$mediaViewer.url}
+              alt={$mediaViewer.title || (isSlideshow ? `Image ${slideLabel}` : 'Image')}
+              draggable="false"
+              style={`transform: translate(${offsetX}px, ${offsetY}px) scale(${zoom});`}
+            />
+          {/key}
+        </div>
+        {#if isSlideshow}
+          <button
+            class="media-viewer-nav media-viewer-nav-next"
+            type="button"
+            title="Next image (→)"
+            aria-label="Next image"
+            onclick={() => stepMediaViewer(1)}
+          >
+            <span aria-hidden="true">›</span>
+          </button>
+        {/if}
       </div>
     </div>
   </div>

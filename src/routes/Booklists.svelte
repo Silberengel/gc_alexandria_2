@@ -80,7 +80,7 @@
   });
 </script>
 
-<TopBar showSearch />
+<TopBar />
 <main class="shell settings-shell booklists-page">
   <header class="page-header">
     <p class="page-kicker">Library</p>

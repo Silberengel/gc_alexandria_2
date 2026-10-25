@@ -688,7 +688,7 @@
   });
 </script>
 
-<TopBar showSearch />
+<TopBar />
 
 <main class="shell shell-wide landing-page">
   <header class="landing-hero">

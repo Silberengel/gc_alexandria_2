@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import SearchForm from '$lib/components/SearchForm.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import EventsTable from '$lib/components/EventsTable.svelte';
@@ -195,6 +196,7 @@
     {#if !searchTerm}
       <p class="page-lede muted">Find publications, wiki pages, authors, and labels across the library.</p>
     {/if}
+    <SearchForm class="page-search-form" initialQuery={searchTerm} />
   </header>
   {#if searchTerm}
     <p class="search-term">

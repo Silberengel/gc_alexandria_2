@@ -24,7 +24,7 @@ import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-fol
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { isTopLevel30040, eventAddress } from './nostr/verify';
 import { publicationTargetsFromDirectory } from './bookshelf';
-import { fetchByAddresses, fetchByIds } from './nostr/fetch';
+import { fetchByAddress, fetchByAddresses, fetchByIds } from './nostr/fetch';
 import {
   fetchFollowReadingQueues,
   groupFollowsReadingByPublication
@@ -330,24 +330,21 @@ async function fetchBech32(
 ): Promise<Event[]> {
   if (decoded.type === 'note' || decoded.type === 'nevent') {
     const id = decoded.type === 'note' ? decoded.data : decoded.data.id;
+    const author = decoded.type === 'nevent' ? decoded.data.author : undefined;
+    const hints = decoded.type === 'nevent' ? decoded.data.relays : undefined;
+    if (hints?.length || author) {
+      const { fetchById } = await import('./nostr/fetch');
+      const hit = await fetchById(id, { hintRelays: hints, authorPubkey: author });
+      return hit ? [hit] : fetchByIdOrAuthor(id);
+    }
     return fetchByIdOrAuthor(id);
   }
   if (decoded.type === 'naddr') {
-    const { kind, pubkey, identifier } = decoded.data;
-    const filter: Filter = {
-      kinds: [kind],
-      authors: [pubkey],
-      '#d': [identifier],
-      limit: 100
-    };
-    const [m, w, s] = await Promise.all([
-      mercuryFilter(filter),
-      relayPool.query(documentStack(), [filter]),
-      relayPool.query(socialStack(), [filter])
-    ]);
-    const byId = new Map<string, Event>();
-    for (const e of [...m, ...w, ...s]) byId.set(e.id, e);
-    return pruneToLatestReplaceables([...byId.values()]);
+    const { kind, pubkey, identifier, relays } = decoded.data;
+    const hit = await fetchByAddress(`${kind}:${pubkey}:${identifier}`, {
+      hintRelays: relays
+    });
+    return hit ? [hit] : [];
   }
   return [];
 }
