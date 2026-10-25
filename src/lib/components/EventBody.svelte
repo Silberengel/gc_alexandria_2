@@ -32,6 +32,10 @@
   import { eventAddress } from '$lib/nostr/verify';
   import NostrRichText from './NostrRichText.svelte';
   import LiveStreamCard from './LiveStreamCard.svelte';
+  import MeetingSpaceCard from './MeetingSpaceCard.svelte';
+  import MeetingRoomCard from './MeetingRoomCard.svelte';
+  import RoomPresenceCard from './RoomPresenceCard.svelte';
+  import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
 
   interface Props {
     event?: Event;
@@ -331,9 +335,14 @@
         <span>{reactionFace.raw}</span>
       {/if}
     </p>
-  {:else if event && sourceKind === KIND.LIVE_EVENT}
-    <!-- NIP-53: player + metadata; skip plaintext body and imeta thumbs. -->
+  {:else if event && sourceKind === NIP53_KIND.LIVE_EVENT}
     <LiveStreamCard {event} />
+  {:else if event && sourceKind === NIP53_KIND.MEETING_SPACE}
+    <MeetingSpaceCard {event} />
+  {:else if event && sourceKind === NIP53_KIND.MEETING_ROOM}
+    <MeetingRoomCard {event} />
+  {:else if event && sourceKind === NIP53_KIND.ROOM_PRESENCE}
+    <RoomPresenceCard {event} />
   {:else if usePlaintextRich}
     <NostrRichText
       content={source}
@@ -374,7 +383,7 @@
       {@render embedCard(hit)}
     {/each}
   {/if}
-  {#if sourceKind !== KIND.LIVE_EVENT}
+  {#if !isNip53Kind(sourceKind) || sourceKind === NIP53_KIND.LIVE_CHAT}
     {#each media as item (item.url)}
       {#if item.type === 'video'}
         <!-- svelte-ignore a11y_media_has_caption -->

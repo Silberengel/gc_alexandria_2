@@ -183,8 +183,12 @@ export const KIND = {
   FOLLOW_SET: 30000,
   /** NIP-30 emoji pack (addressable). */
   EMOJI_SET: 30030,
-  /** NIP-53 live activities / streams. */
+  /** NIP-53 kinds — numbers match suite `nip53` in kind-compose-catalog. */
+  LIVE_CHAT: 1311,
+  ROOM_PRESENCE: 10312,
   LIVE_EVENT: 30311,
+  MEETING_SPACE: 30312,
+  MEETING_ROOM: 30313,
   STATUS: 30315,
   /** NKBIP-01 publication / entity rating. */
   RATING: 34259,
@@ -233,7 +237,11 @@ export const CACHE_KINDS = [
   KIND.SECTION,
   KIND.DIRECTORY,
   KIND.STATUS,
+  KIND.LIVE_CHAT,
+  KIND.ROOM_PRESENCE,
   KIND.LIVE_EVENT,
+  KIND.MEETING_SPACE,
+  KIND.MEETING_ROOM,
   KIND.SPEC,
   KIND.WIKI,
   KIND.RATING,

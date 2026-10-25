@@ -49,11 +49,17 @@
       <p class="live-stream-summary muted">{info.summary}</p>
     {/if}
 
+    {#if info.stale}
+      <p class="live-stream-stale muted">No update in over an hour — treated as ended.</p>
+    {/if}
+
     {#each info.hosts.slice(0, 2) as host}
       <p class="live-stream-host muted">
         <UserBadge pubkey={host.pubkey} />
         {#if host.role}
-          <span class="live-host-role">{host.role}</span>
+          <span class="live-host-role">{host.role}{host.agreed ? '' : ' (invited)'}</span>
+        {:else if !host.agreed}
+          <span class="live-host-role">invited</span>
         {/if}
       </p>
     {/each}
@@ -149,6 +155,10 @@
     line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .live-stream-stale {
+    margin: 0;
+    font-size: 0.85rem;
   }
   .live-stream-host {
     margin: 0;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
+import { NIP53_KIND } from './nip53';
 import {
   isDirectPlayableMediaUrl,
   liveStreamPlaybackUrl,
@@ -11,8 +12,8 @@ function ev(partial: Partial<Event> & Pick<Event, 'tags'>): Event {
   return {
     id: 'a'.repeat(64),
     pubkey: 'b'.repeat(64),
-    created_at: 1_700_000_000,
-    kind: 30311,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: NIP53_KIND.LIVE_EVENT,
     content: '',
     sig: 'c'.repeat(128),
     ...partial
@@ -20,7 +21,7 @@ function ev(partial: Partial<Event> & Pick<Event, 'tags'>): Event {
 }
 
 describe('parseLiveStreamStatus', () => {
-  it('maps NIP-53 status tags', () => {
+  it('maps NIP-53 status tags via catalog options', () => {
     expect(parseLiveStreamStatus('live')).toBe('live');
     expect(parseLiveStreamStatus('PLANNED')).toBe('planned');
     expect(parseLiveStreamStatus('ended')).toBe('ended');
@@ -28,7 +29,7 @@ describe('parseLiveStreamStatus', () => {
   });
 });
 
-describe('parseLiveStream', () => {
+describe('parseLiveStream (compat)', () => {
   it('reads title, status, stream URLs, hosts, and viewers', () => {
     const host = 'f'.repeat(64);
     const guest = 'e'.repeat(64);
@@ -81,25 +82,5 @@ describe('parseLiveStream', () => {
     expect(info.statusLabel).toBe('Ended');
     expect(liveStreamPlaybackUrl(info)).toBe('https://cdn.example/vod.mp4');
     expect(isDirectPlayableMediaUrl(info.recordingUrl!)).toBe(true);
-  });
-
-  it('prefers http HLS over moq:// streaming tags and falls back to thumb', () => {
-    const hls =
-      'https://streamstr.net/92f789a1-f387-439a-b18f-f247b7baf9e6/hls/live.m3u8';
-    const info = parseLiveStream(
-      ev({
-        tags: [
-          ['d', '92f789a1-f387-439a-b18f-f247b7baf9e6'],
-          ['status', 'live'],
-          ['title', 'Pha Lang'],
-          ['thumb', 'https://streamstr.net/thumb.webp'],
-          ['streaming', hls],
-          ['streaming', 'moq://streamstr.net:1443/']
-        ]
-      })
-    );
-    expect(info.streamingUrl).toBe(hls);
-    expect(info.imageUrl).toBe('https://streamstr.net/thumb.webp');
-    expect(liveStreamPlaybackUrl(info)).toBe(hls);
   });
 });

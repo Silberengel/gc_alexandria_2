@@ -9,6 +9,7 @@
   } from '$lib/emoji-content';
   import { KIND } from '$lib/constants';
   import { isAllowedHref } from '$lib/markup';
+  import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import UserBadge from './UserBadge.svelte';
   import EmbedEventLine from './EmbedEventLine.svelte';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
@@ -16,8 +17,8 @@
 
   /** Kinds that need a full card (player, gallery, …) instead of a one-line blurb. */
   function useRichEmbedCard(event: Event): boolean {
+    if (isNip53Kind(event.kind) && event.kind !== NIP53_KIND.LIVE_CHAT) return true;
     return (
-      event.kind === KIND.LIVE_EVENT ||
       event.kind === KIND.VIDEO ||
       event.kind === KIND.SHORT_VIDEO ||
       event.kind === KIND.PICTURE ||

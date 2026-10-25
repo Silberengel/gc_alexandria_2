@@ -7,10 +7,11 @@
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
-  import LiveStreamCard from '$lib/components/LiveStreamCard.svelte';
+  import EventCard from '$lib/components/EventCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { KIND } from '$lib/constants';
+  import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import {
     emptyWorkResponses,
     fetchWorkResponses,
@@ -582,8 +583,8 @@
       {#if threadLoading}
         <LoadingHint message="Opening this thread…" />
       {:else if event}
-        {#if event.kind === KIND.LIVE_EVENT}
-          <LiveStreamCard {event} />
+        {#if isNip53Kind(event.kind) && event.kind !== NIP53_KIND.LIVE_CHAT}
+          <EventCard {event} asCard />
           <DetailsPanel {event} />
         {:else}
           <article class="card reading-body">

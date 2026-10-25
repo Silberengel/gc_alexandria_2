@@ -47,9 +47,13 @@ export function threadNodeKey(node: ThreadNode): string {
 
 const HEX_ID = /^[0-9a-f]{64}$/;
 
-/** Kind 1111 NIP-22 comments and kind 1 NIP-10 notes that participate in a thread. */
+/** Kind 1111 NIP-22 comments, kind 1 NIP-10 notes, and NIP-53 live chat (1311). */
 export function isThreadEvent(event: Event): boolean {
-  return event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE;
+  return (
+    event.kind === KIND.COMMENT ||
+    event.kind === KIND.TEXT_NOTE ||
+    event.kind === KIND.LIVE_CHAT
+  );
 }
 
 function tagHasThreadMarker(t: string[]): boolean {
@@ -873,7 +877,7 @@ export async function fetchWorkResponses(
   }
 
   const parentIds = [...byEventId.values()]
-    .filter((e) => e.kind === KIND.COMMENT || isKind1Reply(e))
+    .filter((e) => e.kind === KIND.COMMENT || e.kind === KIND.LIVE_CHAT || isKind1Reply(e))
     .map((e) => e.id.toLowerCase())
     .slice(0, 12);
   if (parentIds.length) {

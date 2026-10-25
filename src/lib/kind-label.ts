@@ -1,8 +1,12 @@
+import { getKind } from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
-import type { Event } from 'nostr-tools';
 
-/** Short human label for a Nostr kind (jumble-style). */
+/** Short human label for a Nostr kind — prefer the compose catalog. */
 export function kindDescription(kind: number): string {
+  const catalog = getKind(kind)?.label?.trim();
+  if (catalog) return catalog;
+
+  // Fallbacks for kinds not (yet) in the pinned catalog.
   switch (kind) {
     case KIND.METADATA:
       return 'Profile metadata';
@@ -38,8 +42,6 @@ export function kindDescription(kind: number): string {
       return 'Music track';
     case KIND.WEB_BOOKMARK:
       return 'Web bookmark';
-    case KIND.LIVE_EVENT:
-      return 'Live event';
     case KIND.LABEL:
       return 'Label';
     case KIND.BOOKMARK:
@@ -49,7 +51,6 @@ export function kindDescription(kind: number): string {
     case KIND.DIRECTORY:
       return 'Directory';
     case KIND.REPOST:
-      return 'Repost';
     case KIND.GENERIC_REPOST:
       return 'Repost';
     case KIND.ZAP:

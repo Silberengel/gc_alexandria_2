@@ -6,6 +6,9 @@
   import PictureCard from './PictureCard.svelte';
   import VideoCard from './VideoCard.svelte';
   import LiveStreamCard from './LiveStreamCard.svelte';
+  import MeetingSpaceCard from './MeetingSpaceCard.svelte';
+  import MeetingRoomCard from './MeetingRoomCard.svelte';
+  import RoomPresenceCard from './RoomPresenceCard.svelte';
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
@@ -55,7 +58,13 @@
   </div>
 {:else if event.kind === KIND.LIVE_EVENT}
   <LiveStreamCard {event} />
-{:else if isThreadNote}
+{:else if event.kind === KIND.MEETING_SPACE}
+  <MeetingSpaceCard {event} />
+{:else if event.kind === KIND.MEETING_ROOM}
+  <MeetingRoomCard {event} />
+{:else if event.kind === KIND.ROOM_PRESENCE}
+  <RoomPresenceCard {event} />
+{:else if isThreadNote || event.kind === KIND.LIVE_CHAT}
   <div class="thread-node thread-embed-note">
     <div class="thread-head">
       <UserBadge pubkey={event.pubkey} />
