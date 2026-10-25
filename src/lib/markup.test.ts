@@ -19,7 +19,7 @@ describe('withMarkupTag', () => {
       ['t', 'wiki'],
       ['m', 'text/djot']
     ]);
-    expect(withMarkupTag([['m', 'text/markdown'], ['markup', 'djot']], 'asciidoc')).toEqual([
+    expect(withMarkupTag([['markup', 'text/markdown'], ['format', 'djot']], 'asciidoc')).toEqual([
       ['m', 'text/asciidoc']
     ]);
   });

@@ -1,3 +1,4 @@
+import type { Document } from '@asciidoctor/core';
 import DOMPurify from 'dompurify';
 import { parse as parseDjot, renderHTML as renderDjot } from '@djot/djot';
 import { getKind } from '@silberengel/kind-compose-catalog';
@@ -51,7 +52,7 @@ export function withMarkupTag(tags: string[][], format: 'djot' | 'asciidoc'): st
   for (const tag of tags) {
     const name = tag[0] ?? '';
     if ((name === 'm' || name === 'markup' || name === 'format') && markupFromMime(tag[1])) {
-      if (!wrote) next.push([name, mime]);
+      if (!wrote) next.push(['m', mime]);
       wrote = true;
       continue;
     }
@@ -149,19 +150,16 @@ function transformSkippingInlineCode(line: string, transform: (segment: string) 
   return out.join('');
 }
 
-type AsciidocAuthor = { getName?: () => string; getEmail?: () => string };
-type AsciidocDoc = {
-  getDocumentTitle?: () => string | undefined;
-  getAuthors?: () => AsciidocAuthor[];
-  getRevisionNumber?: () => string | undefined;
-  getRevisionDate?: () => string | undefined;
-  getRevisionRemark?: () => string | undefined;
-  convert: () => string;
-};
+/** `getDocumentTitle()` is a string, or a partitioned {@link Document.Title}. */
+function asciidocTitleText(title: ReturnType<Document['getDocumentTitle']>): string {
+  if (title == null) return '';
+  if (typeof title === 'string') return title.trim();
+  return (title.getCombined() || title.getMain()).trim();
+}
 
 /** Title, author line, and revision. Embedded conversion omits this header. */
-function asciidocDocumentHeader(doc: AsciidocDoc): string {
-  const title = String(doc.getDocumentTitle?.() ?? '').trim();
+function asciidocDocumentHeader(doc: Document): string {
+  const title = asciidocTitleText(doc.getDocumentTitle());
   if (!title) return '';
   const authors = doc.getAuthors?.() ?? [];
   const people = authors
