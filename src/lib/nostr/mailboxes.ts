@@ -113,7 +113,9 @@ async function refreshAuthorMailboxes(pk: string): Promise<Nip65Mailboxes> {
     profileStack(),
     [{ kinds: [KIND.RELAY_LIST], authors: [pk], limit: 2 }],
     4000,
-    4
+    4,
+    undefined,
+    { priority: true }
   );
   const fetched = pickLatestReplaceable(events, KIND.RELAY_LIST, pk);
   const stored = cachedIdentityEvent(KIND.RELAY_LIST, pk);

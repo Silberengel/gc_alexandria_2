@@ -40,6 +40,9 @@ export function isPresenceForActivity(event: Event, activity: Event): boolean {
 /** Drop presence older than this (NIP-53: clients SHOULD filter stale presence). */
 export const LIVE_PRESENCE_WINDOW_SEC = 30 * 60;
 
+/** Re-publish kind 10312 while the viewer stays on a live thread (once on enter, then this often). */
+export const LIVE_PRESENCE_REFRESH_MS = 5 * 60 * 1000;
+
 export type LivePresencePerson = {
   pubkey: string;
   handRaised: boolean;
@@ -73,6 +76,8 @@ export function collectLivePresence(
 
 /**
  * Flat chronological feed for a kind 30311: chat messages + presence lines.
+ * Newest first — compose sits above the list, so fresh posts stay under the box
+ * instead of sinking as older history loads in.
  * Reply `e` tags are recorded but do not nest rows (Twitch-style).
  */
 export function collectLiveChatRows(
@@ -111,9 +116,9 @@ export function collectLiveChatRows(
   }
 
   rows.sort((a, b) => {
-    const dt = a.event.created_at - b.event.created_at;
+    const dt = b.event.created_at - a.event.created_at;
     if (dt !== 0) return dt;
-    return a.event.id.localeCompare(b.event.id);
+    return b.event.id.localeCompare(a.event.id);
   });
   return rows;
 }
@@ -141,6 +146,48 @@ export function liveChatDraft(
     kind: NIP53_KIND.LIVE_CHAT,
     content,
     tags: [['a', addr, '', 'root']]
+  };
+}
+
+/**
+ * Draft a kind 10312 room presence for a live activity (NIP-53).
+ * Regular replaceable — one presence room per pubkey at a time.
+ */
+export function roomPresenceDraft(
+  activity: Event,
+  opts?: { handRaised?: boolean; relayHint?: string }
+): { kind: number; content: string; tags: string[][] } {
+  const addr = eventAddress(activity);
+  const relay = (opts?.relayHint ?? '').trim();
+  const tags: string[][] = [['a', addr, relay, 'root']];
+  if (opts?.handRaised) tags.push(['hand', '1']);
+  return {
+    kind: NIP53_KIND.ROOM_PRESENCE,
+    content: '',
+    tags
+  };
+}
+
+/**
+ * Unsigned stand-in so the avatar strip paints the viewer immediately while the
+ * real kind-10312 is signed and published (relays may be slow or rate-limited).
+ */
+export function localRoomPresence(
+  activity: Event,
+  pubkey: string,
+  opts?: { handRaised?: boolean; relayHint?: string }
+): Event {
+  const pk = pubkey.trim().toLowerCase();
+  const draft = roomPresenceDraft(activity, opts);
+  return {
+    // Deterministic placeholder id (64 hex) — never published.
+    id: (pk + '0'.repeat(64)).slice(0, 64),
+    pubkey: pk,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: NIP53_KIND.ROOM_PRESENCE,
+    tags: draft.tags,
+    content: '',
+    sig: ''
   };
 }
 

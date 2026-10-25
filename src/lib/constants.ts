@@ -167,6 +167,8 @@ export const KIND = {
   METADATA: 0,
   CONTACT_LIST: 3,
   TEXT_NOTE: 1,
+  /** NIP-41 short-note edit (kind-1 content revision). */
+  SHORT_NOTE_EDIT: 1010,
   DELETION: 5,
   REPOST: 6,
   GENERIC_REPOST: 16,
@@ -174,6 +176,8 @@ export const KIND = {
   HIGHLIGHT: 9802,
   /** NIP-57 zap receipt. */
   ZAP: 9735,
+  /** NIP-51 pin list. */
+  PIN: 10001,
   BOOKMARK: 10003,
   MUTE: 10000,
   RELAY_LIST: 10002,
@@ -246,6 +250,7 @@ export const CACHE_KINDS = [
   KIND.VIDEO,
   KIND.LABEL,
   KIND.HIGHLIGHT,
+  KIND.PIN,
   KIND.BOOKMARK,
   KIND.TEXT_NOTE,
   KIND.REACTION,

@@ -2,11 +2,11 @@
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
-  import ThreadCompose from './ThreadCompose.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import { collectLiveChatRows, liveChatDraft } from '$lib/live-chat';
   import { filterMuted, muteState } from '$lib/mute';
   import type { WorkResponses } from '$lib/comments';
+  import { formatAbsoluteTime, formatChatTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { publishComment } from '$lib/sign';
@@ -23,7 +23,6 @@
   let text = $state('');
   let posting = $state(false);
   let local = $state<Event[]>([]);
-  let composeOpen = $state(false);
 
   const rows = $derived(
     collectLiveChatRows(target, {
@@ -50,7 +49,6 @@
       if (!published) return;
       showPublished(published);
       text = '';
-      composeOpen = false;
     } finally {
       posting = false;
     }
@@ -61,22 +59,27 @@
   <h2 class="section-title">Live chat</h2>
 
   {#if allowCompose}
-    {#if $session.pubkey && composeOpen}
-      <ThreadCompose
-        bind:value={text}
-        placeholder="Say something…"
-        {posting}
-        offerKind1={false}
-        onSubmit={() => void post()}
-        onCancel={() => (composeOpen = false)}
-      />
-    {:else}
-      <button
-        class="btn"
-        type="button"
-        onclick={() => ($session.pubkey ? (composeOpen = true) : openLoginDialog())}
+    {#if $session.pubkey}
+      <form
+        class="live-chat-compose"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void post();
+        }}
       >
-        {$session.pubkey ? 'Say something…' : 'Sign in to chat'}
+        <input
+          type="text"
+          bind:value={text}
+          placeholder="Say something…"
+          disabled={posting}
+          autocomplete="off"
+          enterkeyhint="send"
+          aria-label="Live chat message"
+        />
+      </form>
+    {:else}
+      <button class="btn" type="button" onclick={() => openLoginDialog()}>
+        Sign in to chat
       </button>
     {/if}
   {/if}
@@ -85,7 +88,15 @@
     <ul class="live-chat-list">
       {#each rows as row (row.event.id)}
         <li class="live-chat-line">
-          <UserBadge pubkey={row.event.pubkey} />
+          <div class="live-chat-meta">
+            <UserBadge pubkey={row.event.pubkey} />
+            <time
+              class="live-chat-time muted"
+              datetime={new Date(row.event.created_at * 1000).toISOString()}
+              title={formatAbsoluteTime(row.event.created_at)}
+              >{formatChatTime(row.event.created_at)}</time
+            >
+          </div>
           <span class="live-chat-colon" aria-hidden="true">:</span>
           <div class="live-chat-body">
             <EventBody event={row.event} showEmbeds={false} />

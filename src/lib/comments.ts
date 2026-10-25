@@ -16,6 +16,7 @@ import {
 import { cachedEventsReferencing } from './nostr/cache';
 import { eventAddress } from './nostr/verify';
 import { splitNostrRefs } from './nostr-refs';
+import { ingestShortNoteEdit } from './short-note-edits';
 
 export type ThreadNode = {
   event: Event | null;
@@ -620,14 +621,44 @@ export type WorkResponses = {
   quotes: Event[];
   /** Kind 9802 highlights — decorate referenced text, not thread rows. */
   highlights: Event[];
-  /** Kind 1244, bookmarks, unknown kinds — not ratings or catalog documents. */
+  /** Kind 1244 and other unknown kinds — not ratings, catalog docs, or list attributions. */
   other: Event[];
   zaps: Event[];
   boosts: Event[];
+  /** NIP-51 kind 10003 bookmark lists that include this work. */
+  bookmarks: Event[];
+  /** NIP-51 kind 10001 pin lists that include this work. */
+  pins: Event[];
+  /** Kind 1985 labels that tag this work. */
+  labels: Event[];
 };
 
 export function emptyWorkResponses(): WorkResponses {
-  return { thread: [], quotes: [], highlights: [], other: [], zaps: [], boosts: [] };
+  return {
+    thread: [],
+    quotes: [],
+    highlights: [],
+    other: [],
+    zaps: [],
+    boosts: [],
+    bookmarks: [],
+    pins: [],
+    labels: []
+  };
+}
+
+/** Newest-first unique authors (one pubkey per person). */
+export function uniqueResponsePubkeys(events: Event[]): string[] {
+  const sorted = [...events].sort((a, b) => b.created_at - a.created_at);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const event of sorted) {
+    const pk = event.pubkey.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(pk) || seen.has(pk)) continue;
+    seen.add(pk);
+    out.push(pk);
+  }
+  return out;
 }
 
 const SKIP_OTHER_KINDS = new Set<number>([
@@ -642,6 +673,8 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.USER_EMOJI_LIST,
   KIND.LOCAL,
   KIND.LABEL,
+  KIND.PIN,
+  KIND.BOOKMARK,
   KIND.PAYMENT,
   KIND.READING_QUEUE,
   KIND.FOLLOW_SET,
@@ -655,8 +688,12 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.SPEC,
   KIND.DIRECTORY,
   KIND.NIP85_PREFS,
-  KIND.NIP85_SCORE
+  KIND.NIP85_SCORE,
+  // NIP-41 edits merge into kind-1 display — not thread / other rows.
+  KIND.SHORT_NOTE_EDIT
 ]);
+
+const ATTRIBUTION_KINDS = new Set<number>([KIND.BOOKMARK, KIND.PIN, KIND.LABEL]);
 
 function sortNewest(events: Event[]): Event[] {
   return events.sort((a, b) => b.created_at - a.created_at);
@@ -753,15 +790,23 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
   const otherById = new Map<string, Event>();
   const zapsById = new Map<string, Event>();
   const boostsById = new Map<string, Event>();
+  const bookmarksById = new Map<string, Event>();
+  const pinsById = new Map<string, Event>();
+  const labelsById = new Map<string, Event>();
 
   for (const event of events) {
     if (!event?.id) continue;
     const key = event.id.toLowerCase();
+    if (event.kind === KIND.SHORT_NOTE_EDIT) {
+      if (target.kind === KIND.TEXT_NOTE) ingestShortNoteEdit(event, target);
+      continue;
+    }
     const decorate =
       event.kind === KIND.HIGHLIGHT ||
       event.kind === KIND.ZAP ||
       event.kind === KIND.REPOST ||
-      event.kind === KIND.GENERIC_REPOST;
+      event.kind === KIND.GENERIC_REPOST ||
+      ATTRIBUTION_KINDS.has(event.kind);
     if (decorate) {
       if (!eventDecoratesKept(event, target, kept)) continue;
     } else if (!kept.has(key)) {
@@ -779,6 +824,20 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
     }
     if (event.kind === KIND.REPOST || event.kind === KIND.GENERIC_REPOST) {
       boostsById.set(key, event);
+      continue;
+    }
+    if (event.kind === KIND.BOOKMARK) {
+      if (referencesTarget(event, target)) bookmarksById.set(key, event);
+      continue;
+    }
+    if (event.kind === KIND.PIN) {
+      if (referencesTarget(event, target)) pinsById.set(key, event);
+      continue;
+    }
+    if (event.kind === KIND.LABEL) {
+      if (referencesTarget(event, target) || addressTagsTarget(event, target)) {
+        labelsById.set(key, event);
+      }
       continue;
     }
     if (event.id.toLowerCase() === target.id.toLowerCase()) continue;
@@ -803,7 +862,10 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
     highlights: sortNewest([...highlightsById.values()]),
     other: sortNewest([...otherById.values()]),
     zaps: [...zapsById.values()],
-    boosts: [...boostsById.values()]
+    boosts: [...boostsById.values()],
+    bookmarks: sortNewest([...bookmarksById.values()]),
+    pins: sortNewest([...pinsById.values()]),
+    labels: sortNewest([...labelsById.values()])
   };
 }
 
@@ -852,12 +914,11 @@ export async function fetchWorkResponses(
   const cached = await cachedEventsReferencing(id);
   if (cached.length) onCache?.(partitionWorkResponses(cached, target));
   const addrKeys = [...new Set(publicationCoordinateLookupKeys(a))].slice(0, 12);
-  // OP inbox only — replies written so the author can see them. Not their outbox,
-  // and not every participant's write relays.
-  const opInbox = foreignRelaysAllowed() ? await authorInbox(target.pubkey) : [];
-  const scoped = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
-  const relays = scoped.relays;
-  const maxRelays = scoped.maxRelays;
+  // Start the first REQ immediately; NIP-65 inbox lookup can finish in parallel.
+  // Blocking on authorInbox first starved comments behind feed list slots.
+  const opInboxPromise = foreignRelaysAllowed()
+    ? authorInbox(target.pubkey).catch(() => [] as string[])
+    : Promise.resolve([] as string[]);
   const scopes = nip73Values(target);
 
   const filters: Filter[] = [];
@@ -869,11 +930,34 @@ export async function fetchWorkResponses(
     filters.push({ '#I': scopes, limit }, { '#i': scopes, limit });
   }
 
-  const first = await relayPool.query(relays, filters, 6000, maxRelays, undefined, { priority: true });
+  const baseScoped = withPreferredRelays(threadRelayUniverse(), [], 4);
+  const first = await relayPool.query(
+    baseScoped.relays,
+    filters,
+    6000,
+    baseScoped.maxRelays,
+    undefined,
+    { priority: true }
+  );
 
   const byEventId = new Map<string, Event>();
   for (const e of [...cached, ...first]) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
+  }
+  // Clear the loading spinner even when cache was empty — nested hops continue below.
+  onCache?.(partitionWorkResponses([...byEventId.values()], target));
+
+  const opInbox = await opInboxPromise;
+  const scoped = withPreferredRelays(threadRelayUniverse(), opInbox, 4);
+  const relays = scoped.relays;
+  const maxRelays = scoped.maxRelays;
+
+  // Second pass on OP inbox relays when they add hosts the first REQ missed.
+  if (opInbox.length) {
+    const more = await relayPool.query(relays, filters, 5000, maxRelays);
+    for (const e of more) {
+      if (e?.id) byEventId.set(e.id.toLowerCase(), e);
+    }
   }
 
   const parentIds = [...byEventId.values()]

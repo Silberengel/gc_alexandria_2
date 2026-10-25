@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAbsoluteTime, formatRelativeTime } from './relative-time';
+import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from './relative-time';
 
 describe('formatRelativeTime', () => {
   const now = Date.UTC(2026, 8, 22, 14, 0, 0); // 2026-09-22T14:00:00Z
@@ -23,5 +23,17 @@ describe('formatRelativeTime', () => {
 describe('formatAbsoluteTime', () => {
   it('returns a locale string for a valid timestamp', () => {
     expect(formatAbsoluteTime(1_700_000_000).length).toBeGreaterThan(4);
+  });
+});
+
+describe('formatChatTime', () => {
+  it('formats as dd.mm hh:mm in local time', () => {
+    const d = new Date(2026, 2, 5, 9, 7); // 05.03 09:07 local
+    expect(formatChatTime(Math.floor(d.getTime() / 1000))).toBe('05.03 09:07');
+  });
+
+  it('returns empty for invalid input', () => {
+    expect(formatChatTime(0)).toBe('');
+    expect(formatChatTime(Number.NaN)).toBe('');
   });
 });

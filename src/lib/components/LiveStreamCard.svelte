@@ -16,9 +16,11 @@
     event: Event;
     /** Kind 10312 listeners to show under the player. */
     presence?: LivePresencePerson[];
+    /** When false, hide the ⋯ menu (embedded citations). */
+    showMenu?: boolean;
   }
 
-  let { event, presence = [] }: Props = $props();
+  let { event, presence = [], showMenu = true }: Props = $props();
 
   const info = $derived(parseLiveStream(event));
   const playUrl = $derived(liveStreamPlaybackUrl(info));
@@ -32,7 +34,9 @@
 </script>
 
 <article class="card live-stream-card" data-live-status={info.status}>
-  <CopyPointerButton {event} class="generic-card-copy" />
+  {#if showMenu}
+    <CopyPointerButton {event} class="generic-card-copy" />
+  {/if}
   <div class="live-stream-clip">
     <div class="live-stream-chips">
       <span class="live-status-chip" data-status={info.status}>{info.statusLabel}</span>

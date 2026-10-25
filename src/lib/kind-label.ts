@@ -12,6 +12,8 @@ export function kindDescription(kind: number): string {
       return 'Profile metadata';
     case KIND.TEXT_NOTE:
       return 'Short text note';
+    case KIND.SHORT_NOTE_EDIT:
+      return 'Short note edit';
     case KIND.REACTION:
       return 'Reaction';
     case KIND.HIGHLIGHT:

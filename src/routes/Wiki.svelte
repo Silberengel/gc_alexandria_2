@@ -80,7 +80,10 @@
       highlights: responses.highlights.filter(match),
       other: (responses.other ?? []).filter(match),
       zaps: responses.zaps ?? [],
-      boosts: responses.boosts ?? []
+      boosts: responses.boosts ?? [],
+      bookmarks: responses.bookmarks ?? [],
+      pins: responses.pins ?? [],
+      labels: responses.labels ?? []
     };
   });
   const hideBody = $derived(

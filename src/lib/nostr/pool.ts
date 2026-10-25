@@ -85,7 +85,13 @@ class RelayPool {
   private relayFailedUntil = new Map<string, number>();
   /** At most one REQ in flight per host (outboxes like pipe.imwald.eu are 12 msg/min). */
   private relayTurn = new Map<string, Promise<void>>();
+  /** Waiters + in-flight per host — skip further REQs when the host is already backed up. */
+  private relayQueueDepth = new Map<string, number>();
   private static readonly MAX_PARALLEL_QUERIES = 3;
+  /** Max queued+active REQs per relay URL before later queries skip that host. */
+  private static readonly MAX_RELAY_QUEUE_DEPTH = 2;
+  /** Background work gives up the slot wait; priority keeps waiting. */
+  private static readonly SLOT_WAIT_MS = 15_000;
   /**
    * Default fan-out per REQ. Parallel across these hosts, but keep the count modest —
    * publication social loads fire several filters at once and large fan-outs trip rate limits.
@@ -118,8 +124,13 @@ class RelayPool {
     this.relayFailedUntil.set(this.relayKey(url), Date.now() + RelayPool.RELAY_FAIL_COOLDOWN_MS);
   }
 
-  private async withRelayTurn<T>(url: string, fn: () => Promise<T>): Promise<T> {
+  private async withRelayTurn(url: string, fn: () => Promise<Event[]>): Promise<Event[]> {
     const key = this.relayKey(url);
+    const depth = this.relayQueueDepth.get(key) ?? 0;
+    // Don't chain onto a backed-up host — that holds global query slots for minutes
+    // and then trips 12 msg/min rate limits (pipe.imwald.eu).
+    if (depth >= RelayPool.MAX_RELAY_QUEUE_DEPTH) return [];
+    this.relayQueueDepth.set(key, depth + 1);
     const prev = this.relayTurn.get(key) ?? Promise.resolve();
     let release: () => void = () => {};
     const next = new Promise<void>((resolve) => {
@@ -129,11 +140,12 @@ class RelayPool {
       key,
       prev.then(() => next).catch(() => next)
     );
-    await prev.catch(() => {});
     try {
+      await prev.catch(() => {});
       return await fn();
     } finally {
       release();
+      this.relayQueueDepth.set(key, Math.max(0, (this.relayQueueDepth.get(key) ?? 1) - 1));
     }
   }
 
@@ -178,15 +190,30 @@ class RelayPool {
     this.signedIn = signedIn;
   }
 
-  private async withQuerySlot<T>(fn: () => Promise<T>, priority = false): Promise<T> {
+  /**
+   * Acquire a global query slot. Priority may use two extra slots.
+   * Background queries that wait longer than {@link SLOT_WAIT_MS} are shed
+   * (return null) instead of exceeding the cap — the old "continue anyway"
+   * path let activeQueries grow without bound and then hammered slow relays.
+   */
+  private async withQuerySlot<T>(
+    fn: () => Promise<T>,
+    priority = false
+  ): Promise<T | null> {
     const limit = priority
       ? RelayPool.MAX_PARALLEL_QUERIES + 2
       : RelayPool.MAX_PARALLEL_QUERIES;
     const waitStarted = Date.now();
+    let warned = false;
     while (this.activeQueries >= limit) {
-      if (Date.now() - waitStarted > 15_000) {
-        console.warn('[alexandria:pool] waited 15s for a query slot — continuing to avoid deadlock');
-        break;
+      const waited = Date.now() - waitStarted;
+      if (!priority && waited > RelayPool.SLOT_WAIT_MS) {
+        console.warn('[alexandria:pool] shed background query after 15s slot wait');
+        return null;
+      }
+      if (priority && waited > RelayPool.SLOT_WAIT_MS && !warned) {
+        console.warn('[alexandria:pool] priority query still waiting for a slot');
+        warned = true;
       }
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 400);
@@ -276,7 +303,7 @@ class RelayPool {
           /* cache write must not fail the read path */
         }
         return events;
-      }, opts?.priority === true);
+      }, opts?.priority === true).then((events) => events ?? []);
 
       if (coalesceKey) {
         this.inflight.set(coalesceKey, job);

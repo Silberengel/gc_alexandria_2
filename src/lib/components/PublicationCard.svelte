@@ -24,6 +24,8 @@
     /** Optional precomputed average (1–5). When omitted, full publication cards fetch it. */
     ratingAverage?: number;
     ratingCount?: number;
+    /** When false, hide the ⋯ menu (embedded citations). */
+    showMenu?: boolean;
   }
 
   let {
@@ -31,7 +33,8 @@
     showMeta = true,
     variant = 'card',
     ratingAverage: ratingAverageProp,
-    ratingCount: ratingCountProp
+    ratingCount: ratingCountProp,
+    showMenu = true
   }: Props = $props();
 
   /** Resolved top edition when [event] is a 30041 section. */
@@ -194,11 +197,15 @@
         {/if}
       </a>
     </div>
-    <CopyPointerButton {event} class="listing-row-copy" shareUrl={shareUrl} />
+    {#if showMenu}
+      <CopyPointerButton {event} class="listing-row-copy" shareUrl={shareUrl} />
+    {/if}
   </div>
 {:else}
   <div class="card pub-card" class:pub-card-wiki={isArticle} class:pub-card-article={event.kind === KIND.LONG_FORM} class:pub-card-section={isSection}>
-    <CopyPointerButton {event} class="generic-card-copy" shareUrl={shareUrl} />
+    {#if showMenu}
+      <CopyPointerButton {event} class="generic-card-copy" shareUrl={shareUrl} />
+    {/if}
     <div class="pub-card-top">
       <div class="pub-card-cover">
         <Cover {event} enlargeOnClick />

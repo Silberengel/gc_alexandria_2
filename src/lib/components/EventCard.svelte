@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { KIND } from '$lib/constants';
+  import { push } from 'svelte-spa-router';
   import PublicationCard from './PublicationCard.svelte';
   import GenericCard from './GenericCard.svelte';
   import PictureCard from './PictureCard.svelte';
@@ -12,8 +12,12 @@
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
-  import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
+  import { eventHref } from '$lib/listing-table';
+  import { feedThreadPath } from '$lib/feed';
+  import { warmNavEvent } from '$lib/nav-warm';
+  import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from '$lib/relative-time';
   import type { LivePresencePerson } from '$lib/live-chat';
 
   interface Props {
@@ -26,6 +30,10 @@
   }
 
   let { event, embedDepth = 0, asCard = false, presence = [] }: Props = $props();
+
+  /** Nested citation — whole card opens the event; no ⋯ menu. */
+  const embedded = $derived(embedDepth > 0);
+  const href = $derived(eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''));
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -41,73 +49,120 @@
   const preview = $derived(eventPreview(event));
   const relative = $derived(formatRelativeTime(event.created_at));
   const absolute = $derived(formatAbsoluteTime(event.created_at));
+
+  function openEmbedded(e: MouseEvent | KeyboardEvent): void {
+    if (!href || !embedded) return;
+    const target = e.target as Element | null;
+    // Keep in-page media controls usable; everything else opens the event.
+    if (target?.closest?.('video, audio, .live-stream-player, .event-imeta-btn')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    warmNavEvent(event);
+    push(href.startsWith('#') ? href.slice(1) : href);
+  }
+
+  function onEmbeddedKey(e: KeyboardEvent): void {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    openEmbedded(e);
+  }
 </script>
 
-{#if isPubLike}
-  <PublicationCard {event} />
-{:else if event.kind === KIND.PICTURE}
-  <div class="result-card-wrap">
-    <CopyPointerButton {event} class="generic-card-copy" />
-    <div class="card-clip">
-      <PictureCard {event} />
+{#snippet cardBody()}
+  {#if isPubLike}
+    <PublicationCard {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.PICTURE}
+    <div class="result-card-wrap">
+      {#if !embedded}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <PictureCard {event} />
+      </div>
     </div>
-  </div>
-{:else if event.kind === KIND.VIDEO || event.kind === KIND.SHORT_VIDEO}
-  <div class="result-card-wrap">
-    <CopyPointerButton {event} class="generic-card-copy" />
-    <div class="card-clip">
-      <VideoCard {event} />
+  {:else if event.kind === KIND.VIDEO || event.kind === KIND.SHORT_VIDEO}
+    <div class="result-card-wrap">
+      {#if !embedded}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <VideoCard {event} />
+      </div>
     </div>
-  </div>
-{:else if event.kind === KIND.LIVE_EVENT}
-  <LiveStreamCard {event} {presence} />
-{:else if event.kind === KIND.MEETING_SPACE}
-  <MeetingSpaceCard {event} />
-{:else if event.kind === KIND.MEETING_ROOM}
-  <MeetingRoomCard {event} />
-{:else if event.kind === KIND.ROOM_PRESENCE}
-  <RoomPresenceCard {event} />
-{:else if event.kind === KIND.LIVE_CHAT}
-  <div class="live-chat-line">
-    <UserBadge pubkey={event.pubkey} />
-    <span class="live-chat-colon" aria-hidden="true">:</span>
-    <div class="live-chat-body">
-      <EventBody {event} embedDepth={embedDepth} showEmbeds={false} />
-    </div>
-  </div>
-{:else if isThreadNote}
-  <div class="thread-node thread-embed-note">
-    <div class="thread-head">
-      <UserBadge pubkey={event.pubkey} />
-      {#if relative}
+  {:else if event.kind === KIND.LIVE_EVENT}
+    <LiveStreamCard {event} {presence} showMenu={!embedded} />
+  {:else if event.kind === KIND.MEETING_SPACE}
+    <MeetingSpaceCard {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.MEETING_ROOM}
+    <MeetingRoomCard {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.ROOM_PRESENCE}
+    <RoomPresenceCard {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.LIVE_CHAT}
+    <div class="live-chat-line">
+      <div class="live-chat-meta">
+        <UserBadge pubkey={event.pubkey} />
         <time
-          class="thread-time muted"
+          class="live-chat-time muted"
           datetime={new Date(event.created_at * 1000).toISOString()}
-          title={absolute}>{relative}</time
+          title={absolute}>{formatChatTime(event.created_at)}</time
         >
+      </div>
+      <span class="live-chat-colon" aria-hidden="true">:</span>
+      <div class="live-chat-body">
+        <EventBody {event} embedDepth={embedDepth} showEmbeds={false} />
+      </div>
+    </div>
+  {:else if isThreadNote}
+    <div class="thread-node thread-embed-note">
+      <div class="thread-head">
+        <UserBadge pubkey={event.pubkey} />
+        {#if relative}
+          <time
+            class="thread-time muted"
+            datetime={new Date(event.created_at * 1000).toISOString()}
+            title={absolute}>{relative}</time
+          >
+        {/if}
+      </div>
+      <div class="thread-body">
+        <EventBody {event} embedDepth={embedDepth} />
+      </div>
+      {#if !embedded}
+        <div class="thread-actions">
+          <CopyPointerButton {event} class="thread-more" />
+        </div>
       {/if}
     </div>
-    <div class="thread-body">
-      <EventBody {event} embedDepth={embedDepth} />
-    </div>
-    <div class="thread-actions">
-      <CopyPointerButton {event} class="thread-more" />
-    </div>
+  {:else if event.kind === KIND.HIGHLIGHT}
+    <article class="card note-card">
+      {#if !embedded}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <p class="generic-card-kind muted">{preview.kindLine}</p>
+        <h3 class="generic-card-title">{preview.headline}</h3>
+        <p class="note-card-by muted">
+          by <UserBadge pubkey={event.pubkey} />
+        </p>
+        {#if preview.body}
+          <p class="generic-card-body muted">{preview.body}</p>
+        {/if}
+      </div>
+    </article>
+  {:else}
+    <GenericCard {event} {embedDepth} showMenu={!embedded} />
+  {/if}
+{/snippet}
+
+{#if embedded && href}
+  <div
+    class="event-embed-card"
+    role="link"
+    tabindex="0"
+    onclick={openEmbedded}
+    onkeydown={onEmbeddedKey}
+  >
+    {@render cardBody()}
   </div>
-{:else if event.kind === KIND.HIGHLIGHT}
-  <article class="card note-card">
-    <CopyPointerButton {event} class="generic-card-copy" />
-    <div class="card-clip">
-    <p class="generic-card-kind muted">{preview.kindLine}</p>
-    <h3 class="generic-card-title">{preview.headline}</h3>
-    <p class="note-card-by muted">
-      by <UserBadge pubkey={event.pubkey} />
-    </p>
-    {#if preview.body}
-      <p class="generic-card-body muted">{preview.body}</p>
-    {/if}
-    </div>
-  </article>
 {:else}
-  <GenericCard {event} {embedDepth} />
+  {@render cardBody()}
 {/if}

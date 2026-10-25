@@ -13,8 +13,14 @@
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import FeedBoosters from '$lib/components/FeedBoosters.svelte';
   import { KIND } from '$lib/constants';
-  import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
-  import { collectLivePresence } from '$lib/live-chat';
+  import { isNip53Kind, NIP53_KIND, parseLiveStream } from '$lib/nip53';
+  import {
+    collectLivePresence,
+    LIVE_PRESENCE_REFRESH_MS,
+    localRoomPresence,
+    roomPresenceDraft
+  } from '$lib/live-chat';
+  import { isSignInFlight, signAndPublish } from '$lib/sign';
   import {
     emptyWorkResponses,
     eventsPointingAtId,
@@ -28,6 +34,7 @@
   import { kindDescription } from '$lib/kind-label';
   import { libraryDocumentPath } from '$lib/metadata';
   import { fetchById } from '$lib/nostr/fetch';
+  import { eventAddress } from '$lib/nostr/verify';
   import {
     DEFAULT_LIKE_REACTION_CONTENT,
     DEFAULT_LIKE_REACTION_DISPLAY_EMOJI,
@@ -318,8 +325,28 @@
     }
     return [...byId.values()];
   });
+  /** Own kind-10312 while watching — merged for the avatar strip before relays echo it. */
+  let selfPresence = $state<Event | null>(null);
+  /** `${activityId}:${pubkey}` — publish once per room entry, not on every effect re-run. */
+  let presenceRoomKey = '';
   const livePresence = $derived(
-    event?.kind === KIND.LIVE_EVENT ? collectLivePresence(event, responses) : []
+    event?.kind === KIND.LIVE_EVENT
+      ? collectLivePresence(event, {
+          ...responses,
+          other: selfPresence
+            ? [
+                ...responses.other.filter(
+                  (e) =>
+                    !(
+                      e.kind === KIND.ROOM_PRESENCE &&
+                      e.pubkey.toLowerCase() === selfPresence!.pubkey.toLowerCase()
+                    )
+                ),
+                selfPresence
+              ]
+            : responses.other
+        })
+      : []
   );
   /** Presence is shown on the live card — keep it out of the comments “other” list. */
   const panelResponses = $derived.by(() => {
@@ -420,8 +447,9 @@
   });
 
   $effect(() => {
-    // Keep loading the list even while a thread is open (background), but never
-    // wipe the in-memory timeline when only `?thread=` toggles.
+    // Never wipe the in-memory timeline when only `?thread=` toggles.
+    // Pause list REQs while a thread is open so comment fetches keep pool slots
+    // (list load uses priority and was starving "Loading comments…").
     void feedRelays;
     const tab = feedTab;
     const author = feedAuthor;
@@ -430,6 +458,7 @@
     const sessionLoading = $session.loading;
     const meta = metadataEvents;
     const muted = $muteState;
+    const threadOpen = !!pointer;
     let cancelled = false;
     listError = '';
 
@@ -445,6 +474,12 @@
       listSettled = false;
     } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
       listLoading = true;
+    }
+
+    if (threadOpen) {
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (tab === 'notifications' && !pubkey) {
@@ -659,6 +694,65 @@
     })();
     return () => {
       cancelled = true;
+    };
+  });
+
+  /**
+   * NIP-53: show the viewer in the room strip immediately; publish one kind 10312
+   * when they enter, then again every {@link LIVE_PRESENCE_REFRESH_MS}.
+   */
+  $effect(() => {
+    const activity = event;
+    const pk = $session.pubkey;
+    if (!activity || activity.kind !== KIND.LIVE_EVENT || !pk) {
+      selfPresence = null;
+      presenceRoomKey = '';
+      return;
+    }
+    const roomKey = `${activity.id.toLowerCase()}:${pk.toLowerCase()}`;
+    const relayHint = parseLiveStream(activity).relays[0] ?? '';
+    // Paint before sign/publish — HMR and slow/rate-limited relays must not blank the strip.
+    if (
+      !selfPresence ||
+      selfPresence.pubkey.toLowerCase() !== pk.toLowerCase() ||
+      !selfPresence.tags.some((t) => t[0] === 'a' && t[1] === eventAddress(activity))
+    ) {
+      selfPresence = localRoomPresence(activity, pk, { relayHint });
+    }
+
+    let cancelled = false;
+    let timer = 0;
+    let pulseInFlight = false;
+
+    const pulse = async () => {
+      if (cancelled || pulseInFlight) return;
+      pulseInFlight = true;
+      try {
+        for (let i = 0; i < 15 && isSignInFlight(); i += 1) {
+          await new Promise((r) => setTimeout(r, 200));
+          if (cancelled) return;
+        }
+        if (isSignInFlight()) return;
+        const signed = await signAndPublish(roomPresenceDraft(activity, { relayHint }));
+        if (cancelled || !signed) return;
+        selfPresence = signed;
+      } catch {
+        /* quiet — local strip presence remains */
+      } finally {
+        pulseInFlight = false;
+      }
+    };
+
+    const entered = presenceRoomKey !== roomKey;
+    if (entered) {
+      presenceRoomKey = roomKey;
+      void pulse();
+    }
+    timer = window.setInterval(() => void pulse(), LIVE_PRESENCE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      // Keep selfPresence / presenceRoomKey across same-room effect re-runs (HMR, refetch).
     };
   });
 

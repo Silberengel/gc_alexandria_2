@@ -39,6 +39,14 @@
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import { webBookmarkUrl } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
+  import {
+    isShortNoteEdited,
+    mergeEditedShortNote,
+    onShortNoteEdits,
+    shortNoteEditState,
+    type ShortNoteEditState
+  } from '$lib/short-note-edits';
+  import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
 
   interface Props {
     event?: Event;
@@ -74,19 +82,72 @@
     dedupeHeroUrls = []
   }: Props = $props();
 
+  /** NIP-41 kind-1010 author revision for kind-1 notes. */
+  let noteEditState = $state<ShortNoteEditState | null>(null);
+  let noteEditTick = $state(0);
+
+  $effect(() => {
+    const ev = event;
+    if (!ev || ev.kind !== KIND.TEXT_NOTE) {
+      noteEditState = null;
+      return;
+    }
+    const unsub = onShortNoteEdits(ev.id, () => {
+      noteEditTick += 1;
+    });
+    return unsub;
+  });
+
+  $effect(() => {
+    const ev = event;
+    void noteEditTick;
+    if (!ev || ev.kind !== KIND.TEXT_NOTE) {
+      noteEditState = null;
+      return;
+    }
+    let cancelled = false;
+    void shortNoteEditState(ev).then((state) => {
+      if (!cancelled) noteEditState = state;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const displayEvent = $derived(
+    event?.kind === KIND.TEXT_NOTE
+      ? mergeEditedShortNote(event, noteEditState?.latestAuthorEdit)
+      : event
+  );
+  const noteEdited = $derived(
+    !!event &&
+      event.kind === KIND.TEXT_NOTE &&
+      isShortNoteEdited(event, noteEditState?.latestAuthorEdit)
+  );
+  const noteEditRelative = $derived(
+    noteEditState?.latestAuthorEdit
+      ? formatRelativeTime(noteEditState.latestAuthorEdit.created_at)
+      : ''
+  );
+  const noteEditAbsolute = $derived(
+    noteEditState?.latestAuthorEdit
+      ? formatAbsoluteTime(noteEditState.latestAuthorEdit.created_at)
+      : ''
+  );
+
   /** NIP-92 imeta tags plus bare image/video/audio URLs in the content. */
   const media = $derived(
-    event ? uniqueMedia(event).filter((item) => isAllowedMediaUrl(item.url)) : []
+    displayEvent ? uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url)) : []
   );
   const images = $derived(media.filter((item) => item.type === 'image'));
   const imageUrls = $derived(images.map((item) => item.url));
   const imageAlts = $derived(images.map((item) => item.alt?.trim() || ''));
   /** NIP-B0 URL from tags when content is empty / does not already include it. */
   const bookmarkUrl = $derived.by(() => {
-    if (!event) return null;
-    const url = webBookmarkUrl(event);
+    if (!displayEvent) return null;
+    const url = webBookmarkUrl(displayEvent);
     if (!url) return null;
-    const body = (event.content ?? content ?? '').toLowerCase();
+    const body = (displayEvent.content ?? content ?? '').toLowerCase();
     if (body.includes(url.toLowerCase())) return null;
     return url;
   });
@@ -95,16 +156,16 @@
     openMediaViewer({ url, urls: imageUrls, alts: imageAlts });
   }
   /** Drop played file URLs from the prose so a note is not a link and a player. */
-  const source = $derived(omitMediaUrls(event?.content ?? content, media));
-  const sourceKind = $derived(kind ?? event?.kind ?? KIND.LONG_FORM);
-  const sourceTags = $derived(event?.tags ?? []);
+  const source = $derived(omitMediaUrls(displayEvent?.content ?? content, media));
+  const sourceKind = $derived(kind ?? displayEvent?.kind ?? KIND.LONG_FORM);
+  const sourceTags = $derived(displayEvent?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   const usePlaintextRich = $derived(markupFormat === 'plaintext');
   /** Kind 7/17 custom emoji reactions — paint the tagged face, not clipped alt text. */
   const reactionFace = $derived(event ? resolveReactionEmoji(event) : null);
   const heroUrls = $derived.by(() => {
     const urls: string[] = [...dedupeHeroUrls];
-    if (dedupeHeroImage && event) urls.push(...eventHeroImageUrls(event));
+    if (dedupeHeroImage && displayEvent) urls.push(...eventHeroImageUrls(displayEvent));
     return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
   });
   /**
@@ -189,7 +250,7 @@
     const q = untrack(() => quotes);
     const heroes = heroUrls;
     const embeds = showEmbeds && embedDepth <= 1;
-    const ev = event;
+    const ev = displayEvent;
     void qSnap;
     let cancelled = false;
     if (plaintext) {
@@ -335,6 +396,17 @@
 {/snippet}
 
 <div class="event-body" bind:this={bodyEl}>
+  {#if noteEdited && noteEditState?.latestAuthorEdit}
+    <p class="short-note-edited muted">
+      <span class="short-note-edited-badge">Edited</span>
+      {#if noteEditRelative}
+        <time
+          datetime={new Date(noteEditState.latestAuthorEdit.created_at * 1000).toISOString()}
+          title={noteEditAbsolute}>{noteEditRelative}</time
+        >
+      {/if}
+    </p>
+  {/if}
   {#if reactionFace}
     <p class="reaction-face">
       {#if reactionFace.url && isAllowedMediaUrl(reactionFace.url)}
@@ -365,7 +437,7 @@
   {:else if usePlaintextRich}
     <NostrRichText
       content={source}
-      {event}
+      event={displayEvent}
       kind={sourceKind}
       showEmbeds={showEmbeds && embedDepth <= 1}
     />
@@ -441,3 +513,22 @@
     {/each}
   {/if}
 </div>
+
+<style>
+  .short-note-edited {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+  }
+  .short-note-edited-badge {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+</style>

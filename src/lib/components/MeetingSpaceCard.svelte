@@ -8,9 +8,11 @@
 
   interface Props {
     event: Event;
+    /** When false, hide the ⋯ menu (embedded citations). */
+    showMenu?: boolean;
   }
 
-  let { event }: Props = $props();
+  let { event, showMenu = true }: Props = $props();
 
   const info = $derived(parseMeetingSpace(event));
   const coverOk = $derived(!!info.imageUrl && isAllowedMediaUrl(info.imageUrl));
@@ -18,7 +20,9 @@
 </script>
 
 <article class="card meeting-space-card" data-space-status={info.status}>
-  <CopyPointerButton {event} class="generic-card-copy" />
+  {#if showMenu}
+    <CopyPointerButton {event} class="generic-card-copy" />
+  {/if}
   <div class="meeting-space-clip">
     <div class="meeting-space-chips">
       <span class="space-status-chip" data-status={info.status}>{info.statusLabel}</span>

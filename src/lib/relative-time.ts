@@ -32,3 +32,15 @@ export function formatAbsoluteTime(createdAtSec: number): string {
     return '';
   }
 }
+
+/** Compact local stamp for live chat: `dd.mm hh:mm`. */
+export function formatChatTime(createdAtSec: number): string {
+  if (!Number.isFinite(createdAtSec) || createdAtSec <= 0) return '';
+  const d = new Date(createdAtSec * 1000);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${dd}.${mm} ${hh}:${min}`;
+}

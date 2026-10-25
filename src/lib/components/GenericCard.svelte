@@ -13,9 +13,11 @@
   interface Props {
     event: Event;
     embedDepth?: number;
+    /** When false, hide the ⋯ menu (embedded citations). */
+    showMenu?: boolean;
   }
 
-  let { event }: Props = $props();
+  let { event, showMenu = true }: Props = $props();
 
   const preview = $derived(eventPreview(event));
   const media = $derived(uniqueMedia(event));
@@ -41,7 +43,9 @@
 </script>
 
 <article class="card generic-card">
-  <CopyPointerButton {event} class="generic-card-copy" />
+  {#if showMenu}
+    <CopyPointerButton {event} class="generic-card-copy" />
+  {/if}
   <div class="card-clip">
   <p class="generic-card-kind muted">{preview.kindLine}</p>
   <h3 class="generic-card-title">{preview.headline}</h3>

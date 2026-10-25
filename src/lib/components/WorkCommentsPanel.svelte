@@ -3,6 +3,7 @@
   import CommentThread from './CommentThread.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
   import EventCard from './EventCard.svelte';
+  import WorkAttributionRows from './WorkAttributionRows.svelte';
   import {
     canOfferKind1Reply,
     nestComments,
@@ -58,6 +59,10 @@
   const highlights = $derived(filterMuted(responses.highlights ?? [], $muteState));
   const zaps = $derived(responses.zaps ?? []);
   const boosts = $derived(responses.boosts ?? []);
+  const bookmarks = $derived(filterMuted(responses.bookmarks ?? [], $muteState));
+  const pins = $derived(filterMuted(responses.pins ?? [], $muteState));
+  const labels = $derived(filterMuted(responses.labels ?? [], $muteState));
+  const hasAttributions = $derived(bookmarks.length > 0 || pins.length > 0 || labels.length > 0);
   const thread = $derived(nestComments(threadEvents, $muteState, threadRootKeys(target)));
   const offerKind1 = $derived(canOfferKind1Reply(target));
   const commentComposeOpen = $derived($opComposeId === target.id.toLowerCase());
@@ -173,14 +178,17 @@
     </ul>
   {/if}
 
-  {#if other.length}
+  {#if other.length || hasAttributions}
     <h3 class="work-comments-subhead">Other responses</h3>
-    <ul class="thread-list work-response-list">
-      {#each other as event (event.id)}
-        <li class="work-response-item">
-          <EventCard {event} />
-        </li>
-      {/each}
-    </ul>
+    {#if other.length}
+      <ul class="thread-list work-response-list">
+        {#each other as event (event.id)}
+          <li class="work-response-item">
+            <EventCard {event} />
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    <WorkAttributionRows {bookmarks} {pins} {labels} />
   {/if}
 </section>

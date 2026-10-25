@@ -662,6 +662,45 @@ describe('comments nest', () => {
     expect(parts.thread).toHaveLength(0);
   });
 
+  it('lists bookmark, pin, and label authors separately from other responses', () => {
+    const pk = 'b'.repeat(64);
+    const note = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: pk,
+      content: 'hello'
+    });
+    const bookmark = ev({
+      id: '1'.repeat(64),
+      kind: KIND.BOOKMARK,
+      pubkey: 'c'.repeat(64),
+      created_at: 3,
+      tags: [['e', note.id]]
+    });
+    const pin = ev({
+      id: '2'.repeat(64),
+      kind: KIND.PIN,
+      pubkey: 'd'.repeat(64),
+      created_at: 2,
+      tags: [['e', note.id]]
+    });
+    const label = ev({
+      id: '3'.repeat(64),
+      kind: KIND.LABEL,
+      pubkey: 'e'.repeat(64),
+      created_at: 1,
+      tags: [
+        ['e', note.id],
+        ['l', 'booklist', 'ugc']
+      ]
+    });
+    const parts = partitionWorkResponses([note, bookmark, pin, label], note);
+    expect(parts.bookmarks.map((e) => e.id)).toEqual([bookmark.id]);
+    expect(parts.pins.map((e) => e.id)).toEqual([pin.id]);
+    expect(parts.labels.map((e) => e.id)).toEqual([label.id]);
+    expect(parts.other).toEqual([]);
+  });
+
   it('treats a kind 1 e-tag of the edition as a root', () => {
     const editionId = 'a'.repeat(64);
     const note = ev({

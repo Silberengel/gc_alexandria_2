@@ -199,6 +199,32 @@ body:has(main.reading-page) .top-bar {
   max-width: none;
   width: 100%;
 }
+/* Distinct from the frosted bar — paper-light inputs otherwise vanish into it. */
+.top-bar .top-bar-search input[type='search'] {
+  background: color-mix(in srgb, var(--paper-dark) 55%, var(--paper-light));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--rule));
+  box-shadow: inset 0 1px 1px color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.top-bar .top-bar-search input[type='search']::placeholder {
+  color: color-mix(in srgb, var(--ink-soft) 72%, var(--ink));
+}
+.top-bar .top-bar-search input[type='search']:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
+  background: color-mix(in srgb, var(--paper-dark) 40%, var(--paper-light));
+}
+.top-bar .top-bar-search input[type='search']:focus-visible {
+  background: var(--paper-light);
+}
+:root.dark .top-bar .top-bar-search input[type='search'] {
+  background: color-mix(in srgb, var(--paper-dark) 72%, var(--paper));
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--rule));
+}
+:root.dark .top-bar .top-bar-search input[type='search']:hover {
+  background: color-mix(in srgb, var(--paper-dark) 55%, var(--paper));
+}
+:root.dark .top-bar .top-bar-search input[type='search']:focus-visible {
+  background: color-mix(in srgb, var(--paper-dark) 40%, var(--paper-light));
+}
 .top-bar nav {
   grid-column: 1 / -1;
   grid-row: 2;
@@ -3779,6 +3805,22 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   left: auto;
   z-index: 2;
 }
+/* Embedded citation cards: whole surface opens the event; inner links don't steal the hit. */
+.event-embed-card {
+  cursor: pointer;
+  display: block;
+  min-width: 0;
+}
+.event-embed-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+.event-embed-card a:not([href^="http"]),
+.event-embed-card .userbadge,
+.event-embed-card .chip {
+  pointer-events: none;
+}
 .generic-card-kind {
   margin: 0 0 0.2rem;
   font-family: var(--ui-font);
@@ -4113,7 +4155,15 @@ a.embed-event-line:focus-visible {
   margin: 0.75rem 0;
 }
 
-/* Twitch-style live chat: avatar + name: message — no timestamps or action buttons. */
+.live-chat-compose {
+  margin: 0.5rem 0 0;
+}
+.live-chat-compose input[type='text'] {
+  width: 100%;
+  margin: 0;
+}
+
+/* Twitch-style live chat: stamp + avatar + name: message — no action buttons. */
 .live-chat-list {
   list-style: none;
   margin: 0.75rem 0 0;
@@ -4127,6 +4177,19 @@ a.embed-event-line:focus-visible {
   margin: 0.4rem 0;
   min-width: 0;
 }
+/* Wide: stamp sits before the badge via order; narrow: stacks under the handle. */
+.live-chat-meta {
+  display: contents;
+}
+.live-chat-time {
+  flex: 0 0 auto;
+  order: -1;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  line-height: 1.2;
+}
 .live-chat-line .userbadge {
   flex: 0 1 auto;
   min-width: 0;
@@ -4139,6 +4202,19 @@ a.embed-event-line:focus-visible {
 .live-chat-body {
   flex: 1 1 12rem;
   min-width: 0;
+}
+@media (max-width: 639px) {
+  .live-chat-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.05rem;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .live-chat-time {
+    order: unset;
+  }
 }
 .live-chat-body .event-body,
 .live-chat-body .nostr-rich-text {

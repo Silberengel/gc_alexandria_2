@@ -331,7 +331,8 @@ export async function loadFeed(
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = followNoteFilters(authors);
-  const queryOpts = { priority: true, includeCooling: true };
+  // Background list load — not priority. Priority slots are for open threads / wiki.
+  const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
@@ -408,7 +409,7 @@ export async function loadFeedWithReplies(
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = followReplyFilters(authors);
-  const queryOpts = { priority: true, includeCooling: true };
+  const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
@@ -498,7 +499,7 @@ export async function loadAuthorFeedWithReplies(
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
   const filters = authorNoteFilters(pk);
-  const queryOpts = { priority: true, includeCooling: true };
+  const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
@@ -545,7 +546,7 @@ export async function loadAuthorFeed(
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
   const filters = authorNoteFilters(pk);
-  const queryOpts = { priority: true, includeCooling: true };
+  const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
@@ -615,7 +616,7 @@ export async function loadNotifications(
       limit: 120
     }
   ];
-  const queryOpts = { priority: true, includeCooling: true };
+  const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {

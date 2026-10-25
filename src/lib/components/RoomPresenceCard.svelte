@@ -6,16 +6,20 @@
 
   interface Props {
     event: Event;
+    /** When false, hide the ⋯ menu (embedded citations). */
+    showMenu?: boolean;
   }
 
-  let { event }: Props = $props();
+  let { event, showMenu = true }: Props = $props();
 
   const info = $derived(parseRoomPresence(event));
   const kindLabel = $derived(nip53KindLabel(event.kind));
 </script>
 
 <article class="card room-presence-card" data-hand-raised={info.handRaised ? '1' : '0'}>
-  <CopyPointerButton {event} class="generic-card-copy" />
+  {#if showMenu}
+    <CopyPointerButton {event} class="generic-card-copy" />
+  {/if}
   <div class="room-presence-clip">
     <p class="room-presence-kind muted">{kindLabel}</p>
     <p class="room-presence-who">

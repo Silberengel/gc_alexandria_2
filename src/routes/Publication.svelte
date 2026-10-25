@@ -156,6 +156,9 @@
   let workOther = $state<Event[]>([]);
   let workZaps = $state<Event[]>([]);
   let workBoosts = $state<Event[]>([]);
+  let workBookmarks = $state<Event[]>([]);
+  let workPins = $state<Event[]>([]);
+  let workLabels = $state<Event[]>([]);
   let sectionResponses = $state<Record<string, WorkResponses>>({});
   let highlights = $state<Event[]>([]);
   let editionLabels = $state<Event[]>([]);
@@ -350,7 +353,10 @@
     const other = filterMuted(workOther, $muteState);
     const zaps = workZaps;
     const boosts = workBoosts;
-    if (!q) return { thread, quotes, highlights: highs, other, zaps, boosts };
+    const bookmarks = filterMuted(workBookmarks, $muteState);
+    const pins = filterMuted(workPins, $muteState);
+    const labels = filterMuted(workLabels, $muteState);
+    if (!q) return { thread, quotes, highlights: highs, other, zaps, boosts, bookmarks, pins, labels };
     const match = (e: Event) => e.content.toLowerCase().includes(q);
     return {
       thread: thread.filter(match),
@@ -358,7 +364,10 @@
       highlights: highs.filter(match),
       other: other.filter(match),
       zaps,
-      boosts
+      boosts,
+      bookmarks,
+      pins,
+      labels
     };
   });
   const readerToc = $derived(enrichToc(toc, sections));
@@ -733,6 +742,9 @@
     workOther = threadEvents.other;
     workZaps = threadEvents.zaps;
     workBoosts = threadEvents.boosts;
+    workBookmarks = threadEvents.bookmarks;
+    workPins = threadEvents.pins;
+    workLabels = threadEvents.labels;
     const hById = new Map<string, Event>();
     for (const e of threadEvents.highlights) hById.set(e.id, e);
     for (const batch of highlightBatches) {
@@ -2310,6 +2322,9 @@
       workOther = [];
       workZaps = [];
       workBoosts = [];
+      workBookmarks = [];
+      workPins = [];
+      workLabels = [];
       highlights = [];
       sectionResponses = {};
       editionLabels = [];

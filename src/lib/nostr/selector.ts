@@ -123,6 +123,17 @@ function viewerRelayLists(): string[] {
   return [...ctx.inbox, ...ctx.outbox, ...ctx.favorites, ...ctx.local];
 }
 
+/**
+ * Relays used for general reads (social / document / profile stacks).
+ * Omits outbox — those are write / own-event hunt hosts ({@link viewerOutboxStack}).
+ * Folding outboxes into every social REQ piles onto rate-limited write relays
+ * (e.g. pipe.imwald.eu at 12 messages/min).
+ */
+function viewerReadRelayLists(): string[] {
+  if (!ctx.signedIn) return [];
+  return [...ctx.inbox, ...ctx.favorites, ...ctx.local];
+}
+
 function viewerListedNostrLand(): boolean {
   return viewerRelayLists().some((u) => {
     const x = u.toLowerCase();
@@ -171,7 +182,10 @@ export function constrainRelays(urls: string[]): string[] {
  * Hard-coded relays (when signed out, or when the GitCitadel toggle is on) plus the
  * viewer's own lists when signed in. Never another person's relays.
  */
-function composeReadStack(hardcoded: readonly string[], personal: string[] = viewerRelayLists()): string[] {
+function composeReadStack(
+  hardcoded: readonly string[],
+  personal: string[] = viewerReadRelayLists()
+): string[] {
   const shipped = gitcitadelReadsAllowed() ? hardcoded : [];
   const urls = maybeAggr(withoutBlocked(stackUrls([...shipped, ...personal])));
   if (ctx.signedIn && urls.length === 0) return withoutBlocked([forestRelay()]);
