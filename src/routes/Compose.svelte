@@ -388,11 +388,13 @@
   $effect(() => {
     void kind;
     void content;
-    void values;
-    void hashtagRows;
-    void imetaTags;
-    void freeformTags;
-    void kind0Tags;
+    // Deep-read proxies: `void values` alone does not re-run on values[id] = … /
+    // bind:value={values[id]} (e.g. 30040 title), so drafts never saved.
+    void JSON.stringify(values);
+    void JSON.stringify(hashtagRows);
+    void JSON.stringify(imetaTags);
+    void JSON.stringify(freeformTags);
+    void JSON.stringify(kind0Tags);
     const t = setTimeout(() => {
       bumpPreview();
       persistCurrent();
