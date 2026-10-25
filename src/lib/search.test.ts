@@ -42,6 +42,15 @@ describe('identifierHints', () => {
   });
 });
 
+describe('searchByKindTag', () => {
+  it('rejects non-numeric kind values without querying', async () => {
+    const { searchByKindTag } = await import('./search');
+    expect(await searchByKindTag('')).toEqual([]);
+    expect(await searchByKindTag('abc')).toEqual([]);
+    expect(await searchByKindTag('30040x')).toEqual([]);
+  });
+});
+
 describe('matchesPageFilter', () => {
   it('matches tag text without a new lookup', async () => {
     const { matchesPageFilter } = await import('./page-filter');

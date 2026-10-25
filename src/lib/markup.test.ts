@@ -111,6 +111,16 @@ describe('renderWithFallback', () => {
     expect(html).toContain('hljs-number');
   });
 
+  it('syntax-highlights Djot fenced code blocks like AsciiDoc', async () => {
+    const src = 'Example:\n\n```json\n{"title":"NKBIP-01","n":1}\n```\n';
+    const html = await renderWithFallback(KIND.SPEC, src);
+    expect(html).toContain('language-json');
+    expect(html).toContain('highlight');
+    expect(html).toContain('hljs-attr');
+    expect(html).toContain('hljs-string');
+    expect(html).toContain('hljs-number');
+  });
+
   it('renders AsciiDoc latexmath with KaTeX', async () => {
     const src = ':stem: latexmath\n\nInline latexmath:[\\frac{a}{b}].\n\n[latexmath]\n++++\nE = mc^2\n++++\n';
     const html = await renderWithFallback(KIND.WIKI, src, [['m', 'text/asciidoc']]);

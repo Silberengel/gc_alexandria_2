@@ -64,12 +64,6 @@
     if (meta.type) rows.push({ label: 'Type', value: formatPublicationType(meta.type) });
     if (meta.publishedBy) rows.push({ label: 'Imprint', value: meta.publishedBy });
     if (meta.version) rows.push({ label: 'Version', value: `v${meta.version}` });
-    if (meta.affectedKinds.length) {
-      rows.push({
-        label: 'Kinds',
-        value: meta.affectedKinds.join(', ')
-      });
-    }
     if (meta.sectionCount > 0) {
       rows.push({
         label: 'Length',
@@ -80,6 +74,7 @@
     return rows;
   });
   const hasLangTopics = $derived(Boolean(meta.language || meta.subjects.length));
+  const hasKinds = $derived(meta.affectedKinds.length > 0);
 
   async function onProvenanceClick(chip: ProvenanceChip): Promise<void> {
     if (!chip.copyText) return;
@@ -92,7 +87,7 @@
 </script>
 
 {#snippet metaTable(includeVerse: boolean)}
-  {#if facts.length || hasLangTopics || meta.provenance.length || (includeVerse && showVerseStyling)}
+  {#if facts.length || hasKinds || hasLangTopics || meta.provenance.length || (includeVerse && showVerseStyling)}
     <dl class="edition-facts">
       {#each facts as fact}
         <div class="edition-fact">
@@ -100,6 +95,25 @@
           <dd>{fact.value}</dd>
         </div>
       {/each}
+      {#if hasKinds}
+        <div class="edition-fact edition-fact-wide">
+          <dt>Kinds</dt>
+          <dd>
+            <ul class="edition-kind-list">
+              {#each meta.affectedKinds as kind}
+                <li>
+                  <a
+                    class="edition-inline-link"
+                    href={`#/search?k=${encodeURIComponent(String(kind))}`}
+                    use:link
+                    title={`Find specs and wikis for kind ${kind}`}
+                  >{kind}</a>
+                </li>
+              {/each}
+            </ul>
+          </dd>
+        </div>
+      {/if}
       {#if meta.provenance.length}
         <div class="edition-fact edition-fact-wide">
           <dt>Sources</dt>

@@ -509,6 +509,29 @@ export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResu
   });
 }
 
+/** Specs (30817) and wikis (30818) that declare this event kind via a `k` tag. Specs first. */
+export async function runKindTagSearch(kind: string, onUpdate: (r: SearchResult) => void): Promise<void> {
+  const raw = kind.trim();
+  const key = `k2:${normalizeSearchKey(raw)}`;
+  if (!/^\d+$/.test(raw)) {
+    await cachedOrLive(key, onUpdate, async () => []);
+    return;
+  }
+  await cachedOrLive(key, onUpdate, () => searchByKindTag(raw));
+}
+
+export async function searchByKindTag(kind: string): Promise<Event[]> {
+  const value = kind.trim();
+  if (!/^\d+$/.test(value)) return [];
+  const filter: Filter = { kinds: [KIND.SPEC, KIND.WIKI], '#k': [value], limit: 100 };
+  const [mercury, relays] = await Promise.all([
+    mercuryFilter(filter),
+    relayPool.query(documentStack(), [filter])
+  ]);
+  // composeSearchResults / searchKindTier lists specs (30817) before wikis (30818).
+  return mergeById([...mercury, ...relays]);
+}
+
 export async function runLabelSearch(label: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   if (isReadLabelSlug(label)) {
     onUpdate({ events: [], loading: false, done: true });

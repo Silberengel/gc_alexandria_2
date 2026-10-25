@@ -303,7 +303,7 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
       import('@asciidoctor/core'),
       import('./highlight'),
       import('./katex-math')
-    ]).then(([mod, { highlightAsciidoctorHtml }, { renderAsciidoctorMath }]) => {
+    ]).then(([mod, { highlightCodeBlocks }, { renderAsciidoctorMath }]) => {
       const factory = mod.default;
       const processor = typeof factory === 'function' ? factory() : factory;
       asciidoctorConvert = (src: string) => {
@@ -319,7 +319,7 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
             }
           })
         );
-        return renderAsciidoctorMath(highlightAsciidoctorHtml(html));
+        return renderAsciidoctorMath(highlightCodeBlocks(html));
       };
     });
   }
@@ -334,6 +334,11 @@ export function renderDjotHtml(src: string): string {
   } catch {
     return `<pre>${escapePlainHtml(normalized)}</pre>`;
   }
+}
+
+async function highlightRenderedHtml(html: string): Promise<string> {
+  const { highlightCodeBlocks } = await import('./highlight');
+  return highlightCodeBlocks(html);
 }
 
 async function renderAsciidocHtml(src: string): Promise<string> {
@@ -408,7 +413,7 @@ export async function renderFormat(format: MarkupFormat, content: string): Promi
   const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
   try {
     if (format === 'asciidoc') return presentHtml(await renderAsciidocHtml(rewritten));
-    return presentHtml(renderDjotHtml(rewritten));
+    return presentHtml(await highlightRenderedHtml(renderDjotHtml(rewritten)));
   } catch {
     return presentHtml(renderPlaintextHtml(content ?? ''));
   }

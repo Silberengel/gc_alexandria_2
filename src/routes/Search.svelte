@@ -20,6 +20,7 @@
     runLanguageSearch,
     runBookshelfSearch,
     runDTagSearch,
+    runKindTagSearch,
     runReadSearch,
     runReadingQueueSearch,
     npubFromInput
@@ -56,7 +57,7 @@
     const viewer = session.getPubkey()?.toLowerCase() ?? '';
     return [
       `viewer=${viewer}`,
-      ...['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'npub', 'read', 'queue'].map(
+      ...['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'k', 'npub', 'read', 'queue'].map(
         (k) => `${k}=${params.get(k) ?? ''}`
       )
     ].join('&');
@@ -68,6 +69,7 @@
       ['read', 'Read by'],
       ['bookshelf', 'Bookshelf'],
       ['d', 'Slug'],
+      ['k', 'Kind'],
       ['subject', 'Subject'],
       ['label', 'Label'],
       ['author', 'Author'],
@@ -106,6 +108,7 @@
     const language = params.get('language') ?? '';
     const bookshelf = params.get('bookshelf') ?? '';
     const d = params.get('d') ?? '';
+    const k = params.get('k') ?? '';
     const shelfNpub = params.get('npub') ?? '';
     const read = params.get('read') ?? '';
     const queue = params.get('queue') ?? '';
@@ -116,7 +119,7 @@
       return;
     }
     const npub = npubFromInput(term);
-    if (npub && !bookshelf && !read && !queue) {
+    if (npub && !bookshelf && !read && !queue && !k) {
       window.location.hash = `#/p/${npub}`;
       return;
     }
@@ -130,6 +133,7 @@
     else if (read) void runReadSearch(read, onUpdate);
     else if (bookshelf) void runBookshelfSearch(bookshelf, onUpdate, shelfNpub || undefined);
     else if (d) void runDTagSearch(d, onUpdate);
+    else if (k) void runKindTagSearch(k, onUpdate);
     else if (subject) void runSubjectSearch(subject, onUpdate);
     else if (label) void runLabelSearch(label, onUpdate);
     else if (author) void runAuthorSearch(author, onUpdate);

@@ -1951,6 +1951,18 @@ a.listing-row:hover,
 .verse-styling-switch.on .verse-styling-thumb {
   transform: translate(1.05rem, -50%);
 }
+.edition-kind-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.edition-kind-list li {
+  margin: 0;
+}
 .edition-topic-list,
 .edition-source-list {
   list-style: none;
