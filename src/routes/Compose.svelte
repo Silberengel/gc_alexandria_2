@@ -60,8 +60,11 @@
   } from '$lib/compose-preload';
   import {
     canEditAsShortNote,
+    canForkWikiEvent,
     eventToComposeDraft
   } from '$lib/event-compose-preload';
+  import { wikiForkDraftFrom } from '$lib/wiki-fork';
+  import { wikiMergeRequestDraftFromFork } from '$lib/wiki-merge';
   import {
     baselineContentForEdit,
     ingestShortNoteEdit,
@@ -279,6 +282,40 @@
     shortNoteEditSource = null;
     const draft = eventToComposeDraft(source);
     applyDraft(draft);
+    formError = '';
+    editorTab = 'edit';
+    bumpPreview();
+  }
+
+  async function applyForkIntent(source: NostrEvent): Promise<void> {
+    if (!canForkWikiEvent(source.kind)) {
+      formError = 'Only wiki and spec articles can be forked this way.';
+      return;
+    }
+    persistCurrent();
+    shortNoteEditSource = null;
+    applyDraft(wikiForkDraftFrom(source));
+    formError = '';
+    editorTab = 'edit';
+    bumpPreview();
+  }
+
+  async function applyMergeIntent(source: NostrEvent): Promise<void> {
+    const built = wikiMergeRequestDraftFromFork(source);
+    if (!built) {
+      formError = 'That event is not a fork that can request a merge.';
+      return;
+    }
+    persistCurrent();
+    shortNoteEditSource = null;
+    applyDraft({
+      kind: KIND.WIKI_MERGE_REQUEST,
+      content: '',
+      values: built.values,
+      hashtags: [],
+      imetaTags: [],
+      freeformTags: []
+    });
     formError = '';
     editorTab = 'edit';
     bumpPreview();
@@ -683,17 +720,39 @@
     if (!pk || bootstrappedFor === pk) return;
     bootstrappedFor = pk;
     const params = new URLSearchParams($querystring ?? '');
-    if (params.get('copy') || params.get('edit')) return;
+    if (
+      params.get('copy') ||
+      params.get('edit') ||
+      params.get('fork') ||
+      params.get('merge')
+    ) {
+      return;
+    }
     const rawKind = params.get('kind');
     const qKind =
       rawKind != null && rawKind.trim() !== '' ? Number(rawKind.trim()) : Number.NaN;
     const allowed = new Set<number>([
       ...COMPOSE_DOCUMENT_PRESETS,
       ...COMPOSE_METADATA_KINDS,
-      ...groups.flatMap((g) => g.kinds)
+      ...groups.flatMap((g) => g.kinds),
+      KIND.WIKI_MERGE_REQUEST,
+      KIND.WIKI_REDIRECT
     ]);
     const start = Number.isInteger(qKind) && allowed.has(qKind) ? qKind : kind;
-    void loadKind(start);
+    void (async () => {
+      await loadKind(start);
+      if (start === KIND.WIKI_REDIRECT) {
+        const d = (params.get('d') ?? '').trim();
+        const a = (params.get('a') ?? '').trim();
+        if (d || a) {
+          values = {
+            ...values,
+            ...(d ? { d } : {}),
+            ...(a ? { redirect_a: a } : {})
+          };
+        }
+      }
+    })();
   });
 
   $effect(() => {
@@ -701,12 +760,22 @@
     const params = new URLSearchParams($querystring ?? '');
     const copyId = (params.get('copy') ?? '').trim().toLowerCase();
     const editId = (params.get('edit') ?? '').trim().toLowerCase();
-    const intentKey = copyId ? `copy:${copyId}` : editId ? `edit:${editId}` : '';
+    const forkId = (params.get('fork') ?? '').trim().toLowerCase();
+    const mergeId = (params.get('merge') ?? '').trim().toLowerCase();
+    const intentKey = copyId
+      ? `copy:${copyId}`
+      : editId
+        ? `edit:${editId}`
+        : forkId
+          ? `fork:${forkId}`
+          : mergeId
+            ? `merge:${mergeId}`
+            : '';
     if (!pk || !intentKey) return;
     if (appliedIntentKey === intentKey) return;
     let cancelled = false;
     void (async () => {
-      const id = copyId || editId;
+      const id = copyId || editId || forkId || mergeId;
       const source = await resolveIntentEvent(id);
       if (cancelled) return;
       if (!source) {
@@ -716,6 +785,8 @@
       }
       appliedIntentKey = intentKey;
       if (copyId) await applyCopyIntent(source);
+      else if (forkId) await applyForkIntent(source);
+      else if (mergeId) await applyMergeIntent(source);
       else await applyEditIntent(source);
     })();
     return () => {

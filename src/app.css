@@ -3392,6 +3392,22 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   margin: 0;
   min-width: 0;
 }
+.wiki-redirect-disambig {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-width: min(var(--max-read), 100%);
+}
+.wiki-redirect-disambig li {
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--paper-dark) 40%, var(--paper-light));
+}
 .error-page {
   text-align: center;
   padding: 2.75rem 1.25rem;
@@ -6712,12 +6728,14 @@ a.user-status-line:hover {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* Single column so a lone stage fills the dialog. Nav buttons overlay. */
+  grid-template-columns: 1fr;
   align-items: stretch;
 }
 .media-viewer-stage {
   position: relative;
-  flex: 1 1 auto;
+  grid-column: 1;
+  grid-row: 1;
   min-height: 0;
   min-width: 0;
   display: grid;
@@ -6739,14 +6757,23 @@ a.user-status-line:hover {
   border: 0;
   margin: 0;
   padding: 0 0.55rem;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
   background: transparent;
   color: color-mix(in srgb, var(--text) 78%, transparent);
   font-size: 2.2rem;
   line-height: 1;
   cursor: pointer;
-  align-self: stretch;
   display: grid;
   place-items: center;
+}
+.media-viewer-nav-prev {
+  left: 0;
+}
+.media-viewer-nav-next {
+  right: 0;
 }
 .media-viewer-nav:hover,
 .media-viewer-nav:focus-visible {
@@ -6755,7 +6782,7 @@ a.user-status-line:hover {
   outline: none;
 }
 .media-viewer-image {
-  max-width: min(100%, 28rem);
+  max-width: 100%;
   max-height: calc(92vh - 5.5rem);
   width: auto;
   height: auto;

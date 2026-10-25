@@ -12,6 +12,9 @@
   import UserBadge from './UserBadge.svelte';
   import EventBody from './EventBody.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import WikiMergeCard from './WikiMergeCard.svelte';
+  import WikiRedirectCard from './WikiRedirectCard.svelte';
+  import AppHandlerChip from './AppHandlerChip.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -146,6 +149,32 @@
         {#if preview.body}
           <p class="generic-card-body muted">{preview.body}</p>
         {/if}
+      </div>
+    </article>
+  {:else if event.kind === KIND.APP_HANDLER}
+    <AppHandlerChip {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.WIKI_MERGE_REQUEST || event.kind === KIND.WIKI_MERGE_ACCEPTANCE}
+    <article class="card note-card">
+      {#if !embedded}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <p class="note-card-by muted">
+          by <UserBadge pubkey={event.pubkey} />
+        </p>
+        <WikiMergeCard {event} />
+      </div>
+    </article>
+  {:else if event.kind === KIND.WIKI_REDIRECT}
+    <article class="card note-card">
+      {#if !embedded}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <p class="note-card-by muted">
+          by <UserBadge pubkey={event.pubkey} />
+        </p>
+        <WikiRedirectCard {event} />
       </div>
     </article>
   {:else}

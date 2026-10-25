@@ -44,6 +44,8 @@ export function kindDescription(kind: number): string {
       return 'Music track';
     case KIND.WEB_BOOKMARK:
       return 'Web bookmark';
+    case KIND.APP_HANDLER:
+      return 'App handler';
     case KIND.LABEL:
       return 'Label';
     case KIND.BOOKMARK:

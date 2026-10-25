@@ -39,6 +39,9 @@
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import { webBookmarkUrl } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
+  import WikiMergeCard from './WikiMergeCard.svelte';
+  import WikiRedirectCard from './WikiRedirectCard.svelte';
+  import AppHandlerChip from './AppHandlerChip.svelte';
   import {
     isShortNoteEdited,
     mergeEditedShortNote,
@@ -439,6 +442,12 @@
     <MeetingRoomCard {event} />
   {:else if event && sourceKind === NIP53_KIND.ROOM_PRESENCE}
     <RoomPresenceCard {event} />
+  {:else if event && (sourceKind === KIND.WIKI_MERGE_REQUEST || sourceKind === KIND.WIKI_MERGE_ACCEPTANCE)}
+    <WikiMergeCard {event} />
+  {:else if event && sourceKind === KIND.WIKI_REDIRECT}
+    <WikiRedirectCard {event} />
+  {:else if event && sourceKind === KIND.APP_HANDLER}
+    <AppHandlerChip {event} showMenu={false} />
   {:else if usePlaintextRich}
     <NostrRichText
       content={source}

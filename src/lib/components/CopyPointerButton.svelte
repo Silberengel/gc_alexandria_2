@@ -22,8 +22,14 @@
   import { showNotice } from '$lib/stores/toast';
   import {
     canCopyEventToCompose,
-    canEditAsShortNote
+    canEditAsShortNote,
+    canForkWikiEvent
   } from '$lib/event-compose-preload';
+  import { canRequestWikiMerge } from '$lib/wiki-merge';
+  import { canDeferToWikiEvent, wikiDeferPublishDraft } from '$lib/wiki-defer-publish';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { isWikiOrSpecKind } from '$lib/wiki-fork';
+  import { isAddressableKind, isReplaceableKind } from '$lib/nostr/replaceable';
 
   interface Props {
     event: Event;
@@ -84,7 +90,18 @@
   const showRepost = $derived(!isOwnEvent);
   const hasMyRepost = $derived(!!myRepost);
   const showCopyEvent = $derived(canCopyEventToCompose(event.kind));
+  /** Own replaceable/addressable → "Replace"; others → "Copy". */
+  const copyEventLabel = $derived(
+    isOwnEvent && (isReplaceableKind(event.kind) || isAddressableKind(event.kind))
+      ? 'Replace this event'
+      : 'Copy this event'
+  );
   const showEditEvent = $derived(canEditAsShortNote(event, $session.pubkey));
+  const showForkEvent = $derived(canForkWikiEvent(event.kind));
+  const showRequestMerge = $derived(canRequestWikiMerge(event, $session.pubkey));
+  const showDefer = $derived(canDeferToWikiEvent(event, $session.pubkey));
+  const showCreateRedirect = $derived(isWikiOrSpecKind(event.kind));
+  let deferPending = $state(false);
 
   function openComposeCopy(): void {
     if (!$session.pubkey) {
@@ -106,6 +123,79 @@
     warmNavEvent(event);
     close();
     window.location.hash = `#/compose?edit=${event.id.toLowerCase()}`;
+  }
+
+  function openComposeFork(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    window.location.hash = `#/compose?fork=${event.id.toLowerCase()}`;
+  }
+
+  function openComposeMerge(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    window.location.hash = `#/compose?merge=${event.id.toLowerCase()}`;
+  }
+
+  function openComposeRedirect(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    const d = event.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
+    const a = eventAddress(event);
+    const q = new URLSearchParams({
+      kind: String(KIND.WIKI_REDIRECT),
+      d,
+      a
+    });
+    window.location.hash = `#/compose?${q.toString()}`;
+  }
+
+  async function publishDeferral(): Promise<void> {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    if (deferPending) return;
+    const draft = wikiDeferPublishDraft(event);
+    if (!draft) {
+      showNotice('Could not build a deference for this article.');
+      close();
+      return;
+    }
+    deferPending = true;
+    try {
+      const signed = await signUnsigned(draft);
+      if (!signed) {
+        consumeSignFailure();
+        showNotice('Deference was not signed.');
+        return;
+      }
+      const wrote = await publishSigned(signed);
+      if (!wrote) {
+        showNotice('Deference was signed, but no relay accepted it.');
+        return;
+      }
+      showNotice('Deferred to this version.');
+      close();
+    } finally {
+      deferPending = false;
+    }
   }
 
   $effect(() => {
@@ -438,6 +528,71 @@
           </a>
         </li>
       {/if}
+      {#if showForkEvent}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeFork();
+            }}
+          >
+            Fork this event
+          </button>
+        </li>
+      {/if}
+      {#if showRequestMerge}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeMerge();
+            }}
+          >
+            Request merge
+          </button>
+        </li>
+      {/if}
+      {#if showDefer}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={deferPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void publishDeferral();
+            }}
+          >
+            {deferPending ? 'Deferring…' : 'Defer to this version'}
+          </button>
+        </li>
+      {/if}
+      {#if showCreateRedirect}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeRedirect();
+            }}
+          >
+            Create redirect
+          </button>
+        </li>
+      {/if}
       {#if showCopyEvent}
         <li role="none">
           <button
@@ -450,7 +605,7 @@
               openComposeCopy();
             }}
           >
-            Copy this event
+            {copyEventLabel}
           </button>
         </li>
       {/if}

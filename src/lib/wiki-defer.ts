@@ -27,9 +27,9 @@ function readReferenceByMarker(event: Event, marker: string): WikiReference | un
   };
 }
 
-/** Kind 30818 that tags another version with marker `defer`. */
+/** Kind 30818/30817 that tags another version with marker `defer`. */
 export function getWikiDeferTarget(event: Event): WikiReference | undefined {
-  if (event.kind !== KIND.WIKI) return undefined;
+  if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) return undefined;
   return readReferenceByMarker(event, 'defer');
 }
 

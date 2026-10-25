@@ -13,7 +13,8 @@
   import { KIND } from '$lib/constants';
   import { libraryDocumentPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
-  import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys } from '$lib/wiki-defer';
+  import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys, wikiPathFromCoordinate } from '$lib/wiki-defer';
+  import { parseWikiRedirect, uniqueRedirectTargets, wikiRedirectTargetHref } from '$lib/wiki-redirect';
   import { normalizeDTag } from '$lib/dtag';
   import { mercuryFilter, MERCURY_DOCUMENT_KINDS } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
@@ -40,6 +41,8 @@
 
   let event = $state<Event | null>(null);
   let versions = $state<Event[]>([]);
+  /** Kind-30819 redirects for this d-tag when no article versions exist (disambiguation). */
+  let redirectOptions = $state<Event[]>([]);
   let responses = $state<WorkResponses>(emptyWorkResponses());
   let error = $state(false);
   let deferredByList = $state<string[]>([]);
@@ -83,7 +86,8 @@
       boosts: responses.boosts ?? [],
       bookmarks: responses.bookmarks ?? [],
       pins: responses.pins ?? [],
-      labels: responses.labels ?? []
+      labels: responses.labels ?? [],
+      appHandlers: responses.appHandlers ?? []
     };
   });
   const hideBody = $derived(
@@ -356,6 +360,7 @@
     let cancelled = false;
     const paintGen = ++wikiPaintGen;
     versions = [];
+    redirectOptions = [];
     responses = emptyWorkResponses();
     socialLoading = false;
     error = false;
@@ -436,10 +441,18 @@
         }
 
         if (dTag && !npubParam) {
-          const filter = { kinds: [kind], '#d': [dTag], limit: 50 };
-          const [m, w] = await Promise.all([
-            mercuryFilter(filter),
-            relayPool.query(stackForArticleKind(kind), [filter], 8000)
+          const articleFilter = { kinds: [kind], '#d': [dTag], limit: 50 };
+          const redirectFilter = {
+            kinds: [KIND.WIKI_REDIRECT],
+            '#d': [dTag],
+            limit: 40
+          };
+          const [m, w, redirects] = await Promise.all([
+            mercuryFilter(articleFilter),
+            relayPool.query(stackForArticleKind(kind), [articleFilter], 8000),
+            kind === KIND.LONG_FORM
+              ? Promise.resolve([] as Event[])
+              : relayPool.query(wikiStack(), [redirectFilter], 6000)
           ]);
           const byId = new Map<string, Event>();
           for (const e of [...m, ...w]) {
@@ -447,12 +460,30 @@
           }
           const found = pruneToLatestReplaceables([...byId.values()]);
           if (cancelled) return;
-          if (!found.length) {
-            error = true;
+          if (found.length) {
+            rememberEvents(found);
+            versions = found;
+            redirectOptions = [];
             return;
           }
-          rememberEvents(found);
-          versions = found;
+          const redirectHits = pruneToLatestReplaceables(
+            redirects.filter((e) => e.kind === KIND.WIKI_REDIRECT)
+          );
+          if (redirectHits.length) {
+            rememberEvents(redirectHits);
+            const targets = uniqueRedirectTargets(redirectHits);
+            if (targets.length === 1) {
+              const path = wikiPathFromCoordinate(targets[0]);
+              if (path) {
+                forwarding = true;
+                replace(path);
+                return;
+              }
+            }
+            redirectOptions = redirectHits;
+            return;
+          }
+          error = true;
           return;
         }
 
@@ -494,6 +525,29 @@
         </div>
       {/each}
     </div>
+  {:else if redirectOptions.length}
+    <header class="page-header">
+      <p class="page-kicker">{surfaceLabel}</p>
+      <h1>Disambiguation</h1>
+      <p class="page-lede muted">
+        This slug redirects to more than one article. Choose a destination.
+      </p>
+    </header>
+    <ul class="wiki-redirect-disambig">
+      {#each redirectOptions as redirect (redirect.id)}
+        {@const parsed = parseWikiRedirect(redirect)}
+        {@const href = wikiRedirectTargetHref(redirect)}
+        <li>
+          {#if href}
+            <a href={`#${href}`}>{parsed?.targetCoordinate ?? href}</a>
+          {:else}
+            <span class="muted">{parsed?.targetCoordinate ?? redirect.id.slice(0, 12)}</span>
+          {/if}
+          <span class="muted"> · </span>
+          <UserBadge pubkey={redirect.pubkey} />
+        </li>
+      {/each}
+    </ul>
   {:else if event}
     {#if deferredByList.length}
       <div class="wiki-defer-banner">

@@ -1,24 +1,46 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { uniqueResponsePubkeys } from '$lib/comments';
+  import { uniqueAppHandlers } from '$lib/app-handlers';
   import UserBadge from './UserBadge.svelte';
+  import AppHandlerIcon from './AppHandlerIcon.svelte';
 
   interface Props {
     bookmarks?: Event[];
     pins?: Event[];
     labels?: Event[];
+    appHandlers?: Event[];
   }
 
-  let { bookmarks = [], pins = [], labels = [] }: Props = $props();
+  let { bookmarks = [], pins = [], labels = [], appHandlers = [] }: Props = $props();
 
   const bookmarkedBy = $derived(uniqueResponsePubkeys(bookmarks));
   const pinnedBy = $derived(uniqueResponsePubkeys(pins));
   const labeledBy = $derived(uniqueResponsePubkeys(labels));
-  const hasAny = $derived(bookmarkedBy.length > 0 || pinnedBy.length > 0 || labeledBy.length > 0);
+  const apps = $derived(uniqueAppHandlers(appHandlers));
+  const hasAny = $derived(
+    bookmarkedBy.length > 0 ||
+      pinnedBy.length > 0 ||
+      labeledBy.length > 0 ||
+      apps.length > 0
+  );
 </script>
 
 {#if hasAny}
   <div class="work-attribution">
+    {#if apps.length}
+      <div class="work-attribution-row">
+        <span class="work-attribution-label">Apps:</span>
+        <div class="work-attribution-apps">
+          {#each apps.slice(0, 24) as app (app.event.id)}
+            <AppHandlerIcon {app} />
+          {/each}
+          {#if apps.length > 24}
+            <span class="work-attribution-more muted">+{apps.length - 24}</span>
+          {/if}
+        </div>
+      </div>
+    {/if}
     {#if bookmarkedBy.length}
       <div class="work-attribution-row">
         <span class="work-attribution-label">Bookmarked by:</span>
@@ -82,7 +104,8 @@
     letter-spacing: 0.01em;
     opacity: 0.78;
   }
-  .work-attribution-badges {
+  .work-attribution-badges,
+  .work-attribution-apps {
     display: flex;
     flex-wrap: wrap;
     align-items: center;

@@ -217,11 +217,19 @@ export const KIND = {
   RATING: 34259,
   WIKI: 30818,
   SPEC: 30817,
+  /** NIP-54 merge request (fork → destination article). */
+  WIKI_MERGE_REQUEST: 818,
+  /** Legacy NIP-54 merge acceptance (render only; prefer kind 7 ±). */
+  WIKI_MERGE_ACCEPTANCE: 819,
+  /** NIP-54 wiki redirect / alias. */
+  WIKI_REDIRECT: 30819,
   DJOT: 11,
   /** Music track (catalog kind). */
   MUSIC: 36787,
   /** NIP-B0 web bookmark. */
   WEB_BOOKMARK: 39701,
+  /** NIP-89 application handler announcement. */
+  APP_HANDLER: 31990,
   /** NIP-85 Trusted Assertions prefs (provider pointer). */
   NIP85_PREFS: 10040,
   /** NIP-85 Trusted Assertion score for a subject pubkey (`d` tag). */

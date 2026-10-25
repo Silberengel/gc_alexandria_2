@@ -4,6 +4,7 @@ import { KIND } from './constants';
 import {
   canCopyEventToCompose,
   canEditAsShortNote,
+  canForkWikiEvent,
   eventToComposeDraft
 } from './event-compose-preload';
 
@@ -60,10 +61,18 @@ describe('eventToComposeDraft', () => {
   });
 });
 
-describe('canCopy / canEdit gates', () => {
-  it('allows copy for notes, blocks likes', () => {
+describe('canCopy / canEdit / canFork gates', () => {
+  it('allows copy for notes, blocks likes and wiki', () => {
     expect(canCopyEventToCompose(1)).toBe(true);
     expect(canCopyEventToCompose(7)).toBe(false);
+    expect(canCopyEventToCompose(30818)).toBe(false);
+    expect(canCopyEventToCompose(30817)).toBe(false);
+  });
+
+  it('offers fork for wiki and spec only', () => {
+    expect(canForkWikiEvent(30818)).toBe(true);
+    expect(canForkWikiEvent(30817)).toBe(true);
+    expect(canForkWikiEvent(1)).toBe(false);
   });
 
   it('allows edit only for own kind 1', () => {

@@ -641,6 +641,8 @@ export type WorkResponses = {
   pins: Event[];
   /** Kind 1985 labels that tag this work. */
   labels: Event[];
+  /** NIP-89 kind 31990 app handlers for this work / its kind. */
+  appHandlers: Event[];
 };
 
 export function emptyWorkResponses(): WorkResponses {
@@ -653,7 +655,8 @@ export function emptyWorkResponses(): WorkResponses {
     boosts: [],
     bookmarks: [],
     pins: [],
-    labels: []
+    labels: [],
+    appHandlers: []
   };
 }
 
@@ -699,6 +702,7 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.DIRECTORY,
   KIND.NIP85_PREFS,
   KIND.NIP85_SCORE,
+  KIND.APP_HANDLER,
   // NIP-41 edits merge into kind-1 display — not thread / other rows.
   KIND.SHORT_NOTE_EDIT
 ]);
@@ -803,12 +807,24 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
   const bookmarksById = new Map<string, Event>();
   const pinsById = new Map<string, Event>();
   const labelsById = new Map<string, Event>();
+  const appHandlersById = new Map<string, Event>();
 
   for (const event of events) {
     if (!event?.id) continue;
     const key = event.id.toLowerCase();
     if (event.kind === KIND.SHORT_NOTE_EDIT) {
       if (target.kind === KIND.TEXT_NOTE) ingestShortNoteEdit(event, target);
+      continue;
+    }
+    if (event.kind === KIND.APP_HANDLER) {
+      // Handlers may a-tag the work, or only advertise support via `k`.
+      if (
+        referencesTarget(event, target) ||
+        addressTagsTarget(event, target) ||
+        event.tags.some((t) => t[0] === 'k' && (t[1] ?? '').trim() === String(target.kind))
+      ) {
+        appHandlersById.set(key, event);
+      }
       continue;
     }
     const decorate =
@@ -875,7 +891,8 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
     boosts: [...boostsById.values()],
     bookmarks: sortNewest([...bookmarksById.values()]),
     pins: sortNewest([...pinsById.values()]),
-    labels: sortNewest([...labelsById.values()])
+    labels: sortNewest([...labelsById.values()]),
+    appHandlers: sortNewest([...appHandlersById.values()])
   };
 }
 
@@ -945,17 +962,26 @@ export async function fetchWorkResponses(
       ? liveChatStack({ respectBlocked: liveChatShield.get() })
       : [];
   const baseScoped = withPreferredRelays(threadRelayUniverse(target), liveLane, 4, liveLane.length);
-  const first = await relayPool.query(
-    baseScoped.relays,
-    filters,
-    6000,
-    baseScoped.maxRelays,
-    undefined,
-    { priority: true }
-  );
+  const handlerFilter: Filter = {
+    kinds: [KIND.APP_HANDLER],
+    '#k': [String(target.kind)],
+    limit: Math.min(40, limit)
+  };
+
+  const [first, handlersFirst] = await Promise.all([
+    relayPool.query(
+      baseScoped.relays,
+      filters,
+      6000,
+      baseScoped.maxRelays,
+      undefined,
+      { priority: true }
+    ),
+    relayPool.query(socialStack(), [handlerFilter], 5000)
+  ]);
 
   const byEventId = new Map<string, Event>();
-  for (const e of [...cached, ...first]) {
+  for (const e of [...cached, ...first, ...handlersFirst]) {
     if (e?.id) byEventId.set(e.id.toLowerCase(), e);
   }
   // Clear the loading spinner even when cache was empty — nested hops continue below.

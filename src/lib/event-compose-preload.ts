@@ -137,12 +137,25 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
   };
 }
 
-const COPY_EXCLUDED = new Set<number>([...COMPOSE_PICKER_EXCLUDED, 1010]);
+const COPY_EXCLUDED = new Set<number>([
+  ...COMPOSE_PICKER_EXCLUDED,
+  1010,
+  818,
+  819,
+  30817,
+  30818,
+  30819
+]);
 
 /** Kinds we offer “Copy this event” for (compose-capable, not pure actions). */
 export function canCopyEventToCompose(kind: number): boolean {
   if (COPY_EXCLUDED.has(kind)) return false;
   return isCatalogued(kind) || kind === 0 || kind === 1;
+}
+
+/** Wiki / spec articles get “Fork this event” instead of Copy. */
+export function canForkWikiEvent(kind: number): boolean {
+  return kind === 30817 || kind === 30818;
 }
 
 /** Own kind-1 notes get “Edit this event” → NIP-41 kind 1010. */

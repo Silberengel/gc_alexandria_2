@@ -159,6 +159,7 @@
   let workBookmarks = $state<Event[]>([]);
   let workPins = $state<Event[]>([]);
   let workLabels = $state<Event[]>([]);
+  let workAppHandlers = $state<Event[]>([]);
   let sectionResponses = $state<Record<string, WorkResponses>>({});
   let highlights = $state<Event[]>([]);
   let editionLabels = $state<Event[]>([]);
@@ -356,7 +357,21 @@
     const bookmarks = filterMuted(workBookmarks, $muteState);
     const pins = filterMuted(workPins, $muteState);
     const labels = filterMuted(workLabels, $muteState);
-    if (!q) return { thread, quotes, highlights: highs, other, zaps, boosts, bookmarks, pins, labels };
+    const appHandlers = filterMuted(workAppHandlers, $muteState);
+    if (!q) {
+      return {
+        thread,
+        quotes,
+        highlights: highs,
+        other,
+        zaps,
+        boosts,
+        bookmarks,
+        pins,
+        labels,
+        appHandlers
+      };
+    }
     const match = (e: Event) => e.content.toLowerCase().includes(q);
     return {
       thread: thread.filter(match),
@@ -367,7 +382,8 @@
       boosts,
       bookmarks,
       pins,
-      labels
+      labels,
+      appHandlers
     };
   });
   const readerToc = $derived(enrichToc(toc, sections));
@@ -745,6 +761,7 @@
     workBookmarks = threadEvents.bookmarks;
     workPins = threadEvents.pins;
     workLabels = threadEvents.labels;
+    workAppHandlers = threadEvents.appHandlers;
     const hById = new Map<string, Event>();
     for (const e of threadEvents.highlights) hById.set(e.id, e);
     for (const batch of highlightBatches) {
@@ -2325,6 +2342,7 @@
       workBookmarks = [];
       workPins = [];
       workLabels = [];
+      workAppHandlers = [];
       highlights = [];
       sectionResponses = {};
       editionLabels = [];
