@@ -62,12 +62,8 @@
   const bookmarks = $derived(filterMuted(responses.bookmarks ?? [], $muteState));
   const pins = $derived(filterMuted(responses.pins ?? [], $muteState));
   const labels = $derived(filterMuted(responses.labels ?? [], $muteState));
-  const appHandlers = $derived(filterMuted(responses.appHandlers ?? [], $muteState));
   const hasAttributions = $derived(
-    bookmarks.length > 0 ||
-      pins.length > 0 ||
-      labels.length > 0 ||
-      appHandlers.length > 0
+    bookmarks.length > 0 || pins.length > 0 || labels.length > 0
   );
   const thread = $derived(nestComments(threadEvents, $muteState, threadRootKeys(target)));
   const offerKind1 = $derived(canOfferKind1Reply(target));
@@ -195,6 +191,6 @@
         {/each}
       </ul>
     {/if}
-    <WorkAttributionRows {bookmarks} {pins} {labels} {appHandlers} />
+    <WorkAttributionRows {bookmarks} {pins} {labels} />
   {/if}
 </section>

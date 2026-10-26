@@ -13,15 +13,19 @@
     type HighlightQuote
   } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
+  import { attachYoutubeEmbeds } from '$lib/attach-youtube';
   import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
   import { omitMediaUrls, stripRenderedMedia, uniqueMedia } from '$lib/media';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
+    inlineNostrRefHtml,
+    isInlineLabeledRef,
     protectNostrRefsForMarkup,
     splitNostrRefs,
     type RenderSegment,
-    type ContentSegment
+    type ContentSegment,
+    type RefSegment
   } from '$lib/nostr-refs';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import {
@@ -322,7 +326,7 @@
         if (!embeds) return;
         await Promise.all(
           next.map(async (seg, i) => {
-            if (seg.type !== 'ref') return;
+            if (seg.type !== 'ref' || isInlineLabeledRef(seg)) return;
             found[i] = await fetchRef(seg);
           })
         );
@@ -348,7 +352,7 @@
             return;
           }
           next[i] = seg;
-          if (!embeds) return;
+          if (!embeds || isInlineLabeledRef(seg)) return;
           found[i] = await fetchRef(seg);
         })
       );
@@ -376,8 +380,13 @@
     const q = quotes;
     const selfMarked = highlightHtml.includes('text-highlight');
     if (!el || !ready) return;
-    if (!q.length && !selfMarked) return;
-    return attachHighlightBadges(el);
+    const stopYoutube = attachYoutubeEmbeds(el);
+    const stopBadges =
+      q.length || selfMarked ? attachHighlightBadges(el) : undefined;
+    return () => {
+      stopBadges?.();
+      stopYoutube();
+    };
   });
 
   /**
@@ -513,6 +522,8 @@
             {/if}
           {/each}
         </p>
+      {:else if isInlineLabeledRef(segments[block.index]!)}
+        {@html inlineNostrRefHtml(segments[block.index] as RefSegment)}
       {:else if !showEmbeds}
         <!-- Caller asked to omit embedded event cards. -->
       {:else if embedDepth > 1}

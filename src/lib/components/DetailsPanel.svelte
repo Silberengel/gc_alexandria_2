@@ -22,6 +22,9 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
+  import AppHandlerIcon from './AppHandlerIcon.svelte';
+  import { uniqueAppHandlers } from '$lib/app-handlers';
+  import { muteState, filterMuted } from '$lib/mute';
 
   type EditRevision = {
     edit: Event;
@@ -39,9 +42,12 @@
     /** When set, offer EPUB / PDF / Asciidoc download in the ⋯ menu. */
     getSeedEvents?: () => Event[];
     canExport?: boolean;
+    /** NIP-89 kind-31990 handlers that advertise this work / kind (not social responses). */
+    appHandlers?: Event[];
   }
 
-  let { event, found, getSeedEvents, canExport = false }: Props = $props();
+  let { event, found, getSeedEvents, canExport = false, appHandlers = [] }: Props = $props();
+  const apps = $derived(uniqueAppHandlers(filterMuted(appHandlers, $muteState)));
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
 
@@ -209,6 +215,21 @@
           <span class="muted">Not yet observed on a relay</span>
         {/if}
       </dd>
+      {#if apps.length}
+        <dt>Apps</dt>
+        <dd>
+          <p class="details-apps">
+            {#each apps.slice(0, 24) as app, i (app.event.id)}
+              {#if i > 0}<span class="details-apps-sep" aria-hidden="true">·</span>{/if}
+              <AppHandlerIcon {app} />
+            {/each}
+            {#if apps.length > 24}
+              <span class="details-apps-sep" aria-hidden="true">·</span>
+              <span class="muted">+{apps.length - 24}</span>
+            {/if}
+          </p>
+        </dd>
+      {/if}
       {#if showEditDiffs}
         <dt>Edits</dt>
         <dd class="details-edits">

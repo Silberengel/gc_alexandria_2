@@ -570,7 +570,7 @@
       {#if !hideBody}
         <EventBody {event} quotes={bodyHighlights} />
       {/if}
-      <DetailsPanel {event} />
+      <DetailsPanel {event} appHandlers={responses.appHandlers ?? []} />
     </article>
     <div class="card reading-width" style="margin-top:1rem">
       <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} loading={socialLoading} />

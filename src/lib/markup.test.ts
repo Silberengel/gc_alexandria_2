@@ -9,9 +9,11 @@ import {
   renderHighlightEventHtml,
   markHighlights,
   linkifyTopicHashtags,
+  linkifyBareHttpUrls,
   looksLikeNativeAsciidoc,
   looksLikeDjot,
-  normalizeMarkdownEmphasis
+  normalizeMarkdownEmphasis,
+  renderFormat
 } from './markup';
 
 describe('withMarkupTag', () => {
@@ -114,6 +116,63 @@ describe('resolveMarkup', () => {
     const djot = 'See [Constantinople][] for the later name.\n';
     expect(looksLikeDjot(djot)).toBe(true);
     expect(resolveMarkup(KIND.WIKI, djot)).toBe('djot');
+  });
+
+  it('renders decorative block-char letter fences compactly with a trailing latin tail', async () => {
+    const art = [
+      '```',
+      '░▒▓█▓▒░░▒▓█▓▒░',
+      '░▒▓█▓▒░░▒▓█▓▒░',
+      '░▒▓█▓▒░░▒▓█▓▒░',
+      '░▒▓████████▓▒░',
+      '░▒▓█▓▒░░▒▓█▓▒░',
+      '░▒▓█▓▒░░▒▓█▓▒░',
+      '░▒▓█▓▒░░▒▓█▓▒░ e',
+      '```'
+    ].join('\n');
+    const html = await renderDjotHtml(`Before\n\n${art}\n\ndid not invent.`);
+    expect(html).toContain('ascii-glyph');
+    expect(html).toContain('ascii-glyph-tail');
+    expect(html).toContain('>e</span>');
+    expect(html).not.toMatch(/<pre(?![^>]*ascii-glyph)[^>]*>[\s\S]*░/);
+  });
+
+  it('does not let mid-paragraph fences swallow following prose, links, or lists', () => {
+    const art = [
+      '```',
+      '░▒▓█▓▒░',
+      '░▒▓█▓▒░',
+      '░▒▓█▓▒░',
+      '░▒▓█▓▒░',
+      '░▒▓█▓▒░',
+      '░▒▓█▓▒░',
+      '░▒▓████████▓▒░ egible',
+      '',
+      '',
+      '```'
+    ].join('\n');
+    // No blank line before the opening fence — CommonMark-style essay markup.
+    const src = [
+      `The feed reads you by your most`,
+      art,
+      '',
+      'kind. The herd.',
+      '',
+      'See [D&G](https://en.wikipedia.org/wiki/Dolce_&_Gabbana).',
+      '',
+      '1. First',
+      '2. Second',
+      '',
+      '- Bullet'
+    ].join('\n');
+    const html = renderDjotHtml(src);
+    expect(html).toContain('ascii-glyph');
+    expect(html).toContain('kind. The herd');
+    expect(html).not.toMatch(/<pre(?![^>]*ascii-glyph)[^>]*>[\s\S]*kind\. The herd/);
+    expect(html).toMatch(/href="https:\/\/en\.wikipedia\.org\/wiki\/Dolce_&amp;_Gabbana"/);
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<ul>');
+    expect(html.includes('[D&G]') || html.includes('[D&amp;G]')).toBe(false);
   });
 
   it('uses Djot for kind 11 and long-form', () => {
@@ -268,5 +327,38 @@ describe('NIP-84 highlight passage', () => {
     ]);
     expect(html).toContain('<mark class="text-highlight"');
     expect(html).toContain('Hello');
+  });
+
+  it('markHighlights records highlight event id for thread deep-links', () => {
+    const id = 'b'.repeat(64);
+    const html = markHighlights('<p>Hello world from the river bank.</p>', [
+      { quote: 'Hello world from the river bank.', pubkey: pk, eventId: id }
+    ]);
+    expect(html).toContain(`data-highlight-pubkey="${pk}"`);
+    expect(html).toContain(`data-highlight-id="${id}"`);
+  });
+});
+
+describe('bare URL linkify', () => {
+  it('wraps bare http(s) URLs in text nodes', () => {
+    const html = linkifyBareHttpUrls(
+      '<li>Ian Buchanan, What Is Affect https://www.youtube.com/watch?v=GCzycV8Nfl8</li>'
+    );
+    expect(html).toContain('href="https://www.youtube.com/watch?v=GCzycV8Nfl8"');
+    expect(html).toContain('target="_blank"');
+  });
+
+  it('leaves existing anchors and code alone', () => {
+    const linked = '<p><a href="https://ex.test/a">https://ex.test/a</a></p>';
+    expect(linkifyBareHttpUrls(linked)).toBe(linked);
+    const code = '<code>https://ex.test/raw</code>';
+    expect(linkifyBareHttpUrls(code)).toBe(code);
+  });
+
+  it('renderFormat linkifies YouTube watch URLs in Djot lists', async () => {
+    const src =
+      '- Ian Buchanan, What Is Affect https://www.youtube.com/watch?v=GCzycV8Nfl8\n';
+    const html = await renderFormat('djot', src);
+    expect(html).toContain('href="https://www.youtube.com/watch?v=GCzycV8Nfl8"');
   });
 });

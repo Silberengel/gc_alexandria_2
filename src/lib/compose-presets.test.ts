@@ -13,12 +13,19 @@ describe('composePickerGroups', () => {
   it('lists document presets first and includes metadata kinds', () => {
     const groups = composePickerGroups();
     expect(groups[0]?.id).toBe('documents');
-    expect(groups[0]?.kinds).toEqual([...COMPOSE_DOCUMENT_PRESETS]);
+    expect(groups[0]?.kinds).toEqual([...COMPOSE_DOCUMENT_PRESETS].sort((a, b) => a - b));
     const metadata = groups.find((g) => g.id === 'metadata');
-    expect(metadata?.kinds).toEqual([...COMPOSE_METADATA_KINDS]);
+    expect(metadata?.kinds).toEqual([...COMPOSE_METADATA_KINDS].sort((a, b) => a - b));
     for (const kind of COMPOSE_METADATA_KINDS) {
       expect(isMetadataComposeKind(kind)).toBe(true);
     }
+  });
+
+  it('orders every section by ascending kind number', () => {
+    for (const group of composePickerGroups()) {
+      expect(group.kinds).toEqual([...group.kinds].sort((a, b) => a - b));
+    }
+    expect(composePickerGroups()[0]?.kinds[0]).toBe(1);
   });
 
   it('puts remaining alexandria write kinds in other without duplicating presets', () => {

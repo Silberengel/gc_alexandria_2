@@ -1,48 +1,26 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { uniqueResponsePubkeys } from '$lib/comments';
-  import { uniqueAppHandlers } from '$lib/app-handlers';
   import UserBadge from './UserBadge.svelte';
-  import AppHandlerIcon from './AppHandlerIcon.svelte';
 
   interface Props {
     bookmarks?: Event[];
     pins?: Event[];
     labels?: Event[];
-    appHandlers?: Event[];
   }
 
-  let { bookmarks = [], pins = [], labels = [], appHandlers = [] }: Props = $props();
+  let { bookmarks = [], pins = [], labels = [] }: Props = $props();
 
   const bookmarkedBy = $derived(uniqueResponsePubkeys(bookmarks));
   const pinnedBy = $derived(uniqueResponsePubkeys(pins));
   const labeledBy = $derived(uniqueResponsePubkeys(labels));
-  const apps = $derived(uniqueAppHandlers(appHandlers));
   const hasAny = $derived(
-    bookmarkedBy.length > 0 ||
-      pinnedBy.length > 0 ||
-      labeledBy.length > 0 ||
-      apps.length > 0
+    bookmarkedBy.length > 0 || pinnedBy.length > 0 || labeledBy.length > 0
   );
 </script>
 
 {#if hasAny}
   <div class="work-attribution">
-    {#if apps.length}
-      <div class="work-attribution-row work-attribution-apps-row">
-        <span class="work-attribution-label work-attribution-apps-label">Apps</span>
-        <p class="work-attribution-apps">
-          {#each apps.slice(0, 24) as app, i (app.event.id)}
-            {#if i > 0}<span class="work-attribution-apps-sep" aria-hidden="true">·</span>{/if}
-            <AppHandlerIcon {app} />
-          {/each}
-          {#if apps.length > 24}
-            <span class="work-attribution-apps-sep" aria-hidden="true">·</span>
-            <span class="work-attribution-more muted">+{apps.length - 24}</span>
-          {/if}
-        </p>
-      </div>
-    {/if}
     {#if bookmarkedBy.length}
       <div class="work-attribution-row">
         <span class="work-attribution-label">Bookmarked by:</span>
@@ -121,30 +99,7 @@
     width: 1.35rem;
     height: 1.35rem;
   }
-  .work-attribution-apps-row {
-    align-items: baseline;
-  }
-  .work-attribution-apps-label {
-    font-size: 0.75rem;
-    font-weight: 500;
-    opacity: 0.55;
-  }
-  .work-attribution-apps {
-    margin: 0;
-    min-width: 0;
-    flex: 1 1 12rem;
-    font-size: 0.78rem;
-    line-height: 1.45;
-    opacity: 0.85;
-  }
-  .work-attribution-apps-sep {
-    margin: 0 0.55rem;
-    opacity: 0.4;
-  }
   .work-attribution-more {
     font-size: 0.8rem;
-  }
-  .work-attribution-apps .work-attribution-more {
-    font-size: inherit;
   }
 </style>

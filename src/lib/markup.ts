@@ -114,12 +114,37 @@ export function normalizeMarkdownEmphasis(content: string): string {
   );
 }
 
+const FENCE_LINE = /^(`{3,}|~{3,})/;
+
+/**
+ * Djot treats a fence that continues a paragraph as a multiline inline `code`
+ * span; the intended closer then opens a real code block and can swallow the
+ * rest of the document (CommonMark interrupts the paragraph instead).
+ * Insert a blank line before *opening* fences that follow non-empty prose.
+ */
+export function ensureBlockFences(content: string): string {
+  const lines = content.split('\n');
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    const isFence = FENCE_LINE.test(line.trimStart());
+    if (isFence) {
+      if (!inFence && out.length > 0 && out[out.length - 1]!.trim() !== '') {
+        out.push('');
+      }
+      inFence = !inFence;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 function processLinesSkippingFences(content: string, transform: (line: string) => string): string {
   const lines = content.split('\n');
   let inFence = false;
   return lines
     .map((line) => {
-      if (/^(`{3,}|~{3,})/.test(line.trimStart())) {
+      if (FENCE_LINE.test(line.trimStart())) {
         inFence = !inFence;
         return line;
       }
@@ -283,12 +308,18 @@ export function rewriteWikilinks(src: string, format: MarkupFormat = 'djot'): st
     if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     return toLink(String(label), String(target));
   });
+  // Nostrdown / MediaWiki display form: [[topic][Label]]
+  out = out.replace(/\[\[([^\]|]+)\]\[([^\]]+)\]\]/g, (match, target: string, label: string) => {
+    if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
+    return toLink(String(label), String(target));
+  });
   out = out.replace(/\[\[([^\]|]+)\]\]/g, (match, target: string) => {
     if (String(target).trim().toLowerCase().startsWith('citation::')) return match;
     const text = String(target).trim();
     return toLink(text, text);
   });
 
+  // Djot / CommonMark reference link with empty destination → treat label as wiki slug.
   out = out.replace(/\[([^\]\n]+)\]\[\]/g, (_m, target: string) => {
     const text = String(target).trim();
     return toLink(text, text);
@@ -403,8 +434,38 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
   return asciidoctorConvert!;
 }
 
+/** Block-drawing / shade characters used as decorative “cursed” letterforms. */
+const ASCII_GLYPH_CHARS =
+  /[\u2580-\u259F\u25A0-\u25FF\u28A0-\u28FF░▒▓█▀▄▌▐■□▪▫]/u;
+
+function isAsciiGlyphArt(text: string): boolean {
+  const trimmed = text.replace(/\s+$/u, '');
+  if (!trimmed || trimmed.length < 8) return false;
+  const lines = trimmed.split('\n').filter((l) => l.trim().length > 0);
+  if (lines.length < 3 || lines.length > 16) return false;
+  let glyph = 0;
+  let other = 0;
+  for (const ch of trimmed) {
+    if (/\s/u.test(ch)) continue;
+    if (ASCII_GLYPH_CHARS.test(ch)) glyph += 1;
+    else if (/[A-Za-z]/u.test(ch)) other += 1;
+    else other += 1;
+  }
+  if (glyph < 20) return false;
+  return glyph >= other * 3;
+}
+
+/** Pull a trailing latin fragment (`e`, `nd`, `olari`…) out of an ASCII-art letter fence. */
+function splitAsciiGlyphTail(text: string): { art: string; tail: string } {
+  const trimmed = text.replace(/\s+$/u, '');
+  const m = /^(.*?)[ \t]*([A-Za-z]{1,16})[ \t]*$/su.exec(trimmed);
+  if (!m?.[1] || !m[2]) return { art: trimmed, tail: '' };
+  if (!isAsciiGlyphArt(m[1])) return { art: trimmed, tail: '' };
+  return { art: m[1].replace(/\s+$/u, ''), tail: m[2] };
+}
+
 export function renderDjotHtml(src: string): string {
-  const normalized = normalizeMarkdownEmphasis(src);
+  const normalized = normalizeMarkdownEmphasis(ensureBlockFences(src));
   try {
     return renderDjot(parseDjot(normalized), {
       overrides: {
@@ -432,6 +493,18 @@ export function renderDjotHtml(src: string): string {
           if (!source) return html;
           const cite = `<footer class="djot-source">${renderer.escape(source)}</footer>\n`;
           return html.replace(/<\/blockquote>\s*$/, `${cite}</blockquote>\n`);
+        },
+        // Decorative block-char “letters” (e.g. cursed-software essays) — compact, keep tail.
+        code_block(node, renderer) {
+          const text = String(node.text ?? '');
+          if (!isAsciiGlyphArt(text) && !isAsciiGlyphArt(splitAsciiGlyphTail(text).art)) {
+            return renderer.renderAstNodeDefault(node);
+          }
+          const { art, tail } = splitAsciiGlyphTail(text);
+          const body = renderer.escape(art);
+          const glyph = `<pre class="ascii-glyph" aria-hidden="true">${body}</pre>`;
+          if (!tail) return `<span class="ascii-glyph-wrap">${glyph}</span>\n`;
+          return `<span class="ascii-glyph-wrap">${glyph}<span class="ascii-glyph-tail">${renderer.escape(tail)}</span></span>\n`;
         }
       }
     });
@@ -461,10 +534,16 @@ export function renderPlaintextHtml(src: string): string {
 
 /** Hashtag after start or a non-word character. Body is letters, numbers, underscore. */
 const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
-const HASHTAG_SKIP_TAGS = new Set(['a', 'pre', 'code', 'script', 'style']);
+/** Bare http(s) URL in text nodes (Djot does not autolink). */
+const BARE_HTTP_URL = /(https?:\/\/[^\s<>"')\]]+)/gi;
+const LINKIFY_SKIP_TAGS = new Set(['a', 'pre', 'code', 'script', 'style']);
 
 function topicSearchHref(tag: string): string {
   return `#/search?subject=${encodeURIComponent(tag)}`;
+}
+
+function escapeHrefAttr(url: string): string {
+  return url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 function linkifyHashtagText(segment: string): string {
@@ -473,9 +552,22 @@ function linkifyHashtagText(segment: string): string {
   });
 }
 
-/** Turn `#topic` in rendered text into a subject search link. Leaves links and code alone. */
-export function linkifyTopicHashtags(html: string): string {
-  if (!html.includes('#')) return html;
+/** Strip trailing punctuation often glued onto pasted links. */
+function tidyBareUrl(raw: string): string {
+  return raw.trim().replace(/[),.;:!?'"\]]+$/g, '');
+}
+
+function linkifyHttpText(segment: string): string {
+  return segment.replace(BARE_HTTP_URL, (raw) => {
+    const url = tidyBareUrl(raw);
+    const trail = raw.slice(url.length);
+    if (!isAllowedHref(url)) return raw;
+    return `<a href="${escapeHrefAttr(url)}" rel="noopener noreferrer" target="_blank">${escapeHrefAttr(url)}</a>${trail}`;
+  });
+}
+
+/** Walk text nodes; skip tags that already link or hold code. */
+function mapHtmlTextNodes(html: string, transform: (text: string) => string): string {
   let out = '';
   let i = 0;
   let skip = 0;
@@ -488,7 +580,7 @@ export function linkifyTopicHashtags(html: string): string {
       }
       const tag = html.slice(i, end + 1);
       const name = /^<\/?\s*([a-zA-Z0-9]+)/.exec(tag)?.[1]?.toLowerCase();
-      if (name && HASHTAG_SKIP_TAGS.has(name)) {
+      if (name && LINKIFY_SKIP_TAGS.has(name)) {
         const closing = /^<\s*\//.test(tag);
         const selfClosing = /\/>\s*$/.test(tag);
         if (!selfClosing) skip = Math.max(0, skip + (closing ? -1 : 1));
@@ -499,15 +591,29 @@ export function linkifyTopicHashtags(html: string): string {
     }
     const next = html.indexOf('<', i);
     const text = html.slice(i, next === -1 ? html.length : next);
-    out += skip > 0 ? text : linkifyHashtagText(text);
+    out += skip > 0 ? text : transform(text);
     if (next === -1) break;
     i = next;
   }
   return out;
 }
 
+/** Turn `#topic` in rendered text into a subject search link. Leaves links and code alone. */
+export function linkifyTopicHashtags(html: string): string {
+  if (!html.includes('#')) return html;
+  return mapHtmlTextNodes(html, linkifyHashtagText);
+}
+
+/** Turn bare `https://…` in rendered text into anchors (Djot leaves them plain). */
+export function linkifyBareHttpUrls(html: string): string {
+  if (!/https?:\/\//i.test(html)) return html;
+  return mapHtmlTextNodes(html, linkifyHttpText);
+}
+
 function presentHtml(html: string): string {
-  return linkifyTopicHashtags(cropRenderedUrlsInHtml(sanitizeHtml(promoteImageAutolinks(html))));
+  return linkifyTopicHashtags(
+    cropRenderedUrlsInHtml(sanitizeHtml(promoteImageAutolinks(linkifyBareHttpUrls(html))))
+  );
 }
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
@@ -539,7 +645,7 @@ export async function renderWithFallback(
   return renderMarkup(kind, content, tags);
 }
 
-export type HighlightQuote = { quote: string; pubkey?: string };
+export type HighlightQuote = { quote: string; pubkey?: string; eventId?: string };
 
 /** Allow markup tags / whitespace between words so quotes still match after AsciiDoc/Djot render. */
 export function flexibleQuotePattern(quote: string): string {
@@ -553,11 +659,13 @@ export function flexibleQuotePattern(quote: string): string {
   return words.join('(?:\\s|\\u00a0|&nbsp;|&#160;|<[^>]+>)+');
 }
 
-function highlightOpenTag(pubkey: string): string {
+function highlightOpenTag(pubkey: string, eventId = ''): string {
   const pk = pubkey.trim().toLowerCase();
+  const id = eventId.trim().toLowerCase();
+  const idAttr = /^[0-9a-f]{64}$/.test(id) ? ` data-highlight-id="${id}"` : '';
   return /^[0-9a-f]{64}$/.test(pk)
-    ? `<mark class="text-highlight" data-highlight-pubkey="${pk}"><span class="text-highlight-text">`
-    : `<mark class="text-highlight"><span class="text-highlight-text">`;
+    ? `<mark class="text-highlight" data-highlight-pubkey="${pk}"${idAttr}><span class="text-highlight-text">`
+    : `<mark class="text-highlight"${idAttr}><span class="text-highlight-text">`;
 }
 
 export function markHighlights(html: string, quotes: Array<string | HighlightQuote>): string {
@@ -565,9 +673,10 @@ export function markHighlights(html: string, quotes: Array<string | HighlightQuo
   for (const item of quotes) {
     const quote = typeof item === 'string' ? item : item.quote;
     const pubkey = typeof item === 'string' ? '' : (item.pubkey ?? '');
+    const eventId = typeof item === 'string' ? '' : (item.eventId ?? '');
     const trimmed = quote.replace(/\s+/g, ' ').trim();
     if (trimmed.length < 8) continue;
-    const open = highlightOpenTag(pubkey);
+    const open = highlightOpenTag(pubkey, eventId);
     const close = '</span></mark>';
 
     const exact = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

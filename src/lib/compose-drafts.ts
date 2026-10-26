@@ -17,6 +17,10 @@ export type ComposeDraftState = {
 
 const KEY_PREFIX = 'alexandria:compose-draft:';
 
+/** Latest form snapshot; survives Svelte teardown so Vite HMR can still flush. */
+let stagedDraft: { pubkey: string; draft: ComposeDraftState } | null = null;
+let flushListenersInstalled = false;
+
 function baselineValuesForKind(kind: number): Record<string, string> {
   if (!isCatalogued(kind)) return {};
   const out: Record<string, string> = {};
@@ -119,6 +123,44 @@ export function deleteComposeDraft(
   const store = storage();
   if (!store) return;
   store.removeItem(draftStorageKey(pubkey, kind, mode));
+  if (
+    stagedDraft &&
+    stagedDraft.pubkey.toLowerCase() === pubkey.toLowerCase() &&
+    stagedDraft.draft.kind === kind
+  ) {
+    stagedDraft = null;
+  }
+}
+
+/**
+ * Keep a module-level copy of the live form. Component debounce cleanup and
+ * pagehide listeners can drop on HMR; this staged value still flushes.
+ */
+export function stageComposeDraft(
+  pubkey: string,
+  draft: ComposeDraftState,
+): void {
+  stagedDraft = { pubkey, draft };
+  ensureDraftFlushListeners();
+}
+
+/** Write the staged draft to sessionStorage. Empty shells are skipped (not deleted). */
+export function flushStagedComposeDraft(): void {
+  if (!stagedDraft) return;
+  const { pubkey, draft } = stagedDraft;
+  if (isComposeDraftEmpty(draft, baselineValuesForKind(draft.kind))) return;
+  saveComposeDraft(pubkey, draft);
+}
+
+function ensureDraftFlushListeners(): void {
+  if (flushListenersInstalled) return;
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  flushListenersInstalled = true;
+  const flush = () => flushStagedComposeDraft();
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flush();
+  });
 }
 
 export function listComposeDrafts(

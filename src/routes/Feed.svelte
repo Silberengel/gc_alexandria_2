@@ -789,7 +789,7 @@
       {:else if event}
         {#if isNip53Kind(event.kind) && event.kind !== NIP53_KIND.LIVE_CHAT}
           <EventCard {event} asCard presence={livePresence} />
-          <DetailsPanel {event} />
+          <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
         {:else}
           <article class="card reading-body">
             <FeedBoosters boosts={threadBoosts} />
@@ -807,7 +807,7 @@
               </header>
             {/if}
             <EventBody {event} quotes={bodyHighlights} />
-            <DetailsPanel {event} />
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
         {/if}
         {#if fullPage}

@@ -2714,17 +2714,17 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   scroll-margin-top: 1rem;
 }
 
-.reading-body img,
+.reading-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .reading-body video,
 .reading-body svg,
 .reading-body canvas,
 .reading-body iframe,
-.event-body img,
+.event-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .event-body video,
 .event-body svg,
 .event-body canvas,
 .event-body iframe,
-.reader-section img,
+.reader-section img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .reader-section video,
 .reader-section iframe {
   display: block;
@@ -2735,13 +2735,13 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   object-fit: contain;
   margin-inline: auto;
 }
-.event-body img:not(.content-emoji):not(.userbadge-avatar),
+.event-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .event-body video,
-.reading-body img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .reading-body video,
-.reader-section img:not(.content-emoji):not(.userbadge-avatar),
+.reader-section img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .reader-section video,
-.thread-body img:not(.content-emoji):not(.userbadge-avatar),
+.thread-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .thread-body video {
   margin-block: 1.35rem;
   max-width: calc(100% - 1.7rem) !important;
@@ -2875,6 +2875,44 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
   line-height: 1.45;
+}
+/* Decorative block-char letters (nostrdown / cursed-software essays). */
+.reading-body .ascii-glyph-wrap,
+.event-body .ascii-glyph-wrap,
+.reader-section .ascii-glyph-wrap {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.12em;
+  vertical-align: middle;
+  margin: 0.15em 0.25em;
+  max-width: 100%;
+}
+.reading-body pre.ascii-glyph,
+.event-body pre.ascii-glyph,
+.reader-section pre.ascii-glyph {
+  display: inline-block;
+  margin: 0;
+  padding: 0.1em 0.15em;
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 78%, var(--accent));
+  font-size: 0.42rem;
+  line-height: 1.05;
+  white-space: pre;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.ascii-glyph-tail {
+  font-family: var(--display-font, inherit);
+  font-size: 1em;
+  line-height: 1;
+  color: inherit;
+}
+a.nostrdown-ref {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+  font-weight: 600;
 }
 .reading-body pre.highlight,
 .event-body pre.highlight,
@@ -3421,6 +3459,50 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: var(--ink-soft);
   padding: 0 0.12em;
 }
+/* Prose lists — keep markers visible (task-list rules below opt out). */
+.reading-body ul:not(.task-list):not(.checklist),
+.event-body ul:not(.task-list):not(.checklist),
+.reader-section ul:not(.task-list):not(.checklist),
+.reading-body ol,
+.event-body ol,
+.reader-section ol {
+  margin: 0.85rem 0;
+  padding-inline-start: 1.45rem;
+  list-style-position: outside;
+}
+.reading-body ul:not(.task-list):not(.checklist),
+.event-body ul:not(.task-list):not(.checklist),
+.reader-section ul:not(.task-list):not(.checklist) {
+  list-style-type: disc;
+}
+.reading-body ol,
+.event-body ol,
+.reader-section ol {
+  list-style-type: decimal;
+}
+.reading-body :is(ul, ol) ul,
+.event-body :is(ul, ol) ul,
+.reader-section :is(ul, ol) ul {
+  list-style-type: circle;
+  margin-block: 0.35rem;
+}
+.reading-body :is(ul, ol) ol,
+.event-body :is(ul, ol) ol,
+.reader-section :is(ul, ol) ol {
+  list-style-type: lower-alpha;
+  margin-block: 0.35rem;
+}
+.reading-body li,
+.event-body li,
+.reader-section li {
+  margin: 0.28rem 0;
+}
+.reading-body li > p,
+.event-body li > p,
+.reader-section li > p {
+  margin: 0.2rem 0;
+}
+
 /* Task lists / checklists — CSS markers, not native inputs (those become form bars). */
 .reading-body ul.task-list,
 .event-body ul.task-list,
@@ -4583,6 +4665,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   object-fit: cover;
   flex: 0 0 auto;
   background: var(--surface-2);
+  /* Dark photos vanish on dark chrome without a light rim. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 42%, transparent);
+}
+:root.dark .userbadge-avatar {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 55%, transparent);
 }
 .userbadge-anon {
   color: var(--text-muted);
@@ -4737,6 +4824,21 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 :root.dark .details-edit-diff .diff-add {
   background: color-mix(in srgb, #47cd89 18%, transparent);
   color: color-mix(in srgb, #47cd89 70%, var(--ink));
+}
+.youtube-embed-host {
+  display: block;
+  margin: 0.35rem 0 0.55rem;
+  max-width: 36rem;
+}
+.details-apps {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.details-apps-sep {
+  margin: 0 0.45rem;
+  opacity: 0.4;
 }
 .found-list {
   list-style: none;
@@ -6479,13 +6581,14 @@ mark.text-highlight.highlight-flash,
 .text-highlight-by {
   display: inline-flex;
   vertical-align: text-bottom;
-  margin-left: 0.2em;
-  width: 1.1em;
-  height: 1.1em;
+  margin-left: 0.28em;
+  width: 1.25em;
+  height: 1.25em;
   border-radius: 999px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  background: var(--surface-2);
+  border: 1.5px solid color-mix(in srgb, #fff 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #1a140c 35%, transparent);
+  background: color-mix(in srgb, var(--paper-light) 70%, #fff);
   color: var(--text-muted);
   text-decoration: none;
   flex-shrink: 0;
@@ -6496,12 +6599,21 @@ mark.text-highlight.highlight-flash,
   outline-offset: 1px;
   text-decoration: none;
 }
+/* Win over prose `img { height: auto !important }` so the pfp stays a disc. */
+.event-body .text-highlight-by-avatar,
+.reading-body .text-highlight-by-avatar,
+.reader-section .text-highlight-by-avatar,
+.thread-body .text-highlight-by-avatar,
 .text-highlight-by-avatar,
 .text-highlight-by-anon {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  object-fit: cover !important;
+  border-radius: 999px;
 }
 .reader-section { margin-bottom: 2rem; scroll-margin-top: 6.5rem; max-width: 100%; min-width: 0; }
 :root.top-bar-concealed .reader-section { scroll-margin-top: 1rem; }

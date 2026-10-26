@@ -13,6 +13,13 @@ export type RefSegment = {
   /** Relay hints from nevent / nprofile (and naddr via {@link naddr}.relays). */
   relays?: string[];
   naddr?: { kind: number; pubkey: string; identifier: string; relays?: string[] };
+  /**
+   * Nostrdown / citation display label. When set with `presentation: 'inline'`,
+   * render as a prose link instead of a block card.
+   */
+  displayLabel?: string;
+  /** Default `block` for bare note/nevent/naddr; nostrdown `ref`/`wiki`/`cite`/`quote` are inline. */
+  presentation?: 'inline' | 'block';
 };
 export type ContentSegment = TextSegment | RefSegment;
 
@@ -22,6 +29,17 @@ export type RenderSegment = HtmlSegment | RefSegment;
 const TOKEN = /(?:nostr:)?(n(?:pub|profile|addr|event|ote|sec)1[02-9ac-hj-np-z]+)/gi;
 /** Whole citation macros — must be peeled before bare nevent tokens inside them. */
 const CITATION = /\[\[citation::([^:\]]+)::([^\]]+)\]\]/gi;
+/** Nostrdown `{{prefix:target|label}}` / `{{@npub}}` — peel before bare nevent tokens. */
+const NOSTRDOWN = /\{\{((?:(?!\}\}).)+)\}\}/g;
+const NOSTRDOWN_PREFIXES = new Set([
+  'ref',
+  'wiki',
+  'embed',
+  'quote',
+  'slot',
+  'cite',
+  'mention'
+]);
 
 /** Opaque token that survives AsciiDoc / Djot / Markdown rendering. */
 export function nostrRefPlaceholder(index: number): string {
@@ -86,38 +104,136 @@ function cleanCitationId(raw: string): string {
  * Do **not** use this before AsciiDoc/Djot render — it tears listing and table blocks.
  */
 export function splitNostrRefs(content: string): ContentSegment[] {
+  // Reuse the full protect path so nostrdown / citation macros win over bare tokens.
+  const { text, refs } = protectNostrRefsForMarkup(content);
+  if (!refs.length) return [{ type: 'text', text: content }];
   const segments: ContentSegment[] = [];
-  const re = new RegExp(TOKEN.source, 'gi');
+  const re = new RegExp(PLACEHOLDER_RE.source, 'g');
   let last = 0;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(content))) {
-    const full = match[0];
-    const token = match[1]!;
-    // Leave npub/naddr inside http(s) / AsciiDoc link targets intact
-    // (e.g. `#/publication/…/p/npub1…?read=1`).
-    if (isInsideAsciiDocTarget(content, match.index)) continue;
-    if (match.index > last) segments.push({ type: 'text', text: content.slice(last, match.index) });
-    const ref = decodeNostrBech32(token);
-    if (ref) {
-      segments.push({
-        ...ref,
-        raw: full.toLowerCase().includes('nostr:') ? full : `nostr:${token}`
-      });
-    } else {
-      segments.push({ type: 'text', text: full });
+  while ((match = re.exec(text))) {
+    if (match.index > last) {
+      segments.push({ type: 'text', text: text.slice(last, match.index) });
     }
-    last = match.index + full.length;
+    const ref = refs[Number(match[1])];
+    if (ref) segments.push(ref);
+    else segments.push({ type: 'text', text: match[0] });
+    last = match.index + match[0].length;
   }
-  if (last < content.length) segments.push({ type: 'text', text: content.slice(last) });
+  if (last < text.length) segments.push({ type: 'text', text: text.slice(last) });
   if (!segments.length) segments.push({ type: 'text', text: content });
   return trimAdjacentToBlockEmbeds(segments);
 }
 
 /** note / nevent / naddr render as block cards — not inline mentions. */
 export function isBlockEmbedRef(seg: ContentSegment | RenderSegment): boolean {
-  return (
-    seg.type === 'ref' && (seg.kind === 'note' || seg.kind === 'nevent' || seg.kind === 'naddr')
-  );
+  if (seg.type !== 'ref') return false;
+  if (seg.presentation === 'inline') return false;
+  if (seg.presentation === 'block') return true;
+  return seg.kind === 'note' || seg.kind === 'nevent' || seg.kind === 'naddr';
+}
+
+export function isInlineLabeledRef(seg: ContentSegment | RenderSegment): boolean {
+  return seg.type === 'ref' && seg.presentation === 'inline';
+}
+
+/** In-app href for a decoded NIP-19 pointer (hash-router). */
+export function nostrRefHref(seg: RefSegment): string {
+  if (seg.kind === 'npub' || seg.kind === 'nprofile') {
+    return `#/profile/${seg.bech32}`;
+  }
+  if (seg.kind === 'naddr' && seg.naddr) {
+    const { kind, pubkey, identifier } = seg.naddr;
+    // Prefer article/wiki/spec/publication routes when kind is known.
+    if (kind === 30023) {
+      try {
+        const npub = nip19.npubEncode(pubkey);
+        return `#/article/d/${encodeURIComponent(identifier)}/p/${npub}`;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (kind === 30818) {
+      try {
+        const npub = nip19.npubEncode(pubkey);
+        return `#/wiki/d/${encodeURIComponent(identifier)}/p/${npub}`;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (kind === 30817) {
+      try {
+        const npub = nip19.npubEncode(pubkey);
+        return `#/spec/d/${encodeURIComponent(identifier)}/p/${npub}`;
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return `#/feed?thread=${seg.bech32}`;
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** Prose link for a nostrdown / citation inline reference. */
+export function inlineNostrRefHtml(seg: RefSegment): string {
+  const label = (seg.displayLabel || seg.bech32).trim() || seg.bech32;
+  return `<a class="nostrdown-ref" href="${escapeAttr(nostrRefHref(seg))}">${escapeAttr(label)}</a>`;
+}
+
+type NostrdownParsed = {
+  prefix: string;
+  target: string;
+  modifier: string;
+  raw: string;
+};
+
+/** Parse nostrdown `{{…}}` body into prefix / target / optional label. */
+export function parseNostrdownInner(inner: string): NostrdownParsed | null {
+  const raw = inner.trim();
+  if (!raw) return null;
+  if (raw.startsWith('@')) {
+    const rest = raw.slice(1);
+    const pipe = rest.indexOf('|');
+    const target = (pipe < 0 ? rest : rest.slice(0, pipe)).trim();
+    const modifier = (pipe < 0 ? '' : rest.slice(pipe + 1)).trim();
+    if (!target) return null;
+    return { prefix: 'mention', target, modifier, raw };
+  }
+  const colon = raw.indexOf(':');
+  if (colon <= 0) return null;
+  const prefix = raw.slice(0, colon).trim().toLowerCase();
+  if (!NOSTRDOWN_PREFIXES.has(prefix)) return null;
+  const after = raw.slice(colon + 1);
+  const pipe = after.indexOf('|');
+  const target = (pipe < 0 ? after : after.slice(0, pipe)).trim();
+  const modifier = (pipe < 0 ? '' : after.slice(pipe + 1)).trim();
+  if (!target) return null;
+  return { prefix, target, modifier, raw };
+}
+
+function nostrdownToRef(parsed: NostrdownParsed): RefSegment | null {
+  const target = parsed.target.replace(/^nostr:/i, '').trim();
+  const ref = decodeNostrBech32(target);
+  if (!ref) return null;
+  const inline =
+    parsed.prefix === 'ref' ||
+    parsed.prefix === 'wiki' ||
+    parsed.prefix === 'cite' ||
+    parsed.prefix === 'quote' ||
+    parsed.prefix === 'mention';
+  return {
+    ...ref,
+    raw: `{{${parsed.raw}}}`,
+    displayLabel: parsed.modifier || undefined,
+    presentation: inline ? 'inline' : 'block'
+  };
 }
 
 export function isInlineMentionRef(seg: ContentSegment): boolean {
@@ -245,6 +361,19 @@ export function protectNostrRefsForMarkup(content: string): {
     });
   }
 
+  const nostrdownRe = new RegExp(NOSTRDOWN.source, 'g');
+  while ((m = nostrdownRe.exec(content))) {
+    const parsed = parseNostrdownInner(m[1] ?? '');
+    if (!parsed) continue;
+    const ref = nostrdownToRef(parsed);
+    if (!ref) continue;
+    hits.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      ref
+    });
+  }
+
   const tokenRe = new RegExp(TOKEN.source, 'gi');
   while ((m = tokenRe.exec(content))) {
     const start = m.index;
@@ -360,6 +489,11 @@ export function coalesceInlineMentions(segments: RenderSegment[]): InlineBodyBlo
   segments.forEach((seg, index) => {
     if (seg.type === 'html') {
       pushHtml(seg.html);
+      return;
+    }
+    if (isInlineLabeledRef(seg)) {
+      if (!flow) flow = [];
+      flow.push({ type: 'html', html: inlineNostrRefHtml(seg) });
       return;
     }
     if ((seg.kind === 'npub' || seg.kind === 'nprofile') && seg.pubkey) {

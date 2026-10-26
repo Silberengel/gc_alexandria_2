@@ -3474,6 +3474,7 @@
           {event}
           canExport={canRead}
           getSeedEvents={() => sectionCorpus}
+          appHandlers={workAppHandlers}
         />
       </header>
 

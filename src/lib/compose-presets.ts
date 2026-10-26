@@ -27,6 +27,10 @@ export type ComposePickerGroup = {
 
 const METADATA_SET = new Set<number>(COMPOSE_METADATA_KINDS);
 
+function byKindNumber(a: number, b: number): number {
+  return a - b;
+}
+
 export function composePickerGroups(): ComposePickerGroup[] {
   const alexandriaKinds = kindsWrittenBy('alexandria');
   const excluded = new Set<number>([
@@ -34,18 +38,18 @@ export function composePickerGroups(): ComposePickerGroup[] {
     ...COMPOSE_METADATA_KINDS,
     ...COMPOSE_PICKER_EXCLUDED
   ]);
-  const otherKinds = alexandriaKinds.filter((k) => !excluded.has(k));
+  const otherKinds = alexandriaKinds.filter((k) => !excluded.has(k)).sort(byKindNumber);
 
   return [
     {
       id: 'documents',
       label: 'Documents',
-      kinds: [...COMPOSE_DOCUMENT_PRESETS],
+      kinds: [...COMPOSE_DOCUMENT_PRESETS].sort(byKindNumber),
     },
     {
       id: 'metadata',
       label: 'Metadata',
-      kinds: [...COMPOSE_METADATA_KINDS],
+      kinds: [...COMPOSE_METADATA_KINDS].sort(byKindNumber),
     },
     {
       id: 'other',

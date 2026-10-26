@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   deleteComposeDraft,
+  flushStagedComposeDraft,
   isComposeDraftEmpty,
   listComposeDrafts,
   loadComposeDraft,
   localDraftMatchesEncrypted,
   saveComposeDraft,
+  stageComposeDraft,
   type ComposeDraftState
 } from './compose-drafts';
 
@@ -90,6 +92,19 @@ describe('compose draft persistence', () => {
     saveComposeDraft(PK, blank({ kind: 30040, content: 'x', updatedAt: 9 }));
     expect(listComposeDrafts(PK).map((d) => d.kind)).toEqual([30040]);
     expect(loadComposeDraft(PK, 1)).toBeNull();
+  });
+
+  it('flushes a staged draft so HMR teardown can persist without the component', () => {
+    stageComposeDraft(PK, blank({ content: 'still here', updatedAt: 42 }));
+    flushStagedComposeDraft();
+    expect(loadComposeDraft(PK, 1)?.content).toBe('still here');
+  });
+
+  it('does not wipe an existing draft when flushing an empty staged shell', () => {
+    saveComposeDraft(PK, blank({ content: 'keep me', updatedAt: 1 }));
+    stageComposeDraft(PK, blank({ content: '', updatedAt: 2 }));
+    flushStagedComposeDraft();
+    expect(loadComposeDraft(PK, 1)?.content).toBe('keep me');
   });
 });
 

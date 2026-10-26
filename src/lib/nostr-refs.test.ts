@@ -53,6 +53,28 @@ describe('protectNostrRefsForMarkup', () => {
     expect(refs[0]?.raw).toContain('citation::');
   });
 
+  it('peels nostrdown {{ref:nevent|label}} as an inline labeled link, not a bare embed', () => {
+    const id = '5'.repeat(64);
+    const nevent = nip19.neventEncode({ id });
+    const body = `essay called Knowledge. {{ref:${nevent}|Anarchistic Knowledge}} It argues.`;
+    const { text, refs } = protectNostrRefsForMarkup(body);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]?.presentation).toBe('inline');
+    expect(refs[0]?.displayLabel).toBe('Anarchistic Knowledge');
+    expect(refs[0]?.kind).toBe('nevent');
+    expect(text).toContain(nostrRefPlaceholder(0));
+    expect(text).not.toContain(nevent);
+    expect(text).not.toContain('{{ref:');
+  });
+
+  it('treats nostrdown {{embed:nevent}} as a block card', () => {
+    const id = '6'.repeat(64);
+    const nevent = nip19.neventEncode({ id });
+    const { refs } = protectNostrRefsForMarkup(`See {{embed:${nevent}}} below.`);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]?.presentation).toBe('block');
+  });
+
   it('leaves npub/naddr intact inside AsciiDoc URL macros', () => {
     const npub = nip19.npubEncode('a'.repeat(64));
     const naddr = nip19.naddrEncode({

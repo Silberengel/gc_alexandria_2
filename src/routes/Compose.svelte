@@ -69,7 +69,9 @@
     listComposeDrafts,
     clearComposeDraftsForPubkey,
     isComposeDraftEmpty,
-    localDraftMatchesEncrypted
+    localDraftMatchesEncrypted,
+    stageComposeDraft,
+    flushStagedComposeDraft
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
   import {
@@ -589,7 +591,7 @@
         : composeMarkupFormat(d.kind, d.content, d.freeformTags);
   }
 
-  function persistCurrent() {
+  function persistCurrent(opts?: { refreshList?: boolean }) {
     const pk = $session.pubkey;
     if (!pk || otherMode || shortNoteEditSource) return;
     if (replaceablePreloaded && preloadBaseline) {
@@ -602,12 +604,14 @@
       preloadBaseline = null;
     }
     const draft = snapshotDraft();
-    if (isComposeDraftEmpty(draft, emptyValuesFor(draft.kind))) {
-      deleteComposeDraft(pk, draft.kind);
-    } else {
-      saveComposeDraft(pk, draft);
-    }
-    refreshDraftList();
+    // Empty live shell must not wipe a tab autosave the user has not restored
+    // yet (bootstrap / HMR remount starts blank). clearForm() deletes explicitly.
+    if (isComposeDraftEmpty(draft, emptyValuesFor(draft.kind))) return;
+    // Stage before write so HMR teardown can still flush if the debounced
+    // timer is cleared first.
+    stageComposeDraft(pk, draft);
+    saveComposeDraft(pk, draft);
+    if (opts?.refreshList !== false) refreshDraftList();
   }
 
   /** Wipe the form and return the kind picker to the default short note. */
@@ -950,11 +954,17 @@
       bumpPreview();
       persistCurrent();
     }, 200);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      // Vite HMR / route leave clears the timer before pagehide; flush now so
+      // the last keystrokes are not lost. Skip list refresh to avoid thrash.
+      persistCurrent({ refreshList: false });
+      flushStagedComposeDraft();
+    };
   });
 
-  // The debounce above is cleared on teardown. Flush if the tab is hidden first,
-  // including while the advanced editor is the only field on screen.
+  // Belt-and-suspenders with module-level listeners in compose-drafts.ts.
+  // Component listeners still help while Compose is mounted (tab switch).
   $effect(() => {
     const flush = () => persistCurrent();
     const onHide = () => {
@@ -963,6 +973,7 @@
     window.addEventListener('pagehide', flush);
     document.addEventListener('visibilitychange', onHide);
     return () => {
+      flush();
       window.removeEventListener('pagehide', flush);
       document.removeEventListener('visibilitychange', onHide);
     };
@@ -1259,6 +1270,16 @@
             ...(d ? { d } : {}),
             ...(a ? { redirect_a: a } : {})
           };
+        }
+      }
+      // After a full reload / HMR remount, put the tab autosave back into the
+      // form when we did not preload a replaceable (Drafts list alone is easy to miss).
+      if (!replaceablePreloaded && pk) {
+        const saved = loadComposeDraft(pk, start);
+        if (saved && !isComposeDraftEmpty(saved, emptyValuesFor(start))) {
+          applyDraft(saved);
+          activeDraftD = saved.values.d?.trim() || null;
+          bumpPreview();
         }
       }
     })();
