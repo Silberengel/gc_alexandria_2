@@ -8,6 +8,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
+  import ProfileMetadataCard from '$lib/components/ProfileMetadataCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
@@ -864,6 +865,12 @@
         {#if isNip53Kind(event.kind) && event.kind !== NIP53_KIND.LIVE_CHAT}
           <EventCard {event} asCard presence={livePresence} />
           <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+        {:else if event.kind === KIND.METADATA}
+          <article class="card reading-body feed-profile-meta-thread">
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
+            <ProfileMetadataCard {event} showMenu={false} />
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+          </article>
         {:else}
           <article class="card reading-body">
             <FeedBoosters boosts={threadBoosts} targetId={event.id} />

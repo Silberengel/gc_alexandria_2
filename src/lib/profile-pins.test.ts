@@ -3,8 +3,11 @@ import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
   composeProfilePinboardSlips,
+  pinboardEventExcerpt,
+  pinboardFirstEventRef,
   pinboardFirstOgUrl,
   pinboardHandText,
+  pinboardResolveEmbeddedExcerpt,
   pinboardSlipPreview,
   pinboardSyncFaceImage,
   pinEventIds,
@@ -134,6 +137,33 @@ describe('profile pins', () => {
       tags: [['image', url]]
     });
     expect(pinboardSlipPreview(note, 80)).toBe('hello');
+  });
+
+  it('strips nostr: refs from slip preview text', () => {
+    const quotedId = 'd'.repeat(64);
+    const nevent = nip19.neventEncode({ id: quotedId });
+    const note = ev({ content: `peak UX too\n\nnostr:${nevent}` });
+    expect(pinboardSlipPreview(note, 120)).toBe('peak UX too');
+    expect(pinboardSlipPreview(note, 120)).not.toContain('nevent1');
+  });
+
+  it('finds the first embedded note/nevent and resolves its excerpt', async () => {
+    const quotedId = 'd'.repeat(64);
+    const quoted = ev({
+      id: quotedId,
+      content: 'The real quoted note with substance.',
+      tags: [['image', 'https://cdn.example.com/quote.png']]
+    });
+    rememberEvents([quoted]);
+    const nevent = nip19.neventEncode({ id: quotedId });
+    const note = ev({ content: `nostr:${nevent}` });
+    expect(pinboardFirstEventRef(note)?.id).toBe(quotedId);
+    expect(pinboardSlipPreview(note, 80)).toBe('');
+    expect(await pinboardResolveEmbeddedExcerpt(note, { maxChars: 80 })).toBe(
+      'The real quoted note with substance.'
+    );
+    expect(pinboardEventExcerpt(quoted, 80)).toBe('The real quoted note with substance.');
+    expect(pinboardSyncFaceImage(note)).toBe('https://cdn.example.com/quote.png');
   });
 
   it('picks the first OG-worthy https link and handwriting text without urls', () => {

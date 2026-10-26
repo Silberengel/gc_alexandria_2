@@ -15,6 +15,7 @@
   import WikiMergeCard from './WikiMergeCard.svelte';
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
+  import ProfileMetadataCard from './ProfileMetadataCard.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -152,6 +153,10 @@
     </article>
   {:else if event.kind === KIND.APP_HANDLER}
     <AppHandlerChip {event} showMenu={!embedded} />
+  {:else if event.kind === KIND.METADATA}
+    <article class="card profile-meta-frame">
+      <ProfileMetadataCard {event} showMenu={!embedded} />
+    </article>
   {:else if event.kind === KIND.WIKI_MERGE_REQUEST || event.kind === KIND.WIKI_MERGE_ACCEPTANCE}
     <article class="card note-card">
       {#if !embedded}

@@ -9,10 +9,11 @@ import { isFeedRepost, isOriginalPost } from './feed';
 import { cropText } from './listing-table';
 import { omitMediaUrls, uniqueMedia } from './media';
 import { isAllowedMediaUrl } from './markup';
-import { decodeNostrBech32 } from './nostr-refs';
+import { decodeNostrBech32, type RefSegment } from './nostr-refs';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { fetchByAddress, fetchById, fetchByIds } from './nostr/fetch';
 import { pickLatestReplaceable } from './nostr/replaceable';
+import { eventPreview } from './event-preview';
 import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
 import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
 import { parseYouTubeUrl } from './youtube';
@@ -142,12 +143,73 @@ export function composeProfilePinboardSlips(
   return { slips, hasPins };
 }
 
-/** Short text for a pinboard slip face (media URLs stripped). */
+/** Short text for a pinboard slip face (media URLs and nostr: refs stripped). */
 export function pinboardSlipPreview(event: Event, maxChars = 160): string {
   const media = uniqueMedia(event);
-  const body = omitMediaUrls(event.content ?? '', media).replace(/\s+/g, ' ').trim();
+  const body = omitMediaUrls(event.content ?? '', media)
+    .replace(NOSTR_BECH32, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (body) return cropText(body, maxChars);
   return '';
+}
+
+/** First note / nevent / naddr reference embedded in the note content. */
+export function pinboardFirstEventRef(event: Event): RefSegment | null {
+  for (const token of contentNostrTokens(event.content)) {
+    const ref = decodeNostrBech32(token);
+    if (!ref) continue;
+    if (ref.kind === 'note' || ref.kind === 'nevent' || ref.kind === 'naddr') return ref;
+  }
+  return null;
+}
+
+async function fetchPinboardRef(
+  ref: RefSegment,
+  opts?: { signal?: AbortSignal }
+): Promise<Event | null> {
+  if (opts?.signal?.aborted) return null;
+  if ((ref.kind === 'note' || ref.kind === 'nevent') && ref.id) {
+    return (
+      memoryGetEvent(ref.id) ??
+      (await fetchById(ref.id, {
+        hintRelays: ref.relays,
+        authorPubkey: ref.pubkey
+      }))
+    );
+  }
+  if (ref.kind === 'naddr' && ref.naddr) {
+    const coord = `${ref.naddr.kind}:${ref.naddr.pubkey}:${ref.naddr.identifier}`;
+    return fetchByAddress(coord, { hintRelays: ref.naddr.relays });
+  }
+  return null;
+}
+
+/** Plain excerpt from a resolved event (prefers body text, then card preview fields). */
+export function pinboardEventExcerpt(event: Event, maxChars = 160): string {
+  const plain = pinboardSlipPreview(event, maxChars);
+  if (plain) return plain;
+  const preview = eventPreview(event);
+  const fallback = [preview.body, preview.summary, preview.headline].find(
+    (s) => s && !/^KIND:/u.test(s)
+  );
+  return fallback ? cropText(fallback, maxChars) : '';
+}
+
+/**
+ * Resolve the first embedded note/nevent/naddr and return a slip-ready excerpt
+ * (and remember the event for face-image lookups).
+ */
+export async function pinboardResolveEmbeddedExcerpt(
+  event: Event,
+  opts?: { signal?: AbortSignal; maxChars?: number }
+): Promise<string> {
+  const ref = pinboardFirstEventRef(event);
+  if (!ref) return '';
+  const hit = await fetchPinboardRef(ref, opts);
+  if (!hit || opts?.signal?.aborted) return '';
+  rememberEvents([hit]);
+  return pinboardEventExcerpt(hit, opts?.maxChars ?? 160);
 }
 
 /** First allowed image URL on the event, if any. */
@@ -212,7 +274,7 @@ export function pinboardSyncFaceImage(event: Event): string | null {
   for (const token of contentNostrTokens(event.content)) {
     const ref = decodeNostrBech32(token);
     if (!ref) continue;
-    if (ref.kind === 'npub' || ref.kind === 'nprofile') {
+    if ((ref.kind === 'npub' || ref.kind === 'nprofile') && ref.pubkey) {
       const pic = peekProfileThumb(ref.pubkey)?.picture;
       const ok = acceptImageUrl(pic);
       if (ok) return ok;

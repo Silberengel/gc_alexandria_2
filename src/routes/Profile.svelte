@@ -47,13 +47,14 @@
   import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
   import GrapevineProfileStats from '$lib/components/GrapevineProfileStats.svelte';
   import { session } from '$lib/stores/session';
-  import { profileBannerFallbackStyle } from '$lib/profile-banner';
   import {
     activeReadingEntries,
     parseReadingQueue,
     readingProgressPercent,
+    waitingReadingEntries,
     type ReadingQueueEntry
   } from '$lib/reading-queue';
+  import { isPublicationRatingEvent, ratingAddress } from '$lib/ratings';
   import { readingPrefs } from '$lib/stores/reading-prefs';
   import { localReadingQueue } from '$lib/stores/local-reading-queue';
   import { editionMetadata } from '$lib/publication-metadata';
@@ -119,11 +120,22 @@
   let readingEntries = $state<ReadingQueueEntry[]>([]);
   let readingTitles = $state<Map<string, string>>(new Map());
   let readingEditions = $state<Map<string, Event>>(new Map());
+  /** Newest publication ratings resolved to editions (desk fill). */
+  let ratedEditions = $state<Event[]>([]);
   /** Profile pinboard slips (pins first, then latest OPs). */
   let pinboardSlips = $state<Event[]>([]);
   /** True when the board includes at least one kind-10001 pin. */
   let pinboardHasPins = $state(false);
   const pinboardHeading = $derived(pinboardHasPins ? 'Pinned' : 'Latest');
+
+  /** Max covers on the profile reading desk. */
+  const PROFILE_DESK_LIMIT = 12;
+
+  type DeskItem = {
+    source: 'reading' | 'queue' | 'rated';
+    pub: Event;
+    entry?: ReadingQueueEntry;
+  };
 
   const fields = $derived(parseKind0(profile));
   const payments = $derived(paymentRows(fields, paymentEvents, profile));
@@ -144,8 +156,30 @@
   const concurrentLimit = $derived(
     isOwnProfile ? $readingPrefs.concurrent : READING_CONCURRENT_DEFAULT
   );
-  const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
   const isKindFiltered = $derived(kindFilter != null);
+  const profileActiveReading = $derived(activeReadingEntries(readingEntries, concurrentLimit));
+  const profileWaitingReading = $derived(waitingReadingEntries(readingEntries, concurrentLimit));
+  const deskItems = $derived.by((): DeskItem[] => {
+    const out: DeskItem[] = [];
+    const seen = new Set<string>();
+    const take = (item: DeskItem) => {
+      const key = (eventAddress(item.pub) || item.pub.id).toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(item);
+    };
+    for (const entry of profileActiveReading) {
+      const pub = readingEditions.get(entry.a);
+      if (pub) take({ source: 'reading', pub, entry });
+    }
+    for (const entry of profileWaitingReading) {
+      const pub = readingEditions.get(entry.a);
+      if (pub) take({ source: 'queue', pub, entry });
+    }
+    for (const pub of ratedEditions) take({ source: 'rated', pub });
+    return out.slice(0, PROFILE_DESK_LIMIT);
+  });
+  const showReadingDesk = $derived(!isKindFiltered && deskItems.length > 0);
   const isBlogMode = $derived(kindFilter === KIND.LONG_FORM);
   const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
   const profileShareId = $derived(profilePathId || npub || pubkey);
@@ -218,6 +252,37 @@
   $effect(() => {
     if (!isOwnProfile || !$readingPrefs.localOnly) return;
     readingEntries = $localReadingQueue;
+  });
+
+  /** Fill missing desk covers when the queue grows (local edits, late relay paint). */
+  $effect(() => {
+    const need = readingEntries
+      .slice(0, PROFILE_DESK_LIMIT)
+      .filter((entry) => !readingEditions.has(entry.a))
+      .map((entry) => entry.a);
+    if (!need.length) return;
+    let cancelled = false;
+    void (async () => {
+      const editionMap = new Map(untrack(() => readingEditions));
+      const titleMap = new Map(untrack(() => readingTitles));
+      let changed = false;
+      await Promise.all(
+        need.map(async (addr) => {
+          const pub = await fetchByAddress(addr);
+          if (cancelled || !pub) return;
+          rememberEvents([pub]);
+          editionMap.set(addr, pub);
+          titleMap.set(addr, editionMetadata(pub).titles[0] || 'Untitled');
+          changed = true;
+        })
+      );
+      if (cancelled || !changed) return;
+      readingEditions = editionMap;
+      readingTitles = titleMap;
+    })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -321,6 +386,7 @@
     readingEntries = [];
     readingTitles = new Map();
     readingEditions = new Map();
+    ratedEditions = [];
     pinboardSlips = [];
     pinboardHasPins = false;
     producedPage = 1;
@@ -724,9 +790,9 @@
                     : parseReadingQueue(queueEv);
                 const titleMap = new Map<string, string>();
                 const editionMap = new Map<string, Event>();
-                const n = own ? get(readingPrefs).concurrent : READING_CONCURRENT_DEFAULT;
+                const deskEntries = readingEntries.slice(0, PROFILE_DESK_LIMIT);
                 await Promise.all(
-                  activeReadingEntries(readingEntries, n).map(async (entry) => {
+                  deskEntries.map(async (entry) => {
                     const pub = await fetchByAddress(entry.a);
                     if (cancelled || !pub) return;
                     rememberEvents([pub]);
@@ -779,6 +845,28 @@
                 byWork.set(work.id, marksForPublication(markMap, work));
               }
               marksByWork = byWork;
+
+              const ratedCoords: string[] = [];
+              const seenRated = new Set<string>();
+              const sortedRates = [...rates]
+                .filter(isPublicationRatingEvent)
+                .sort((a, b) => b.created_at - a.created_at);
+              for (const rate of sortedRates) {
+                const coord = ratingAddress(rate);
+                if (!coord) continue;
+                const key = coord.toLowerCase();
+                if (seenRated.has(key)) continue;
+                seenRated.add(key);
+                ratedCoords.push(coord);
+                if (ratedCoords.length >= PROFILE_DESK_LIMIT) break;
+              }
+              const ratedHits = await Promise.all(
+                ratedCoords.map((coord) => fetchByAddress(coord))
+              );
+              if (cancelled) return;
+              const ratedPubs = ratedHits.filter((e): e is Event => !!e);
+              rememberEvents(ratedPubs);
+              ratedEditions = ratedPubs;
             });
 
       const pinboardP = loadPinboard((base, filters, timeout, baseMax) =>
@@ -837,16 +925,16 @@
 </script>
 
 <TopBar />
-<main class="shell profile-page">
+<main class="shell profile-page" class:profile-page-compact={!showReadingDesk && !isKindFiltered}>
   {#if kindInvalid}
     <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
   {:else if resolveFailed}
     <ErrorPage title="Profile not found" message="This address could not be resolved to a pubkey." />
   {:else}
-    <header class="page-header">
-      <p class="page-kicker">Reader</p>
-      <h1>{isKindFiltered ? kindHeading : 'Profile'}</h1>
-      {#if isKindFiltered}
+    {#if isKindFiltered}
+      <header class="page-header">
+        <p class="page-kicker">Kind</p>
+        <h1>{kindHeading}</h1>
         <form class="profile-kind-jump" onsubmit={submitKindJump}>
           <label class="profile-kind-jump-label" for="profile-kind-input">Kind</label>
           <input
@@ -882,34 +970,16 @@
             </svg>
           </button>
         </form>
-      {/if}
-      {#if isOwnProfile && !isKindFiltered}
-        <p class="page-lede">
-          <a class="btn" href="#/compose?kind=0" use:link>Edit profile</a>
-        </p>
-      {/if}
-    </header>
-    {#if !isKindFiltered || isBlogMode}
+      </header>
+    {/if}
+    {#if isBlogMode}
       <div class="profile-filter-row">
-        {#if !isKindFiltered}
-          <PageFilter bind:value={pageFilter} />
-        {:else}
-          <span class="profile-filter-row-spacer" aria-hidden="true"></span>
-        {/if}
-        {#if profileShareId || feedPath}
+        <span class="profile-filter-row-spacer" aria-hidden="true"></span>
+        {#if profileShareId}
           <div class="profile-view-toggles">
-            {#if feedPath}
-              <a class="btn profile-view-toggle" href={`#${feedPath}`} use:link>View the feed</a>
-            {/if}
-            {#if profileShareId}
-              {#if isBlogMode}
-                <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link
-                  >View the full profile</a
-                >
-              {:else}
-                <a class="btn profile-view-toggle" href={`#${blogPath}`} use:link>View the blog</a>
-              {/if}
-            {/if}
+            <a class="btn profile-view-toggle" href={`#${fullProfilePath}`} use:link
+              >View the full profile</a
+            >
           </div>
         {/if}
       </div>
@@ -919,31 +989,10 @@
     {/if}
     {#if pubkey}
     <div class="card profile-card">
-      {#if profile}
-        <CopyPointerButton
-          event={profile}
-          class="profile-more-menu"
-          shareUrl={profileShareUrl}
-        />
-      {/if}
-      <div class="profile-hero">
-        {#if fields.banner && isAllowedHref(fields.banner)}
-          <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
-        {:else}
-          <div
-            class="profile-banner profile-banner-empty"
-            style={profileBannerFallbackStyle(pubkey)}
-            aria-hidden="true"
-          >
-            <span class="profile-banner-photo"></span>
-            <span class="profile-banner-spines"></span>
-            <span class="profile-banner-wedge"></span>
-            <span class="profile-banner-arc"></span>
-            <span class="profile-banner-disc"></span>
-          </div>
-        {/if}
-        <div class="profile-hero-fade" aria-hidden="true"></div>
-        <div class="profile-hero-shelf" aria-hidden="true"></div>
+      <div class="profile-card-topbar">
+        <p class="page-kicker profile-card-kicker">Reader profile</p>
+      </div>
+      <div class="profile-identity">
         {#if displayPicture && isAllowedHref(displayPicture)}
           <button
             type="button"
@@ -959,8 +1008,6 @@
             <img src={toNostrBuildThumbUrl(displayPicture)} alt="" />
           </button>
         {/if}
-      </div>
-      <div class="profile-header">
         <div class="profile-header-text">
           <div class="profile-title-row">
             <h2>
@@ -989,139 +1036,138 @@
             {/if}
           </div>
           {#if fields.displayName && fields.name && fields.name !== fields.displayName}
-            <p class="muted">{fields.name}</p>
+            <p class="muted profile-name-line">{fields.name}</p>
           {/if}
+          {#if fields.about}
+            <div class="profile-about">
+              {@html aboutHtml(fields.about)}
+            </div>
+          {/if}
+        </div>
+        {#if !isKindFiltered && (feedPath || blogPath || isOwnProfile)}
+          <nav class="profile-side-actions" aria-label="Profile links">
+            {#if feedPath}
+              <a class="btn profile-card-action" href={`#${feedPath}`} use:link>View feed</a>
+            {/if}
+            {#if blogPath}
+              <a class="btn profile-card-action" href={`#${blogPath}`} use:link>View blog</a>
+            {/if}
+            {#if isOwnProfile}
+              <a class="btn profile-card-action" href="#/compose?kind=0" use:link>Edit profile</a>
+            {/if}
+          </nav>
+        {/if}
+      </div>
+      <div class="details-panel-wrap profile-details-wrap">
+        <UserStatusBadge general={statusGeneral} music={statusMusic} />
+        {#if profile}
+          <div class="details-toolbar">
+            <CopyPointerButton
+              event={profile}
+              class="details-more-menu"
+              shareUrl={profileShareUrl}
+            />
+          </div>
+        {/if}
+        <details class="accordion details-panel profile-details">
+          <summary>Details</summary>
           {#if pubkey}
             <GrapevineProfileStats {pubkey} />
           {/if}
-          <UserStatusBadge general={statusGeneral} music={statusMusic} />
-        </div>
-      </div>
-      {#if fields.about}
-        <div class="profile-about">
-          {@html aboutHtml(fields.about)}
-        </div>
-      {/if}
-      {#if hasProfileDetails}
-        <details class="accordion profile-details">
-          <summary>Details</summary>
-          {#if fields.websites.length}
-            <ul class="profile-tag-list">
-              {#each fields.websites as url}
-                {#if isAllowedHref(url)}
-                  <li><a href={url} rel="noopener noreferrer" title={url}>{cropRenderedUrl(url)}</a></li>
-                {/if}
-              {/each}
-            </ul>
-          {/if}
-          {#if fields.nip05List.length}
-            <ul class="profile-tag-list profile-nip05-list">
-              {#each fields.nip05List as n}
-                <li><Nip05Badge nip05={n} {pubkey} /></li>
-              {/each}
-            </ul>
-          {/if}
-          {#each Object.entries(fields.extra) as [key, value]}
-            <p class="muted profile-detail-rich">{key}: {@html aboutHtml(value)}</p>
-          {/each}
-          {#each fields.extraTags as tag}
-            <p class="muted profile-detail-rich">{tag.name}: {@html aboutHtml(tag.value)}</p>
-          {/each}
-          {#if payments.length}
-            <h3>Payment targets</h3>
-            <table class="profile-payments">
-              <thead>
-                <tr>
-                  <th scope="col">Type</th>
-                  <th scope="col">Address</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each payments as row}
-                  <tr>
-                    <td>{paymentTypeLabel(row.type)}</td>
-                    <td>
-                      <a href={row.href} rel="noopener noreferrer" title={row.label}>
-                        {row.label.startsWith('http://') ||
-                        row.label.startsWith('https://') ||
-                        row.label.startsWith('ws://') ||
-                        row.label.startsWith('wss://')
-                          ? cropRenderedUrl(row.label)
-                          : cropPaymentAddress(row.label)}
-                      </a>
-                    </td>
-                  </tr>
+          {#if hasProfileDetails}
+            {#if fields.websites.length}
+              <ul class="profile-tag-list">
+                {#each fields.websites as url}
+                  {#if isAllowedHref(url)}
+                    <li><a href={url} rel="noopener noreferrer" title={url}>{cropRenderedUrl(url)}</a></li>
+                  {/if}
                 {/each}
-              </tbody>
-            </table>
+              </ul>
+            {/if}
+            {#if fields.nip05List.length}
+              <ul class="profile-tag-list profile-nip05-list">
+                {#each fields.nip05List as n}
+                  <li><Nip05Badge nip05={n} {pubkey} /></li>
+                {/each}
+              </ul>
+            {/if}
+            {#each Object.entries(fields.extra) as [key, value]}
+              <p class="muted profile-detail-rich">{key}: {@html aboutHtml(value)}</p>
+            {/each}
+            {#each fields.extraTags as tag}
+              <p class="muted profile-detail-rich">{tag.name}: {@html aboutHtml(tag.value)}</p>
+            {/each}
+            {#if payments.length}
+              <h3>Payment targets</h3>
+              <table class="profile-payments">
+                <thead>
+                  <tr>
+                    <th scope="col">Type</th>
+                    <th scope="col">Address</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each payments as row}
+                    <tr>
+                      <td>{paymentTypeLabel(row.type)}</td>
+                      <td>
+                        <a href={row.href} rel="noopener noreferrer" title={row.label}>
+                          {row.label.startsWith('http://') ||
+                          row.label.startsWith('https://') ||
+                          row.label.startsWith('ws://') ||
+                          row.label.startsWith('wss://')
+                            ? cropRenderedUrl(row.label)
+                            : cropPaymentAddress(row.label)}
+                        </a>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          {:else}
+            <p class="muted">No websites, NIP-05, or payment targets listed.</p>
           {/if}
         </details>
-      {/if}
+      </div>
     </div>
-    {#if !isKindFiltered && (profileActiveReading.length || readingEntries.length)}
-      <section class="landing-shelf landing-shelf-reading profile-reading-shelf" aria-label="Reading now">
-        <div class="shelf-heading">
-          <h2 class="section-title">Reading now</h2>
+    {#if showReadingDesk}
+      <section class="landing-shelf profile-reading-desk" aria-label="Reading desk">
+        <div class="shelf-heading profile-desk-heading">
+          <p class="page-kicker profile-desk-kicker">Currently reading</p>
+          <h2 class="section-title profile-desk-title">On the reading desk</h2>
         </div>
-        {#if profileActiveReading.length}
-          <div class="shelf-track shelf-track-reading" use:shelfWheel>
-            <div class="shelf-bar">
-              {#each profileActiveReading as entry (entry.a)}
-                {@const pub = readingEditions.get(entry.a)}
-                {@const pct = readingProgressPercent(entry)}
-                {#if pub}
-                  {@const tipTitle = coverTitle(pub)}
-                  {@const tipAuthor = coverAuthor(pub)}
-                  {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
-                  <a
-                    class="cover"
-                    href={continueReadingHref(entry, pub)}
-                    use:link
-                    title={tip}
-                    aria-label={`${tip} — ${pct}% read`}
-                    onpointerdown={() => warmNavEvent(pub)}
-                    onclick={() => warmNavEvent(pub)}
-                  >
-                    <Cover event={pub} />
-                  </a>
-                {:else}
-                  <span class="cover profile-reading-cover-pending" aria-busy="true" aria-label="Loading edition">
-                    <span class="jump-busy-spinner" aria-hidden="true"></span>
-                  </span>
-                {/if}
-              {/each}
-            </div>
-            <div class="shelf-reading-captions">
-              {#each profileActiveReading as entry (entry.a)}
-                {@const pub = readingEditions.get(entry.a)}
-                {@const pct = readingProgressPercent(entry)}
-                {@const tipTitle = pub ? coverTitle(pub) : readingTitles.get(entry.a) || 'Loading…'}
-                {@const tipAuthor = pub ? coverAuthor(pub) : ''}
-                <div class="shelf-reading-caption">
-                  <span class="shelf-reading-caption-title">{tipTitle}</span>
-                  {#if tipAuthor}
-                    <span class="shelf-reading-caption-author">{tipAuthor}</span>
-                  {/if}
-                  <div
-                    class="shelf-reading-progress"
-                    role="progressbar"
-                    aria-valuenow={pct}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-label={`${pct}% read`}
-                  >
-                    <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
-                  </div>
-                  <span class="shelf-reading-caption-pct">{pct}%</span>
-                </div>
-              {/each}
-            </div>
+        <div class="shelf-track" use:shelfWheel>
+          <div class="shelf-bar">
+            {#each deskItems as item (item.pub.id)}
+              {@const tipTitle = coverTitle(item.pub)}
+              {@const tipAuthor = coverAuthor(item.pub)}
+              {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+              {@const pct = item.entry ? readingProgressPercent(item.entry) : 0}
+              {@const href =
+                item.entry && item.source === 'reading'
+                  ? continueReadingHref(item.entry, item.pub)
+                  : `#${publicationPath(item.pub)}`}
+              {@const label =
+                item.source === 'reading'
+                  ? `${tip} — ${pct}% read`
+                  : item.source === 'queue'
+                    ? `${tip} — queued`
+                    : `${tip} — rated`}
+              <a
+                class="cover"
+                {href}
+                use:link
+                title={label}
+                aria-label={label}
+                onpointerdown={() => warmNavEvent(item.pub)}
+                onclick={() => warmNavEvent(item.pub)}
+              >
+                <Cover event={item.pub} />
+              </a>
+            {/each}
           </div>
-        {:else}
-          <p class="muted profile-reading-empty">
-            Queue has {readingEntries.length} waiting — none in the active set yet.
-          </p>
-        {/if}
+        </div>
       </section>
     {/if}
     {#if !isKindFiltered && pinboardSlips.length}
@@ -1133,6 +1179,11 @@
           {/each}
         </div>
       </section>
+    {/if}
+    {#if !isKindFiltered}
+      <div class="profile-filter-row profile-filter-row-after-card">
+        <PageFilter bind:value={pageFilter} />
+      </div>
     {/if}
   {/if}
 
