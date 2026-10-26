@@ -7282,21 +7282,44 @@ mark.text-highlight.highlight-flash,
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.45rem;
+  gap: 0.28rem;
   flex: 0 0 auto;
   margin-left: auto;
   align-self: flex-start;
-  min-width: 9rem;
+  min-width: 9.5rem;
+  padding: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, var(--accent-strong) 12%);
+  border-radius: calc(var(--radius) + 0.1rem);
+  background: color-mix(in srgb, var(--paper-light) 72%, var(--paper-dark) 28%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--paper-light) 55%, transparent);
 }
 .profile-card-action {
   display: inline-flex;
   justify-content: center;
   align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0.42rem 0.85rem;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--ui-font);
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  color: var(--ink-soft);
   text-decoration: none;
   white-space: nowrap;
   text-align: center;
-  border-radius: 999px;
-  padding-inline: 0.95rem;
+}
+.profile-card-action:hover,
+.profile-card-action:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--rule));
+  background: color-mix(in srgb, var(--accent) 10%, var(--paper-light));
+  color: var(--ink);
+  text-decoration: none;
 }
 .profile-filter-row-after-card {
   margin: 0.15rem 0 1.15rem;
@@ -7350,6 +7373,10 @@ mark.text-highlight.highlight-flash,
   width: 100%;
   max-width: 100%;
 }
+.landing-shelf.profile-reading-desk .cover {
+  flex: 0 0 calc(6.35rem * 4 / 3);
+  width: calc(6.35rem * 4 / 3);
+}
 .profile-card {
   position: relative;
   overflow: visible;
@@ -7378,6 +7405,10 @@ mark.text-highlight.highlight-flash,
     min-width: 0;
     flex-direction: row;
     flex-wrap: wrap;
+  }
+  .profile-card-action {
+    width: auto;
+    flex: 1 1 auto;
   }
 }
 .profile-avatar {
@@ -7433,42 +7464,38 @@ mark.text-highlight.highlight-flash,
 .profile-title-row h2 {
   margin: 0;
 }
-.profile-details-wrap > .user-status {
-  position: absolute;
-  left: 50%;
-  top: 0.15rem;
-  z-index: 3;
+.profile-card > .user-status {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.05rem;
-  margin: 0;
-  max-width: min(48%, 16rem);
-  padding: 0.1rem 0.55rem;
-  transform: translateX(-50%);
-  transform-origin: center center;
+  gap: 0.1rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 1rem 0 0.35rem;
+  padding: 0.15rem 0.75rem;
+  overflow: hidden;
   font-family: var(--hand-font);
-  font-size: clamp(1.25rem, 2.8vw, 1.85rem);
+  font-size: clamp(1.35rem, 3vw, 1.95rem);
   font-weight: 700;
-  line-height: 1.05;
+  line-height: 1.15;
   letter-spacing: 0.01em;
   color: color-mix(in srgb, var(--accent-strong) 72%, var(--ink));
   text-align: center;
   text-shadow:
     0 1px 0 color-mix(in srgb, var(--paper-light) 55%, transparent),
     0 2px 10px color-mix(in srgb, var(--paper-dark) 35%, transparent);
-  pointer-events: none;
-}
-.profile-details-wrap:has(> .user-status) > .details-panel > summary {
-  padding-right: 3.5rem;
 }
 .user-status-line {
   display: block;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
   color: inherit;
   text-decoration: none;
-  pointer-events: auto;
 }
 a.user-status-line:hover {
   color: color-mix(in srgb, var(--accent-strong) 88%, var(--ink));
@@ -7481,10 +7508,17 @@ a.user-status-line:hover {
   opacity: 0.88;
 }
 .user-status-text {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
-  overflow: visible;
+  max-width: 100%;
+  overflow: hidden;
   white-space: normal;
+  overflow-wrap: anywhere;
   word-break: break-word;
   hyphens: auto;
 }
@@ -7888,139 +7922,131 @@ a.user-status-line:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem 0.95rem;
-  margin: 0.35rem 0.2rem 0.45rem;
-  padding: 1.35rem 1.3rem 1.4rem;
+  margin: 0.35rem 0.15rem 0.4rem;
+  padding: 1.25rem 1.2rem 1.3rem;
   border: 0;
   border-radius: 0.18rem;
-  /* Cork face — warm speckled board. */
-  background-color: #c9ae86;
+  /* Cork face — muted speckled board. */
+  background-color: #d2be9c;
   background-image:
-    radial-gradient(circle at 12% 18%, color-mix(in srgb, #8f7352 55%, transparent) 0 1.1px, transparent 1.6px),
-    radial-gradient(circle at 38% 42%, color-mix(in srgb, #6e5538 45%, transparent) 0 0.9px, transparent 1.4px),
-    radial-gradient(circle at 71% 22%, color-mix(in srgb, #a88962 50%, transparent) 0 1.2px, transparent 1.7px),
-    radial-gradient(circle at 88% 68%, color-mix(in srgb, #7a6044 48%, transparent) 0 1px, transparent 1.5px),
-    radial-gradient(circle at 54% 78%, color-mix(in srgb, #5c4630 40%, transparent) 0 0.85px, transparent 1.3px),
-    radial-gradient(circle at 22% 88%, color-mix(in srgb, #9a7d58 42%, transparent) 0 1.05px, transparent 1.55px),
-    radial-gradient(ellipse at 18% 12%, color-mix(in srgb, #e2cdb0 55%, transparent), transparent 42%),
-    radial-gradient(ellipse at 82% 74%, color-mix(in srgb, #a88860 35%, transparent), transparent 48%),
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, #8f7352 22%, transparent) 0 1.1px, transparent 1.6px),
+    radial-gradient(circle at 38% 42%, color-mix(in srgb, #6e5538 18%, transparent) 0 0.9px, transparent 1.4px),
+    radial-gradient(circle at 71% 22%, color-mix(in srgb, #a88962 20%, transparent) 0 1.2px, transparent 1.7px),
+    radial-gradient(circle at 88% 68%, color-mix(in srgb, #7a6044 18%, transparent) 0 1px, transparent 1.5px),
+    radial-gradient(ellipse at 18% 12%, color-mix(in srgb, #e8d8c0 28%, transparent), transparent 42%),
+    radial-gradient(ellipse at 82% 74%, color-mix(in srgb, #b89a72 16%, transparent), transparent 48%),
     linear-gradient(
       155deg,
-      #d8c09a 0%,
-      #c4a882 38%,
-      #b8996e 72%,
-      #c9ae86 100%
+      #dccab0 0%,
+      #d0ba98 42%,
+      #c4ae8a 100%
     );
   background-size:
     18px 22px,
     16px 19px,
     21px 17px,
     15px 20px,
-    19px 16px,
-    17px 21px,
     auto,
     auto,
     auto;
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, #5c4630 28%, transparent),
-    inset 0 0 22px color-mix(in srgb, #5c4630 18%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #f3e6d0 35%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, #5c4630 12%, transparent),
+    inset 0 0 14px color-mix(in srgb, #5c4630 8%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #f3e6d0 22%, transparent);
 }
 /* Wooden frame around the cork. */
 .profile-pinboard-board::before {
   content: '';
   position: absolute;
-  inset: -0.72rem;
+  inset: -0.55rem;
   z-index: -1;
   border-radius: 0.28rem;
   background:
     repeating-linear-gradient(
       92deg,
-      transparent 0 11px,
-      color-mix(in srgb, #2a1a0e 14%, transparent) 11px 12px
+      transparent 0 14px,
+      color-mix(in srgb, #2a1a0e 7%, transparent) 14px 15px
     ),
     repeating-linear-gradient(
       8deg,
-      transparent 0 17px,
-      color-mix(in srgb, #f0d9b0 10%, transparent) 17px 18px
+      transparent 0 20px,
+      color-mix(in srgb, #f0d9b0 6%, transparent) 20px 21px
     ),
     linear-gradient(
       145deg,
-      #9a7348 0%,
-      #7a5632 22%,
-      #b08a55 48%,
-      #6a4528 72%,
-      #8b6438 100%
+      #b08a62 0%,
+      #9a7348 28%,
+      #a88258 55%,
+      #8a643c 100%
     );
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #2a1a0e 55%, transparent),
-    0 0.35rem 0.85rem color-mix(in srgb, #1d1812 28%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #f3e0c0 35%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 35%, transparent);
+    0 0 0 1px color-mix(in srgb, #2a1a0e 22%, transparent),
+    0 0.2rem 0.55rem color-mix(in srgb, #1d1812 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #f3e0c0 22%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 16%, transparent);
   pointer-events: none;
 }
 /* Inner wood rail / bevel between frame and cork. */
 .profile-pinboard-board::after {
   content: '';
   position: absolute;
-  inset: -0.22rem;
+  inset: -0.16rem;
   z-index: -1;
   border-radius: 0.14rem;
   background: linear-gradient(
     160deg,
-    #d4b48a 0%,
-    #a67c4a 40%,
-    #6e4a2c 78%,
-    #8a6238 100%
+    #d8c09a 0%,
+    #b89468 45%,
+    #9a7348 100%
   );
   box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #f8ecd8 40%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 30%, transparent);
+    inset 0 1px 0 color-mix(in srgb, #f8ecd8 22%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 14%, transparent);
   pointer-events: none;
 }
 :root.dark .profile-pinboard-board {
-  background-color: #6a5640;
+  background-color: #6e5a46;
   background-image:
-    radial-gradient(circle at 14% 20%, color-mix(in srgb, #2a1e14 55%, transparent) 0 1.1px, transparent 1.6px),
-    radial-gradient(circle at 42% 48%, color-mix(in srgb, #1a120c 45%, transparent) 0 0.9px, transparent 1.4px),
-    radial-gradient(circle at 76% 28%, color-mix(in srgb, #3d2e20 50%, transparent) 0 1.2px, transparent 1.7px),
-    radial-gradient(circle at 88% 72%, color-mix(in srgb, #241810 48%, transparent) 0 1px, transparent 1.5px),
-    radial-gradient(ellipse at 20% 15%, color-mix(in srgb, #8a7358 28%, transparent), transparent 45%),
+    radial-gradient(circle at 14% 20%, color-mix(in srgb, #2a1e14 28%, transparent) 0 1.1px, transparent 1.6px),
+    radial-gradient(circle at 42% 48%, color-mix(in srgb, #1a120c 22%, transparent) 0 0.9px, transparent 1.4px),
+    radial-gradient(circle at 76% 28%, color-mix(in srgb, #3d2e20 24%, transparent) 0 1.2px, transparent 1.7px),
+    radial-gradient(ellipse at 20% 15%, color-mix(in srgb, #8a7358 16%, transparent), transparent 45%),
     linear-gradient(
       155deg,
-      #6e5842 0%,
-      #574532 45%,
-      #463728 100%
+      #746050 0%,
+      #625244 50%,
+      #554636 100%
     );
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, #1a120c 45%, transparent),
-    inset 0 0 24px color-mix(in srgb, #000 35%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, #1a120c 22%, transparent),
+    inset 0 0 16px color-mix(in srgb, #000 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
 }
 :root.dark .profile-pinboard-board::before {
   background:
     repeating-linear-gradient(
       92deg,
-      transparent 0 11px,
-      color-mix(in srgb, #000 22%, transparent) 11px 12px
+      transparent 0 14px,
+      color-mix(in srgb, #000 12%, transparent) 14px 15px
     ),
     linear-gradient(
       145deg,
-      #5c4030 0%,
-      #3d2a1c 28%,
-      #6a4a30 55%,
-      #2a1a10 100%
+      #6a4e3a 0%,
+      #4e382a 35%,
+      #5c4432 70%,
+      #3c2a1c 100%
     );
   box-shadow:
-    0 0 0 1px color-mix(in srgb, #000 55%, transparent),
-    0 0.4rem 0.9rem color-mix(in srgb, #000 45%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #c4a882 12%, transparent);
+    0 0 0 1px color-mix(in srgb, #000 28%, transparent),
+    0 0.25rem 0.6rem color-mix(in srgb, #000 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #c4a882 8%, transparent);
 }
 :root.dark .profile-pinboard-board::after {
   background: linear-gradient(
     160deg,
-    #6a4e34 0%,
-    #4a3424 50%,
-    #2e1e14 100%
+    #6e543c 0%,
+    #55402e 55%,
+    #3e2e20 100%
   );
 }
 .pin-slip {
@@ -8032,7 +8058,7 @@ a.user-status-line:hover {
   min-width: 0;
   min-height: 5.5rem;
   padding: 0.85rem 0.8rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--rule) 55%, #8a7355 20%);
+  border: 1px solid color-mix(in srgb, var(--rule) 45%, #8a7355 12%);
   border-radius: 0.08rem 0.14rem 0.1rem 0.06rem;
   background:
     linear-gradient(
@@ -8043,10 +8069,9 @@ a.user-status-line:hover {
   color: var(--ink);
   text-decoration: none;
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 55%, transparent),
-    0 1px 1px color-mix(in srgb, #3c2814 18%, transparent),
-    0 5px 12px -2px color-mix(in srgb, #3c2814 28%, transparent),
-    0 10px 18px -8px color-mix(in srgb, #1d1812 18%, transparent);
+    0 1px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 1px 2px color-mix(in srgb, #3c2814 10%, transparent),
+    0 3px 8px -2px color-mix(in srgb, #3c2814 14%, transparent);
   transform: rotate(-0.6deg);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -8064,10 +8089,10 @@ a.user-status-line:hover {
 }
 .pin-slip:hover,
 .pin-slip:focus-visible {
-  transform: translateY(-3px) rotate(0deg);
+  transform: translateY(-2px) rotate(0deg);
   box-shadow:
-    0 2px 0 color-mix(in srgb, var(--ink) 8%, transparent),
-    0 10px 18px -4px color-mix(in srgb, var(--ink) 22%, transparent);
+    0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent),
+    0 5px 12px -3px color-mix(in srgb, var(--ink) 14%, transparent);
   color: var(--ink);
   text-decoration: none;
   z-index: 1;
@@ -8086,26 +8111,30 @@ a.user-status-line:hover {
 .pin-slip-hero:focus-visible {
   transform: translateY(-3px) rotate(0deg);
 }
-.pin-slip-hero.pin-slip-og-photo {
+.pin-slip.pin-slip-og-photo {
   padding: 0.55rem 0.55rem 0.7rem;
   gap: 0.4rem;
+}
+.pin-slip:not(.pin-slip-hero).pin-slip-og-photo .pin-slip-photo {
+  aspect-ratio: 16 / 10;
+  max-height: 7.5rem;
 }
 .pin-slip-pin {
   position: absolute;
   top: 0.28rem;
   left: 50%;
   z-index: 2;
-  width: 0.72rem;
-  height: 0.72rem;
-  margin-left: -0.36rem;
+  width: 0.58rem;
+  height: 0.58rem;
+  margin-left: -0.29rem;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 32% 28%, #fff6e0 0%, #e8c878 28%, #b08a4a 58%, #5a3c1c 100%);
+    radial-gradient(circle at 32% 28%, #fff6e0 0%, #dcc070 32%, #a88850 62%, #6a4a28 100%);
   box-shadow:
-    0 1px 2px color-mix(in srgb, #000 40%, transparent),
-    0 2px 4px color-mix(in srgb, #3c2814 35%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent),
-    inset 0 -1px 1px color-mix(in srgb, #3c2814 35%, transparent);
+    0 1px 1px color-mix(in srgb, #000 22%, transparent),
+    0 1px 3px color-mix(in srgb, #3c2814 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent),
+    inset 0 -1px 1px color-mix(in srgb, #3c2814 22%, transparent);
 }
 .pin-slip-media {
   display: block;

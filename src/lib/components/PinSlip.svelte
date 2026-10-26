@@ -24,8 +24,8 @@
 
   const localPreview = $derived(pinboardSlipPreview(event, hero ? 220 : 110));
   const syncFace = $derived(pinboardSyncFaceImage(event));
-  const ogUrl = $derived(hero ? pinboardFirstOgUrl(event) : null);
-  const handText = $derived(hero ? pinboardHandText(event) : '');
+  const ogUrl = $derived(pinboardFirstOgUrl(event));
+  const handText = $derived(pinboardHandText(event));
   const hasEventEmbed = $derived(!!pinboardFirstEventRef(event));
   const href = $derived(`#${feedThreadPath(event)}`);
 
@@ -79,7 +79,7 @@
 
   $effect(() => {
     const target = ogUrl;
-    if (!hero || !target) {
+    if (!target) {
       og = undefined;
       return;
     }
@@ -98,15 +98,15 @@
     };
   });
 
-  const preview = $derived(localPreview || embedExcerpt);
+  const preview = $derived(localPreview || embedExcerpt || og?.title?.trim() || '');
   const label = $derived(preview || handText || 'Open note');
   const displayFace = $derived(faceImage || syncFace);
   const faceThumb = $derived(
     displayFace ? toNostrBuildThumbUrl(displayFace) || displayFace : ''
   );
-  const showOgPhoto = $derived(hero && !!og?.image);
-  const showOgMeta = $derived(hero && !!og && !showOgPhoto && (!!og.title || !!og.description));
-  const waitingOg = $derived(hero && !!ogUrl && og === undefined && !displayFace);
+  const showOgPhoto = $derived(!!og?.image);
+  const showOgMeta = $derived(!!og && !showOgPhoto && (!!og.title || !!og.description));
+  const waitingOg = $derived(!!ogUrl && og === undefined && !displayFace && !localPreview);
   const waitingEmbed = $derived(
     hasEventEmbed && !localPreview && !embedExcerpt && !displayFace && !showOgPhoto && !showOgMeta
   );

@@ -174,6 +174,22 @@ describe('profile pins', () => {
     expect(pinboardHandText(note)).toBe('GM');
   });
 
+  it('uses title and d-tag URL for empty-content web bookmarks', () => {
+    const bookmark = ev({
+      kind: KIND.WEB_BOOKMARK,
+      content: '',
+      tags: [
+        ['d', 'www.lewrockwell.com/2026/09/no_author/the-anarcho-capitalist-case-for-alberta/'],
+        ['title', 'The Anarcho-Capitalist Case for Alberta']
+      ]
+    });
+    expect(pinboardSlipPreview(bookmark, 80)).toBe('The Anarcho-Capitalist Case for Alberta');
+    expect(pinboardFirstOgUrl(bookmark)).toBe(
+      'https://www.lewrockwell.com/2026/09/no_author/the-anarcho-capitalist-case-for-alberta/'
+    );
+    expect(pinboardHandText(bookmark, 40)).toBe('The Anarcho-Capitalist Case for Alberta');
+  });
+
   it('builds a YouTube still URL and uses it as a sync face image', () => {
     const watch = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
     expect(youtubeStillUrl(watch)).toBe(

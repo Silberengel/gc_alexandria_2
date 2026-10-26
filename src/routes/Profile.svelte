@@ -1058,8 +1058,8 @@
           </nav>
         {/if}
       </div>
+      <UserStatusBadge general={statusGeneral} music={statusMusic} />
       <div class="details-panel-wrap profile-details-wrap">
-        <UserStatusBadge general={statusGeneral} music={statusMusic} />
         {#if profile}
           <div class="details-toolbar">
             <CopyPointerButton

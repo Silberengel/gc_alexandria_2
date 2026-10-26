@@ -12,10 +12,12 @@ import { isAllowedMediaUrl } from './markup';
 import { decodeNostrBech32, type RefSegment } from './nostr-refs';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { fetchByAddress, fetchById, fetchByIds } from './nostr/fetch';
+import { firstTag } from './nostr/verify';
 import { pickLatestReplaceable } from './nostr/replaceable';
 import { eventPreview } from './event-preview';
 import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
 import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
+import { webBookmarkUrl } from './web-bookmark';
 import { parseYouTubeUrl } from './youtube';
 
 const HEX_ID = /^[0-9a-f]{64}$/i;
@@ -151,6 +153,9 @@ export function pinboardSlipPreview(event: Event, maxChars = 160): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (body) return cropText(body, maxChars);
+  // Web bookmarks and other tagged posts often have empty content.
+  const title = firstTag(event, 'title')?.trim();
+  if (title) return cropText(title, maxChars);
   return '';
 }
 
@@ -291,11 +296,13 @@ export function pinboardSyncFaceImage(event: Event): string | null {
   return null;
 }
 
-/** First https URL in note content suitable for an Open Graph card. */
+/** First https URL suitable for an Open Graph card (content, then web-bookmark d/r). */
 export function pinboardFirstOgUrl(event: Event): string | null {
   for (const url of contentHttpUrls(event.content)) {
     if (shouldOgPreview(url)) return url;
   }
+  const bookmark = webBookmarkUrl(event);
+  if (bookmark && shouldOgPreview(bookmark)) return bookmark;
   return null;
 }
 
@@ -310,8 +317,14 @@ export async function pinboardResolveFaceImage(
   const sync = pinboardSyncFaceImage(event);
   if (sync) return sync;
 
-  for (const url of contentHttpUrls(event.content)) {
+  const bookmarkOg = pinboardFirstOgUrl(event);
+  const ogTargets = [...contentHttpUrls(event.content)];
+  if (bookmarkOg) ogTargets.push(bookmarkOg);
+  const seenOg = new Set<string>();
+  for (const url of ogTargets) {
     if (opts?.signal?.aborted) return null;
+    if (seenOg.has(url)) continue;
+    seenOg.add(url);
     const yt = youtubeStillUrl(url);
     if (yt) return yt;
     if (!shouldOgPreview(url)) continue;
@@ -386,5 +399,7 @@ export function pinboardHandText(event: Event, maxChars = 40): string {
     .replace(/#[\p{L}\p{N}_-]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return cropText(body, maxChars);
+  if (body) return cropText(body, maxChars);
+  const title = firstTag(event, 'title')?.trim();
+  return title ? cropText(title, maxChars) : '';
 }
