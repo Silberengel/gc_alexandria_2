@@ -50,7 +50,8 @@ export default defineConfig(({ mode }) => {
   plugins: [
     svelte(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Prompt on the landing page; OK activates the waiting SW and reloads.
+      registerType: 'prompt',
       // Manifest lives in public/ so index.html can link it without duplication.
       manifest: false,
       includeAssets: [

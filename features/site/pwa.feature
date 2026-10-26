@@ -11,4 +11,5 @@ Feature: Progressive web app
     Then I can install it as a standalone app
     And revisits load the shell from the service worker cache
     And the existing client event cache still serves publications and covers offline
-    And service worker updates apply on the next visit without requiring a manual hard refresh
+    And when a newer service worker is waiting, the landing page shows an update banner
+    And choosing OK on that banner activates the update and reloads the app
