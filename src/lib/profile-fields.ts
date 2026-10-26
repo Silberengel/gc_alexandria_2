@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { cropRenderedUrl } from './crop-url';
+import { decodeNostrBech32, nostrRefHref } from './nostr-refs';
 import { firstTag } from './nostr/verify';
 
 export type ProfileFields = {
@@ -359,6 +360,8 @@ export function cropPaymentAddress(value: string, max = 50): string {
 }
 
 const ABOUT_URL = /https?:\/\/[^\s<>"')\]]+/gi;
+/** Bare or `nostr:`-prefixed NIP-19 entities in about text. */
+const ABOUT_NOSTR = /(?:nostr:)?((?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+)/gi;
 /** Hashtag after start/non-word; tag body is letters, numbers, underscore. */
 const ABOUT_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
 
@@ -379,34 +382,72 @@ function linkifyPlain(text: string): string {
   });
 }
 
-/** Escape about text and turn http(s) URLs and #hashtags into safe links. */
+function aboutNostrLabel(bech32: string): string {
+  if (bech32.length <= 24) return bech32;
+  return `${bech32.slice(0, 12)}…${bech32.slice(-8)}`;
+}
+
+type AboutHit = { start: number; end: number; kind: 'url' | 'nostr'; text: string };
+
+function collectAboutHits(raw: string): AboutHit[] {
+  const hits: AboutHit[] = [];
+  for (const match of raw.matchAll(ABOUT_URL)) {
+    const text = match[0] ?? '';
+    const start = match.index ?? 0;
+    hits.push({ start, end: start + text.length, kind: 'url', text });
+  }
+  for (const match of raw.matchAll(ABOUT_NOSTR)) {
+    const text = match[0] ?? '';
+    const start = match.index ?? 0;
+    const end = start + text.length;
+    if (hits.some((h) => start < h.end && end > h.start)) continue;
+    hits.push({ start, end, kind: 'nostr', text });
+  }
+  hits.sort((a, b) => a.start - b.start || b.end - a.end);
+  return hits;
+}
+
+/** Escape about text and turn http(s) URLs, nostr: refs, and #hashtags into safe links. */
 export function aboutHtml(about: string): string {
   const raw = about.trim();
   if (!raw) return '';
   const parts: string[] = [];
   let last = 0;
-  for (const match of raw.matchAll(ABOUT_URL)) {
-    const url = match[0] ?? '';
-    const start = match.index ?? 0;
-    if (start > last) parts.push(linkifyPlain(raw.slice(last, start)));
-    const href = url.replace(/[.,;:!?)]+$/, '');
-    const trailing = url.slice(href.length);
-    try {
-      const parsed = new URL(href);
-      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-        const label = cropRenderedUrl(href);
-        const title = label === href ? '' : ` title="${escapeHtml(href)}"`;
-        parts.push(
-          `<a href="${escapeHtml(href)}"${title} rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`
-        );
-        parts.push(escapeHtml(trailing));
-      } else {
-        parts.push(escapeHtml(url));
+  for (const hit of collectAboutHits(raw)) {
+    if (hit.start < last) continue;
+    if (hit.start > last) parts.push(linkifyPlain(raw.slice(last, hit.start)));
+    if (hit.kind === 'url') {
+      const href = hit.text.replace(/[.,;:!?)]+$/, '');
+      const trailing = hit.text.slice(href.length);
+      try {
+        const parsed = new URL(href);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          const label = cropRenderedUrl(href);
+          const title = label === href ? '' : ` title="${escapeHtml(href)}"`;
+          parts.push(
+            `<a href="${escapeHtml(href)}"${title} rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`
+          );
+          parts.push(escapeHtml(trailing));
+        } else {
+          parts.push(escapeHtml(hit.text));
+        }
+      } catch {
+        parts.push(escapeHtml(hit.text));
       }
-    } catch {
-      parts.push(escapeHtml(url));
+    } else {
+      const ref = decodeNostrBech32(hit.text);
+      if (ref) {
+        const href = nostrRefHref(ref);
+        const label = aboutNostrLabel(ref.bech32);
+        const title = hit.text.startsWith('nostr:') ? hit.text : `nostr:${ref.bech32}`;
+        parts.push(
+          `<a class="profile-about-nostr" href="${escapeHtml(href)}" title="${escapeHtml(title)}">${escapeHtml(label)}</a>`
+        );
+      } else {
+        parts.push(escapeHtml(hit.text));
+      }
     }
-    last = start + url.length;
+    last = hit.end;
   }
   if (last < raw.length) parts.push(linkifyPlain(raw.slice(last)));
   return parts.join('').replace(/\n/g, '<br>');

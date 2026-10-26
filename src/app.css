@@ -7073,63 +7073,221 @@ mark.text-highlight.highlight-flash,
 :root.top-bar-concealed .section-heading {
   scroll-margin-top: 1rem;
 }
+.profile-page .page-header {
+  margin-bottom: 1.15rem;
+}
 .profile-card {
+  position: relative;
   overflow: visible;
   min-width: 0;
   max-width: 100%;
   margin-bottom: 1.35rem;
+  padding-top: 0.15rem;
+  border-color: color-mix(in srgb, var(--accent-strong) 18%, var(--rule));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--paper-light) 92%, var(--accent-strong) 8%) 0,
+      var(--paper-light) 7rem
+    );
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 1px color-mix(in srgb, var(--accent-strong) 6%, transparent);
+}
+.menu-wrap.profile-more-menu {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  left: auto;
+  bottom: auto;
+  z-index: 3;
+}
+.menu-wrap.profile-more-menu.event-more-menu-open {
+  z-index: 80;
 }
 .profile-hero {
   position: relative;
-  margin: -0.15rem -0.15rem 0;
+  margin: 0 -0.15rem 0;
   min-width: 0;
+  isolation: isolate;
 }
 .profile-banner {
   width: 100%;
   aspect-ratio: 16 / 5;
+  min-height: 9.5rem;
   object-fit: cover;
   display: block;
-  border-radius: 0.35rem;
+  border-radius: 0.45rem 0.45rem 0.15rem 0.15rem;
   background: color-mix(in srgb, var(--border) 35%, transparent);
 }
 .profile-banner-empty {
-  min-height: 0;
-  background-color: var(--surface-2);
+  position: relative;
+  overflow: hidden;
+  min-height: 9.5rem;
+  background:
+    linear-gradient(
+      115deg,
+      color-mix(in srgb, #1d1812 78%, var(--accent-strong)) 0%,
+      color-mix(in srgb, #3c2814 70%, var(--accent-strong) 30%) 42%,
+      color-mix(in srgb, #2a2218 85%, var(--brand-primary-600)) 100%
+    );
+}
+.profile-banner-photo {
+  position: absolute;
+  inset: 0;
+  background-image: url('/screenshots/old_books.jpg');
+  background-size: cover;
+  background-position: center 40%;
+  opacity: 0.42;
+  mix-blend-mode: soft-light;
+  transform: scale(1.04);
+  filter: saturate(0.85) contrast(1.05);
+}
+.profile-banner-spines {
+  position: absolute;
+  inset: 0;
   background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--banner-spine, 18px) - 3px),
+      color-mix(in srgb, #f3ece1 10%, transparent) calc(var(--banner-spine, 18px) - 3px),
+      color-mix(in srgb, #f3ece1 10%, transparent) calc(var(--banner-spine, 18px) - 2px),
+      transparent calc(var(--banner-spine, 18px) - 2px),
+      transparent var(--banner-spine, 18px),
+      color-mix(in srgb, var(--accent-strong) 22%, transparent) var(--banner-spine, 18px),
+      color-mix(in srgb, var(--accent-strong) 22%, transparent) calc(var(--banner-spine, 18px) + 5px),
+      transparent calc(var(--banner-spine, 18px) + 5px),
+      transparent calc(var(--banner-spine, 18px) * 2)
+    ),
     repeating-linear-gradient(
       calc(var(--banner-angle, 135deg) + 90deg),
       transparent 0,
       transparent var(--banner-stripe, 12px),
-      color-mix(in srgb, var(--accent) 8%, transparent) var(--banner-stripe, 12px),
-      color-mix(in srgb, var(--accent) 8%, transparent) calc(var(--banner-stripe, 12px) * 2)
-    ),
-    radial-gradient(
-      ellipse 75% 110% at var(--banner-spot-x, 30%) var(--banner-spot-y, 25%),
-      color-mix(in srgb, var(--accent) var(--banner-accent-mix, 35%), transparent),
-      transparent 58%
-    ),
-    linear-gradient(
-      var(--banner-angle, 135deg),
-      color-mix(in srgb, var(--accent) var(--banner-accent-mix-2, 18%), var(--surface-2)),
-      color-mix(in srgb, var(--border) 50%, var(--surface)),
-      color-mix(in srgb, var(--accent) 14%, var(--surface-2))
+      color-mix(in srgb, #f8f3ea 5%, transparent) var(--banner-stripe, 12px),
+      color-mix(in srgb, #f8f3ea 5%, transparent) calc(var(--banner-stripe, 12px) * 2)
     );
+  opacity: 0.85;
+  pointer-events: none;
+}
+.profile-banner-wedge {
+  position: absolute;
+  top: -20%;
+  right: -8%;
+  width: 58%;
+  height: 140%;
+  background:
+    linear-gradient(
+      var(--banner-angle, 128deg),
+      color-mix(in srgb, var(--accent-strong) var(--banner-accent-mix, 40%), transparent),
+      color-mix(in srgb, #1d1812 55%, transparent) 55%,
+      transparent 78%
+    );
+  clip-path: polygon(
+    var(--banner-wedge, 22%) 0,
+    100% 0,
+    100% 100%,
+    0 100%
+  );
+  pointer-events: none;
+}
+.profile-banner-arc {
+  position: absolute;
+  right: 6%;
+  top: 50%;
+  width: var(--banner-arc-size, 70%);
+  aspect-ratio: 1;
+  border: 2px solid color-mix(in srgb, #f8f3ea 28%, transparent);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  opacity: 0.55;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+}
+.profile-banner-disc {
+  position: absolute;
+  left: var(--banner-disc-x, 68%);
+  top: var(--banner-disc-y, 8%);
+  width: var(--banner-disc-size, 48%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 35% 30%,
+      color-mix(in srgb, #f8f3ea 22%, transparent),
+      color-mix(in srgb, var(--accent-strong) var(--banner-accent-mix-2, 22%), transparent) 48%,
+      transparent 70%
+    );
+  border: 3px solid color-mix(in srgb, #f8f3ea 35%, transparent);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.profile-hero-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42%;
+  border-radius: 0 0 0.15rem 0.15rem;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, #1d1812 55%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+.profile-hero-shelf {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.28rem;
+  height: 0.55rem;
+  border-radius: 0.08rem 0.08rem 0.35rem 0.35rem;
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--paper-light) 40%, var(--rule)) 0%,
+      color-mix(in srgb, var(--rule) 70%, var(--paper-dark)) 45%,
+      color-mix(in srgb, var(--rule) 88%, var(--ink-soft)) 100%
+    );
+  box-shadow:
+    0 0.08rem 0 color-mix(in srgb, var(--paper-light) 55%, transparent),
+    0 0.35rem 0.55rem color-mix(in srgb, var(--ink) 12%, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+:root.dark .profile-hero-shelf {
+  background:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--paper-dark) 65%, var(--rule)) 0%,
+      color-mix(in srgb, var(--rule) 80%, var(--ink-soft)) 100%
+    );
+  box-shadow:
+    0 0.08rem 0 color-mix(in srgb, #000 25%, transparent),
+    0 0.4rem 0.7rem color-mix(in srgb, #000 40%, transparent);
 }
 .profile-avatar {
   position: absolute;
-  left: 1rem;
+  left: 1.15rem;
   bottom: 0;
-  width: 5.5rem;
-  height: 5.5rem;
+  width: 11rem;
+  height: 11rem;
   padding: 0;
   border-radius: 999px;
   object-fit: cover;
   display: block;
   transform: translateY(45%);
-  border: 3px solid var(--surface, #fff);
+  border: 4px solid var(--paper-light);
+  outline: 2px solid color-mix(in srgb, var(--accent-strong) 45%, transparent);
+  outline-offset: 2px;
   background: color-mix(in srgb, var(--border) 35%, transparent);
-  box-shadow: 0 2px 8px color-mix(in srgb, #000 18%, transparent);
-  z-index: 1;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--ink) 18%, transparent),
+    0 6px 16px color-mix(in srgb, #000 22%, transparent),
+    0 16px 28px -8px color-mix(in srgb, #000 18%, transparent);
+  z-index: 2;
 }
 .profile-avatar-zoom {
   overflow: hidden;
@@ -7146,7 +7304,8 @@ mark.text-highlight.highlight-flash,
   display: flex;
   gap: 0.85rem;
   align-items: flex-start;
-  margin: 3.2rem 0 0.5rem;
+  /* Clear the larger overlapping avatar (11rem × 45% drop). */
+  margin: 6.4rem 0 0.5rem;
 }
 .profile-header-text {
   min-width: 0;
@@ -7220,10 +7379,35 @@ a.user-status-line:hover {
   letter-spacing: 0.02em;
   color: var(--ink-soft);
 }
-.profile-badge-rank {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--rule));
-  background: color-mix(in srgb, var(--accent) 10%, var(--paper-light));
+.grapevine-profile-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0.1rem;
+  max-width: 100%;
+}
+.grapevine-profile-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.85rem;
+}
+.grapevine-profile-stat {
+  font-family: var(--ui-font);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+.grapevine-profile-stat-rank {
+  font-weight: 600;
   color: var(--ink);
+}
+.grapevine-profile-stats-source {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  opacity: 0.85;
 }
 .profile-badge-following {
   border-color: color-mix(in srgb, #5a6b48 40%, var(--rule));
@@ -7245,11 +7429,16 @@ a.user-status-line:hover {
   color: var(--ink);
   white-space: pre-wrap;
 }
-.profile-about a {
+.profile-about a,
+.profile-detail-rich a {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   word-break: break-word;
+}
+.profile-about-nostr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
 }
 .profile-tag-list {
   list-style: none;
@@ -7270,11 +7459,6 @@ a.user-status-line:hover {
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-.profile-npub {
-  font-family: ui-monospace, monospace;
-  font-size: 0.85rem;
-  word-break: break-all;
 }
 .profile-nip05-list {
   margin-top: 1.35rem;
@@ -7553,55 +7737,176 @@ a.user-status-line:hover {
 }
 
 .profile-pinboard {
-  margin: 0.35rem 0 1.35rem;
+  margin: 0.55rem 0 1.5rem;
 }
 .profile-pinboard .profile-reading-heading {
   color: var(--accent-strong);
 }
 .profile-pinboard-board {
+  position: relative;
+  z-index: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 0.85rem;
-  padding: 1rem 1.05rem 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--rule) 80%, #8b7355 20%);
-  border-radius: calc(var(--radius) + 0.08rem);
-  background:
-    radial-gradient(ellipse at 20% 15%, color-mix(in srgb, #c4a882 28%, transparent), transparent 55%),
-    radial-gradient(ellipse at 85% 70%, color-mix(in srgb, #a89070 18%, transparent), transparent 50%),
+  gap: 0.85rem 0.95rem;
+  margin: 0.35rem 0.2rem 0.45rem;
+  padding: 1.35rem 1.3rem 1.4rem;
+  border: 0;
+  border-radius: 0.18rem;
+  /* Cork face — warm speckled board. */
+  background-color: #c9ae86;
+  background-image:
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, #8f7352 55%, transparent) 0 1.1px, transparent 1.6px),
+    radial-gradient(circle at 38% 42%, color-mix(in srgb, #6e5538 45%, transparent) 0 0.9px, transparent 1.4px),
+    radial-gradient(circle at 71% 22%, color-mix(in srgb, #a88962 50%, transparent) 0 1.2px, transparent 1.7px),
+    radial-gradient(circle at 88% 68%, color-mix(in srgb, #7a6044 48%, transparent) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 54% 78%, color-mix(in srgb, #5c4630 40%, transparent) 0 0.85px, transparent 1.3px),
+    radial-gradient(circle at 22% 88%, color-mix(in srgb, #9a7d58 42%, transparent) 0 1.05px, transparent 1.55px),
+    radial-gradient(ellipse at 18% 12%, color-mix(in srgb, #e2cdb0 55%, transparent), transparent 42%),
+    radial-gradient(ellipse at 82% 74%, color-mix(in srgb, #a88860 35%, transparent), transparent 48%),
     linear-gradient(
-      160deg,
-      color-mix(in srgb, #e8d9c4 88%, var(--paper)) 0%,
-      color-mix(in srgb, #d4c0a4 75%, var(--paper)) 100%
+      155deg,
+      #d8c09a 0%,
+      #c4a882 38%,
+      #b8996e 72%,
+      #c9ae86 100%
     );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent);
+  background-size:
+    18px 22px,
+    16px 19px,
+    21px 17px,
+    15px 20px,
+    19px 16px,
+    17px 21px,
+    auto,
+    auto,
+    auto;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #5c4630 28%, transparent),
+    inset 0 0 22px color-mix(in srgb, #5c4630 18%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #f3e6d0 35%, transparent);
+}
+/* Wooden frame around the cork. */
+.profile-pinboard-board::before {
+  content: '';
+  position: absolute;
+  inset: -0.72rem;
+  z-index: -1;
+  border-radius: 0.28rem;
+  background:
+    repeating-linear-gradient(
+      92deg,
+      transparent 0 11px,
+      color-mix(in srgb, #2a1a0e 14%, transparent) 11px 12px
+    ),
+    repeating-linear-gradient(
+      8deg,
+      transparent 0 17px,
+      color-mix(in srgb, #f0d9b0 10%, transparent) 17px 18px
+    ),
+    linear-gradient(
+      145deg,
+      #9a7348 0%,
+      #7a5632 22%,
+      #b08a55 48%,
+      #6a4528 72%,
+      #8b6438 100%
+    );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #2a1a0e 55%, transparent),
+    0 0.35rem 0.85rem color-mix(in srgb, #1d1812 28%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #f3e0c0 35%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 35%, transparent);
+  pointer-events: none;
+}
+/* Inner wood rail / bevel between frame and cork. */
+.profile-pinboard-board::after {
+  content: '';
+  position: absolute;
+  inset: -0.22rem;
+  z-index: -1;
+  border-radius: 0.14rem;
+  background: linear-gradient(
+    160deg,
+    #d4b48a 0%,
+    #a67c4a 40%,
+    #6e4a2c 78%,
+    #8a6238 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #f8ecd8 40%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #2a1a0e 30%, transparent);
+  pointer-events: none;
 }
 :root.dark .profile-pinboard-board {
-  border-color: color-mix(in srgb, var(--rule) 70%, #6a5640 30%);
-  background:
-    radial-gradient(ellipse at 25% 20%, color-mix(in srgb, #5a4a38 40%, transparent), transparent 55%),
+  background-color: #6a5640;
+  background-image:
+    radial-gradient(circle at 14% 20%, color-mix(in srgb, #2a1e14 55%, transparent) 0 1.1px, transparent 1.6px),
+    radial-gradient(circle at 42% 48%, color-mix(in srgb, #1a120c 45%, transparent) 0 0.9px, transparent 1.4px),
+    radial-gradient(circle at 76% 28%, color-mix(in srgb, #3d2e20 50%, transparent) 0 1.2px, transparent 1.7px),
+    radial-gradient(circle at 88% 72%, color-mix(in srgb, #241810 48%, transparent) 0 1px, transparent 1.5px),
+    radial-gradient(ellipse at 20% 15%, color-mix(in srgb, #8a7358 28%, transparent), transparent 45%),
     linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--paper-dark) 70%, #3d3228) 0%,
-      color-mix(in srgb, var(--paper-dark) 55%, #2a221c) 100%
+      155deg,
+      #6e5842 0%,
+      #574532 45%,
+      #463728 100%
     );
-  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #1a120c 45%, transparent),
+    inset 0 0 24px color-mix(in srgb, #000 35%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+}
+:root.dark .profile-pinboard-board::before {
+  background:
+    repeating-linear-gradient(
+      92deg,
+      transparent 0 11px,
+      color-mix(in srgb, #000 22%, transparent) 11px 12px
+    ),
+    linear-gradient(
+      145deg,
+      #5c4030 0%,
+      #3d2a1c 28%,
+      #6a4a30 55%,
+      #2a1a10 100%
+    );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #000 55%, transparent),
+    0 0.4rem 0.9rem color-mix(in srgb, #000 45%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #c4a882 12%, transparent);
+}
+:root.dark .profile-pinboard-board::after {
+  background: linear-gradient(
+    160deg,
+    #6a4e34 0%,
+    #4a3424 50%,
+    #2e1e14 100%
+  );
 }
 .pin-slip {
   position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
   min-width: 0;
   min-height: 5.5rem;
   padding: 0.85rem 0.8rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
-  border-radius: 0.12rem 0.18rem 0.14rem 0.1rem;
-  background: color-mix(in srgb, var(--paper) 92%, #fff 8%);
+  border: 1px solid color-mix(in srgb, var(--rule) 55%, #8a7355 20%);
+  border-radius: 0.08rem 0.14rem 0.1rem 0.06rem;
+  background:
+    linear-gradient(
+      175deg,
+      color-mix(in srgb, #fffdf8 55%, var(--paper)) 0%,
+      color-mix(in srgb, var(--paper) 92%, #f0e6d4 8%) 100%
+    );
   color: var(--ink);
   text-decoration: none;
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--ink) 10%, transparent),
-    0 4px 10px -3px color-mix(in srgb, var(--ink) 18%, transparent);
+    0 1px 0 color-mix(in srgb, #fff 55%, transparent),
+    0 1px 1px color-mix(in srgb, #3c2814 18%, transparent),
+    0 5px 12px -2px color-mix(in srgb, #3c2814 28%, transparent),
+    0 10px 18px -8px color-mix(in srgb, #1d1812 18%, transparent);
   transform: rotate(-0.6deg);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -7647,18 +7952,20 @@ a.user-status-line:hover {
 }
 .pin-slip-pin {
   position: absolute;
-  top: 0.35rem;
+  top: 0.28rem;
   left: 50%;
   z-index: 2;
-  width: 0.55rem;
-  height: 0.55rem;
-  margin-left: -0.275rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-left: -0.36rem;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 35% 30%, #f0d8a8 0%, #b08a4a 45%, #6e4e28 100%);
+    radial-gradient(circle at 32% 28%, #fff6e0 0%, #e8c878 28%, #b08a4a 58%, #5a3c1c 100%);
   box-shadow:
-    0 1px 2px color-mix(in srgb, #000 35%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent);
+    0 1px 2px color-mix(in srgb, #000 40%, transparent),
+    0 2px 4px color-mix(in srgb, #3c2814 35%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent),
+    inset 0 -1px 1px color-mix(in srgb, #3c2814 35%, transparent);
 }
 .pin-slip-media {
   display: block;

@@ -10,11 +10,15 @@ describe('profileBannerFallbackStyle', () => {
     expect(hashPubkey(pk)).toBe(hashPubkey(pk.toUpperCase()));
   });
 
-  it('varies by pubkey and stays within theme-mix ranges', () => {
+  it('varies by pubkey and emits library banner geometry vars', () => {
     const a = profileBannerFallbackStyle(pk);
     const b = profileBannerFallbackStyle(other);
     expect(a).not.toBe(b);
     expect(a).toMatch(/--banner-accent-mix:\d+%/);
     expect(a).toMatch(/--banner-angle:\d+deg/);
+    expect(a).toMatch(/--banner-spine:\d+px/);
+    expect(a).toMatch(/--banner-arc-size:\d+%/);
+    expect(a).toMatch(/--banner-disc-size:\d+%/);
+    expect(a).toMatch(/--banner-wedge:\d+%/);
   });
 });

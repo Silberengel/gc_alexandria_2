@@ -74,7 +74,7 @@
     type FeedTab
   } from '$lib/feed';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
-  import { memoryGetEvent } from '$lib/nostr/event-memory';
+  import { memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -268,6 +268,7 @@
         showNotice(consumeSignFailure() ?? 'Could not post this note.');
         return;
       }
+      rememberEvents([signed]);
       noteDraft = '';
       items = mergeFeedPosts(untrack(() => items), [signed]);
       showNotice('Posted.', true);

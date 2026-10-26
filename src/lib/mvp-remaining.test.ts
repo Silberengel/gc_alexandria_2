@@ -1383,6 +1383,18 @@ describe('kind 0 fields', () => {
     expect(html).not.toMatch(/https:\/\/example\.com\/docs[^"]*#Alexandria/);
     expect(cropPaymentAddress('a'.repeat(60)).length).toBe(50);
   });
+
+  it('linkifies nostr: addresses in about text', async () => {
+    const { aboutHtml } = await import('./profile-fields');
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'a'.repeat(64);
+    const npub = nip19.npubEncode(pk);
+    const html = aboutHtml(`Sponsors: nostr:${npub} and https://example.com/x`);
+    expect(html).toContain(`href="#/p/${npub}"`);
+    expect(html).toContain('class="profile-about-nostr"');
+    expect(html).toContain('href="https://example.com/x"');
+    expect(html).not.toContain(`nostr:${npub}</a>`);
+  });
 });
 
 describe('media once', () => {

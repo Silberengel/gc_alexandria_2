@@ -140,7 +140,7 @@ export function isInlineLabeledRef(seg: ContentSegment | RenderSegment): boolean
 /** In-app href for a decoded NIP-19 pointer (hash-router). */
 export function nostrRefHref(seg: RefSegment): string {
   if (seg.kind === 'npub' || seg.kind === 'nprofile') {
-    return `#/profile/${seg.bech32}`;
+    return `#/p/${seg.bech32}`;
   }
   if (seg.kind === 'naddr' && seg.naddr) {
     const { kind, pubkey, identifier } = seg.naddr;

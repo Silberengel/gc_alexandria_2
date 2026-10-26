@@ -15,7 +15,7 @@
   import { firstTag, eventAddress, isTopLevel30040 } from '$lib/nostr/verify';
   import { toNostrBuildThumbUrl } from '$lib/nostr-build';
   import { countReadsByAuthor } from '$lib/search';
-  import { cropRenderedUrl, cropRenderedUrlsInText } from '$lib/crop-url';
+  import { cropRenderedUrl } from '$lib/crop-url';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
   import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
@@ -45,9 +45,8 @@
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
   import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
+  import GrapevineProfileStats from '$lib/components/GrapevineProfileStats.svelte';
   import { session } from '$lib/stores/session';
-  import { trustedAssertions } from '$lib/trusted-assertions';
-  import { hasKnownRank } from '$lib/nip85-trusted-assertions';
   import { profileBannerFallbackStyle } from '$lib/profile-banner';
   import {
     activeReadingEntries,
@@ -79,6 +78,7 @@
   } from '$lib/profile-pins';
   import PinSlip from '$lib/components/PinSlip.svelte';
   import Cover from '$lib/components/Cover.svelte';
+  import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { warmNavEvent } from '$lib/nav-warm';
   import { shelfWheel } from '$lib/shelf-wheel';
@@ -114,7 +114,6 @@
   let pageFilter = $state('');
   let producedPage = $state(1);
   let interactedPage = $state(1);
-  let grapevineRank = $state<number | null>(null);
   let viewerFollows = $state(false);
   let readCount = $state(0);
   let readingEntries = $state<ReadingQueueEntry[]>([]);
@@ -153,6 +152,10 @@
   const blogPath = $derived(profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : '');
   const feedPath = $derived(pubkey ? feedAuthorRepliesPath(pubkey) : '');
   const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
+  const profileShareUrl = $derived.by(() => {
+    if (!profileShareId || typeof window === 'undefined') return '';
+    return `${window.location.origin}/#/p/${profileShareId}`;
+  });
 
   $effect(() => {
     if (kindFilter != null) kindDraft = String(kindFilter);
@@ -228,31 +231,6 @@
       viewerFollows = followPubkeysFromMetadata(events).has(pk.toLowerCase());
     });
     return unsub;
-  });
-
-  $effect(() => {
-    const pk = pubkey;
-    if (!pk) {
-      grapevineRank = null;
-      return;
-    }
-    let cancelled = false;
-    const applyScore = () => {
-      if (cancelled) return;
-      const score = trustedAssertions.getScore(pk);
-      grapevineRank = hasKnownRank(score) ? Math.round(score!.rank as number) : null;
-    };
-    const unsub = trustedAssertions.subscribe(applyScore);
-    applyScore();
-    void trustedAssertions
-      .resolveProvider(session.getPubkey())
-      .then(() => trustedAssertions.requestScoresAndWait([pk]))
-      .then(applyScore)
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      unsub();
-    };
   });
 
   function omitNested(events: Event[]): Event[] {
@@ -859,7 +837,7 @@
 </script>
 
 <TopBar />
-<main class="shell">
+<main class="shell profile-page">
   {#if kindInvalid}
     <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
   {:else if resolveFailed}
@@ -941,6 +919,13 @@
     {/if}
     {#if pubkey}
     <div class="card profile-card">
+      {#if profile}
+        <CopyPointerButton
+          event={profile}
+          class="profile-more-menu"
+          shareUrl={profileShareUrl}
+        />
+      {/if}
       <div class="profile-hero">
         {#if fields.banner && isAllowedHref(fields.banner)}
           <img class="profile-banner" src={toNostrBuildThumbUrl(fields.banner)} alt="" />
@@ -949,8 +934,16 @@
             class="profile-banner profile-banner-empty"
             style={profileBannerFallbackStyle(pubkey)}
             aria-hidden="true"
-          ></div>
+          >
+            <span class="profile-banner-photo"></span>
+            <span class="profile-banner-spines"></span>
+            <span class="profile-banner-wedge"></span>
+            <span class="profile-banner-arc"></span>
+            <span class="profile-banner-disc"></span>
+          </div>
         {/if}
+        <div class="profile-hero-fade" aria-hidden="true"></div>
+        <div class="profile-hero-shelf" aria-hidden="true"></div>
         {#if displayPicture && isAllowedHref(displayPicture)}
           <button
             type="button"
@@ -977,13 +970,8 @@
                 {displayTitle}
               {/if}
             </h2>
-            {#if grapevineRank != null || viewerFollows || readCount > 0}
+            {#if viewerFollows || readCount > 0}
               <div class="profile-badges">
-                {#if grapevineRank != null}
-                  <span class="profile-badge profile-badge-rank" title="GrapeRank score">
-                    GrapeRank {grapevineRank}
-                  </span>
-                {/if}
                 {#if viewerFollows}
                   <span class="profile-badge profile-badge-following">Following</span>
                 {/if}
@@ -1000,11 +988,13 @@
               </div>
             {/if}
           </div>
-          <UserStatusBadge general={statusGeneral} music={statusMusic} />
           {#if fields.displayName && fields.name && fields.name !== fields.displayName}
             <p class="muted">{fields.name}</p>
           {/if}
-          <p class="profile-npub muted">{npub || pubkey}</p>
+          {#if pubkey}
+            <GrapevineProfileStats {pubkey} />
+          {/if}
+          <UserStatusBadge general={statusGeneral} music={statusMusic} />
         </div>
       </div>
       {#if fields.about}
@@ -1032,10 +1022,10 @@
             </ul>
           {/if}
           {#each Object.entries(fields.extra) as [key, value]}
-            <p class="muted">{key}: {cropRenderedUrlsInText(value)}</p>
+            <p class="muted profile-detail-rich">{key}: {@html aboutHtml(value)}</p>
           {/each}
           {#each fields.extraTags as tag}
-            <p class="muted">{tag.name}: {cropRenderedUrlsInText(tag.value)}</p>
+            <p class="muted profile-detail-rich">{tag.name}: {@html aboutHtml(tag.value)}</p>
           {/each}
           {#if payments.length}
             <h3>Payment targets</h3>
