@@ -5311,6 +5311,12 @@ a.embed-event-line:focus-visible {
   border-left: 2px solid var(--border);
   padding-left: 0.75rem;
 }
+/* Cap nest indent at 4 steps — deeper replies stay aligned with level 4. */
+.thread-children.thread-children-flat {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}
 .thread-node {
   margin: 0.75rem 0;
 }

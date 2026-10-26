@@ -16,6 +16,9 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
 
+  /** Visual nest steps before further replies share the same indent. */
+  const MAX_THREAD_INDENT = 4;
+
   interface Props {
     node: ThreadNode;
     target: Event;
@@ -27,6 +30,8 @@
     boosts?: Event[];
     /** Embedded events inside this row use the one-line link. */
     lineEmbeds?: boolean;
+    /** Nest depth of this node (0 = top-level under the OP). */
+    depth?: number;
   }
 
   let {
@@ -38,7 +43,8 @@
     highlights = [],
     zaps = [],
     boosts = [],
-    lineEmbeds = false
+    lineEmbeds = false,
+    depth = 0
   }: Props = $props();
 
   let reply = $state('');
@@ -150,7 +156,7 @@
     {/if}
   {/if}
   {#if node.children.length}
-    <ul class="thread-children">
+    <ul class="thread-children" class:thread-children-flat={depth >= MAX_THREAD_INDENT}>
       {#each node.children as child (threadNodeKey(child))}
         <CommentThread
           node={child}
@@ -161,6 +167,7 @@
           {highlights}
           {zaps}
           {boosts}
+          depth={depth + 1}
         />
       {/each}
     </ul>
