@@ -1,6 +1,6 @@
 <script lang="ts">
   import TopBar from '$lib/components/TopBar.svelte';
-  import { GITCITADEL_NPUB } from '$lib/constants';
+  import { APP_VERSION, GITCITADEL_NPUB } from '$lib/constants';
 </script>
 
 <TopBar />
@@ -11,6 +11,9 @@
     <p class="page-lede muted">
       A GitCitadel project for reading publications and wiki pages from Nostr.
     </p>
+    {#if APP_VERSION}
+      <p class="about-version muted">Version {APP_VERSION}</p>
+    {/if}
   </header>
   <img class="about-hero" src="/screenshots/old_books.jpg" alt="Library of Alexandria" />
   <ul>

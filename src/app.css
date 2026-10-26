@@ -806,6 +806,11 @@ body:has(main.reading-page) .top-bar {
   color: color-mix(in srgb, var(--ink-soft) 70%, var(--accent-strong));
 }
 
+.about-version {
+  margin: 0.35rem 0 0;
+  font-family: var(--ui-font);
+  font-size: 0.92rem;
+}
 .about-hero {
   display: block;
   width: 100%;

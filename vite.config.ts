@@ -2,10 +2,15 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lookup as dnsLookup, setDefaultResultOrder } from 'node:dns';
+import { readFileSync } from 'node:fs';
 import { Agent as HttpsAgent } from 'node:https';
 import { fileURLToPath, URL } from 'node:url';
 
 setDefaultResultOrder('ipv4first');
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
 /** This machine's getaddrinfo fails IPv6-first for *.imwald.eu; A records work. */
 const ipv4Https = new HttpsAgent({
@@ -39,6 +44,9 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version)
+  },
   plugins: [
     svelte(),
     VitePWA({

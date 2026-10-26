@@ -1,5 +1,8 @@
 import { viteHex, viteList, viteString } from './build-env';
 
+/** Release version from package.json, baked in at build time. */
+export const APP_VERSION: string = __APP_VERSION__;
+
 /**
  * Relays and pubkeys below keep these addresses when the matching `VITE_`
  * variable is unset. Set the variable at build time to replace that value.
