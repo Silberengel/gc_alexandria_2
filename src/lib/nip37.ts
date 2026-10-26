@@ -1,15 +1,16 @@
 import type { Event } from 'nostr-tools';
 import {
   buildCheckpointTags,
-  buildDraftWrapTags,
   buildPrivateRelayTagRows,
   draftWrapAddress,
   parsePrivateRelayTags
 } from '@silberengel/kind-compose-catalog';
 import { KIND, PUBLIC_BROADCAST_RELAYS } from './constants';
 import { looksLikeNip44Ciphertext } from './mute';
+import { cacheScanByKind } from './nostr/cache';
 import { cachedIdentityEvent } from './nostr/identity-cache';
 import { pickLatestReplaceable, pruneToLatestReplaceables } from './nostr/replaceable';
+import { uniqueRelayUrls } from './nostr/mailboxes';
 import { relayPool } from './nostr/pool';
 import { writeStack } from './nostr/selector';
 import { signUnsigned, consumeSignFailure } from './sign';
@@ -193,6 +194,25 @@ export function draftExpirationUnix(nowSec = Math.floor(Date.now() / 1000)): num
   return nowSec + DRAFT_TTL_SEC;
 }
 
+/**
+ * Draft-wrap tags. Always includes `d` (even when empty) so Primal-style wraps
+ * can be replaced on delete. Catalog helper historically omitted empty d.
+ */
+export function buildDraftWrapTags(opts: {
+  d: string;
+  k: number | string;
+  expiration?: number | string | null;
+}): string[][] {
+  const d = String(opts.d ?? '').trim();
+  const k = String(opts.k ?? '').trim();
+  const tags: string[][] = [['d', d]];
+  if (k) tags.push(['k', k]);
+  if (opts.expiration != null && String(opts.expiration).trim() !== '') {
+    tags.push(['expiration', String(opts.expiration).trim()]);
+  }
+  return tags;
+}
+
 export async function saveDraftWrap(opts: {
   draftEvent: UnsignedDraftEvent;
   d: string;
@@ -201,9 +221,9 @@ export async function saveDraftWrap(opts: {
 }): Promise<{ wrap: Event; checkpoint: Event | null } | null> {
   const pk = pubkey();
   if (!pk) return null;
-  const d = opts.d.trim();
-  if (!d) throw new Error('Draft identifier is missing.');
-  const relays = await privateStorageRelays();
+  // Empty `d` is valid (Primal publishes that way); Alexandria normally mints a UUID.
+  const d = String(opts.d ?? '').trim();
+  const relays = await draftPublishRelays();
   if (!relays.length) {
     throw new Error('Publish a private relay list (kind 10013) before saving drafts.');
   }
@@ -228,7 +248,10 @@ export async function saveDraftWrap(opts: {
   if (!wrap) {
     throw new Error(consumeSignFailure() ?? 'Could not sign the draft wrap.');
   }
-  await session.publishToRelays(wrap, relays);
+  const published = await session.publishToRelays(wrap, relays, { bypassConstrain: true });
+  if (!published) {
+    throw new Error('No private storage relay accepted the draft wrap.');
+  }
 
   let checkpoint: Event | null = null;
   if (opts.checkpoint !== false) {
@@ -239,19 +262,26 @@ export async function saveDraftWrap(opts: {
       tags: buildCheckpointTags({ address })
     });
     if (cp) {
-      await session.publishToRelays(cp, relays);
+      await session.publishToRelays(cp, relays, { bypassConstrain: true });
       checkpoint = cp;
     }
   }
   return { wrap, checkpoint };
 }
 
+/** Private storage plus write relays — other clients (e.g. Primal) often land wraps on outboxes. */
+async function draftPublishRelays(): Promise<string[]> {
+  const privateRelays = await privateStorageRelays();
+  return uniqueRelayUrls([...privateRelays, ...writeStack()]);
+}
+
 export async function deleteDraftWrap(d: string, draftKind: number): Promise<Event | null> {
   const pk = pubkey();
   if (!pk) return null;
-  const relays = await privateStorageRelays();
-  if (!relays.length) throw new Error('No private relay list.');
-  const tags = buildDraftWrapTags({ d: d.trim(), k: draftKind });
+  const relays = await draftPublishRelays();
+  if (!relays.length) throw new Error('No private relay list or write relays available.');
+  // Keep empty `d` — required to replace Primal-style wraps.
+  const tags = buildDraftWrapTags({ d: String(d ?? ''), k: draftKind });
   const wrap = await signUnsigned({
     kind: KIND.DRAFT_WRAP,
     content: '',
@@ -260,16 +290,23 @@ export async function deleteDraftWrap(d: string, draftKind: number): Promise<Eve
   if (!wrap) {
     throw new Error(consumeSignFailure() ?? 'Could not sign the draft deletion.');
   }
-  await session.publishToRelays(wrap, relays);
+  const published = await session.publishToRelays(wrap, relays, { bypassConstrain: true });
+  if (!published) {
+    throw new Error('No relay accepted the draft deletion.');
+  }
   return wrap;
 }
 
-async function decryptWrap(event: Event): Promise<DecryptedDraftWrap | null> {
+/**
+ * Accept kind-31234 wraps, including Primal-style empty `d` identifiers.
+ * Only a numeric `k` tag is required.
+ */
+export async function decryptWrap(event: Event): Promise<DecryptedDraftWrap | null> {
   if (event.kind !== KIND.DRAFT_WRAP) return null;
   const d = event.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
   const kRaw = event.tags.find((t) => t[0] === 'k')?.[1];
   const draftKind = kRaw != null && kRaw !== '' ? Number(kRaw) : NaN;
-  if (!d || !Number.isFinite(draftKind)) return null;
+  if (!Number.isFinite(draftKind)) return null;
   const deleted = !event.content?.trim();
   let draft: UnsignedDraftEvent | null = null;
   if (!deleted) {
@@ -286,18 +323,41 @@ async function decryptWrap(event: Event): Promise<DecryptedDraftWrap | null> {
   };
 }
 
+/** Private storage first, then the viewer's write relays (where other clients often publish). */
+async function draftHuntRelays(): Promise<string[]> {
+  const privateRelays = await privateStorageRelays();
+  return uniqueRelayUrls([...privateRelays, ...writeStack()]);
+}
+
 export async function fetchDraftWraps(): Promise<DecryptedDraftWrap[]> {
   const pk = pubkey();
   if (!pk) return [];
-  const relays = await privateStorageRelays();
-  if (!relays.length) return [];
-  const hits = await relayPool.query(
-    relays,
-    [{ authors: [pk], kinds: [KIND.DRAFT_WRAP], limit: 80 }],
-    6000,
-    Math.min(relays.length, 6)
+  const relays = await draftHuntRelays();
+  const fromSession = session.getMetadata().filter((e) => e.kind === KIND.DRAFT_WRAP);
+  let fromCache: Event[] = [];
+  try {
+    fromCache = (await cacheScanByKind(KIND.DRAFT_WRAP, 80)).filter(
+      (e) => e.pubkey.toLowerCase() === pk
+    );
+  } catch {
+    /* private mode / quota */
+  }
+  let fromRelays: Event[] = [];
+  if (relays.length) {
+    fromRelays = await relayPool.query(
+      relays,
+      [{ authors: [pk], kinds: [KIND.DRAFT_WRAP], limit: 80 }],
+      6000,
+      Math.min(Math.max(relays.length, 4), 8),
+      undefined,
+      // Private-storage URLs are often outside NIP-65; still dial write/search hosts here.
+      { bypassConstrain: true, priority: true }
+    );
+    for (const event of fromRelays) session.rememberEvent(event);
+  }
+  const latest = pruneToLatestReplaceables([...fromCache, ...fromSession, ...fromRelays]).filter(
+    (e) => e.kind === KIND.DRAFT_WRAP && e.pubkey.toLowerCase() === pk
   );
-  const latest = pruneToLatestReplaceables(hits).filter((e) => e.kind === KIND.DRAFT_WRAP);
   const out: DecryptedDraftWrap[] = [];
   for (const event of latest) {
     const dec = await decryptWrap(event);
@@ -317,7 +377,9 @@ export async function fetchCheckpoints(d: string): Promise<DecryptedCheckpoint[]
     relays,
     [{ authors: [pk], kinds: [KIND.DRAFT_CHECKPOINT], '#a': [address], limit: 100 }],
     6000,
-    Math.min(relays.length, 6)
+    Math.min(relays.length, 6),
+    undefined,
+    { bypassConstrain: true, priority: true }
   );
   const sorted = [...hits]
     .filter((e) => e.kind === KIND.DRAFT_CHECKPOINT)

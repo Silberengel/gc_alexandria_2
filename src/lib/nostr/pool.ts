@@ -1,4 +1,4 @@
-import { type Event, type Filter } from 'nostr-tools';
+import { type Event, type EventTemplate, type Filter, type VerifiedEvent } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
 import { MERCURY_WSS } from '../constants';
 import { cachePutMany } from './cache';
@@ -7,6 +7,9 @@ import { isMercuryUnavailable, isMercuryDocumentFilter } from './mercury';
 import { normalizeRelayFilters, webSocketRelays, writeWebSocketRelays } from './relay-filters';
 import { constrainRelays } from './selector';
 import { ingestEvent } from './verify';
+
+/** NIP-42 AUTH signer (kind 22242). Set from the session when signed in. */
+export type RelayAuthHandler = (evt: EventTemplate) => Promise<VerifiedEvent>;
 
 function waitForWindowLoad(): Promise<void> {
   if (typeof window === 'undefined' || typeof document === 'undefined') return Promise.resolve();
@@ -37,12 +40,14 @@ function usableRelays(
   urls: string[],
   max: number,
   skipKeys: ReadonlySet<string>,
-  allowMercuryWss: boolean
+  allowMercuryWss: boolean,
+  opts?: { bypassConstrain?: boolean }
 ): string[] {
   const mercury = MERCURY_WSS.replace(/\/+$/, '').toLowerCase();
   const out: string[] = [];
+  const source = opts?.bypassConstrain ? webSocketRelays(urls) : webSocketRelays(constrainRelays(urls));
   // Allowlist before the cap, so a disallowed hint cannot crowd out a permitted relay.
-  for (const url of webSocketRelays(constrainRelays(urls))) {
+  for (const url of source) {
     const key = url.replace(/\/+$/, '').toLowerCase();
     if (key === mercury && (!allowMercuryWss || isMercuryUnavailable())) continue;
     if (skipKeys.has(key)) continue;
@@ -67,11 +72,15 @@ function queryIdentityKey(
 }
 
 class RelayPool {
+  private authHandler: RelayAuthHandler | null = null;
   private pool = new (SimplePool as new (opts?: object) => SimplePool)({
     maxWaitForConnection: 2500,
     enableReconnect: false,
     allowConnectingToRelay: (url: string) => !this.relayCoolingDown(url),
     onRelayConnectionFailure: (url: string) => this.markRelayFailed(url)
+    // Do not set automaticallyAuth: connect-time AUTH failures throw uncaught
+    // ("invalid: relay URL does not match") inside nostr-tools. We only AUTH on
+    // auth-required: close/publish via onauth in subscribeMap / publish.
   });
   private signedIn = false;
   /**
@@ -178,7 +187,8 @@ class RelayPool {
               events.push(event);
             },
             oneose: finish,
-            onclose: finish
+            onclose: finish,
+            ...(this.authHandler ? { onauth: this.authHandler } : {})
           }
         );
         setTimeout(finish, maxWait);
@@ -188,6 +198,14 @@ class RelayPool {
 
   setSignedIn(signedIn: boolean): void {
     this.signedIn = signedIn;
+  }
+
+  /**
+   * Wire NIP-42 AUTH for auth-required publish/REQ retries.
+   * Intentionally not connected to automaticallyAuth (see constructor).
+   */
+  setAuthHandler(handler: RelayAuthHandler | null): void {
+    this.authHandler = handler;
   }
 
   /**
@@ -247,7 +265,12 @@ class RelayPool {
     timeoutMs = 8000,
     maxRelays = RelayPool.MAX_RELAYS_PER_QUERY,
     onBatch?: (events: Event[]) => void,
-    opts?: { priority?: boolean; includeCooling?: boolean }
+    opts?: {
+      priority?: boolean;
+      includeCooling?: boolean;
+      /** Skip NIP-65 allowlist — for NIP-37 private-storage URLs the author chose. */
+      bypassConstrain?: boolean;
+    }
   ): Promise<Event[]> {
     try {
       await waitForWindowLoad();
@@ -256,7 +279,8 @@ class RelayPool {
         relays,
         maxRelays,
         opts?.includeCooling ? new Set() : this.skippedRelayKeys(),
-        cleanFilters.every(isMercuryDocumentFilter)
+        cleanFilters.every(isMercuryDocumentFilter),
+        { bypassConstrain: opts?.bypassConstrain === true }
       );
       if (!wssRelays.length || !cleanFilters.length) return [];
 
@@ -389,9 +413,16 @@ class RelayPool {
    * Resolves on the first OK so the UI can paint immediately, or when every relay has rejected.
    * Never throws. Requires a signed-in session (new publishes).
    */
-  async publish(relays: string[], event: Event): Promise<number> {
+  async publish(
+    relays: string[],
+    event: Event,
+    opts?: { bypassConstrain?: boolean }
+  ): Promise<number> {
     if (!this.signedIn) return 0;
-    return this.publishAlreadySigned(relays, event, { settle: 'first-ok' });
+    return this.publishAlreadySigned(relays, event, {
+      settle: 'first-ok',
+      bypassConstrain: opts?.bypassConstrain === true
+    });
   }
 
   /**
@@ -405,13 +436,18 @@ class RelayPool {
   private async publishAlreadySigned(
     relays: string[],
     event: Event,
-    opts: { settle: 'first-ok' | 'all' }
+    opts: { settle: 'first-ok' | 'all'; bypassConstrain?: boolean }
   ): Promise<number> {
     try {
-      const wssRelays = writeWebSocketRelays(constrainRelays(relays));
+      const scoped = opts.bypassConstrain ? relays : constrainRelays(relays);
+      const wssRelays = writeWebSocketRelays(scoped);
       if (!wssRelays.length) return 0;
       // SimplePool.publish returns Promise[] — one per relay, fulfilled on OK.
-      const pubs = this.pool.publish(wssRelays, event);
+      const pubs = this.pool.publish(
+        wssRelays,
+        event,
+        this.authHandler ? { onauth: this.authHandler } : undefined
+      );
       if (!pubs.length) return 0;
       if (opts.settle === 'all') {
         const results = await Promise.allSettled(pubs.map((pub) => Promise.resolve(pub)));

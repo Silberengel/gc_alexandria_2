@@ -4,7 +4,7 @@ import { KIND, LOGIN_METADATA_KINDS } from '../constants';
 import { applyMuteList, clearMute, decryptPrivateMuteTags, newestMuteList, parseMuteList, latestReplaceable, followPubkeysFromMetadata } from '../mute';
 import { cachePutMany } from '../nostr/cache';
 import { cachedViewerIdentity, rememberIdentityEvent } from '../nostr/identity-cache';
-import { relayPool } from '../nostr/pool';
+import { relayPool, type RelayAuthHandler } from '../nostr/pool';
 import {
   documentStack,
   foreignRelaysAllowed,
@@ -134,6 +134,32 @@ function createSessionStore() {
   let activeSignerType: SignerType | null = null;
   let bunkerUrl: string | undefined;
   let bunkerClientSecretKey: string | undefined;
+
+  /** Sign NIP-42 AUTH challenges with the live session signer. */
+  function wireRelayAuth(): void {
+    if (!activeSigner) {
+      relayPool.setAuthHandler(null);
+      return;
+    }
+    const signer = activeSigner;
+    const handler: RelayAuthHandler = async (evt) => {
+      // NIP-42 examples use a trailing slash; several AUTH-strict relays require it
+      // even when the WebSocket URL was normalized without one.
+      const tags = (evt.tags ?? []).map((tag) => {
+        if (tag[0] !== 'relay' || !tag[1]) return tag;
+        const url = tag[1].endsWith('/') ? tag[1] : `${tag[1]}/`;
+        return ['relay', url];
+      });
+      const signed = await signer.signEvent({
+        kind: evt.kind,
+        content: evt.content ?? '',
+        tags,
+        created_at: evt.created_at
+      });
+      return signed as Awaited<ReturnType<RelayAuthHandler>>;
+    };
+    relayPool.setAuthHandler(handler);
+  }
 
   async function applyMuteFromMetadata(events: Event[]): Promise<void> {
     const muteEvent = newestMuteList(events);
@@ -347,6 +373,7 @@ function createSessionStore() {
       bunkerClientSecretKey: opts.bunkerClientSecretKey
     });
     relayPool.setSignedIn(true);
+    wireRelayAuth();
     metadataEvents = [];
     metadata.set([]);
     if (previousPubkey && previousPubkey !== pubkey) {
@@ -465,6 +492,7 @@ function createSessionStore() {
         activeSignerType = 'bunker';
         bunkerUrl = persisted.bunker;
         bunkerClientSecretKey = persisted.bunkerClientSecretKey;
+        wireRelayAuth();
         if (pubkey.toLowerCase() !== persisted.pubkey) {
           await adoptSigner(signer, pubkey, {
             signerType: 'bunker',
@@ -496,6 +524,7 @@ function createSessionStore() {
       }
       activeSigner = signer;
       activeSignerType = 'nip07';
+      wireRelayAuth();
       void loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     } catch {
       // Some extensions need a user gesture for getPublicKey — keep persisted identity.
@@ -526,6 +555,7 @@ function createSessionStore() {
       blocked: []
     });
     relayPool.setSignedIn(false);
+    relayPool.setAuthHandler(null);
     if (previousSigner && 'close' in previousSigner && typeof previousSigner.close === 'function') {
       void (previousSigner as { close: () => Promise<void> }).close();
     }
@@ -581,6 +611,7 @@ function createSessionStore() {
       activeSignerType = 'bunker';
       bunkerUrl = bunker;
       bunkerClientSecretKey = secret;
+      wireRelayAuth();
       if (previous && previous !== signer && 'close' in previous) {
         void (previous as { close: () => Promise<void> }).close();
       }
@@ -599,8 +630,16 @@ function createSessionStore() {
     }
   }
 
-  /** Cache + remember, then publish only to the given relays (no outbox fan-out). */
-  async function publishToRelays(event: Event, relays: string[]): Promise<boolean> {
+  /**
+   * Cache + remember, then publish only to the given relays (no outbox fan-out).
+   * Pass `bypassConstrain` for NIP-37 private-storage URLs that are intentionally
+   * outside the viewer's NIP-65 allowlist.
+   */
+  async function publishToRelays(
+    event: Event,
+    relays: string[],
+    opts?: { bypassConstrain?: boolean }
+  ): Promise<boolean> {
     try {
       await cachePutMany([event]);
     } catch {
@@ -615,7 +654,9 @@ function createSessionStore() {
     });
     try {
       return await Promise.race([
-        relayPool.publish(urls, event).then((accepted) => accepted > 0),
+        relayPool
+          .publish(urls, event, { bypassConstrain: opts?.bypassConstrain === true })
+          .then((accepted) => accepted > 0),
         timeout
       ]);
     } finally {

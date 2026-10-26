@@ -19,6 +19,7 @@ function stubStorage(): void {
 vi.mock('../nostr/pool', () => ({
   relayPool: {
     setSignedIn: vi.fn(),
+    setAuthHandler: vi.fn(),
     query: vi.fn(async () => []),
     publish: vi.fn(async () => undefined)
   }

@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCheckpointTags,
-  buildDraftWrapTags,
   buildPrivateRelayTagRows,
   draftWrapAddress,
   parsePrivateRelayTags
 } from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import {
+  buildDraftWrapTags,
+  decryptWrap,
   draftExpirationUnix,
   normalizePrivateRelayUrls,
   publicFallbackPrivateRelays
 } from './nip37';
+import type { Event } from 'nostr-tools';
 
 describe('nip37 helpers', () => {
   it('builds draft wrap tags with d, k, and expiration', () => {
@@ -20,6 +22,34 @@ describe('nip37 helpers', () => {
       ['k', '30023'],
       ['expiration', '1893456000']
     ]);
+  });
+
+  it('always emits an empty d tag so Primal wraps can be deleted', () => {
+    expect(buildDraftWrapTags({ d: '', k: 30023 })).toEqual([
+      ['d', ''],
+      ['k', '30023']
+    ]);
+  });
+
+  it('accepts Primal-style wraps with an empty d tag', async () => {
+    const wrap = {
+      id: '60f9cb2588dea6df71cb56ab29d327bd512a85a3557462226980e5e3e50009c5',
+      sig: '9'.repeat(128),
+      kind: 31234,
+      tags: [
+        ['d', ''],
+        ['k', '30023'],
+        ['client', 'Primal Web']
+      ],
+      pubkey: 'dd664d5e4016433a8cd69f005ae1480804351789b59de5af06276de65633d319',
+      content: 'ciphertext',
+      created_at: 1792998851
+    } as Event;
+    const dec = await decryptWrap(wrap);
+    expect(dec).not.toBeNull();
+    expect(dec!.d).toBe('');
+    expect(dec!.draftKind).toBe(30023);
+    expect(dec!.deleted).toBe(false);
   });
 
   it('builds checkpoint a-tag from address', () => {

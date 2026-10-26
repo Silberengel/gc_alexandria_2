@@ -67,6 +67,7 @@
     saveComposeDraft,
     deleteComposeDraft,
     listComposeDrafts,
+    clearComposeDraftsForPubkey,
     isComposeDraftEmpty
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
@@ -147,6 +148,9 @@
   let encryptedDrafts = $state<DecryptedDraftWrap[]>([]);
   let privateRelayModalOpen = $state(false);
   let savingDraft = $state(false);
+  let deletingAllDrafts = $state(false);
+  let jsonCopied = $state(false);
+  let jsonCopyTimer = 0;
   /** Stable NIP-37 `d` for the current compose session (re-saves replace the same wrap). */
   let activeDraftD = $state<string | null>(null);
   let draftCheckpoints = $state<DecryptedCheckpoint[]>([]);
@@ -275,7 +279,8 @@
   function resolveDraftD(): string {
     const fromForm = values.d?.trim();
     if (fromForm) return fromForm;
-    if (activeDraftD) return activeDraftD;
+    // Keep an explicit empty `d` (e.g. Primal wraps) so re-saves replace the same addressable.
+    if (activeDraftD != null) return activeDraftD;
     const id = newDraftId();
     activeDraftD = id;
     return id;
@@ -315,13 +320,14 @@
           values = { ...values, d };
         }
       }
+      const draftEvent = {
+        kind: partial.kind,
+        content: partial.content,
+        tags: partial.tags,
+        created_at: Math.floor(Date.now() / 1000)
+      };
       const result = await saveDraftWrap({
-        draftEvent: {
-          kind: partial.kind,
-          content: partial.content,
-          tags: partial.tags,
-          created_at: Math.floor(Date.now() / 1000)
-        },
+        draftEvent,
         d
       });
       if (!result) {
@@ -329,6 +335,21 @@
         return;
       }
       activeDraftD = d;
+      // Paint the lock-badge row immediately from the signed wrap (relay round-trip may lag).
+      const optimistic: DecryptedDraftWrap = {
+        wrap: result.wrap,
+        d,
+        draftKind: draftEvent.kind,
+        draft: draftEvent,
+        deleted: false,
+        updatedAt: result.wrap.created_at * 1000
+      };
+      encryptedDrafts = [
+        optimistic,
+        ...encryptedDrafts.filter((w) => w.d !== d)
+      ];
+      refreshDraftList();
+      draftListOpen = true;
       showNotice('Draft saved.', true);
       await refreshEncryptedDrafts();
       await loadCheckpointsFor(d);
@@ -371,6 +392,59 @@
       await refreshEncryptedDrafts();
     } catch (err) {
       formError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function copyPreviewJson(): Promise<void> {
+    if (!previewJson) return;
+    try {
+      await navigator.clipboard.writeText(previewJson);
+      jsonCopied = true;
+      window.clearTimeout(jsonCopyTimer);
+      jsonCopyTimer = window.setTimeout(() => {
+        jsonCopied = false;
+      }, 1200);
+    } catch {
+      showNotice('Could not copy JSON.');
+    }
+  }
+
+  async function deleteAllDrafts(): Promise<void> {
+    const pk = $session.pubkey;
+    if (!pk || deletingAllDrafts) return;
+    formError = '';
+    deletingAllDrafts = true;
+    try {
+      // Re-fetch so Primal / outbox wraps not yet painted are included.
+      await refreshEncryptedDrafts();
+      const wraps = [...encryptedDrafts];
+      clearComposeDraftsForPubkey(pk);
+      const errors: string[] = [];
+      const seen = new Set<string>();
+      for (const wrap of wraps) {
+        const key = `${wrap.d}\0${wrap.draftKind}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await deleteDraftWrap(wrap.d, wrap.draftKind);
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
+        }
+      }
+      activeDraftD = null;
+      draftCheckpoints = [];
+      // Wipe the open form so auto-persist cannot resurrect a local draft.
+      clearForm();
+      await refreshEncryptedDrafts();
+      refreshDraftList();
+      draftListOpen = encryptedDrafts.length > 0 || listComposeDrafts(pk).length > 0;
+      if (errors.length) {
+        formError = `Some encrypted drafts could not be deleted: ${errors[0]}`;
+      } else {
+        showNotice('All drafts deleted.', true);
+      }
+    } finally {
+      deletingAllDrafts = false;
     }
   }
 
@@ -1250,50 +1324,60 @@
     </div>
 
     {#if draftListOpen && draftItems.length}
-      <ul class="compose-drafts">
-        {#each draftItems as item}
-          <li>
-            {#if item.source === 'encrypted'}
-              <span class="compose-draft-lock" title="Encrypted draft" aria-label="Encrypted draft">
-                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.75"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
-                  />
-                </svg>
-              </span>
-              <button type="button" class="btn" onclick={() => restoreEncryptedDraft(item.wrap)}>
-                Restore {item.label}
-              </button>
-              <button
-                type="button"
-                class="btn"
-                onclick={() => void deleteEncryptedDraft(item.wrap)}>Delete</button
-              >
-            {:else}
-              <button type="button" class="btn" onclick={() => void loadKind(item.kind)}>
-                Restore {item.label}
-              </button>
-              <button
-                type="button"
-                class="btn"
-                onclick={() => {
-                  const pk = $session.pubkey;
-                  if (!pk) return;
-                  deleteComposeDraft(pk, item.kind, item.mode);
-                  refreshDraftList();
-                  draftListOpen =
-                    listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
-                }}>Delete</button
-              >
-            {/if}
-          </li>
-        {/each}
-      </ul>
+      <div class="compose-drafts-panel">
+        <ul class="compose-drafts">
+          {#each draftItems as item}
+            <li>
+              {#if item.source === 'encrypted'}
+                <span class="compose-draft-lock" title="Encrypted draft" aria-label="Encrypted draft">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
+                    />
+                  </svg>
+                </span>
+                <button type="button" class="btn" onclick={() => restoreEncryptedDraft(item.wrap)}>
+                  Restore {item.label}
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  onclick={() => void deleteEncryptedDraft(item.wrap)}>Delete</button
+                >
+              {:else}
+                <button type="button" class="btn" onclick={() => void loadKind(item.kind)}>
+                  Restore {item.label}
+                </button>
+                <button
+                  type="button"
+                  class="btn"
+                  onclick={() => {
+                    const pk = $session.pubkey;
+                    if (!pk) return;
+                    deleteComposeDraft(pk, item.kind, item.mode);
+                    refreshDraftList();
+                    draftListOpen =
+                      listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
+                  }}>Delete</button
+                >
+              {/if}
+            </li>
+          {/each}
+        </ul>
+        <button
+          type="button"
+          class="btn compose-drafts-clear"
+          disabled={deletingAllDrafts}
+          onclick={() => void deleteAllDrafts()}
+        >
+          {deletingAllDrafts ? 'Deleting…' : 'Delete all drafts'}
+        </button>
+      </div>
     {/if}
 
     {#if otherMode}
@@ -1600,6 +1684,50 @@
           </div>
         {:else}
           <div class="compose-tab-panel compose-tab-json" role="tabpanel">
+            <div class="compose-json-toolbar">
+              <button
+                type="button"
+                class="btn btn-icon"
+                aria-label={jsonCopied ? 'Copied' : 'Copy JSON'}
+                title={jsonCopied ? 'Copied' : 'Copy JSON'}
+                disabled={!previewJson}
+                onclick={() => void copyPreviewJson()}
+              >
+                {#if jsonCopied}
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                {:else}
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <rect
+                      x="9"
+                      y="9"
+                      width="11"
+                      height="11"
+                      rx="1.5"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                    />
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.75"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"
+                    />
+                  </svg>
+                {/if}
+              </button>
+            </div>
             <pre>{previewJson}</pre>
           </div>
         {/if}
@@ -1781,6 +1909,11 @@
   .compose-tab-json {
     padding-top: 0.25rem;
   }
+  .compose-json-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.35rem;
+  }
   .compose-tab-json pre {
     margin: 0;
     overflow: auto;
@@ -1857,10 +1990,16 @@
     font-weight: 600;
     line-height: 1.4;
   }
+  .compose-drafts-panel {
+    margin: 0 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
   .compose-drafts {
     list-style: none;
     padding: 0;
-    margin: 0 0 1rem;
+    margin: 0;
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
@@ -1869,6 +2008,9 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+  .compose-drafts-clear {
+    align-self: flex-start;
   }
   .compose-draft-lock {
     display: inline-flex;
