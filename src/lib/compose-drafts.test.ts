@@ -4,6 +4,7 @@ import {
   isComposeDraftEmpty,
   listComposeDrafts,
   loadComposeDraft,
+  localDraftMatchesEncrypted,
   saveComposeDraft,
   type ComposeDraftState
 } from './compose-drafts';
@@ -89,5 +90,36 @@ describe('compose draft persistence', () => {
     saveComposeDraft(PK, blank({ kind: 30040, content: 'x', updatedAt: 9 }));
     expect(listComposeDrafts(PK).map((d) => d.kind)).toEqual([30040]);
     expect(loadComposeDraft(PK, 1)).toBeNull();
+  });
+});
+
+describe('localDraftMatchesEncrypted', () => {
+  it('matches by wrap d or inner draft d, not merely by kind', () => {
+    const local = blank({
+      kind: 30023,
+      content: 'body',
+      values: { d: 'draft-from-primal', title: 'A' }
+    });
+    expect(
+      localDraftMatchesEncrypted(local, {
+        draftKind: 30023,
+        d: 'draft-from-primal',
+        draft: { content: 'body', tags: [['d', 'draft-from-primal']] }
+      })
+    ).toBe(true);
+    expect(
+      localDraftMatchesEncrypted(local, {
+        draftKind: 30023,
+        d: '',
+        draft: { content: 'other', tags: [['d', 'other-article']] }
+      })
+    ).toBe(false);
+    expect(
+      localDraftMatchesEncrypted(local, {
+        draftKind: 30023,
+        d: '',
+        draft: { content: 'body', tags: [['d', 'draft-from-primal']] }
+      })
+    ).toBe(true);
   });
 });

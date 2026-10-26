@@ -158,6 +158,32 @@ export function listComposeDrafts(
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * True when a tab autosave is the working copy of an encrypted wrap: same kind and
+ * matching `d` (wrap id, or the inner draft's d-tag), or same body when both lack a d.
+ */
+export function localDraftMatchesEncrypted(
+  local: Pick<ComposeDraftState, 'kind' | 'content' | 'values'>,
+  wrap: {
+    draftKind: number;
+    d: string;
+    draft: { content: string; tags: string[][] } | null;
+  }
+): boolean {
+  if (local.kind !== wrap.draftKind) return false;
+  const localD = String(local.values.d ?? '').trim();
+  const wrapD = String(wrap.d ?? '').trim();
+  if (localD || wrapD) {
+    if (localD && wrapD && localD === wrapD) return true;
+    const innerD =
+      wrap.draft?.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
+    if (localD && innerD && localD === innerD) return true;
+    return false;
+  }
+  if (!wrap.draft) return false;
+  return local.content.trim() === wrap.draft.content.trim();
+}
+
 export function clearComposeDraftsForPubkey(pubkey: string): void {
   const store = storage();
   if (!store) return;

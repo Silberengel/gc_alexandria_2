@@ -12,9 +12,17 @@ Feature: NIP-37 draft wraps
   Scenario: Encrypted drafts appear in the Drafts list
     Given I have published kind 31234 wraps to my private relays
     When I open the compose Drafts list
-    Then each encrypted draft shows a lock badge
-    And Restore decrypts the wrap into the compose form
+    Then each encrypted draft shows a lock badge in a file-explorer list
+    And each row shows name, d-tag, kind, and modified time
+    And a local autosave that matches that wrap (same d or body) is not listed alongside it
+    And opening a row restores that draft into the compose form
     And Delete publishes a blank-content 31234 for that d-tag
+
+  Scenario: Kind switch starts blank
+    Given I am on Compose with a document kind selected
+    When I switch the kind picker to another document kind that has a tab autosave
+    Then the form is blank (catalog defaults only)
+    And I must use Drafts → Restore to load a tab autosave or encrypted wrap
 
   Scenario: Checkpoints in the advanced editor
     Given I have saved a draft wrap more than once

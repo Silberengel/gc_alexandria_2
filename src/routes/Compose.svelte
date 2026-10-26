@@ -68,7 +68,8 @@
     deleteComposeDraft,
     listComposeDrafts,
     clearComposeDraftsForPubkey,
-    isComposeDraftEmpty
+    isComposeDraftEmpty,
+    localDraftMatchesEncrypted
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
   import {
@@ -191,43 +192,86 @@
   const markupFormat = $derived(
     showBody ? composeMarkupFormat(kind, content, previewEvent?.tags) : null
   );
-  type DraftListItem =
-    | {
-        source: 'local';
-        kind: number;
-        mode: string;
-        label: string;
-        updatedAt: number;
-      }
-    | {
-        source: 'encrypted';
-        kind: number;
-        d: string;
-        label: string;
-        updatedAt: number;
-        wrap: DecryptedDraftWrap;
-      };
+  type DraftListItem = {
+    source: 'local' | 'encrypted';
+    kind: number;
+    mode?: string;
+    /** Wrap `d`, or local form `values.d` / inner draft d. */
+    d: string;
+    title: string;
+    label: string;
+    updatedAt: number;
+    wrap?: DecryptedDraftWrap;
+  };
+
+  function draftTitleFromTags(tags: string[][] | undefined): string {
+    if (!tags?.length) return '';
+    return (
+      tags.find((t) => t[0] === 'title')?.[1]?.trim() ||
+      tags.find((t) => t[0] === 'name')?.[1]?.trim() ||
+      ''
+    );
+  }
+
+  function formatDraftWhen(ms: number): string {
+    if (!ms) return '—';
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }).format(new Date(ms));
+    } catch {
+      return new Date(ms).toLocaleString();
+    }
+  }
+
+  function draftDisplayName(item: DraftListItem): string {
+    if (item.title) return item.title;
+    // Prefer title for the Name column; d-tag has its own column.
+    return item.source === 'encrypted' ? 'Encrypted draft' : 'Tab autosave';
+  }
 
   const draftItems = $derived.by((): DraftListItem[] => {
     void draftRevision;
     const pk = $session.pubkey;
     const local: DraftListItem[] = pk
-      ? listComposeDrafts(pk).map((item) => ({
-          source: 'local' as const,
-          kind: item.kind,
-          mode: item.mode,
-          label: composeKindLabel(item.kind),
-          updatedAt: item.updatedAt
-        }))
+      ? listComposeDrafts(pk)
+          .flatMap((item) => {
+            const draft = loadComposeDraft(pk, item.kind, item.mode);
+            if (!draft) return [];
+            // Hide only the autosave that mirrors a specific encrypted wrap (same d / body).
+            if (encryptedDrafts.some((wrap) => localDraftMatchesEncrypted(draft, wrap))) {
+              return [];
+            }
+            const d = String(draft.values.d ?? '').trim();
+            const title = String(draft.values.title ?? draft.values.name ?? '').trim();
+            return [
+              {
+                source: 'local' as const,
+                kind: item.kind,
+                mode: item.mode,
+                d,
+                title,
+                label: composeKindLabel(item.kind),
+                updatedAt: item.updatedAt
+              }
+            ];
+          })
       : [];
-    const encrypted: DraftListItem[] = encryptedDrafts.map((wrap) => ({
-      source: 'encrypted' as const,
-      kind: wrap.draftKind,
-      d: wrap.d,
-      label: composeKindLabel(wrap.draftKind),
-      updatedAt: wrap.updatedAt,
-      wrap
-    }));
+    const encrypted: DraftListItem[] = encryptedDrafts.map((wrap) => {
+      const innerD =
+        wrap.draft?.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
+      const d = wrap.d.trim() || innerD;
+      return {
+        source: 'encrypted' as const,
+        kind: wrap.draftKind,
+        d,
+        title: draftTitleFromTags(wrap.draft?.tags),
+        label: composeKindLabel(wrap.draftKind),
+        updatedAt: wrap.updatedAt,
+        wrap
+      };
+    });
     return [...encrypted, ...local].sort((a, b) => b.updatedAt - a.updatedAt);
   });
 
@@ -335,6 +379,8 @@
         return;
       }
       activeDraftD = d;
+      // Drop the tab autosave for this kind — the encrypted wrap is the draft of record.
+      deleteComposeDraft($session.pubkey, draftEvent.kind);
       // Paint the lock-badge row immediately from the signed wrap (relay round-trip may lag).
       const optimistic: DecryptedDraftWrap = {
         wrap: result.wrap,
@@ -737,10 +783,9 @@
     return true;
   }
 
+  /** Switch kind with a blank form. Drafts are restored only via the Drafts list. */
   async function loadKind(nextKind: number) {
     persistCurrent();
-    const pk = $session.pubkey;
-    const saved = pk ? loadComposeDraft(pk, nextKind) : null;
     kind = nextKind;
     pickerValue = nextKind;
     otherMode = false;
@@ -748,12 +793,8 @@
     otherError = '';
     formError = '';
     grammarIssues = [];
+    activeDraftD = null;
     markReplaceablePreloaded(false);
-    if (saved) {
-      applyDraft(saved);
-      bumpPreview();
-      return;
-    }
     content = '';
     values = emptyValuesFor(nextKind);
     hashtagRows = [''];
@@ -764,6 +805,25 @@
     const preloaded = await applyReplaceablePreload(nextKind);
     resetEditorMarkup(nextKind, content, freeformTags);
     markReplaceablePreloaded(preloaded);
+    bumpPreview();
+  }
+
+  function restoreLocalDraft(nextKind: number, mode = 'compose'): void {
+    const pk = $session.pubkey;
+    if (!pk) return;
+    persistCurrent();
+    const saved = loadComposeDraft(pk, nextKind, mode);
+    if (!saved) {
+      formError = 'That draft is no longer in this tab.';
+      refreshDraftList();
+      return;
+    }
+    markReplaceablePreloaded(false);
+    applyDraft(saved);
+    activeDraftD = saved.values.d?.trim() || null;
+    draftListOpen = false;
+    formError = '';
+    editorTab = 'edit';
     bumpPreview();
   }
 
@@ -797,8 +857,6 @@
     }
 
     persistCurrent();
-    const pk = $session.pubkey;
-    const saved = pk ? loadComposeDraft(pk, n) : null;
 
     otherLocked = true;
     otherMode = false;
@@ -807,17 +865,8 @@
     editorTab = 'edit';
     formError = '';
     grammarIssues = [];
+    activeDraftD = null;
     markReplaceablePreloaded(false);
-
-    if (saved) {
-      applyDraft(saved);
-      // Stay on the Other/custom chrome after restoring a draft.
-      otherLocked = true;
-      otherMode = false;
-      pickerValue = OTHER_KIND_SENTINEL;
-      bumpPreview();
-      return;
-    }
 
     content = '';
     values = emptyValuesFor(n);
@@ -1325,50 +1374,120 @@
 
     {#if draftListOpen && draftItems.length}
       <div class="compose-drafts-panel">
-        <ul class="compose-drafts">
-          {#each draftItems as item}
-            <li>
-              {#if item.source === 'encrypted'}
-                <span class="compose-draft-lock" title="Encrypted draft" aria-label="Encrypted draft">
-                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                    <path
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.75"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
-                    />
-                  </svg>
-                </span>
-                <button type="button" class="btn" onclick={() => restoreEncryptedDraft(item.wrap)}>
-                  Restore {item.label}
-                </button>
-                <button
-                  type="button"
-                  class="btn"
-                  onclick={() => void deleteEncryptedDraft(item.wrap)}>Delete</button
+        <div class="compose-drafts-explorer">
+          <table class="compose-drafts-table">
+            <thead>
+              <tr>
+                <th class="compose-drafts-col-icon" scope="col"
+                  ><span class="visually-hidden">Type</span></th
                 >
-              {:else}
-                <button type="button" class="btn" onclick={() => void loadKind(item.kind)}>
-                  Restore {item.label}
-                </button>
-                <button
-                  type="button"
-                  class="btn"
-                  onclick={() => {
-                    const pk = $session.pubkey;
-                    if (!pk) return;
-                    deleteComposeDraft(pk, item.kind, item.mode);
-                    refreshDraftList();
-                    draftListOpen =
-                      listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
-                  }}>Delete</button
+                <th class="compose-drafts-col-name" scope="col">Name</th>
+                <th class="compose-drafts-col-d" scope="col">d-tag</th>
+                <th class="compose-drafts-col-kind" scope="col">Kind</th>
+                <th class="compose-drafts-col-when" scope="col">Modified</th>
+                <th class="compose-drafts-col-actions" scope="col"
+                  ><span class="visually-hidden">Actions</span></th
                 >
-              {/if}
-            </li>
-          {/each}
-        </ul>
+              </tr>
+            </thead>
+            <tbody>
+              {#each draftItems as item}
+                <tr>
+                  <td class="compose-drafts-col-icon">
+                    {#if item.source === 'encrypted'}
+                      <span
+                        class="compose-draft-lock"
+                        title="Encrypted draft"
+                        aria-label="Encrypted draft"
+                      >
+                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                          <path
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
+                          />
+                        </svg>
+                      </span>
+                    {:else}
+                      <span
+                        class="compose-draft-tab"
+                        title="Tab autosave"
+                        aria-label="Tab autosave"
+                      >
+                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                          <path
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M4 5h10l2 2v12H4z"
+                          />
+                        </svg>
+                      </span>
+                    {/if}
+                  </td>
+                  <td class="compose-drafts-col-name">
+                    <button
+                      type="button"
+                      class="compose-drafts-open"
+                      title={`Open ${draftDisplayName(item)}`}
+                      onclick={() => {
+                        if (item.source === 'encrypted' && item.wrap) {
+                          restoreEncryptedDraft(item.wrap);
+                        } else {
+                          restoreLocalDraft(item.kind, item.mode ?? 'compose');
+                        }
+                      }}
+                    >
+                      {draftDisplayName(item)}
+                    </button>
+                  </td>
+                  <td class="compose-drafts-col-d" title={item.d || '(none)'}>
+                    <code>{item.d || '—'}</code>
+                  </td>
+                  <td class="compose-drafts-col-kind" title={item.label}>
+                    <span class="compose-drafts-kind-num">{item.kind}</span>
+                    <span class="compose-drafts-kind-label muted"
+                      >{getKind(item.kind)?.label ?? 'Unknown'}</span
+                    >
+                  </td>
+                  <td
+                    class="compose-drafts-col-when"
+                    title={item.updatedAt ? new Date(item.updatedAt).toISOString() : ''}
+                  >
+                    {formatDraftWhen(item.updatedAt)}
+                  </td>
+                  <td class="compose-drafts-col-actions">
+                    {#if item.source === 'encrypted' && item.wrap}
+                      <button
+                        type="button"
+                        class="btn"
+                        onclick={() => void deleteEncryptedDraft(item.wrap!)}>Delete</button
+                      >
+                    {:else}
+                      <button
+                        type="button"
+                        class="btn"
+                        onclick={() => {
+                          const pk = $session.pubkey;
+                          if (!pk) return;
+                          deleteComposeDraft(pk, item.kind, item.mode);
+                          refreshDraftList();
+                          draftListOpen =
+                            listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
+                        }}>Delete</button
+                      >
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
         <button
           type="button"
           class="btn compose-drafts-clear"
@@ -1996,26 +2115,137 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  .compose-drafts {
-    list-style: none;
+  .compose-drafts-explorer {
+    border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+    border-radius: 0.35rem;
+    overflow: auto;
+    max-height: 18rem;
+    background: color-mix(in srgb, var(--paper, #fff) 92%, transparent);
+  }
+  .compose-drafts-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.9rem;
+  }
+  .compose-drafts-table th,
+  .compose-drafts-table td {
+    padding: 0.45rem 0.55rem;
+    text-align: left;
+    vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .compose-drafts-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+    background: color-mix(in srgb, currentColor 6%, var(--paper, #fff));
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-muted, inherit);
+  }
+  .compose-drafts-table tbody tr {
+    border-bottom: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+  }
+  .compose-drafts-table tbody tr:last-child {
+    border-bottom: none;
+  }
+  .compose-drafts-table tbody tr:hover {
+    background: color-mix(in srgb, var(--accent, #8b6914) 8%, transparent);
+  }
+  .compose-drafts-col-icon {
+    width: 2.25rem;
+  }
+  .compose-drafts-col-name {
+    width: 28%;
+  }
+  .compose-drafts-col-d {
+    width: 28%;
+  }
+  .compose-drafts-col-kind {
+    width: 8rem;
+    white-space: normal;
+  }
+  .compose-drafts-kind-num {
+    display: block;
+    font-variant-numeric: tabular-nums;
+  }
+  .compose-drafts-kind-label {
+    display: block;
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .compose-drafts-col-when {
+    width: 11rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: var(--text-muted, inherit);
+  }
+  .compose-drafts-col-actions {
+    width: 5.5rem;
+    text-align: right;
+  }
+  .compose-drafts-col-d code {
+    font-size: 0.82em;
+  }
+  .compose-drafts-open {
+    display: block;
+    border: none;
+    background: none;
     padding: 0;
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .compose-drafts li {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  .compose-drafts-open:hover,
+  .compose-drafts-open:focus-visible {
+    text-decoration: underline;
+  }
+  .compose-drafts-open:focus-visible {
+    outline: none;
   }
   .compose-drafts-clear {
     align-self: flex-start;
   }
-  .compose-draft-lock {
+  .compose-draft-lock,
+  .compose-draft-tab {
     display: inline-flex;
     color: var(--text-muted);
-    flex: 0 0 auto;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  @media (max-width: 720px) {
+    .compose-drafts-col-kind,
+    .compose-drafts-col-when {
+      display: none;
+    }
+    .compose-drafts-col-name,
+    .compose-drafts-col-d {
+      width: auto;
+    }
   }
   .other-summary {
     font-size: 0.9rem;
