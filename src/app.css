@@ -7545,6 +7545,50 @@ a.user-status-line:hover {
   margin-top: 1rem;
 }
 
+.profile-pins {
+  margin: 0.35rem 0 1.25rem;
+  padding: 0.85rem 1.05rem;
+  border: 1px solid var(--rule);
+  border-radius: calc(var(--radius) + 0.05rem);
+  background: color-mix(in srgb, var(--paper) 88%, var(--ink) 12%);
+}
+:root.dark .profile-pins {
+  background: color-mix(in srgb, var(--paper-dark) 90%, var(--ink) 10%);
+}
+.profile-pins .profile-reading-heading {
+  color: var(--ink-soft);
+}
+.profile-pins-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.profile-pins-row {
+  min-width: 0;
+}
+.profile-pins-link {
+  display: block;
+  color: var(--ink);
+  text-decoration: none;
+}
+.profile-pins-link:hover {
+  color: var(--accent);
+}
+.profile-pins-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-family: var(--ui-font);
+  font-size: 0.92rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .profile-reading {
   margin: 0.35rem 0 1.5rem;
   padding: 0.95rem 1.05rem;

@@ -6,16 +6,30 @@
   interface Props {
     bookmarks?: Event[];
     pins?: Event[];
+    bookmarkSets?: Event[];
+    curations?: Event[];
     labels?: Event[];
   }
 
-  let { bookmarks = [], pins = [], labels = [] }: Props = $props();
+  let {
+    bookmarks = [],
+    pins = [],
+    bookmarkSets = [],
+    curations = [],
+    labels = []
+  }: Props = $props();
 
   const bookmarkedBy = $derived(uniqueResponsePubkeys(bookmarks));
   const pinnedBy = $derived(uniqueResponsePubkeys(pins));
+  const inBookmarkSetsBy = $derived(uniqueResponsePubkeys(bookmarkSets));
+  const inCurationsBy = $derived(uniqueResponsePubkeys(curations));
   const labeledBy = $derived(uniqueResponsePubkeys(labels));
   const hasAny = $derived(
-    bookmarkedBy.length > 0 || pinnedBy.length > 0 || labeledBy.length > 0
+    bookmarkedBy.length > 0 ||
+      pinnedBy.length > 0 ||
+      inBookmarkSetsBy.length > 0 ||
+      inCurationsBy.length > 0 ||
+      labeledBy.length > 0
   );
 </script>
 
@@ -43,6 +57,32 @@
           {/each}
           {#if pinnedBy.length > 16}
             <span class="work-attribution-more muted">+{pinnedBy.length - 16}</span>
+          {/if}
+        </div>
+      </div>
+    {/if}
+    {#if inBookmarkSetsBy.length}
+      <div class="work-attribution-row">
+        <span class="work-attribution-label">In bookmark sets by:</span>
+        <div class="work-attribution-badges">
+          {#each inBookmarkSetsBy.slice(0, 16) as pk (pk)}
+            <UserBadge pubkey={pk} />
+          {/each}
+          {#if inBookmarkSetsBy.length > 16}
+            <span class="work-attribution-more muted">+{inBookmarkSetsBy.length - 16}</span>
+          {/if}
+        </div>
+      </div>
+    {/if}
+    {#if inCurationsBy.length}
+      <div class="work-attribution-row">
+        <span class="work-attribution-label">In curations by:</span>
+        <div class="work-attribution-badges">
+          {#each inCurationsBy.slice(0, 16) as pk (pk)}
+            <UserBadge pubkey={pk} />
+          {/each}
+          {#if inCurationsBy.length > 16}
+            <span class="work-attribution-more muted">+{inCurationsBy.length - 16}</span>
           {/if}
         </div>
       </div>

@@ -701,6 +701,49 @@ describe('comments nest', () => {
     expect(parts.other).toEqual([]);
   });
 
+  it('lists bookmark sets and curations as attributions, not other', () => {
+    const note = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'b'.repeat(64),
+      content: 'hello'
+    });
+    const bookmarkSet = ev({
+      id: '4'.repeat(64),
+      kind: KIND.BOOKMARK_SET,
+      pubkey: 'c'.repeat(64),
+      created_at: 4,
+      tags: [
+        ['d', 'reads'],
+        ['e', note.id]
+      ]
+    });
+    const curation = ev({
+      id: '5'.repeat(64),
+      kind: KIND.CURATION_ARTICLE,
+      pubkey: 'd'.repeat(64),
+      created_at: 3,
+      tags: [
+        ['d', 'yaks'],
+        ['e', note.id]
+      ]
+    });
+    const videoSet = ev({
+      id: '6'.repeat(64),
+      kind: KIND.CURATION_VIDEO,
+      pubkey: 'e'.repeat(64),
+      created_at: 2,
+      tags: [
+        ['d', 'clips'],
+        ['e', note.id]
+      ]
+    });
+    const parts = partitionWorkResponses([note, bookmarkSet, curation, videoSet], note);
+    expect(parts.bookmarkSets.map((e) => e.id)).toEqual([bookmarkSet.id]);
+    expect(parts.curations.map((e) => e.id).sort()).toEqual([curation.id, videoSet.id].sort());
+    expect(parts.other).toEqual([]);
+  });
+
   it('treats a kind 1 e-tag of the edition as a root', () => {
     const editionId = 'a'.repeat(64);
     const note = ev({

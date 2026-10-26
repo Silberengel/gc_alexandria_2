@@ -419,6 +419,8 @@ export type ProfilePageSnapshot = {
     updated?: number;
   }>;
   readingEditions: Event[];
+  /** Resolved notes from the profile's kind-10001 pin list. */
+  pinnedNotes: Event[];
   readCount: number;
 };
 
@@ -448,7 +450,8 @@ function cloneProfilePageSnapshot(snap: ProfilePageSnapshot): ProfilePageSnapsho
     statusEvents: [...snap.statusEvents],
     paymentEvents: [...snap.paymentEvents],
     readingEntries: snap.readingEntries.map((e) => ({ ...e })),
-    readingEditions: [...snap.readingEditions]
+    readingEditions: [...snap.readingEditions],
+    pinnedNotes: [...(snap.pinnedNotes ?? [])]
   };
 }
 
@@ -508,6 +511,7 @@ export async function cacheGetProfilePageSnapshot(
           )
         : [],
       readingEditions: ingestList(raw.readingEditions, true),
+      pinnedNotes: ingestList(raw.pinnedNotes, true),
       readCount: typeof raw.readCount === 'number' ? raw.readCount : 0
     };
     touchProfilePageMemory(pk, snap);
@@ -517,7 +521,8 @@ export async function cacheGetProfilePageSnapshot(
       ...snap.interacted,
       ...snap.statusEvents,
       ...snap.paymentEvents,
-      ...snap.readingEditions
+      ...snap.readingEditions,
+      ...snap.pinnedNotes
     ]);
     if (snap.profile) rememberIdentityEvent(snap.profile);
     for (const event of snap.paymentEvents) rememberIdentityEvent(event);
@@ -545,6 +550,7 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
     paymentEvents: snap.paymentEvents.slice(0, 20),
     readingEntries: snap.readingEntries.slice(0, 40),
     readingEditions: snap.readingEditions.slice(0, 40),
+    pinnedNotes: (snap.pinnedNotes ?? []).slice(0, 24),
     readCount: snap.readCount
   };
   if (body.profile) rememberIdentityEvent(body.profile);
@@ -568,7 +574,12 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
         headers: { 'Content-Type': 'application/json' }
       })
     );
-    void cachePutMany([...body.produced, ...body.interacted, ...body.readingEditions]);
+    void cachePutMany([
+      ...body.produced,
+      ...body.interacted,
+      ...body.readingEditions,
+      ...body.pinnedNotes
+    ]);
   } catch {
     /* quota / private mode — memory still helps this session */
   }

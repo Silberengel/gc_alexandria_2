@@ -159,6 +159,8 @@
   let workBoosts = $state<Event[]>([]);
   let workBookmarks = $state<Event[]>([]);
   let workPins = $state<Event[]>([]);
+  let workBookmarkSets = $state<Event[]>([]);
+  let workCurations = $state<Event[]>([]);
   let workLabels = $state<Event[]>([]);
   let workAppHandlers = $state<Event[]>([]);
   let sectionResponses = $state<Record<string, WorkResponses>>({});
@@ -357,6 +359,8 @@
     const boosts = workBoosts;
     const bookmarks = filterMuted(workBookmarks, $muteState);
     const pins = filterMuted(workPins, $muteState);
+    const bookmarkSets = filterMuted(workBookmarkSets, $muteState);
+    const curations = filterMuted(workCurations, $muteState);
     const labels = filterMuted(workLabels, $muteState);
     const appHandlers = filterMuted(workAppHandlers, $muteState);
     if (!q) {
@@ -369,6 +373,8 @@
         boosts,
         bookmarks,
         pins,
+        bookmarkSets,
+        curations,
         labels,
         appHandlers
       };
@@ -383,6 +389,8 @@
       boosts,
       bookmarks,
       pins,
+      bookmarkSets,
+      curations,
       labels,
       appHandlers
     };
@@ -761,6 +769,8 @@
     workBoosts = threadEvents.boosts;
     workBookmarks = threadEvents.bookmarks;
     workPins = threadEvents.pins;
+    workBookmarkSets = threadEvents.bookmarkSets;
+    workCurations = threadEvents.curations;
     workLabels = threadEvents.labels;
     workAppHandlers = threadEvents.appHandlers;
     const hById = new Map<string, Event>();
@@ -2342,6 +2352,8 @@
       workBoosts = [];
       workBookmarks = [];
       workPins = [];
+      workBookmarkSets = [];
+      workCurations = [];
       workLabels = [];
       workAppHandlers = [];
       highlights = [];

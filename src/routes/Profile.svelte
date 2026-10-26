@@ -68,7 +68,8 @@
     profileKindHeading,
     profileKindPath
   } from '$lib/profile-route';
-  import { feedAuthorRepliesPath } from '$lib/feed';
+  import { feedAuthorRepliesPath, feedThreadPath } from '$lib/feed';
+  import { pickPinList, resolvePinnedNotes, samePinnedNoteIds } from '$lib/profile-pins';
 
   interface Props {
     params?: { id?: string; kind?: string };
@@ -107,6 +108,8 @@
   let readingEntries = $state<ReadingQueueEntry[]>([]);
   let readingTitles = $state<Map<string, string>>(new Map());
   let readingEditions = $state<Map<string, Event>>(new Map());
+  /** Resolved notes from the profile's NIP-51 kind 10001 pin list. */
+  let pinnedNotes = $state<Event[]>([]);
 
   const fields = $derived(parseKind0(profile));
   const payments = $derived(paymentRows(fields, paymentEvents, profile));
@@ -315,6 +318,7 @@
     readingEntries = [];
     readingTitles = new Map();
     readingEditions = new Map();
+    pinnedNotes = [];
     producedPage = 1;
     interactedPage = 1;
     pageFilter = '';
@@ -327,7 +331,12 @@
     produced = omitNested(pruneToLatestReplaceables(snap.produced));
     interacted = pruneToLatestReplaceables(snap.interacted);
     if (kindFilter == null && (produced.length || interacted.length)) listingsLoading = false;
-    rememberEvents([...snap.produced, ...snap.interacted, ...snap.readingEditions]);
+    rememberEvents([
+      ...snap.produced,
+      ...snap.interacted,
+      ...snap.readingEditions,
+      ...(snap.pinnedNotes ?? [])
+    ]);
     const byWork = new Map<string, InteractionMark[]>();
     for (const [id, marks] of Object.entries(snap.marksByWork)) {
       byWork.set(
@@ -342,6 +351,7 @@
     const snapPayments = pruneToLatestReplaceables([...snap.paymentEvents]);
     if (snapPayments.length) paymentEvents = snapPayments;
     readCount = snap.readCount;
+    if (snap.pinnedNotes?.length) pinnedNotes = [...snap.pinnedNotes];
     const ownLocal =
       !!get(session).pubkey &&
       get(session).pubkey!.toLowerCase() === snap.pubkey &&
@@ -502,10 +512,54 @@
         if (nip) profilePathId = nip;
       }
 
+      const loadPinnedNotes = async (
+        query: (
+          base: string[],
+          filters: Parameters<typeof relayPool.query>[1],
+          timeout: number,
+          baseMax: number
+        ) => Promise<Event[]>
+      ): Promise<boolean> => {
+        if (filterKind != null) return false;
+        try {
+          const pinHits = await query(
+            socialStack(),
+            [{ kinds: [KIND.PIN], authors: [nextPk], limit: 5 }],
+            4000,
+            2
+          );
+          if (cancelled) return false;
+          const list = pickPinList(pinHits, nextPk);
+          // Relay miss: keep snapshot / already-painted pins.
+          if (!list && !pinHits.length) return false;
+          if (list) rememberEvents([list]);
+          const notes = await resolvePinnedNotes(list);
+          if (cancelled) return false;
+          const prev = untrack(() => pinnedNotes);
+          if (samePinnedNoteIds(prev, notes)) return false;
+          pinnedNotes = notes;
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
       // Within TTL: keep the cached page; only kind-0 was refreshed above.
       // Kind-filtered views always re-query so arbitrary kinds are not missed.
+      // Do not block on pin refresh — that was causing pool churn and panel flicker.
       if (profilePageSnapshotFresh(snap) && filterKind == null) {
         listingsLoading = false;
+        if (!(snap?.pinnedNotes?.length)) {
+          void loadPinnedNotes((base, filters, timeout, baseMax) =>
+            relayPool.query(base, filters, timeout, baseMax)
+          ).then((changed) => {
+            if (cancelled || !changed || !snap) return;
+            void cachePutProfilePageSnapshot({
+              ...snap,
+              pinnedNotes: untrack(() => pinnedNotes)
+            });
+          });
+        }
         return;
       }
 
@@ -694,7 +748,11 @@
               marksByWork = byWork;
             });
 
-      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP]);
+      const pinsP = loadPinnedNotes((base, filters, timeout, baseMax) =>
+        queryAuthored(base, filters, timeout, baseMax)
+      );
+
+      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP, pinsP]);
       if (cancelled) return;
       listingsLoading = false;
 
@@ -714,6 +772,7 @@
         paymentEvents: paymentEventsAcc,
         readingEntries: untrack(() => readingEntries),
         readingEditions: [...untrack(() => readingEditions).values()],
+        pinnedNotes: untrack(() => pinnedNotes),
         readCount: untrack(() => readCount)
       });
     })();
@@ -953,6 +1012,20 @@
         </details>
       {/if}
     </div>
+    {#if !isKindFiltered && pinnedNotes.length}
+      <section class="profile-pins" aria-label="Pinned">
+        <h3 class="profile-reading-heading">Pinned</h3>
+        <ul class="profile-pins-list">
+          {#each pinnedNotes as event (event.id)}
+            <li class="profile-pins-row">
+              <a class="profile-pins-link" href={`#${feedThreadPath(event)}`} use:link>
+                <span class="profile-pins-preview">{event.content.trim() || 'Untitled note'}</span>
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
     {#if !isKindFiltered && (profileActiveReading.length || readingEntries.length)}
       <section class="profile-reading" aria-label="Reading now">
         <h3 class="profile-reading-heading">

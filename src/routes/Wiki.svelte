@@ -86,6 +86,8 @@
       boosts: responses.boosts ?? [],
       bookmarks: responses.bookmarks ?? [],
       pins: responses.pins ?? [],
+      bookmarkSets: responses.bookmarkSets ?? [],
+      curations: responses.curations ?? [],
       labels: responses.labels ?? [],
       appHandlers: responses.appHandlers ?? []
     };

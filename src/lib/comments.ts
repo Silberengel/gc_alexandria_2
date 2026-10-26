@@ -597,6 +597,10 @@ export type WorkResponses = {
   bookmarks: Event[];
   /** NIP-51 kind 10001 pin lists that include this work. */
   pins: Event[];
+  /** NIP-51 kind 30003 bookmark sets that include this work. */
+  bookmarkSets: Event[];
+  /** NIP-51 kinds 30004–30006 curation sets that include this work. */
+  curations: Event[];
   /** Kind 1985 labels that tag this work. */
   labels: Event[];
   /** NIP-89 kind 31990 app handlers for this work / its kind. */
@@ -613,10 +617,19 @@ export function emptyWorkResponses(): WorkResponses {
     boosts: [],
     bookmarks: [],
     pins: [],
+    bookmarkSets: [],
+    curations: [],
     labels: [],
     appHandlers: []
   };
 }
+
+/** NIP-51 curation set kinds (article / video / picture). */
+export const CURATION_KINDS = new Set<number>([
+  KIND.CURATION_ARTICLE,
+  KIND.CURATION_VIDEO,
+  KIND.CURATION_PICTURE
+]);
 
 /** Newest-first unique authors (one pubkey per person). */
 export function uniqueResponsePubkeys(events: Event[]): string[] {
@@ -646,6 +659,10 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.LABEL,
   KIND.PIN,
   KIND.BOOKMARK,
+  KIND.BOOKMARK_SET,
+  KIND.CURATION_ARTICLE,
+  KIND.CURATION_VIDEO,
+  KIND.CURATION_PICTURE,
   KIND.PAYMENT,
   KIND.READING_QUEUE,
   KIND.FOLLOW_SET,
@@ -665,7 +682,15 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.SHORT_NOTE_EDIT
 ]);
 
-const ATTRIBUTION_KINDS = new Set<number>([KIND.BOOKMARK, KIND.PIN, KIND.LABEL]);
+const ATTRIBUTION_KINDS = new Set<number>([
+  KIND.BOOKMARK,
+  KIND.PIN,
+  KIND.BOOKMARK_SET,
+  KIND.CURATION_ARTICLE,
+  KIND.CURATION_VIDEO,
+  KIND.CURATION_PICTURE,
+  KIND.LABEL
+]);
 
 function sortNewest(events: Event[]): Event[] {
   return events.sort((a, b) => b.created_at - a.created_at);
@@ -764,6 +789,8 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
   const boostsById = new Map<string, Event>();
   const bookmarksById = new Map<string, Event>();
   const pinsById = new Map<string, Event>();
+  const bookmarkSetsById = new Map<string, Event>();
+  const curationsById = new Map<string, Event>();
   const labelsById = new Map<string, Event>();
   const appHandlersById = new Map<string, Event>();
 
@@ -818,6 +845,14 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       if (referencesTarget(event, target)) pinsById.set(key, event);
       continue;
     }
+    if (event.kind === KIND.BOOKMARK_SET) {
+      if (referencesTarget(event, target)) bookmarkSetsById.set(key, event);
+      continue;
+    }
+    if (CURATION_KINDS.has(event.kind)) {
+      if (referencesTarget(event, target)) curationsById.set(key, event);
+      continue;
+    }
     if (event.kind === KIND.LABEL) {
       if (referencesTarget(event, target) || addressTagsTarget(event, target)) {
         labelsById.set(key, event);
@@ -849,6 +884,8 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
     boosts: [...boostsById.values()],
     bookmarks: sortNewest([...bookmarksById.values()]),
     pins: sortNewest([...pinsById.values()]),
+    bookmarkSets: sortNewest([...bookmarkSetsById.values()]),
+    curations: sortNewest([...curationsById.values()]),
     labels: sortNewest([...labelsById.values()]),
     appHandlers: sortNewest([...appHandlersById.values()])
   };

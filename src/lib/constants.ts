@@ -215,6 +215,14 @@ export const KIND = {
   /** NKBIP-04 directory index (bookshelf folders). */
   DIRECTORY: 30045,
   FOLLOW_SET: 30000,
+  /** NIP-51 bookmark set (addressable). */
+  BOOKMARK_SET: 30003,
+  /** NIP-51 article curation set. */
+  CURATION_ARTICLE: 30004,
+  /** NIP-51 video curation set. */
+  CURATION_VIDEO: 30005,
+  /** NIP-51 picture curation set. */
+  CURATION_PICTURE: 30006,
   /** NIP-30 emoji pack (addressable). */
   EMOJI_SET: 30030,
   /** NIP-53 kinds — numbers match suite `nip53` in kind-compose-catalog. */
