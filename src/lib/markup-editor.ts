@@ -86,16 +86,99 @@ export function editItalic(source: string, start: number, end: number): SourceEd
   return wrapInline(source, start, end, '_', '_', 'italic');
 }
 
+const EXAMPLE_DOC_TITLE = 'Title of the document';
+const EXAMPLE_SECTION_HEADING = 'A second-level header';
+
 export function editHeading(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  return prefixLines(source, start, end, format === 'asciidoc' ? '== ' : '## ');
+  const selected = source.slice(start, end).replace(/[\r\n]+/g, ' ').trim();
+  const { from, to, text } = lineBounds(source, start, end);
+  const stripped = text.replace(/^(#{1,6}|={1,6})\s+/, '').trim();
+  const heading = selected || stripped || EXAMPLE_SECTION_HEADING;
+  const block = `${format === 'asciidoc' ? '==' : '##'} ${heading}`;
+  if (!selected && !stripped) return selectInner(insertBlock(source, start, end, block), heading);
+  const value = source.slice(0, from) + block + source.slice(to);
+  return selectInner({ value, selectionStart: from + block.length, selectionEnd: from + block.length }, heading);
 }
 
+const EXAMPLE_QUOTE_LINES = [
+  "‘Hope’ is the thing with feathers —",
+  'That perches in the soul —',
+  'And sings the tune without the words —',
+  'And never stops — at all —',
+  '',
+  'And sweetest — in the Gale — is heard —',
+  'And sore must be the storm —',
+  'That could abash the little Bird',
+  'That kept so many warm —',
+  '',
+  'I’ve heard it in the chillest land —',
+  'And on the strangest Sea —',
+  'Yet, never, in Extremity,',
+  'It asked a crumb — of Me.'
+];
+
+const EXAMPLE_QUOTE_SOURCE = 'Hope Is The Thing With Feathers, by Emily Dickinson';
+
 export function editQuote(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'djot') return prefixLines(source, start, end, '> ');
-  const { from, to, text } = lineBounds(source, start, end);
-  const inner = text.trim() ? text : 'quote';
-  return insertBlock(source, from, to, `[quote]\n____\n${inner}\n____`);
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  if (format === 'djot') {
+    if (selected) {
+      const quoted = selected
+        .split('\n')
+        .map((line) => (line.startsWith('> ') ? line : `> ${line}`))
+        .join('\n');
+      return insertBlock(source, start, end, `{source="${EXAMPLE_QUOTE_SOURCE}"}\n${quoted}`);
+    }
+    const body = EXAMPLE_QUOTE_LINES.map((line) => (line ? `> ${line}` : '>')).join('\n');
+    return insertBlock(source, start, end, `{source="${EXAMPLE_QUOTE_SOURCE}"}\n${body}`);
+  }
+  const inner = selected || EXAMPLE_QUOTE_LINES.join('\n');
+  return insertBlock(
+    source,
+    start,
+    end,
+    `[quote, Emily Dickinson, Hope Is The Thing With Feathers]\n____\n${inner}\n____`
+  );
 }
+
+const EXAMPLE_UL_DJOT = `* a bullet
+* another bullet
+
+ 1. numbered list within a bulleted list
+ 2. make sure indented items have a blank line above them
+* yet another bullet
+
+ * indented bullet
+ * and so on`;
+
+const EXAMPLE_OL_DJOT = `1. first item
+2. second item
+3. third item
+
+  1. first indented item
+  2. second indented item
+
+    * bullet under numbered list
+
+  3. third indented item`;
+
+const EXAMPLE_UL_ASCIIDOC = `* a bullet
+* another bullet
+. numbered list within a bulleted list
+. no blank lines between the rows
+* yet another bullet
+** indented bullet
+** and so on`;
+
+const EXAMPLE_OL_ASCIIDOC = `. first item
+. second item
+. third item
+.. first indented item
+.. second indented item
+*** bullet under numbered list
+*** another bullet
+.. third indented item
+... a deeper indent`;
 
 export function editList(
   format: MarkupEditorFormat,
@@ -104,7 +187,19 @@ export function editList(
   start: number,
   end: number
 ): SourceEdit {
-  const prefix = format === 'asciidoc' ? (ordered ? '. ' : '* ') : ordered ? '1. ' : '- ';
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  if (!selected) {
+    const block =
+      format === 'asciidoc'
+        ? ordered
+          ? EXAMPLE_OL_ASCIIDOC
+          : EXAMPLE_UL_ASCIIDOC
+        : ordered
+          ? EXAMPLE_OL_DJOT
+          : EXAMPLE_UL_DJOT;
+    return insertBlock(source, start, end, block);
+  }
+  const prefix = format === 'asciidoc' ? (ordered ? '. ' : '* ') : ordered ? '1. ' : '* ';
   return prefixLines(source, start, end, prefix);
 }
 
@@ -113,28 +208,70 @@ export function editStrike(format: MarkupEditorFormat, source: string, start: nu
   return wrapInline(source, start, end, '{-', '-}', 'struck');
 }
 
+const EXAMPLE_INLINE_CODE = 'inline code';
+
+const EXAMPLE_JSON_CODE = `{
+  "content": "This is just an example. Substitute your own language for the json above, as necessary",
+  "created_at": 1792962501,
+  "tags": [
+    [
+      "test",
+      "123"
+    ]
+  ]
+}`;
+
+const EXAMPLE_LITERAL = `The autumn wind begins to blow,
+The golden leaves fall soft and slow.
+A quiet chill upon the air,
+As winter whispers everywhere.`;
+
 export function editCode(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end);
   if (selected.includes('\n')) return editCodeBlock(format, source, start, end);
-  return wrapInline(source, start, end, '`', '`', 'code');
+  return wrapInline(source, start, end, '`', '`', EXAMPLE_INLINE_CODE);
 }
 
-/** Fenced code block, even when the selection is a single line. */
+/** Language-tagged source block (Djot fence / AsciiDoc [source]). */
 export function editCodeBlock(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
-  const inner = selected || 'code';
-  const block = format === 'asciidoc' ? `[source]\n----\n${inner}\n----` : '```\n' + inner + '\n```';
-  const edit = insertBlock(source, start, end, block);
-  const at = edit.value.lastIndexOf(inner, edit.selectionStart);
-  if (at < 0) return edit;
-  return { value: edit.value, selectionStart: at, selectionEnd: at + inner.length };
-}
-
-export function editTable(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
+  const inner = selected || EXAMPLE_JSON_CODE;
   const block =
     format === 'asciidoc'
-      ? '|===\n| Header | Header\n\n| Cell | Cell\n|==='
-      : '| Header | Header |\n| --- | --- |\n| Cell | Cell |';
+      ? `[source,json]\n----\n${inner}\n----`
+      : '```json\n' + inner + '\n```';
+  return selectInner(insertBlock(source, start, end, block), inner);
+}
+
+const EXAMPLE_TABLE_ASCIIDOC = `.A table with a title, header and footer, horizontal alignment, and column width
+[cols="5,2,>3", options="footer"]
+|===
+|Column 1 |Column 2 |Column 3
+
+|Cell in column 1, row 1
+|Cell in column 2, row 1
+|Cell in column 3, row 1
+
+|Cell in column 1, row 2
+|Cell in column 2, row 2
+|Cell in column 3, row 2
+
+|Cell in column 1, row 3
+|Cell in column 2, row 3
+|Cell in column 3, row 3
+
+|Cell in column 1, row 4
+|Cell in column 2, row 4
+|Cell in column 3, row 4
+|===`;
+
+export function editTable(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
+  // Djot marks the prior row as a header only when the separator has no spaces
+  // around the dashes (`|----|`). Markdown's `| --- |` is a data row of em dashes.
+  const block =
+    format === 'asciidoc'
+      ? EXAMPLE_TABLE_ASCIIDOC
+      : '| Header | Header |\n|----|----|\n| Cell | Cell |';
   return insertBlock(source, start, end, block);
 }
 
@@ -170,25 +307,28 @@ export function editFootnote(format: MarkupEditorFormat, source: string, start: 
   return { value, selectionStart: lead.length, selectionEnd: lead.length + note.length };
 }
 
+const EXAMPLE_LINK_LABEL = 'display text';
+const EXAMPLE_LINK_URL = 'https://example.com';
+
 export function editLink(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).trim();
   const selectedIsUrl = /^https?:\/\//i.test(selected);
   if (format === 'asciidoc') {
     if (selectedIsUrl) {
-      const insert = `link:${selected}[link]`;
-      return splice(source, start, end, insert, `link:${selected}[`.length, 'link'.length);
+      const insert = `link:${selected}[${EXAMPLE_LINK_LABEL}]`;
+      return splice(source, start, end, insert, `link:${selected}[`.length, EXAMPLE_LINK_LABEL.length);
     }
-    const label = selected || 'link';
-    const insert = `link:https://[${label}]`;
-    return splice(source, start, end, insert, 'link:'.length, 'https://'.length);
+    const label = selected || EXAMPLE_LINK_LABEL;
+    const insert = `link:${EXAMPLE_LINK_URL}[${label}]`;
+    return splice(source, start, end, insert, 'link:'.length, EXAMPLE_LINK_URL.length);
   }
   if (selectedIsUrl) {
-    const insert = `[link](${selected})`;
-    return splice(source, start, end, insert, 1, 'link'.length);
+    const insert = `[${EXAMPLE_LINK_LABEL}](${selected})`;
+    return splice(source, start, end, insert, 1, EXAMPLE_LINK_LABEL.length);
   }
-  const label = selected || 'link';
-  const insert = `[${label}](https://)`;
-  return splice(source, start, end, insert, insert.indexOf('https://'), 'https://'.length);
+  const label = selected || EXAMPLE_LINK_LABEL;
+  const insert = `[${label}](${EXAMPLE_LINK_URL})`;
+  return splice(source, start, end, insert, 1, label.length);
 }
 
 export function mediaAlt(name: string | undefined): string {
@@ -269,11 +409,20 @@ function spanClass(
 }
 
 /**
- * AsciiDoc allows one document title, and it has to be the first line.
- * A later `=` is a level-0 section, which article documents reject.
+ * Document title. Djot: `# …`. AsciiDoc: one `= …` at the top of the file —
+ * a later `=` is a level-0 section, which article documents reject.
  */
 export function editTitle(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'djot') return prefixLines(source, start, end, '# ');
+  const selected = source.slice(start, end).replace(/[\r\n]+/g, ' ').trim();
+  if (format === 'djot') {
+    const { from, to, text } = lineBounds(source, start, end);
+    const stripped = text.replace(/^#\s+/, '').trim();
+    const title = selected || stripped || EXAMPLE_DOC_TITLE;
+    const block = `# ${title}`;
+    if (!selected && !stripped) return selectInner(insertBlock(source, start, end, block), title);
+    const value = source.slice(0, from) + block + source.slice(to);
+    return selectInner({ value, selectionStart: from + block.length, selectionEnd: from + block.length }, title);
+  }
   const existing = /^=[ \t]+([^\n]*)$/m.exec(source);
   if (existing && source.slice(0, existing.index).trim() === '') {
     const titleText = existing[1] ?? '';
@@ -284,8 +433,7 @@ export function editTitle(format: MarkupEditorFormat, source: string, start: num
       selectionEnd: titleStart + titleText.length
     };
   }
-  const selected = source.slice(start, end).replace(/[\r\n]+/g, ' ').trim();
-  const title = selected || 'Document Title';
+  const title = selected || EXAMPLE_DOC_TITLE;
   const rest = source.replace(/^\n+/, '');
   const value = `= ${title}\n\n${rest}`;
   return { value, selectionStart: 2, selectionEnd: 2 + title.length };
@@ -309,33 +457,81 @@ export function editSubscript(source: string, start: number, end: number): Sourc
   return wrapInline(source, start, end, '~', '~', 'sub');
 }
 
+const EXAMPLE_CHECKLIST_DJOT = `- [ ] this is an unchecked box
+- [x] this is a checked one`;
+
+const EXAMPLE_CHECKLIST_ASCIIDOC = `* [ ] this is an unchecked box
+* [x] this is a checked one`;
+
 export function editChecklist(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  if (!selected) {
+    return insertBlock(
+      source,
+      start,
+      end,
+      format === 'asciidoc' ? EXAMPLE_CHECKLIST_ASCIIDOC : EXAMPLE_CHECKLIST_DJOT
+    );
+  }
   return prefixLines(source, start, end, format === 'asciidoc' ? '* [ ] ' : '- [ ] ');
 }
 
+const EXAMPLE_DESCRIPTION_DJOT = `: term
+
+  description
+
+: another term
+
+  another description`;
+
+const EXAMPLE_DESCRIPTION_ASCIIDOC = `term:: description
+
+another term:: another description`;
+
 export function editDescription(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).trim();
-  if (format === 'asciidoc') {
-    const description = selected || 'description';
-    const line = `term:: ${description}`;
-    const edit = insertBlock(source, start, end, line);
-    const at = edit.value.lastIndexOf(description, edit.selectionStart);
-    return at < 0 ? edit : { value: edit.value, selectionStart: at, selectionEnd: at + description.length };
+  if (!selected) {
+    return insertBlock(
+      source,
+      start,
+      end,
+      format === 'asciidoc' ? EXAMPLE_DESCRIPTION_ASCIIDOC : EXAMPLE_DESCRIPTION_DJOT
+    );
   }
-  const description = selected || 'description';
-  return blockAround(source, start, end, `**term**\n\n${description}`, description);
+  if (format === 'asciidoc') {
+    const line = `term:: ${selected}`;
+    const edit = insertBlock(source, start, end, line);
+    const at = edit.value.lastIndexOf(selected, edit.selectionStart);
+    return at < 0 ? edit : { value: edit.value, selectionStart: at, selectionEnd: at + selected.length };
+  }
+  return selectInner(insertBlock(source, start, end, `: ${selected}\n\n  description`), 'description');
 }
+
+const EXAMPLE_CALLOUT =
+  "This is a callout block. Use it to catch the reader's attention, to focus on certain information.";
 
 export function editAdmonition(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  const inner = source.slice(start, end).replace(/^\n+|\n+$/g, '') || 'note';
-  if (format === 'djot') return delimited(source, start, end, '::: note', ':::', 'note');
-  if (inner.includes('\n')) return delimited(source, start, end, '[NOTE]\n====', '====', 'note');
-  return blockAround(source, start, end, `NOTE: ${inner}`, inner);
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  const inner = selected || EXAMPLE_CALLOUT;
+  if (format === 'djot') {
+    return selectInner(insertBlock(source, start, end, `::: note\n${inner}\n:::`), inner);
+  }
+  if (selected.includes('\n') || !selected) {
+    return selectInner(insertBlock(source, start, end, `[NOTE]\n====\n${inner}\n====`), inner);
+  }
+  return selectInner(insertBlock(source, start, end, `NOTE: ${inner}`), inner);
 }
 
+const EXAMPLE_SIDEBAR =
+  'This is a sidebar. It is a way to divide up the flow of the text. On narrow screens, it will appear in the middle. On wider ones, it will sometimes appear to the right or left, with the rest of the page wrapping around it.';
+
 export function editSidebar(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'djot') return delimited(source, start, end, '::: sidebar', ':::', 'sidebar');
-  return delimited(source, start, end, '****', '****', 'sidebar');
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  const inner = selected || EXAMPLE_SIDEBAR;
+  if (format === 'djot') {
+    return selectInner(insertBlock(source, start, end, `::: sidebar\n${inner}\n:::`), inner);
+  }
+  return selectInner(insertBlock(source, start, end, `****\n${inner}\n****`), inner);
 }
 
 export function editExample(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
@@ -343,9 +539,17 @@ export function editExample(format: MarkupEditorFormat, source: string, start: n
   return delimited(source, start, end, '====', '====', 'example');
 }
 
+/**
+ * Preformatted text that is not source code.
+ * Djot: an unlabeled fence. AsciiDoc: a `....` literal block.
+ */
 export function editLiteral(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'djot') return editCodeBlock(format, source, start, end);
-  return delimited(source, start, end, '....', '....', 'literal');
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  const inner = selected || EXAMPLE_LITERAL;
+  if (format === 'djot') {
+    return selectInner(insertBlock(source, start, end, '```\n' + inner + '\n```'), inner);
+  }
+  return selectInner(insertBlock(source, start, end, `....\n${inner}\n....`), inner);
 }
 
 export function editKbd(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
@@ -365,11 +569,6 @@ export function editButton(format: MarkupEditorFormat, source: string, start: nu
 export function editMenu(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   if (format === 'asciidoc') return splice(source, start, end, 'menu:File[Save]', 'menu:'.length, 'File'.length);
   return splice(source, start, end, 'File › Save', 0, 'File'.length);
-}
-
-export function editPageBreak(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'asciidoc') return insertBlock(source, start, end, '<<<');
-  return insertBlock(source, start, end, '``` =html\n<div style="page-break-after: always"></div>\n```');
 }
 
 export function editXref(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
@@ -410,8 +609,7 @@ export type MarkupTool =
   | 'description'
   | 'table'
   | 'footnote'
-  | 'rule'
-  | 'pagebreak';
+  | 'rule';
 
 export function editMarkup(
   id: MarkupTool,
@@ -475,8 +673,6 @@ export function editMarkup(
       return editFootnote(format, source, start, end);
     case 'rule':
       return editRule(format, source, start, end);
-    case 'pagebreak':
-      return editPageBreak(format, source, start, end);
     default:
       return editList(format, false, source, start, end);
   }

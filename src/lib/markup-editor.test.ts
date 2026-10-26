@@ -23,51 +23,96 @@ describe('markup editor insertions', () => {
     expect(editBold('Say ', 4, 4).value).toBe('Say *bold*');
   });
 
-  it('puts one AsciiDoc document title at the top', () => {
-    expect(editTitle('asciidoc', 'Hello', 0, 0).value).toBe('= Document Title\n\nHello');
-    const again = editTitle('asciidoc', '= Document Title\n\nHello', 4, 4);
-    expect(again.value).toBe('= Document Title\n\nHello');
-    expect(again.value.slice(again.selectionStart, again.selectionEnd)).toBe('Document Title');
-    expect(editTitle('djot', 'Chapter', 0, 0).value).toBe('# Chapter');
+  it('inserts a document title sample for each format', () => {
+    expect(editTitle('asciidoc', 'Hello', 0, 0).value).toBe('= Title of the document\n\nHello');
+    const again = editTitle('asciidoc', '= Title of the document\n\nHello', 4, 4);
+    expect(again.value).toBe('= Title of the document\n\nHello');
+    expect(again.value.slice(again.selectionStart, again.selectionEnd)).toBe('Title of the document');
+    expect(editTitle('djot', '', 0, 0).value).toBe('# Title of the document');
+    expect(editTitle('djot', 'Chapter', 0, 7).value).toBe('# Chapter');
   });
 
-  it('prefixes a heading for the active format', () => {
+  it('inserts a second-level header sample for each format', () => {
+    expect(editHeading('djot', '', 0, 0).value).toBe('## A second-level header');
+    expect(editHeading('asciidoc', '', 0, 0).value).toBe('== A second-level header');
     expect(editHeading('djot', 'Chapter', 0, 0).value).toBe('## Chapter');
-    expect(editHeading('asciidoc', 'Chapter', 0, 0).value).toBe('== Chapter');
     expect(editHeading('djot', '## Chapter', 3, 3).value).toBe('## Chapter');
   });
 
-  it('prefixes list markers without doubling them', () => {
-    expect(editList('djot', false, 'one\ntwo', 0, 7).value).toBe('- one\n- two');
+  it('inserts nested list samples, or prefixes a selection', () => {
+    expect(editList('djot', false, '', 0, 0).value).toContain('* a bullet');
+    expect(editList('djot', false, '', 0, 0).value).toContain(
+      '1. numbered list within a bulleted list'
+    );
+    expect(editList('djot', true, '', 0, 0).value).toContain('1. first item');
+    expect(editList('djot', true, '', 0, 0).value).toContain('* bullet under numbered list');
+    expect(editList('asciidoc', false, '', 0, 0).value).toContain('** indented bullet');
+    expect(editList('asciidoc', false, '', 0, 0).value).toContain('. no blank lines between the rows');
+    expect(editList('asciidoc', true, '', 0, 0).value).toContain('.. first indented item');
+    expect(editList('asciidoc', true, '', 0, 0).value).toContain('... a deeper indent');
+    expect(editList('djot', false, 'one\ntwo', 0, 7).value).toBe('* one\n* two');
     expect(editList('asciidoc', true, 'one', 0, 3).value).toBe('. one');
-    expect(editList('djot', false, '- one', 0, 5).value).toBe('- one');
+    expect(editList('djot', false, '* one', 0, 5).value).toBe('* one');
   });
 
-  it('selects the URL when inserting a link around text', () => {
+  it('inserts a link sample with display text and example.com', () => {
+    expect(editLink('djot', '', 0, 0).value).toBe('[display text](https://example.com)');
     const djot = editLink('djot', 'see docs', 4, 8);
-    expect(djot.value).toBe('see [docs](https://)');
-    expect(djot.value.slice(djot.selectionStart, djot.selectionEnd)).toBe('https://');
+    expect(djot.value).toBe('see [docs](https://example.com)');
+    expect(djot.value.slice(djot.selectionStart, djot.selectionEnd)).toBe('docs');
     const adoc = editLink('asciidoc', 'https://example.com', 0, 'https://example.com'.length);
-    expect(adoc.value).toBe('link:https://example.com[link]');
-    expect(adoc.value.slice(adoc.selectionStart, adoc.selectionEnd)).toBe('link');
+    expect(adoc.value).toBe('link:https://example.com[display text]');
+    expect(adoc.value.slice(adoc.selectionStart, adoc.selectionEnd)).toBe('display text');
   });
 
   it('inserts the major AsciiDoc constructs', () => {
-    expect(editMarkup('admonition', 'asciidoc', '', 0, 0).value).toBe('NOTE: note');
-    expect(editMarkup('sidebar', 'asciidoc', '', 0, 0).value).toBe('****\nsidebar\n****');
+    expect(editMarkup('admonition', 'asciidoc', '', 0, 0).value).toContain(
+      "This is a callout block. Use it to catch the reader's attention"
+    );
+    expect(editMarkup('admonition', 'djot', '', 0, 0).value).toBe(
+      "::: note\nThis is a callout block. Use it to catch the reader's attention, to focus on certain information.\n:::"
+    );
+    expect(editMarkup('sidebar', 'asciidoc', '', 0, 0).value).toContain(
+      '****\nThis is a sidebar. It is a way to divide up the flow of the text.'
+    );
+    expect(editMarkup('sidebar', 'djot', '', 0, 0).value).toContain('::: sidebar\nThis is a sidebar.');
     expect(editMarkup('example', 'asciidoc', '', 0, 0).value).toBe('====\nexample\n====');
     expect(editMarkup('description', 'asciidoc', 'a meaning', 0, 9).value).toBe('term:: a meaning');
+    expect(editMarkup('description', 'djot', '', 0, 0).value).toContain(': term\n\n  description');
+    expect(editMarkup('description', 'djot', '', 0, 0).value).toContain(': another term');
+    expect(editMarkup('description', 'asciidoc', '', 0, 0).value).toContain('another term:: another description');
     expect(editMarkup('highlight', 'asciidoc', 'word', 0, 4).value).toBe('#word#');
     expect(editMarkup('kbd', 'asciidoc', '', 0, 0).value).toBe('kbd:[F11]');
     expect(editMarkup('xref', 'asciidoc', 'Intro', 0, 5).value).toBe('<<id,Intro>>');
     expect(editMarkup('checklist', 'asciidoc', 'pack', 0, 4).value).toBe('* [ ] pack');
-    expect(editMarkup('pagebreak', 'asciidoc', '', 0, 0).value).toBe('<<<');
+    expect(editMarkup('checklist', 'djot', '', 0, 0).value).toBe(
+      '- [ ] this is an unchecked box\n- [x] this is a checked one'
+    );
+    expect(editMarkup('checklist', 'asciidoc', '', 0, 0).value).toContain('* [x] this is a checked one');
+    expect(editMarkup('literal', 'asciidoc', '', 0, 0).value).toContain('....\nThe autumn wind');
+    expect(editMarkup('codeblock', 'asciidoc', '', 0, 0).value).toContain('[source,json]\n----\n{');
+    expect(editMarkup('quote', 'asciidoc', '', 0, 0).value).toContain(
+      '[quote, Emily Dickinson, Hope Is The Thing With Feathers]'
+    );
   });
 
-  it('inserts a table, a code block, and the next footnote', () => {
-    expect(editTable('djot', '', 0, 0).value).toContain('| --- | --- |');
-    expect(editTable('asciidoc', '', 0, 0).value).toContain('|===');
-    expect(editCodeBlock('djot', 'See', 3, 3).value).toBe('See\n\n```\ncode\n```');
+  it('inserts sample code, literal, and attributed quote for both formats', () => {
+    expect(editMarkup('code', 'djot', '', 0, 0).value).toBe('`inline code`');
+    expect(editCodeBlock('djot', 'See', 3, 3).value).toContain('See\n\n```json\n{');
+    expect(editMarkup('literal', 'djot', '', 0, 0).value).toContain('```\nThe autumn wind');
+    expect(editMarkup('literal', 'djot', '', 0, 0).value).not.toContain('```json');
+    expect(editMarkup('quote', 'djot', '', 0, 0).value).toContain(
+      '{source="Hope Is The Thing With Feathers, by Emily Dickinson"}'
+    );
+    expect(editMarkup('quote', 'djot', '', 0, 0).value).toContain('> ‘Hope’ is the thing with feathers');
+  });
+
+  it('inserts a table and the next footnote', () => {
+    expect(editTable('djot', '', 0, 0).value).toContain('|----|----|');
+    expect(editTable('asciidoc', '', 0, 0).value).toContain('[cols="5,2,>3", options="footer"]');
+    expect(editTable('asciidoc', '', 0, 0).value).toContain(
+      '.A table with a title, header and footer, horizontal alignment, and column width'
+    );
     const note = editFootnote('djot', 'Hello[^1]', 9, 9);
     expect(note.value.startsWith('Hello[^1][^2]')).toBe(true);
     expect(note.value).toContain('[^2]: note');

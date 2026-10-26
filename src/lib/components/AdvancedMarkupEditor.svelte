@@ -70,37 +70,84 @@
   };
 
   const adoc = $derived(format === 'asciidoc');
-  const tools: { id: MarkupTool; label: string; title: string }[] = $derived([
-    { id: 'title', label: 'Title', title: adoc ? 'Document header (= Title)' : 'Document title (#)' },
-    { id: 'heading', label: 'H', title: adoc ? 'Section title (==)' : 'Heading (##)' },
-    { id: 'bold', label: 'B', title: 'Bold (*)' },
-    { id: 'italic', label: 'I', title: 'Italic (_)' },
-    { id: 'strike', label: 'S', title: adoc ? 'Strikethrough ([.line-through]#)' : 'Strikethrough' },
-    { id: 'underline', label: 'U', title: adoc ? 'Underline ([.underline]#)' : 'Underline' },
-    { id: 'highlight', label: 'Mark', title: adoc ? 'Highlight (#)' : 'Highlight' },
-    { id: 'superscript', label: 'x²', title: 'Superscript (^)' },
-    { id: 'subscript', label: 'x₂', title: 'Subscript (~)' },
-    { id: 'code', label: 'Code', title: 'Inline code (`)' },
-    { id: 'codeblock', label: '```', title: adoc ? 'Source block ([source] ----)' : 'Code block' },
-    { id: 'literal', label: 'Lit', title: adoc ? 'Literal block (....)' : 'Literal block' },
-    { id: 'link', label: 'Link', title: adoc ? 'Link (link:)' : 'Link' },
-    { id: 'xref', label: 'Xref', title: adoc ? 'Cross reference (<<>>)' : 'Cross reference' },
-    { id: 'kbd', label: 'Kbd', title: 'Keyboard (kbd:[])' },
-    { id: 'button', label: 'Btn', title: 'Button (btn:[])' },
-    { id: 'menu', label: 'Menu', title: 'Menu (menu:[])' },
-    { id: 'quote', label: 'Quote', title: adoc ? 'Quote block (____)' : 'Block quote' },
-    { id: 'admonition', label: 'NOTE', title: 'Admonition (NOTE, TIP, IMPORTANT, CAUTION, WARNING)' },
-    { id: 'sidebar', label: 'Side', title: adoc ? 'Sidebar (****)' : 'Sidebar' },
-    { id: 'example', label: 'Ex', title: adoc ? 'Example block (====)' : 'Example' },
-    { id: 'list', label: 'List', title: adoc ? 'Unordered list (*)' : 'Bulleted list' },
-    { id: 'numbered', label: '1.', title: adoc ? 'Ordered list (.)' : 'Numbered list' },
-    { id: 'checklist', label: 'Check', title: 'Checklist (* [ ])' },
-    { id: 'description', label: 'Term', title: adoc ? 'Description list (term::)' : 'Description' },
-    { id: 'table', label: 'Table', title: adoc ? 'Table (|===)' : 'Table' },
-    { id: 'footnote', label: 'Fn', title: adoc ? 'Footnote (footnote:[])' : 'Footnote' },
-    { id: 'rule', label: 'Rule', title: adoc ? 'Thematic break (' + "''')" : 'Horizontal rule' },
-    { id: 'pagebreak', label: 'Break', title: 'Page break (<<<)' }
-  ]);
+  const tools: { id: MarkupTool; label: string; title: string }[] = $derived(
+    [
+      {
+        id: 'title' as const,
+        label: 'Title',
+        title: adoc ? 'Document title (= Title of the document)' : 'Document title (# Title of the document)'
+      },
+      {
+        id: 'heading' as const,
+        label: 'H',
+        title: adoc ? 'Section header (== A second-level header)' : 'Section header (## A second-level header)'
+      },
+      { id: 'bold' as const, label: 'B', title: 'Bold (*)' },
+      { id: 'italic' as const, label: 'I', title: 'Italic (_)' },
+      { id: 'strike' as const, label: 'S', title: adoc ? 'Strikethrough ([.line-through]#)' : 'Strikethrough' },
+      { id: 'underline' as const, label: 'U', title: adoc ? 'Underline ([.underline]#)' : 'Underline' },
+      { id: 'highlight' as const, label: 'Mark', title: adoc ? 'Highlight (#)' : 'Highlight' },
+      { id: 'superscript' as const, label: 'x²', title: 'Superscript (^)' },
+      { id: 'subscript' as const, label: 'x₂', title: 'Subscript (~)' },
+      { id: 'code' as const, label: 'Code', title: 'Inline code (`inline code`)' },
+      {
+        id: 'codeblock' as const,
+        label: '```',
+        title: adoc ? 'Source block ([source,json] ----)' : 'Source block (```json)'
+      },
+      {
+        id: 'literal' as const,
+        label: 'Lit',
+        title: adoc ? 'Literal block (....)' : 'Literal block (unlabeled fence)'
+      },
+      {
+        id: 'link' as const,
+        label: 'Link',
+        title: adoc ? 'Link (link:https://example.com[display text])' : 'Link ([display text](https://example.com))'
+      },
+      { id: 'xref' as const, label: 'Xref', title: adoc ? 'Cross reference (<<>>)' : 'Cross reference' },
+      { id: 'kbd' as const, label: 'Kbd', title: 'Keyboard (kbd:[])' },
+      { id: 'button' as const, label: 'Btn', title: 'Button (btn:[])' },
+      { id: 'menu' as const, label: 'Menu', title: 'Menu (menu:[])' },
+      {
+        id: 'quote' as const,
+        label: 'Quote',
+        title: adoc ? 'Quote block ([quote] ____)' : 'Block quote ({source=…})'
+      },
+      {
+        id: 'admonition' as const,
+        label: 'NOTE',
+        title: adoc
+          ? 'Call-out: NOTE, TIP, IMPORTANT, CAUTION, WARNING'
+          : 'Call-out: note, tip, important, caution, warning (::: note)'
+      },
+      { id: 'sidebar' as const, label: 'Side', title: adoc ? 'Sidebar (****)' : 'Sidebar' },
+      { id: 'example' as const, label: 'Ex', title: adoc ? 'Example block (====)' : 'Example' },
+      {
+        id: 'list' as const,
+        label: 'List',
+        title: adoc ? 'Bulleted list (*, **, .)' : 'Bulleted list (*, nested 1. / *)'
+      },
+      {
+        id: 'numbered' as const,
+        label: '1.',
+        title: adoc ? 'Numbered list (., .., *)' : 'Numbered list (1., nested 1. / *)'
+      },
+      {
+        id: 'checklist' as const,
+        label: 'Check',
+        title: adoc ? 'Checklist (* [ ] / * [x])' : 'Checklist (- [ ] / - [x])'
+      },
+      {
+        id: 'description' as const,
+        label: 'Term',
+        title: adoc ? 'Description list (term::)' : 'Definition list (: term)'
+      },
+      { id: 'table' as const, label: 'Table', title: adoc ? 'Table (.title + [cols] + |===)' : 'Table (|----|)' },
+      { id: 'footnote' as const, label: 'Fn', title: adoc ? 'Footnote (footnote:[])' : 'Footnote' },
+      { id: 'rule' as const, label: 'Rule', title: adoc ? 'Thematic break (' + "''')" : 'Horizontal rule' }
+    ] satisfies { id: MarkupTool; label: string; title: string }[]
+  );
 
   const langChoices = $derived(grammarLanguageOptions(grammarLang));
   const showPreview = $derived(content.trim().length > 0);
@@ -407,7 +454,20 @@
         AsciiDoc
       </button>
     </div>
-    <button type="button" class="btn" onclick={() => onClose?.()}>Close</button>
+    <div class="advanced-editor-actions">
+      <button
+        type="button"
+        class="btn"
+        disabled={!content}
+        title="Clear the source"
+        onclick={() => {
+          content = '';
+        }}
+      >
+        Clear
+      </button>
+      <button type="button" class="btn" onclick={() => onClose?.()}>Close</button>
+    </div>
   </header>
 
   <div class="advanced-split">
@@ -558,6 +618,7 @@
     z-index: 110;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     background: var(--paper);
     color: var(--ink);
   }
@@ -606,8 +667,13 @@
   :global(:root.dark) .markup-toggle button[aria-pressed='true'] {
     color: var(--brand-primary-1000);
   }
-  .advanced-editor-bar .btn {
+  .advanced-editor-actions {
     margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .advanced-editor-bar .btn {
     padding: 0.32rem 0.7rem;
     font-size: 0.88rem;
   }
@@ -616,6 +682,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
   .advanced-pane {
     flex: 1 1 0;
@@ -623,6 +690,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
   .advanced-preview-pane {
     border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
@@ -802,9 +870,13 @@
     min-height: 0;
     overflow: auto;
     overflow-anchor: none;
-    scrollbar-gutter: stable;
     overscroll-behavior: contain;
+    /* Scroll stays synced with the source; only the source bar in the middle shows. */
+    scrollbar-width: none;
     padding: 0.35rem 1.15rem 2rem;
+  }
+  .advanced-preview::-webkit-scrollbar {
+    display: none;
   }
   .advanced-preview-prose {
     font-family: var(--reading-font);

@@ -2774,6 +2774,39 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   font-size: 0.82rem;
   line-height: 1.45;
 }
+.reading-body pre.highlight,
+.event-body pre.highlight,
+.reader-section pre.highlight,
+.reading-body pre.highlightjs,
+.event-body pre.highlightjs,
+.reader-section pre.highlightjs {
+  /* Keep syntax blocks on the well color; never inherit the gold mark wash. */
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+  color: var(--ink);
+}
+/* AsciiDoc source listing vs literal (`....`) — keep them visually distinct. */
+.reading-body .listingblock,
+.event-body .listingblock,
+.reader-section .listingblock {
+  margin: 0.75rem 0;
+}
+.reading-body .literalblock,
+.event-body .literalblock,
+.reader-section .literalblock {
+  margin: 0.75rem 0;
+  padding: 0.55rem 0.8rem;
+  border-left: 0.28rem solid color-mix(in srgb, var(--ink) 28%, var(--rule));
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--paper-dark) 55%, var(--surface));
+}
+.reading-body .literalblock pre,
+.event-body .literalblock pre,
+.reader-section .literalblock pre {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
 
 .reading-body pre code,
 .event-body pre code,
@@ -2797,23 +2830,66 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   line-height: inherit;
 }
 
-/* Djot `>` quotes and AsciiDoc quote blocks. Without this, a blockquote is just a paragraph. */
+/* Djot `>` quotes and AsciiDoc quote blocks. Without this, a blockquote is just a paragraph.
+   AsciiDoc puts .attribution next to <blockquote> inside .quoteblock — style the wrapper so
+   attribution sits inside the same left-border frame. */
 .reading-body blockquote,
 .event-body blockquote,
-.reader-section blockquote {
+.reader-section blockquote,
+.reading-body .quoteblock,
+.event-body .quoteblock,
+.reader-section .quoteblock {
   margin: 0.9rem 0;
   padding: 0.1rem 0 0.1rem 0.95rem;
   border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--rule));
   color: color-mix(in srgb, var(--ink) 84%, var(--ink-soft));
 }
+.reading-body .quoteblock > blockquote,
+.event-body .quoteblock > blockquote,
+.reader-section .quoteblock > blockquote {
+  margin: 0;
+  padding: 0;
+  border-left: none;
+  color: inherit;
+}
 .reading-body blockquote > :first-child,
 .event-body blockquote > :first-child,
-.reader-section blockquote > :first-child {
+.reader-section blockquote > :first-child,
+.reading-body .quoteblock > :first-child,
+.event-body .quoteblock > :first-child,
+.reader-section .quoteblock > :first-child {
   margin-top: 0;
 }
 .reading-body blockquote > :last-child,
 .event-body blockquote > :last-child,
-.reader-section blockquote > :last-child {
+.reader-section blockquote > :last-child,
+.reading-body .quoteblock > :last-child,
+.event-body .quoteblock > :last-child,
+.reader-section .quoteblock > :last-child {
+  margin-bottom: 0;
+}
+/* AsciiDoc wraps quote body in .paragraph > p; zero the nested p margin that
+   otherwise leaves a blank strip above the first line. */
+.reading-body blockquote > p:first-child,
+.event-body blockquote > p:first-child,
+.reader-section blockquote > p:first-child,
+.reading-body blockquote > .paragraph:first-child,
+.event-body blockquote > .paragraph:first-child,
+.reader-section blockquote > .paragraph:first-child,
+.reading-body blockquote > .paragraph:first-child > p,
+.event-body blockquote > .paragraph:first-child > p,
+.reader-section blockquote > .paragraph:first-child > p {
+  margin-top: 0;
+}
+.reading-body blockquote > p:last-child,
+.event-body blockquote > p:last-child,
+.reader-section blockquote > p:last-child,
+.reading-body blockquote > .paragraph:last-child,
+.event-body blockquote > .paragraph:last-child,
+.reader-section blockquote > .paragraph:last-child,
+.reading-body blockquote > .paragraph:last-child > p,
+.event-body blockquote > .paragraph:last-child > p,
+.reader-section blockquote > .paragraph:last-child > p {
   margin-bottom: 0;
 }
 .reading-body blockquote p,
@@ -2823,7 +2899,10 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 }
 .reading-body blockquote .djot-source,
 .event-body blockquote .djot-source,
-.reader-section blockquote .djot-source {
+.reader-section blockquote .djot-source,
+.reading-body .quoteblock .attribution,
+.event-body .quoteblock .attribution,
+.reader-section .quoteblock .attribution {
   margin-top: 0.45rem;
   font-size: 0.92em;
   color: var(--ink-soft);
@@ -2832,6 +2911,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .event-body blockquote .djot-source::before,
 .reader-section blockquote .djot-source::before {
   content: "— ";
+}
+.reading-body .quoteblock .attribution cite,
+.event-body .quoteblock .attribution cite,
+.reader-section .quoteblock .attribution cite {
+  font-style: italic;
 }
 /* Djot `{.important}` / `{.large}` land on the block itself. `div.important` stays an admonition. */
 .reading-body :not(div).important,
@@ -2845,11 +2929,6 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .event-body .large,
 .reader-section .large {
   font-size: 1.25em;
-}
-.reading-body .quoteblock,
-.event-body .quoteblock,
-.reader-section .quoteblock {
-  margin: 0.9rem 0;
 }
 .reading-body .asciidoc-doc-header,
 .event-body .asciidoc-doc-header,
@@ -2888,6 +2967,55 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .reader-section th {
   font-weight: 650;
   background: color-mix(in srgb, var(--paper-dark) 38%, transparent);
+}
+/* Asciidoctor cell alignment classes (must beat the defaults above). */
+.reading-body th.halign-left,
+.reading-body td.halign-left,
+.event-body th.halign-left,
+.event-body td.halign-left,
+.reader-section th.halign-left,
+.reader-section td.halign-left {
+  text-align: left;
+}
+.reading-body th.halign-right,
+.reading-body td.halign-right,
+.event-body th.halign-right,
+.event-body td.halign-right,
+.reader-section th.halign-right,
+.reader-section td.halign-right {
+  text-align: right;
+}
+.reading-body th.halign-center,
+.reading-body td.halign-center,
+.event-body th.halign-center,
+.event-body td.halign-center,
+.reader-section th.halign-center,
+.reader-section td.halign-center {
+  text-align: center;
+}
+.reading-body th.valign-top,
+.reading-body td.valign-top,
+.event-body th.valign-top,
+.event-body td.valign-top,
+.reader-section th.valign-top,
+.reader-section td.valign-top {
+  vertical-align: top;
+}
+.reading-body th.valign-middle,
+.reading-body td.valign-middle,
+.event-body th.valign-middle,
+.event-body td.valign-middle,
+.reader-section th.valign-middle,
+.reader-section td.valign-middle {
+  vertical-align: middle;
+}
+.reading-body th.valign-bottom,
+.reading-body td.valign-bottom,
+.event-body th.valign-bottom,
+.event-body td.valign-bottom,
+.reader-section th.valign-bottom,
+.reader-section td.valign-bottom {
+  vertical-align: bottom;
 }
 .reading-body .admonitionblock td,
 .event-body .admonitionblock td,
@@ -2928,20 +3056,18 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   text-decoration: underline;
   text-underline-offset: 0.12em;
 }
+/* Inline highlight only — `pre.highlight` is highlight.js, not a mark. */
 .reading-body .mark,
 .event-body .mark,
 .reader-section .mark,
-.reading-body .highlight,
-.event-body .highlight,
-.reader-section .highlight {
+.reading-body :not(pre).highlight,
+.event-body :not(pre).highlight,
+.reader-section :not(pre).highlight {
   background: #e8b84a;
   color: #1a140c;
   padding: 0.08em 0.14em;
   border-radius: 0.2em;
 }
-.reading-body :is(div.note, div.tip, div.important, div.caution, div.warning),
-.event-body :is(div.note, div.tip, div.important, div.caution, div.warning),
-.reader-section :is(div.note, div.tip, div.important, div.caution, div.warning),
 .reading-body .exampleblock,
 .event-body .exampleblock,
 .reader-section .exampleblock,
@@ -2955,18 +3081,130 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   border-radius: 0.35rem;
   background: color-mix(in srgb, var(--surface-2) 80%, transparent);
 }
+/* Djot unlabeled `:::` — same call-out shape, no tint or label. */
+.reading-body div.callout,
+.event-body div.callout,
+.reader-section div.callout {
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.95rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 75%, transparent);
+  border-left: 0.28rem solid color-mix(in srgb, var(--ink) 28%, var(--rule));
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+/* Djot call-outs (`::: note` …). Exclude AsciiDoc `.admonitionblock`, which already
+   has its own label cell and would otherwise get a duplicate ::before label. */
+.reading-body :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock),
+.event-body :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock),
+.reader-section :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock) {
+  --callout-accent: var(--accent);
+  --callout-wash: color-mix(in srgb, var(--callout-accent) 12%, var(--surface-2));
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.95rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--callout-accent) 28%, var(--rule));
+  border-left: 0.28rem solid var(--callout-accent);
+  border-radius: 0.35rem;
+  background: var(--callout-wash);
+}
+.reading-body :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock)::before,
+.event-body :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock)::before,
+.reader-section :is(div.note, div.tip, div.important, div.caution, div.warning):not(.admonitionblock)::before {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--callout-accent);
+}
+.reading-body div.note:not(.admonitionblock),
+.event-body div.note:not(.admonitionblock),
+.reader-section div.note:not(.admonitionblock) {
+  --callout-accent: #3b6ea5;
+}
+.reading-body div.note:not(.admonitionblock)::before,
+.event-body div.note:not(.admonitionblock)::before,
+.reader-section div.note:not(.admonitionblock)::before {
+  content: 'Note';
+}
+.reading-body div.tip:not(.admonitionblock),
+.event-body div.tip:not(.admonitionblock),
+.reader-section div.tip:not(.admonitionblock) {
+  --callout-accent: #2f7a4a;
+}
+.reading-body div.tip:not(.admonitionblock)::before,
+.event-body div.tip:not(.admonitionblock)::before,
+.reader-section div.tip:not(.admonitionblock)::before {
+  content: 'Tip';
+}
+.reading-body div.important:not(.admonitionblock),
+.event-body div.important:not(.admonitionblock),
+.reader-section div.important:not(.admonitionblock) {
+  --callout-accent: var(--accent-strong);
+}
+.reading-body div.important:not(.admonitionblock)::before,
+.event-body div.important:not(.admonitionblock)::before,
+.reader-section div.important:not(.admonitionblock)::before {
+  content: 'Important';
+}
+.reading-body div.caution:not(.admonitionblock),
+.event-body div.caution:not(.admonitionblock),
+.reader-section div.caution:not(.admonitionblock) {
+  --callout-accent: #b86a12;
+}
+.reading-body div.caution:not(.admonitionblock)::before,
+.event-body div.caution:not(.admonitionblock)::before,
+.reader-section div.caution:not(.admonitionblock)::before {
+  content: 'Caution';
+}
+.reading-body div.warning:not(.admonitionblock),
+.event-body div.warning:not(.admonitionblock),
+.reader-section div.warning:not(.admonitionblock) {
+  --callout-accent: #b42318;
+}
+.reading-body div.warning:not(.admonitionblock)::before,
+.event-body div.warning:not(.admonitionblock)::before,
+.reader-section div.warning:not(.admonitionblock)::before {
+  content: 'Warning';
+}
+:root.dark .reading-body div.note:not(.admonitionblock),
+:root.dark .event-body div.note:not(.admonitionblock),
+:root.dark .reader-section div.note:not(.admonitionblock) {
+  --callout-accent: #7eb6e0;
+}
+:root.dark .reading-body div.tip:not(.admonitionblock),
+:root.dark .event-body div.tip:not(.admonitionblock),
+:root.dark .reader-section div.tip:not(.admonitionblock) {
+  --callout-accent: #8fd4a4;
+}
+:root.dark .reading-body div.caution:not(.admonitionblock),
+:root.dark .event-body div.caution:not(.admonitionblock),
+:root.dark .reader-section div.caution:not(.admonitionblock) {
+  --callout-accent: #e0a35a;
+}
+:root.dark .reading-body div.warning:not(.admonitionblock),
+:root.dark .event-body div.warning:not(.admonitionblock),
+:root.dark .reader-section div.warning:not(.admonitionblock) {
+  --callout-accent: #f97066;
+}
+/* Sidebar: in-flow on narrow screens; floats beside the prose when wider. */
 .reading-body .sidebarblock,
 .event-body .sidebarblock,
 .reader-section .sidebarblock,
 .reading-body div.sidebar,
 .event-body div.sidebar,
 .reader-section div.sidebar {
-  margin: 1rem 0 1rem 1.15rem;
-  padding: 0.8rem 1rem 0.9rem;
+  display: block;
+  width: min(100%, 22rem);
+  max-width: 100%;
+  margin: 1.1rem auto;
+  padding: 0.85rem 1rem 0.95rem;
   border: 1px solid color-mix(in srgb, var(--ink) 16%, var(--rule));
-  border-radius: 0.2rem;
+  border-radius: 0.75rem;
   background: color-mix(in srgb, var(--paper-dark) 72%, var(--surface));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface) 55%, transparent);
+  clear: both;
 }
 .reading-body .sidebarblock > .content > .title,
 .event-body .sidebarblock > .content > .title,
@@ -2989,6 +3227,30 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .reader-section div.sidebar .paragraph {
   margin: 0.35rem 0;
 }
+@media (min-width: 720px) {
+  .reading-body .sidebarblock,
+  .event-body .sidebarblock,
+  .reader-section .sidebarblock,
+  .reading-body div.sidebar,
+  .event-body div.sidebar,
+  .reader-section div.sidebar {
+    float: right;
+    width: min(42%, 16.5rem);
+    margin: 0.35rem 0 1rem 1.15rem;
+    clear: right;
+  }
+  /* Optional left rail when the author marks it. */
+  .reading-body .sidebarblock.left,
+  .event-body .sidebarblock.left,
+  .reader-section .sidebarblock.left,
+  .reading-body div.sidebar.left,
+  .event-body div.sidebar.left,
+  .reader-section div.sidebar.left {
+    float: left;
+    margin: 0.35rem 1.15rem 1rem 0;
+    clear: left;
+  }
+}
 .reading-body kbd,
 .event-body kbd,
 .reader-section kbd {
@@ -3008,16 +3270,31 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 .reading-body b.button,
 .event-body b.button,
 .reader-section b.button {
-  display: inline-block;
-  font-weight: 650;
-  font-size: 0.92em;
-  line-height: 1.35;
-  padding: 0.08em 0.55em;
-  border: 1px solid color-mix(in srgb, var(--ink) 20%, var(--rule));
-  border-radius: 0.3rem;
-  background: color-mix(in srgb, var(--surface) 70%, var(--paper-dark));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 80%, white),
-    0 1px 0 color-mix(in srgb, var(--ink) 14%, transparent);
+  font-weight: 700;
+  font-style: normal;
+  white-space: nowrap;
+}
+.reading-body b.button::before,
+.event-body b.button::before,
+.reader-section b.button::before,
+.reading-body b.button::after,
+.event-body b.button::after,
+.reader-section b.button::after {
+  position: relative;
+  top: -0.05em;
+  font-weight: 400;
+}
+.reading-body b.button::before,
+.event-body b.button::before,
+.reader-section b.button::before {
+  content: '[';
+  padding: 0 0.28em 0 0.15em;
+}
+.reading-body b.button::after,
+.event-body b.button::after,
+.reader-section b.button::after {
+  content: ']';
+  padding: 0 0.15em 0 0.28em;
 }
 .reading-body .menuseq,
 .event-body .menuseq,
@@ -3042,21 +3319,131 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: var(--ink-soft);
   padding: 0 0.12em;
 }
+/* Task lists / checklists — CSS markers, not native inputs (those become form bars). */
+.reading-body ul.task-list,
+.event-body ul.task-list,
+.reader-section ul.task-list,
+.reading-body .checklist ul,
+.event-body .checklist ul,
+.reader-section .checklist ul {
+  list-style: none;
+  margin: 0.8rem 0;
+  padding-left: 0.15rem;
+}
+.reading-body ul.task-list > li.task-list-item,
+.event-body ul.task-list > li.task-list-item,
+.reader-section ul.task-list > li.task-list-item {
+  display: grid;
+  grid-template-columns: 1.05rem minmax(0, 1fr);
+  column-gap: 0.55rem;
+  align-items: start;
+  margin: 0.4rem 0;
+}
+.reading-body ul.task-list > li.task-list-item::before,
+.event-body ul.task-list > li.task-list-item::before,
+.reader-section ul.task-list > li.task-list-item::before {
+  content: '';
+  box-sizing: border-box;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-top: 0.28em;
+  border: 2px solid color-mix(in srgb, var(--ink) 58%, var(--rule));
+  border-radius: 0.22rem;
+  background: color-mix(in srgb, var(--surface) 88%, var(--paper-dark));
+}
+.reading-body ul.task-list > li.task-list-item.is-checked::before,
+.event-body ul.task-list > li.task-list-item.is-checked::before,
+.reader-section ul.task-list > li.task-list-item.is-checked::before {
+  border-color: var(--accent-strong);
+  background-color: var(--accent-strong);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5 6.5 11.5 12.5 4.5'/%3E%3C/svg%3E");
+  background-size: 0.78rem 0.78rem;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+:root.dark .reading-body ul.task-list > li.task-list-item.is-checked::before,
+:root.dark .event-body ul.task-list > li.task-list-item.is-checked::before,
+:root.dark .reader-section ul.task-list > li.task-list-item.is-checked::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%231a140c' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5 6.5 11.5 12.5 4.5'/%3E%3C/svg%3E");
+}
+.reading-body ul.task-list > li.task-list-item > :first-child,
+.event-body ul.task-list > li.task-list-item > :first-child,
+.reader-section ul.task-list > li.task-list-item > :first-child {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.reading-body .checklist li,
+.event-body .checklist li,
+.reader-section .checklist li {
+  margin: 0.35rem 0;
+  color: var(--ink);
+}
+.reading-body .checklist li p,
+.event-body .checklist li p,
+.reader-section .checklist li p {
+  margin: 0;
+}
+
 .reading-body dl,
 .event-body dl,
-.reader-section dl {
-  margin: 0.8rem 0;
+.reader-section dl,
+.reading-body .dlist,
+.event-body .dlist,
+.reader-section .dlist {
+  margin: 1rem 0 1.15rem;
+  padding: 0;
 }
 .reading-body dt,
 .event-body dt,
-.reader-section dt {
-  font-weight: 650;
-  margin-top: 0.45rem;
+.reader-section dt,
+.reading-body .dlist dt,
+.event-body .dlist dt,
+.reader-section .dlist dt {
+  margin: 0.85rem 0 0;
+  padding: 0.15rem 0 0.2rem 0.75rem;
+  border-left: 0.22rem solid var(--accent-strong);
+  color: var(--ink);
+  font-family: var(--ui-font);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.reading-body dt:first-child,
+.event-body dt:first-child,
+.reader-section dt:first-child,
+.reading-body .dlist dt:first-child,
+.event-body .dlist dt:first-child,
+.reader-section .dlist dt:first-child {
+  margin-top: 0;
 }
 .reading-body dd,
 .event-body dd,
-.reader-section dd {
-  margin: 0.1rem 0 0.35rem 1rem;
+.reader-section dd,
+.reading-body .dlist dd,
+.event-body .dlist dd,
+.reader-section .dlist dd {
+  margin: 0.2rem 0 0.55rem;
+  padding: 0.35rem 0.85rem 0.45rem 0.95rem;
+  border-left: 0.22rem solid color-mix(in srgb, var(--rule) 70%, transparent);
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface-2) 42%, transparent);
+  border-radius: 0 0.35rem 0.35rem 0;
+}
+.reading-body dd > :first-child,
+.event-body dd > :first-child,
+.reader-section dd > :first-child,
+.reading-body .dlist dd > :first-child,
+.event-body .dlist dd > :first-child,
+.reader-section .dlist dd > :first-child {
+  margin-top: 0;
+}
+.reading-body dd > :last-child,
+.event-body dd > :last-child,
+.reader-section dd > :last-child,
+.reading-body .dlist dd > :last-child,
+.event-body .dlist dd > :last-child,
+.reader-section .dlist dd > :last-child {
+  margin-bottom: 0;
 }
 
 /* Inline monospace — keep smaller than reading body, lightly marked. */
@@ -3105,14 +3492,7 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   overflow-y: hidden;
 }
 
-/* Asciidoctor wraps tables in .tableblock — scroll the wrapper, keep table layout. */
-.reading-body .tableblock,
-.event-body .tableblock,
-.reader-section .tableblock {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
+/* Asciidoctor marks tables with .tableblock (often the <table> itself). */
 .reading-body table,
 .event-body table,
 .reader-section table {
@@ -3120,14 +3500,116 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   width: 100%;
   max-width: 100%;
   border-collapse: collapse;
+  margin: 0.9rem 0;
 }
-
-.reading-body .tableblock table,
-.event-body .tableblock table,
-.reader-section .tableblock table {
-  width: max-content;
-  min-width: 100%;
-  max-width: none;
+.reading-body table.tableblock,
+.event-body table.tableblock,
+.reader-section table.tableblock {
+  max-width: 100%;
+  overflow-x: auto;
+}
+/* Percentage [cols="…"] widths need a definite table width (stretch = 100%). */
+.reading-body table.tableblock.stretch,
+.event-body table.tableblock.stretch,
+.reader-section table.tableblock.stretch {
+  width: 100%;
+}
+.reading-body table.tableblock.fit-content,
+.event-body table.tableblock.fit-content,
+.reader-section table.tableblock.fit-content {
+  width: auto;
+  max-width: 100%;
+}
+.reading-body table.tableblock > caption.title,
+.event-body table.tableblock > caption.title,
+.reader-section table.tableblock > caption.title,
+.reading-body .tableblock > .title,
+.event-body .tableblock > .title,
+.reader-section .tableblock > .title {
+  caption-side: top;
+  text-align: left;
+  margin: 0 0 0.45rem;
+  font-family: var(--ui-font);
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+.reading-body table.tableblock thead,
+.event-body table.tableblock thead,
+.reader-section table.tableblock thead,
+.reading-body table.tableblock tfoot,
+.event-body table.tableblock tfoot,
+.reader-section table.tableblock tfoot {
+  background: color-mix(in srgb, var(--paper-dark) 42%, transparent);
+}
+.reading-body table.tableblock tfoot th,
+.event-body table.tableblock tfoot th,
+.reader-section table.tableblock tfoot th,
+.reading-body table.tableblock tfoot td,
+.event-body table.tableblock tfoot td,
+.reader-section table.tableblock tfoot td {
+  font-weight: 650;
+  border-top-width: 2px;
+}
+.reading-body table.tableblock p.tableblock,
+.event-body table.tableblock p.tableblock,
+.reader-section table.tableblock p.tableblock {
+  margin: 0;
+}
+.reading-body table.tableblock.grid-all > * > tr > *,
+.event-body table.tableblock.grid-all > * > tr > *,
+.reader-section table.tableblock.grid-all > * > tr > * {
+  border-width: 1px;
+}
+.reading-body table.tableblock.grid-cols > * > tr > *,
+.event-body table.tableblock.grid-cols > * > tr > *,
+.reader-section table.tableblock.grid-cols > * > tr > * {
+  border-width: 0 1px;
+}
+.reading-body table.tableblock.grid-rows > * > tr > *,
+.event-body table.tableblock.grid-rows > * > tr > *,
+.reader-section table.tableblock.grid-rows > * > tr > * {
+  border-width: 1px 0;
+}
+.reading-body table.tableblock.grid-none > * > tr > *,
+.event-body table.tableblock.grid-none > * > tr > *,
+.reader-section table.tableblock.grid-none > * > tr > * {
+  border-width: 0;
+}
+.reading-body table.tableblock.frame-all,
+.event-body table.tableblock.frame-all,
+.reader-section table.tableblock.frame-all {
+  border: 1px solid color-mix(in srgb, var(--rule) 72%, transparent);
+}
+.reading-body table.tableblock.frame-ends,
+.event-body table.tableblock.frame-ends,
+.reader-section table.tableblock.frame-ends {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--rule) 72%, transparent);
+  border-width: 1px 0;
+}
+.reading-body table.tableblock.frame-sides,
+.event-body table.tableblock.frame-sides,
+.reader-section table.tableblock.frame-sides {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--rule) 72%, transparent);
+  border-width: 0 1px;
+}
+.reading-body table.tableblock.frame-none,
+.event-body table.tableblock.frame-none,
+.reader-section table.tableblock.frame-none {
+  border-width: 0;
+}
+.reading-body table.tableblock.stripes-odd > tbody > tr:nth-of-type(odd),
+.event-body table.tableblock.stripes-odd > tbody > tr:nth-of-type(odd),
+.reader-section table.tableblock.stripes-odd > tbody > tr:nth-of-type(odd),
+.reading-body table.tableblock.stripes-even > tbody > tr:nth-of-type(even),
+.event-body table.tableblock.stripes-even > tbody > tr:nth-of-type(even),
+.reader-section table.tableblock.stripes-even > tbody > tr:nth-of-type(even),
+.reading-body table.tableblock.stripes-all > tbody > tr,
+.event-body table.tableblock.stripes-all > tbody > tr,
+.reader-section table.tableblock.stripes-all > tbody > tr {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
 }
 
 .reading-body .tableblock img,
@@ -3139,65 +3621,127 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   height: auto;
 }
 
-/* AsciiDoc admonitions use a 2-column table; display:block collapses the icon cell. */
+/* AsciiDoc admonitions: stack label above body like Djot call-outs (not a 2-col table). */
 .reading-body .admonitionblock,
 .event-body .admonitionblock,
 .reader-section .admonitionblock {
-  margin: 1rem 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-left: 0.28rem solid var(--accent);
+  --callout-accent: var(--accent);
+  --callout-wash: color-mix(in srgb, var(--callout-accent) 12%, var(--surface-2));
+  margin: 0.9rem 0;
+  padding: 0.7rem 0.95rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--callout-accent) 28%, var(--rule));
+  border-left: 0.28rem solid var(--callout-accent);
   border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  background: var(--callout-wash);
   max-width: 100%;
-  overflow-x: auto;
+}
+.reading-body .admonitionblock.note,
+.event-body .admonitionblock.note,
+.reader-section .admonitionblock.note {
+  --callout-accent: #3b6ea5;
+}
+.reading-body .admonitionblock.tip,
+.event-body .admonitionblock.tip,
+.reader-section .admonitionblock.tip {
+  --callout-accent: #2f7a4a;
+}
+.reading-body .admonitionblock.important,
+.event-body .admonitionblock.important,
+.reader-section .admonitionblock.important {
+  --callout-accent: var(--accent-strong);
+}
+.reading-body .admonitionblock.caution,
+.event-body .admonitionblock.caution,
+.reader-section .admonitionblock.caution {
+  --callout-accent: #b86a12;
+}
+.reading-body .admonitionblock.warning,
+.event-body .admonitionblock.warning,
+.reader-section .admonitionblock.warning {
+  --callout-accent: #b42318;
+}
+:root.dark .reading-body .admonitionblock.note,
+:root.dark .event-body .admonitionblock.note,
+:root.dark .reader-section .admonitionblock.note {
+  --callout-accent: #7eb6e0;
+}
+:root.dark .reading-body .admonitionblock.tip,
+:root.dark .event-body .admonitionblock.tip,
+:root.dark .reader-section .admonitionblock.tip {
+  --callout-accent: #8fd4a4;
+}
+:root.dark .reading-body .admonitionblock.caution,
+:root.dark .event-body .admonitionblock.caution,
+:root.dark .reader-section .admonitionblock.caution {
+  --callout-accent: #e0a35a;
+}
+:root.dark .reading-body .admonitionblock.warning,
+:root.dark .event-body .admonitionblock.warning,
+:root.dark .reader-section .admonitionblock.warning {
+  --callout-accent: #f97066;
 }
 
 .reading-body .admonitionblock table,
 .event-body .admonitionblock table,
-.reader-section .admonitionblock table {
-  display: table;
+.reader-section .admonitionblock table,
+.reading-body .admonitionblock tbody,
+.event-body .admonitionblock tbody,
+.reader-section .admonitionblock tbody,
+.reading-body .admonitionblock tr,
+.event-body .admonitionblock tr,
+.reader-section .admonitionblock tr {
+  display: block;
   width: 100%;
-  table-layout: auto;
-  border-collapse: separate;
-  border-spacing: 0;
-  overflow: visible;
+  border: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .reading-body .admonitionblock td.icon,
 .event-body .admonitionblock td.icon,
 .reader-section .admonitionblock td.icon {
-  width: 1%;
-  white-space: nowrap;
-  vertical-align: top;
-  padding: 0 0.85rem 0 0;
-  font-weight: 650;
-  color: var(--accent);
+  display: block;
+  width: auto;
+  padding: 0;
+  margin: 0 0 0.35rem;
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--callout-accent);
 }
 
 .reading-body .admonitionblock td.icon .title,
 .event-body .admonitionblock td.icon .title,
 .reader-section .admonitionblock td.icon .title {
+  display: inline;
   white-space: nowrap;
 }
 
 .reading-body .admonitionblock td.content,
 .event-body .admonitionblock td.content,
 .reader-section .admonitionblock td.content {
-  width: 99%;
-  vertical-align: top;
+  display: block;
+  width: auto;
   padding: 0;
 }
 
 .reading-body .admonitionblock td.content > :first-child,
 .event-body .admonitionblock td.content > :first-child,
-.reader-section .admonitionblock td.content > :first-child {
+.reader-section .admonitionblock td.content > :first-child,
+.reading-body .admonitionblock td.content .paragraph:first-child > p,
+.event-body .admonitionblock td.content .paragraph:first-child > p,
+.reader-section .admonitionblock td.content .paragraph:first-child > p {
   margin-top: 0;
 }
 
 .reading-body .admonitionblock td.content > :last-child,
 .event-body .admonitionblock td.content > :last-child,
-.reader-section .admonitionblock td.content > :last-child {
+.reader-section .admonitionblock td.content > :last-child,
+.reading-body .admonitionblock td.content .paragraph:last-child > p,
+.event-body .admonitionblock td.content .paragraph:last-child > p,
+.reader-section .admonitionblock td.content .paragraph:last-child > p {
   margin-bottom: 0;
 }
 

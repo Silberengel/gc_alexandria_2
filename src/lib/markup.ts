@@ -408,6 +408,23 @@ export function renderDjotHtml(src: string): string {
   try {
     return renderDjot(parseDjot(normalized), {
       overrides: {
+        // Unlabeled `:::` is a neutral call-out; named ones keep note/tip/sidebar/…
+        div(node, renderer) {
+          const attrs = node.attributes;
+          if (attrs?.class?.trim()) return renderer.renderAstNodeDefault(node);
+          const prev = node.attributes;
+          node.attributes = { ...(attrs ?? {}), class: 'callout' };
+          const html = renderer.renderAstNodeDefault(node);
+          node.attributes = prev;
+          return html;
+        },
+        // Native checkbox inputs inherit full-width form styles and look like bars.
+        task_list_item(node, renderer) {
+          const checked = node.checkbox === 'checked';
+          const body = renderer.renderChildren(node);
+          const cls = checked ? 'task-list-item is-checked' : 'task-list-item';
+          return `<li class="${cls}">${body}</li>\n`;
+        },
         // `{source="…"}` is only an HTML attribute, so the preview and reader never showed it.
         block_quote(node, renderer) {
           const html = renderer.renderAstNodeDefault(node);

@@ -190,6 +190,22 @@ Don't forget to turn off the water!
     expect(html).toContain('<p id="water" class="important large">');
     expect(html).toContain('<footer class="djot-source">Iliad</footer>');
   });
+
+  it('treats an unlabeled ::: as a neutral callout', () => {
+    const plain = renderDjotHtml(':::\nHello\n:::');
+    expect(plain).toContain('<div class="callout">');
+    expect(plain).not.toContain('class="note"');
+    const named = renderDjotHtml('::: note\nHello\n:::');
+    expect(named).toContain('<div class="note">');
+    expect(named).not.toContain('class="callout"');
+  });
+
+  it('renders task lists without native checkbox inputs', () => {
+    const html = renderDjotHtml('- [ ] open\n- [x] done');
+    expect(html).toContain('class="task-list-item"');
+    expect(html).toContain('class="task-list-item is-checked"');
+    expect(html).not.toContain('<input');
+  });
 });
 
 describe('topic hashtags', () => {
