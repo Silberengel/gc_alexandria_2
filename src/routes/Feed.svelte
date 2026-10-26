@@ -115,8 +115,8 @@
         return `Original posts and replies from theforest${follows}.`;
       }
       return favorites.length
-        ? `Original posts and replies from your favorites and inboxes${follows}.`
-        : `Original posts and replies from your inboxes${follows}.`;
+        ? `Original posts and replies from your favorite and inbox relays${follows}.`
+        : `Original posts and replies from your inbox relays${follows}.`;
     }
     if (!signedIn) return 'Original posts from theforest.';
     const follows = feedFollowAuthors(metadataEvents, $muteState).length
@@ -125,8 +125,8 @@
     const { favorites, inbox } = getSelectorContext();
     if (!favorites.length && !inbox.length) return `Original posts from theforest${follows}.`;
     return favorites.length
-      ? `Original posts from your favorites and inboxes${follows}.`
-      : `Original posts from your inboxes${follows}.`;
+      ? `Original posts from your favorite and inbox relays${follows}.`
+      : `Original posts from your inbox relays${follows}.`;
   });
 
   function setFeedTab(next: FeedTab): void {
