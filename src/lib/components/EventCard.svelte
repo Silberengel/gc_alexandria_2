@@ -15,6 +15,7 @@
   import WikiMergeCard from './WikiMergeCard.svelte';
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
+  import HighlightSourceBlurb from './HighlightSourceBlurb.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -145,6 +146,7 @@
         <p class="note-card-by muted">
           by <UserBadge pubkey={event.pubkey} />
         </p>
+        <HighlightSourceBlurb {event} />
         <div class="generic-card-body">
           <EventBody {event} embedDepth={embedDepth} showEmbeds={false} />
         </div>

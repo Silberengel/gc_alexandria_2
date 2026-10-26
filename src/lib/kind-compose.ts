@@ -7,6 +7,8 @@ export {
   buildKind0Content,
   parseKind0Json,
   buildHighlightSourceTags,
+  highlightSourceRef,
+  highlightSourceLabelFallback,
   buildHighlightBookSectionScopeTags,
   buildNip22TagsForTarget,
   buildPublicationTags,
@@ -30,6 +32,8 @@ export type {
   ComposeDraft,
   EmitContext,
   EventValidation,
+  HighlightSourceRef,
+  HighlightSourceEvent,
 } from '@silberengel/kind-compose-catalog';
 
 import {
