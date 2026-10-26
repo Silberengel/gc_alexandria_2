@@ -43,6 +43,7 @@
   import WikiMergeCard from './WikiMergeCard.svelte';
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
+  import HighlightSourceBlurb from './HighlightSourceBlurb.svelte';
   import {
     isShortNoteEdited,
     mergeEditedShortNote,
@@ -473,6 +474,9 @@
   {:else if event && sourceKind === KIND.APP_HANDLER}
     <AppHandlerChip {event} showMenu={false} />
   {:else if isHighlightEvent}
+    {#if displayEvent}
+      <HighlightSourceBlurb event={displayEvent} />
+    {/if}
     {#if bodyPending}
       <LoadingHint message={loadingLabel} />
     {:else if highlightHtml}
