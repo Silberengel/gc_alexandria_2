@@ -20,7 +20,8 @@
     localRoomPresence,
     roomPresenceDraft
   } from '$lib/live-chat';
-  import { isSignInFlight, signAndPublish } from '$lib/sign';
+  import { consumeSignFailure, isSignInFlight, signAndPublish } from '$lib/sign';
+  import { showNotice } from '$lib/stores/toast';
   import {
     emptyWorkResponses,
     eventsPointingAtId,
@@ -173,6 +174,8 @@
   });
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
+  let noteDraft = $state('');
+  let notePosting = $state(false);
   let listLoading = $state(true);
   /** True only after a load finishes once the viewer's relay lists are in place. */
   let listSettled = $state(false);
@@ -241,6 +244,36 @@
         io.disconnect();
       }
     };
+  }
+
+  function clearNoteDraft(): void {
+    noteDraft = '';
+  }
+
+  async function postNote(): Promise<void> {
+    const content = noteDraft.trim();
+    if (!content || notePosting) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    notePosting = true;
+    try {
+      const signed = await signAndPublish({
+        kind: KIND.TEXT_NOTE,
+        content,
+        tags: []
+      });
+      if (!signed) {
+        showNotice(consumeSignFailure() ?? 'Could not post this note.');
+        return;
+      }
+      noteDraft = '';
+      items = mergeFeedPosts(untrack(() => items), [signed]);
+      showNotice('Posted.', true);
+    } finally {
+      notePosting = false;
+    }
   }
 
   function rowText(item: Event): string {
@@ -887,6 +920,41 @@
         </p>
       {/if}
     </header>
+    <form
+      class="compose feed-note-compose"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void postNote();
+      }}
+    >
+      <label class="feed-note-label" for="feed-note-draft">Post a note</label>
+      <textarea
+        id="feed-note-draft"
+        rows="3"
+        bind:value={noteDraft}
+        placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
+        disabled={notePosting || !signedIn}
+      ></textarea>
+      <div class="compose-actions">
+        {#if signedIn}
+          <button
+            class="btn btn-primary"
+            type="submit"
+            disabled={notePosting || !noteDraft.trim()}
+          >{notePosting ? 'Posting…' : 'Post'}</button>
+          <button
+            class="btn"
+            type="button"
+            disabled={notePosting || !noteDraft}
+            onclick={clearNoteDraft}
+          >Clear</button>
+        {:else}
+          <button type="button" class="btn btn-primary" onclick={() => openLoginDialog()}
+            >Sign in</button
+          >
+        {/if}
+      </div>
+    </form>
     <div class="feed-tabs" role="tablist" aria-label="Feed view">
       <button
         type="button"
@@ -1063,6 +1131,32 @@
 </main>
 
 <style>
+  .feed-note-compose {
+    margin: 0 0 1rem;
+    max-width: 40rem;
+  }
+  .feed-note-label {
+    font-family: var(--ui-font);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+  }
+  .feed-note-compose textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 4.5rem;
+    padding: 0.55rem 0.65rem;
+    font: inherit;
+    line-height: 1.45;
+    color: inherit;
+    background: var(--paper-light, var(--paper));
+    border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+    border-radius: 0.4rem;
+  }
+  .feed-note-compose textarea:disabled {
+    opacity: 0.7;
+  }
   .feed-back {
     margin: 0 0 0.75rem;
   }
