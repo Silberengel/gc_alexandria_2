@@ -287,7 +287,7 @@ body:has(main.reading-page) .top-bar {
 }
 
 /*
- * Quite wide only: brand | search | session on one row; tabs centered under.
+ * Quite wide: brand | search | session on one row; tabs centered under.
  * Below this, search stays on its own row so it never fights the title.
  */
 @media (min-width: 1200px) {
@@ -322,6 +322,63 @@ body:has(main.reading-page) .top-bar {
     grid-column: 1 / -1;
     grid-row: 2;
     justify-content: center;
+  }
+}
+
+/*
+ * Very wide: brand | tabs | search | session on a single row.
+ */
+@media (min-width: 1440px) {
+  .top-bar,
+  .top-bar.top-bar-with-search {
+    grid-template-columns: auto auto minmax(12rem, 1fr) auto;
+    justify-content: stretch;
+    align-items: center;
+    column-gap: 1rem;
+  }
+  .top-bar .brand,
+  .top-bar.top-bar-with-search .brand {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+    max-width: min(100%, 20rem);
+  }
+  .top-bar nav,
+  .top-bar.top-bar-with-search nav {
+    grid-column: 2;
+    grid-row: 1;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    min-width: 0;
+  }
+  .top-bar .top-bar-search,
+  .top-bar .search-form.top-bar-search,
+  .top-bar.top-bar-with-search .top-bar-search,
+  .top-bar.top-bar-with-search .search-form.top-bar-search {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: stretch;
+    width: 100%;
+    max-width: 36rem;
+    margin-inline: 0 auto;
+  }
+  .top-bar-session,
+  .top-bar.top-bar-with-search .top-bar-session {
+    grid-column: 4;
+    grid-row: 1;
+    justify-self: end;
+    max-width: min(100%, 18rem);
+    overflow: hidden;
+  }
+  /* No search field (e.g. /search): brand | tabs …… session */
+  .top-bar:not(.top-bar-with-search) {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .top-bar:not(.top-bar-with-search) nav {
+    grid-column: 2;
+  }
+  .top-bar:not(.top-bar-with-search) .top-bar-session {
+    grid-column: 3;
   }
 }
 .btn-icon {

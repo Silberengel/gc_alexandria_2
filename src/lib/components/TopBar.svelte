@@ -78,6 +78,19 @@
     <img src="/favicon.png" width="32" height="32" alt="" />
     <span>Library of Alexandria</span>
   </a>
+  <nav>
+    <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
+    <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
+    <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
+    <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
+    {#if $session.pubkey}
+      <a href="#/contact" use:link aria-current={onContact ? 'page' : undefined}>Contact</a>
+    {/if}
+    <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
+  </nav>
+  {#if searchVisible}
+    <SearchForm class="top-bar-search" />
+  {/if}
   <div class="top-bar-session">
     {#if $session.pubkey}
       <UserBadge pubkey={$session.pubkey} />
@@ -117,19 +130,6 @@
       </button>
     {/if}
   </div>
-  {#if searchVisible}
-    <SearchForm class="top-bar-search" />
-  {/if}
-  <nav>
-    <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
-    <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
-    <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
-    <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
-    {#if $session.pubkey}
-      <a href="#/contact" use:link aria-current={onContact ? 'page' : undefined}>Contact</a>
-    {/if}
-    <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
-  </nav>
 </header>
 
 <LoginDialog open={$loginDialogOpen} onClose={closeLoginDialog} />

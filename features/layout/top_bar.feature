@@ -20,6 +20,7 @@ Feature: Top bar and search
     And I do not see compose, events, or visualize controls
     And on a narrow screen the brand and session share the first row while nav sits on the row below
     And on a narrow screen the signed-in badge shows the profile picture without the display name
+    And on a very wide screen the top bar is one row: brand, tabs, search (when shown), then session
 
   Scenario: Top bar auto-hides in the publication reader
     When I am reading a publication

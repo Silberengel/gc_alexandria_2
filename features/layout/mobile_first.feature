@@ -13,6 +13,7 @@ Feature: Mobile-first layout
     And each shelf may scroll horizontally inside its own shelf-bar in full view
     When I widen to a tablet, then a laptop or desktop
     Then the catalog gains columns and the top bar fills the width
+    And on a very wide screen the top bar keeps brand, tabs, search, and session on one row
     And I do not switch information architecture
     And reading, wiki, profile, and other content shells keep the publication reading measure
     And the home and search catalog shells stay wider so shelves and result grids can gain columns
