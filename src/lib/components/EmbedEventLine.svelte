@@ -48,6 +48,7 @@
   const title = $derived.by(() => {
     if (isPubLike) return displayTitle(event);
     const preview = eventPreview(event);
+    // Kind is already shown in the badge — never reuse it as the title.
     const generic =
       !preview.headline ||
       /^KIND:/u.test(preview.headline) ||
@@ -55,7 +56,7 @@
       preview.headline === kindDescription(event.kind);
     if (!generic) return cropText(preview.headline, 72);
     const body = preview.body || preview.summary || '';
-    return cropText(body, 72) || kindLabel;
+    return cropText(body, 72);
   });
   const authorByline = $derived(
     meta.authors
@@ -76,7 +77,9 @@
     </span>
   {/if}
   <span class="embed-event-kind muted">{kindLabel}</span>
-  <span class="embed-event-title">{title}</span>
+  {#if title}
+    <span class="embed-event-title">{title}</span>
+  {/if}
   {#if authorByline}
     <span class="embed-event-sep muted" aria-hidden="true">·</span>
     <span class="embed-event-by muted">{authorByline}</span>
