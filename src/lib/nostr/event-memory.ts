@@ -29,7 +29,9 @@ const SOCIAL_KINDS = new Set<number>([
   KIND.LONG_FORM,
   KIND.PUBLICATION,
   KIND.WIKI,
-  KIND.SPEC
+  KIND.SPEC,
+  KIND.REPOST,
+  KIND.GENERIC_REPOST
 ]);
 const bySocialKind = new Map<number, Map<string, Event>>();
 /** Events whose e / E / q tag points at this id (replies, comments, reactions). */

@@ -1,16 +1,37 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { uniqueReposterPubkeys } from '$lib/repost';
+  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
+  import { boostPaintRevision } from '$lib/local-boosts';
+  import { memoryEventsReferencing } from '$lib/nostr/event-memory';
+  import { isRepostKind, uniqueReposterPubkeys } from '$lib/repost';
   import UserBadge from './UserBadge.svelte';
 
   interface Props {
     /** Kind 6 / 16 events that point at the note being shown. */
     boosts: Event[];
+    /** Target note id — merges local/memory reposts for instant paint after publish. */
+    targetId?: string;
   }
 
-  let { boosts }: Props = $props();
+  let { boosts, targetId = '' }: Props = $props();
 
-  const boosters = $derived(uniqueReposterPubkeys(boosts));
+  const boosters = $derived.by(() => {
+    void $boostPaintRevision;
+    void $deletionRevision;
+    const byId = new Map<string, Event>();
+    for (const boost of boosts) {
+      if (!isRepostKind(boost.kind)) continue;
+      byId.set(boost.id.toLowerCase(), boost);
+    }
+    const tid = targetId.trim().toLowerCase();
+    if (tid && /^[0-9a-f]{64}$/.test(tid)) {
+      for (const event of memoryEventsReferencing(tid)) {
+        if (!isRepostKind(event.kind)) continue;
+        byId.set(event.id.toLowerCase(), event);
+      }
+    }
+    return uniqueReposterPubkeys(filterDeletedEvents([...byId.values()]));
+  });
 </script>
 
 {#if boosters.length}

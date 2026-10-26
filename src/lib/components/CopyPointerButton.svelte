@@ -17,7 +17,9 @@
   import { fetchRepostsForId, myRepostOf, repostDraft } from '$lib/repost';
   import { deletionDraft } from '$lib/drafts';
   import { rememberDeletedTarget } from '$lib/deletions';
+  import { bumpBoostPaint } from '$lib/local-boosts';
   import { cacheDeleteEvent } from '$lib/nostr/cache';
+  import { rememberEvents } from '$lib/nostr/event-memory';
   import { consumeSignFailure, publishSigned, signUnsigned } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -381,6 +383,8 @@
         return;
       }
       myRepost = signed;
+      rememberEvents([signed]);
+      bumpBoostPaint();
       reposted = true;
       showNotice('Reposted.', true);
       clearTimeout(timer);
@@ -411,6 +415,7 @@
       rememberDeletedTarget(target, signed);
       void cacheDeleteEvent(target.id);
       myRepost = null;
+      bumpBoostPaint();
       reposted = false;
       showNotice('Repost deleted.', true);
       clearTimeout(timer);

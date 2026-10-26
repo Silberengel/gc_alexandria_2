@@ -97,10 +97,11 @@
     }
     if (resolved) {
       const path = eventHref(resolved);
-      if (path) return path.startsWith('#') ? path : `#${path.replace(/^\//, '')}`;
+      if (path) return path.startsWith('#') ? path : path.startsWith('/') ? `#${path}` : `#/${path}`;
     }
     const path = addressPath(source.coordinate);
-    return path ? `#${path.replace(/^\//, '')}` : null;
+    if (!path) return null;
+    return path.startsWith('/') ? `#${path}` : `#/${path}`;
   });
 
   const labelText = $derived.by(() => {

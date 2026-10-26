@@ -832,7 +832,7 @@
           <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
         {:else}
           <article class="card reading-body">
-            <FeedBoosters boosts={threadBoosts} />
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
             {#if libraryKind}
               <EditionHeader {event} />
             {:else}
@@ -985,7 +985,7 @@
                   openThreadForEvent(item, e as unknown as MouseEvent, item.id);
                 }}
               >
-                <FeedBoosters boosts={row.boosts} />
+                <FeedBoosters boosts={row.boosts} targetId={item.id} />
                 <div class="thread-head">
                   <UserBadge pubkey={item.pubkey} />
                   <a
@@ -1028,7 +1028,7 @@
                   openThreadForTargetId(row.targetId, e as unknown as MouseEvent, target);
                 }}
               >
-                <FeedBoosters boosts={row.boosts} />
+                <FeedBoosters boosts={row.boosts} targetId={row.targetId} />
                 {#if target}
                   <div class="thread-head">
                     <UserBadge pubkey={target.pubkey} />
@@ -1128,14 +1128,13 @@
     flex-direction: column;
     max-height: 500px;
     padding: 0.55rem 0.75rem;
+    overflow: hidden;
     overflow-anchor: none;
   }
   .feed-row-oneline {
     max-height: none;
+    overflow: visible;
     padding: 0.4rem 0.75rem;
-  }
-  .feed-row-boost {
-    max-height: none;
   }
   .feed-boost-missing {
     margin: 0.15rem 0 0;
