@@ -6,7 +6,8 @@
   import { KIND } from '$lib/constants';
   import { cardMeta, displayTitle } from '$lib/metadata';
   import { eventPreview } from '$lib/event-preview';
-  import { kindDescription } from '$lib/kind-label';
+  import { eventKindDescription, kindDescription } from '$lib/kind-label';
+  import { isKind1Quote, isKind1Reply } from '$lib/comments';
   import { eventHref, cropText } from '$lib/listing-table';
   import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
@@ -38,7 +39,11 @@
             : event.kind === KIND.PUBLICATION
               ? 'Library Card'
               : event.kind === KIND.TEXT_NOTE
-                ? 'Note'
+                ? isKind1Reply(event)
+                  ? 'Reply'
+                  : isKind1Quote(event)
+                    ? 'Quote'
+                    : 'Note'
                 : event.kind === KIND.COMMENT
                   ? 'Comment'
                   : event.kind === KIND.HIGHLIGHT
@@ -53,7 +58,8 @@
       !preview.headline ||
       /^KIND:/u.test(preview.headline) ||
       preview.headline === kindLabel ||
-      preview.headline === kindDescription(event.kind);
+      preview.headline === kindDescription(event.kind) ||
+      preview.headline === eventKindDescription(event);
     if (!generic) return cropText(preview.headline, 72);
     const body = preview.body || preview.summary || '';
     return cropText(body, 72);

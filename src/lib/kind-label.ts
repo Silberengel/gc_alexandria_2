@@ -1,4 +1,6 @@
+import type { Event } from 'nostr-tools';
 import { getKind } from '@silberengel/kind-compose-catalog';
+import { isKind1Quote, isKind1Reply } from './comments';
 import { KIND } from './constants';
 
 /** Short human label for a Nostr kind — prefer the compose catalog. */
@@ -73,4 +75,23 @@ export function kindLabelLine(kind: number): string {
   const desc = kindDescription(kind);
   if (desc.startsWith('Event (kind ')) return desc;
   return `KIND: ${kind} · ${desc}`;
+}
+
+/**
+ * Kind label for a concrete event — replies and quotes get distinct copy.
+ * Reply wins over quote when both tags are present.
+ */
+export function eventKindDescription(event: Event): string {
+  if (event.kind === KIND.TEXT_NOTE) {
+    if (isKind1Reply(event)) return 'Short text reply';
+    if (isKind1Quote(event)) return 'Quote';
+  }
+  return kindDescription(event.kind);
+}
+
+/** Compact kind line for a concrete event. */
+export function eventKindLabelLine(event: Event): string {
+  const desc = eventKindDescription(event);
+  if (desc.startsWith('Event (kind ')) return desc;
+  return `KIND: ${event.kind} · ${desc}`;
 }

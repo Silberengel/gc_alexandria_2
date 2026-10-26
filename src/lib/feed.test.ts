@@ -8,7 +8,10 @@ import {
   feedAuthorRepliesPath,
   feedListPath,
   feedRelayGroups,
+  feedInteractionTargetPointer,
   feedThreadPath,
+  feedThreadRootPointer,
+  isFeedInteractionEvent,
   isFeedReplyRow,
   isNotificationForViewer,
   isFeedRepost,
@@ -407,5 +410,117 @@ describe('feed thread query paths', () => {
     expect(parseFeedThreadParam(`thread=${naddr}`)).toBe(
       `${live.kind}:${live.pubkey}:room-1`
     );
+  });
+
+  it('opens a kind 1 reply at the NIP-10 root with comment focus', () => {
+    const rootId = '3'.repeat(64);
+    const reply = ev({
+      id: '4'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'a'.repeat(64),
+      tags: [
+        ['e', rootId, '', 'root'],
+        ['e', '5'.repeat(64), '', 'reply']
+      ]
+    });
+    const rootNevent = nip19.neventEncode({ id: rootId });
+    expect(feedThreadRootPointer(reply)).toBe(rootNevent);
+    expect(feedThreadPath(reply, 'replies')).toBe(
+      `/feed?thread=${rootNevent}&comment=${reply.id}&tab=replies`
+    );
+  });
+
+  it('opens a kind 1111 comment at the NIP-22 E root with comment focus', () => {
+    const rootId = '6'.repeat(64);
+    const comment = ev({
+      id: '7'.repeat(64),
+      kind: KIND.COMMENT,
+      pubkey: 'a'.repeat(64),
+      tags: [
+        ['E', rootId],
+        ['e', '8'.repeat(64)]
+      ]
+    });
+    const rootNevent = nip19.neventEncode({ id: rootId });
+    expect(feedThreadPath(comment, 'replies')).toBe(
+      `/feed?thread=${rootNevent}&comment=${comment.id}&tab=replies`
+    );
+  });
+
+  it('opens a reaction or zap at the target event thread, not itself', () => {
+    const noteId = '9'.repeat(64);
+    const noteNevent = nip19.neventEncode({ id: noteId });
+    const reaction = ev({
+      id: 'a1'.repeat(32),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [
+        ['e', noteId],
+        ['p', 'b'.repeat(64)]
+      ]
+    });
+    const zap = ev({
+      id: 'a2'.repeat(32),
+      kind: KIND.ZAP,
+      content: '',
+      tags: [
+        ['e', noteId],
+        ['p', 'b'.repeat(64)]
+      ]
+    });
+    expect(isFeedInteractionEvent(reaction)).toBe(true);
+    expect(isFeedInteractionEvent(zap)).toBe(true);
+    expect(feedInteractionTargetPointer(reaction)).toBe(noteNevent);
+    expect(feedThreadPath(reaction, 'notifications')).toBe(
+      `/feed?thread=${noteNevent}&tab=notifications`
+    );
+    expect(feedThreadPath(zap, 'notifications')).toBe(
+      `/feed?thread=${noteNevent}&tab=notifications`
+    );
+    expect(feedThreadPath(reaction)).not.toContain(reaction.id);
+  });
+
+  it('opens a reaction on a reply at the NIP-10 root with comment focus when warm', () => {
+    const rootId = 'b1'.repeat(32);
+    const replyId = 'b2'.repeat(32);
+    const reply = ev({
+      id: replyId,
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'a'.repeat(64),
+      tags: [
+        ['e', rootId, '', 'root'],
+        ['e', rootId, '', 'reply']
+      ]
+    });
+    rememberEvents([reply]);
+    const reaction = ev({
+      id: 'b3'.repeat(32),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [['e', replyId]]
+    });
+    const rootNevent = nip19.neventEncode({ id: rootId });
+    expect(feedThreadPath(reaction, 'notifications')).toBe(
+      `/feed?thread=${rootNevent}&comment=${replyId}&tab=notifications`
+    );
+  });
+
+  it('does not recurse forever when a reaction targets another reaction', () => {
+    const noteId = 'c1'.repeat(32);
+    const inner = ev({
+      id: 'c2'.repeat(32),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [['e', noteId]]
+    });
+    rememberEvents([inner]);
+    const outer = ev({
+      id: 'c3'.repeat(32),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [['e', inner.id]]
+    });
+    const innerNevent = nip19.neventEncode({ id: inner.id });
+    expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}`);
   });
 });

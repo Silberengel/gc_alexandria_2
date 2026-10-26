@@ -144,6 +144,11 @@ export function stageComposeDraft(
   ensureDraftFlushListeners();
 }
 
+/** Drop a staged snapshot so pagehide cannot resurrect a deleted draft. */
+export function clearStagedComposeDraft(): void {
+  stagedDraft = null;
+}
+
 /** Write the staged draft to sessionStorage. Empty shells are skipped (not deleted). */
 export function flushStagedComposeDraft(): void {
   if (!stagedDraft) return;

@@ -33,7 +33,8 @@
   import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
-  import { kindDescription } from '$lib/kind-label';
+  import { eventKindDescription } from '$lib/kind-label';
+  import { eventHref } from '$lib/listing-table';
   import { libraryDocumentPath } from '$lib/metadata';
   import { fetchById } from '$lib/nostr/fetch';
   import { eventAddress } from '$lib/nostr/verify';
@@ -50,6 +51,7 @@
     feedListPath,
     feedRelayGroups,
     eventMatchesThreadTarget,
+    isFeedInteractionEvent,
     feedThreadPath,
     feedThreadPointerFromId,
     fetchFeedThreadTarget,
@@ -71,6 +73,7 @@
     type FeedTab
   } from '$lib/feed';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
+  import { memoryGetEvent } from '$lib/nostr/event-memory';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -91,6 +94,15 @@
       : parseFeedTab(feedQuery.get('tab'))
   );
   let metadataEvents = $state<Event[]>([]);
+  /**
+   * Stable feed-load deps. Raw `metadataEvents` / `$muteState` get new identities on every
+   * kind-0 merge and would cancel in-flight list REQs forever ("Loading original posts…").
+   */
+  const followAuthorsKey = $derived(feedFollowAuthors(metadataEvents, $muteState).join('\n'));
+  const muteKey = $derived.by(() => {
+    const m = $muteState;
+    return `${[...m.pubkeys].sort().join(',')}|${[...m.eventIds].sort().join(',')}`;
+  });
   const lede = $derived.by(() => {
     void $session.pubkey;
     void feedTab;
@@ -258,11 +270,14 @@
 
   /** Resolve boosted note bodies for collapsed boost-only rows. */
   $effect(() => {
+    const rows = feedRows;
     const pending: string[] = [];
     const seed: Record<string, Event | null> = {};
-    for (const row of feedRows) {
+    const targets = untrack(() => boostTargets);
+    const queued = untrack(() => boostFetchQueued);
+    for (const row of rows) {
       if (row.type !== 'boost-only') continue;
-      if (boostTargets[row.targetId] !== undefined || boostFetchQueued[row.targetId]) continue;
+      if (targets[row.targetId] !== undefined || queued[row.targetId]) continue;
       const fromBoost = peekRepostTarget(row.boosts[0]!);
       if (fromBoost) {
         seed[row.targetId] = fromBoost;
@@ -271,20 +286,26 @@
       pending.push(row.targetId);
     }
     if (Object.keys(seed).length) {
-      boostTargets = { ...boostTargets, ...seed };
+      untrack(() => {
+        boostTargets = { ...boostTargets, ...seed };
+      });
     }
     if (!pending.length) return;
-    boostFetchQueued = {
-      ...boostFetchQueued,
-      ...Object.fromEntries(pending.map((id) => [id, true as const]))
-    };
+    untrack(() => {
+      boostFetchQueued = {
+        ...boostFetchQueued,
+        ...Object.fromEntries(pending.map((id) => [id, true as const]))
+      };
+    });
     let cancelled = false;
     void (async () => {
       for (const id of pending) {
         if (cancelled) return;
         const target = await fetchById(id);
         if (cancelled) return;
-        boostTargets = { ...boostTargets, [id]: target };
+        untrack(() => {
+          boostTargets = { ...boostTargets, [id]: target };
+        });
       }
     })();
     return () => {
@@ -398,6 +419,13 @@
     });
   }
 
+  /** Dedicated library page when one exists (e.g. publication rating → edition info). */
+  function feedOpenPath(item: Event): string {
+    const href = eventHref(item);
+    if (href) return href.startsWith('#') ? href.slice(1) : href;
+    return feedThreadPath(item, feedTab, { author: feedAuthor });
+  }
+
   function openThreadForEvent(item: Event, e: MouseEvent, restoreId: string): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -409,8 +437,15 @@
       return;
     }
     armListRestore(restoreId);
-    warmNavEvent(item);
-    void replace(feedThreadPath(item, feedTab, { author: feedAuthor }));
+    if (isFeedInteractionEvent(item)) {
+      const eTags = item.tags.filter((t) => t[0] === 'e' && t[1] && /^[0-9a-f]{64}$/i.test(t[1]));
+      const targetId = eTags[eTags.length - 1]?.[1]?.toLowerCase();
+      const warm = targetId ? memoryGetEvent(targetId) : null;
+      warmNavEvent(warm ?? item);
+    } else {
+      warmNavEvent(item);
+    }
+    void replace(feedOpenPath(item));
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
@@ -458,13 +493,16 @@
     // Read deps first, then bail before any listLoading setup — otherwise opening
     // a thread falsely paints the feed as "Loading…".
     void feedRelays;
+    void followAuthorsKey;
+    void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
     const listKey = `${tab}:${author ?? ''}`;
     const pubkey = $session.pubkey;
     const sessionLoading = $session.loading;
-    const meta = metadataEvents;
-    const muted = $muteState;
+    // Snapshot via untrack — identity churn on these must not re-subscribe the effect.
+    const meta = untrack(() => metadataEvents);
+    const muted = untrack(() => $muteState);
     const threadOpen = !!pointer;
     let cancelled = false;
 
@@ -626,11 +664,13 @@
   /** Quiet refresh: stage newer posts for the New Events control (never auto-insert). */
   $effect(() => {
     if (pointer || !listSettled) return;
+    void followAuthorsKey;
+    void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
     const pubkey = $session.pubkey;
-    const meta = metadataEvents;
-    const muted = $muteState;
+    const meta = untrack(() => metadataEvents);
+    const muted = untrack(() => $muteState);
     if (tab === 'notifications' && !pubkey) return;
 
     let cancelled = false;
@@ -803,7 +843,7 @@
                   datetime={new Date(event.created_at * 1000).toISOString()}
                   title={formatAbsoluteTime(event.created_at)}
                 >{formatRelativeTime(event.created_at)}</time>
-                <span class="feed-kind muted">{kindDescription(event.kind)}</span>
+                <span class="feed-kind muted">{eventKindDescription(event)}</span>
               </header>
             {/if}
             <EventBody {event} quotes={bodyHighlights} />
@@ -925,7 +965,7 @@
           {#if row.type === 'event'}
             {@const item = row.event}
             {@const reactionRow = item.kind === KIND.REACTION || item.kind === 17}
-            {@const threadHref = `#${feedThreadPath(item, feedTab, { author: feedAuthor })}`}
+            {@const threadHref = `#${feedOpenPath(item)}`}
             <li
               class="card feed-row"
               class:feed-row-oneline={reactionRow}
@@ -956,7 +996,7 @@
                     onclick={() => openThreadLink(item)}
                   >{formatRelativeTime(item.created_at)}</a>
                   {#if !reactionRow}
-                    <span class="feed-kind muted">{kindDescription(item.kind)}</span>
+                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
                   {/if}
                 </div>
                 <div class="feed-body">
@@ -999,7 +1039,7 @@
                       title={formatAbsoluteTime(target.created_at)}
                       onclick={() => openThreadLink(target, row.targetId)}
                     >{formatRelativeTime(target.created_at)}</a>
-                    <span class="feed-kind muted">{kindDescription(target.kind)}</span>
+                    <span class="feed-kind muted">{eventKindDescription(target)}</span>
                   </div>
                   <div class="feed-body">
                     {#if shown[row.targetId]}

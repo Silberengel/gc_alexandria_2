@@ -48,6 +48,9 @@
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
   import HighlightSourceBlurb from './HighlightSourceBlurb.svelte';
+  import EventReferenceBlurb from './EventReferenceBlurb.svelte';
+  import { noteReferenceSpec } from '$lib/note-reference';
+  import { eventTranslations } from '$lib/event-translation';
   import {
     isShortNoteEdited,
     mergeEditedShortNote,
@@ -79,6 +82,11 @@
     dedupeHeroUrls?: string[];
     /** Live-chat Shield: skip painting images/video/audio. */
     hideMedia?: boolean;
+    /**
+     * When false, skip the LibreTranslate overlay (caller already applied it —
+     * e.g. bible sections that split Challoner notes first).
+     */
+    applyTranslation?: boolean;
   }
 
   let {
@@ -91,7 +99,8 @@
     quotes = [],
     dedupeHeroImage = true,
     dedupeHeroUrls = [],
-    hideMedia = false
+    hideMedia = false,
+    applyTranslation = true
   }: Props = $props();
 
   /** NIP-41 kind-1010 author revision for kind-1 notes. */
@@ -169,14 +178,27 @@
   function openImageGallery(url: string): void {
     openMediaViewer({ url, urls: imageUrls, alts: imageAlts });
   }
+  /** Active LibreTranslate overlay (⋯ → Translate this event) — does not mutate the Nostr event. */
+  const translationEntry = $derived.by(() => {
+    if (!applyTranslation) return undefined;
+    const id = displayEvent?.id?.trim().toLowerCase() ?? event?.id?.trim().toLowerCase() ?? '';
+    return id ? $eventTranslations[id] : undefined;
+  });
   /** Drop played file URLs from the prose so a note is not a link and a player. */
-  const source = $derived(omitMediaUrls(displayEvent?.content ?? content, media));
+  const source = $derived(
+    translationEntry?.content
+      ? translationEntry.content
+      : omitMediaUrls(displayEvent?.content ?? content, media)
+  );
   const sourceKind = $derived(kind ?? displayEvent?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(displayEvent?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
   const isHighlightEvent = $derived(sourceKind === KIND.HIGHLIGHT);
   const usePlaintextRich = $derived(markupFormat === 'plaintext' && !isHighlightEvent);
+  const showReferenceBlurb = $derived(
+    !!displayEvent && !isHighlightEvent && !!noteReferenceSpec(displayEvent)
+  );
   let highlightHtml = $state('');
   /** Kind 7/17 custom emoji reactions — paint the tagged face, not clipped alt text. */
   const reactionFace = $derived(event ? resolveReactionEmoji(event) : null);
@@ -499,6 +521,9 @@
       />
     {/if}
   {:else if usePlaintextRich}
+    {#if showReferenceBlurb && displayEvent}
+      <EventReferenceBlurb event={displayEvent} />
+    {/if}
     <NostrRichText
       content={source}
       event={displayEvent}
@@ -506,6 +531,9 @@
       showEmbeds={showEmbeds && embedDepth <= 1}
     />
   {:else}
+    {#if showReferenceBlurb && displayEvent}
+      <EventReferenceBlurb event={displayEvent} />
+    {/if}
     {#if bodyPending}
       <LoadingHint message={loadingLabel} />
     {/if}

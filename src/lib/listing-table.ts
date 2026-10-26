@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { cardMeta, displayTitle, publicationPath, libraryDocumentPath } from './metadata';
+import { publicationRatingPagePath } from './ratings';
 import type { ListingDensity } from './stores/listing-density';
 
 /** Full detailed cards (multiple of 3 columns). */
@@ -53,6 +54,8 @@ export function eventHref(event: Event): string | null {
   if (event.kind === KIND.PUBLICATION || event.kind === KIND.SECTION) {
     return `#${publicationPath(event)}`;
   }
+  const ratingPath = publicationRatingPagePath(event);
+  if (ratingPath) return `#${ratingPath}`;
   return null;
 }
 

@@ -11,17 +11,18 @@ Feature: About and Contact
     And I see the app version when a release version is known
     And I see how to search, open an edition, read, and open a wiki page
 
-  Scenario: Contact is signed-in only
+  Scenario: Contact lives on About and is signed-in only
     Given I am not signed in
     Then I do not see Contact in the top bar
+    When I open /about
+    Then I do not see the issue form
     When I open /contact
-    Then I am sent to the home page
-    And I do not see the issue form
+    Then I am sent to /about
 
-  Scenario: Contact matches the current Alexandria contact page
+  Scenario: Contact form is at the bottom of About when signed in
     Given I am signed in
-    When I open /contact
-    Then I see "Contact GitCitadel"
+    When I open /about
+    Then I see "Contact"
     And I can follow GitHub at github.com/ShadowySupercode/gitcitadel and Geyser at geyser.fund/project/gitcitadel
     And I see the GitCitadel userbadge for npub1s3ht77dq4zqnya8vjun5jp3p44pr794ru36d0ltxu65chljw8xjqd975wz
     And I can open gitworkshop.dev/silberengel@gitcitadel.com/Alexandria/issues

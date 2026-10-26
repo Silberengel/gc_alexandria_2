@@ -51,7 +51,7 @@
     placeholder = '',
     issues = [],
     checkedSource = '',
-    grammarOn = $bindable(true),
+    grammarOn = $bindable(false),
     grammarLang = $bindable('en-US'),
     grammarBusy = false,
     onApply,

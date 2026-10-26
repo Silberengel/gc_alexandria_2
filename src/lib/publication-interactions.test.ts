@@ -20,6 +20,7 @@ import {
   isPublicationRatingEvent,
   newestRatingPerAuthor,
   publicationCoordinateFromRatingEvent,
+  publicationRatingPagePath,
   publicationRatingATagsForQuery,
   ratingHasScore,
   ratingStarsFromEvent,
@@ -122,6 +123,10 @@ describe('ratings jumble shape', () => {
     });
     expect(isPublicationRatingEvent(novel)).toBe(true);
     expect(publicationCoordinateFromRatingEvent(novel)).toBe(addr);
+    const page = publicationRatingPagePath(novel)!;
+    expect(page).toContain('/publication/d/mansfield-park/');
+    expect(page).toContain(`rating=${novel.id}`);
+    expect(publicationRatingPagePath(ev({ kind: KIND.TEXT_NOTE, tags: [] }))).toBeNull();
     expect(ratingHasScore(scored)).toBe(true);
     expect(ratingStarsFromEvent(scored)).toBe(4);
     expect(ratingHasScore(unscored)).toBe(false);

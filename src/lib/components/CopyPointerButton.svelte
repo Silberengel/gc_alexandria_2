@@ -32,6 +32,13 @@
   import { eventAddress } from '$lib/nostr/verify';
   import { isWikiOrSpecKind } from '$lib/wiki-fork';
   import { isAddressableKind, isReplaceableKind } from '$lib/nostr/replaceable';
+  import {
+    eventTranslationPending,
+    eventTranslations,
+    toggleEventTranslation,
+    translatableBody
+  } from '$lib/event-translation';
+  import { translateDisplayName } from '$lib/libre-translate';
 
   interface Props {
     event: Event;
@@ -105,8 +112,31 @@
   const showCreateRedirect = $derived(isWikiOrSpecKind(event.kind));
   /** Own events (except kind-5 itself) can be NIP-09 deleted. */
   const showDeleteEvent = $derived(isOwnEvent && event.kind !== KIND.DELETION);
+  const eventIdKey = $derived(event.id?.trim().toLowerCase() ?? '');
+  const isTranslated = $derived(!!eventIdKey && !!$eventTranslations[eventIdKey]);
+  const translatePending = $derived(!!eventIdKey && !!$eventTranslationPending[eventIdKey]);
+  const canTranslate = $derived(!!eventIdKey && !!translatableBody(event).trim());
   let deferPending = $state(false);
   let deletePending = $state(false);
+
+  async function translateThisEvent(): Promise<void> {
+    if (translatePending || !canTranslate) return;
+    close();
+    const result = await toggleEventTranslation(event);
+    if (result.ok) return;
+    if (result.reason === 'already-in-language') {
+      showNotice(
+        `Already in ${translateDisplayName(result.language ?? 'en')}`,
+        true
+      );
+      return;
+    }
+    if (result.reason === 'empty') {
+      showNotice('Nothing to translate.');
+      return;
+    }
+    showNotice('Translation failed. Check your connection and try again.');
+  }
 
   function openComposeCopy(): void {
     if (!$session.pubkey) {
@@ -715,6 +745,29 @@
             }}
           >
             {deletePending ? 'Deleting…' : 'Delete this event'}
+          </button>
+        </li>
+      {/if}
+      {#if canTranslate || isTranslated}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={translatePending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void translateThisEvent();
+            }}
+          >
+            {#if translatePending}
+              Translating…
+            {:else if isTranslated}
+              Show original
+            {:else}
+              Translate this event
+            {/if}
           </button>
         </li>
       {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
   import { highlightSourceLabelFallback, highlightSourceRef } from '$lib/highlight-source';
@@ -7,7 +8,7 @@
   import { addressPath } from '$lib/library-scope';
   import { eventHref, cropText } from '$lib/listing-table';
   import { displayTitle } from '$lib/metadata';
-  import { feedThreadPath, feedThreadPointerFromId } from '$lib/feed';
+  import { feedThreadPointerFromId } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
   import UserBadge from './UserBadge.svelte';
 
@@ -17,33 +18,68 @@
 
   let { event }: Props = $props();
 
+  /** Stable string — object identity from highlightSourceRef would re-fire $effect. */
+  const sourceKey = $derived.by(() => {
+    const s = highlightSourceRef(event);
+    if (!s) return '';
+    if (s.type === 'http') return `http:${s.url}`;
+    if (s.type === 'event') return `event:${s.eventId}`;
+    return `addr:${s.coordinate}`;
+  });
+
   const source = $derived(highlightSourceRef(event));
   const fallback = $derived(highlightSourceLabelFallback(event));
 
   let resolved = $state<Event | null>(null);
   let loading = $state(false);
+  /** Non-reactive — reading $state in the effect would re-schedule it. */
+  let fetchedKey = '';
 
   $effect(() => {
-    const ref = source;
-    resolved = null;
-    if (!ref || ref.type === 'http') {
-      loading = false;
+    const key = sourceKey;
+    const ref = untrack(() => highlightSourceRef(event));
+    if (!key || !ref || ref.type === 'http') {
+      fetchedKey = key;
+      untrack(() => {
+        resolved = null;
+        loading = false;
+      });
       return;
     }
+    if (fetchedKey === key) return;
+    fetchedKey = key;
+
+    const cached = ref.type === 'event' ? memoryGetEvent(ref.eventId) : null;
+    if (cached) {
+      untrack(() => {
+        resolved = cached;
+        loading = false;
+      });
+      return;
+    }
+
     let cancelled = false;
-    loading = true;
+    untrack(() => {
+      resolved = null;
+      loading = true;
+    });
     void (async () => {
       try {
         const hit =
           ref.type === 'event'
-            ? memoryGetEvent(ref.eventId) ??
-              (await fetchById(ref.eventId, { hintRelays: ref.relayHints }))
+            ? await fetchById(ref.eventId, { hintRelays: ref.relayHints })
             : await fetchByAddress(ref.coordinate, { hintRelays: ref.relayHints });
-        if (!cancelled) resolved = hit;
+        if (cancelled) return;
+        untrack(() => {
+          resolved = hit;
+          loading = false;
+        });
       } catch {
-        if (!cancelled) resolved = null;
-      } finally {
-        if (!cancelled) loading = false;
+        if (cancelled) return;
+        untrack(() => {
+          resolved = null;
+          loading = false;
+        });
       }
     })();
     return () => {
@@ -53,17 +89,18 @@
 
   const httpHref = $derived(source?.type === 'http' ? source.url : null);
 
+  /** Href from the tag (stable) — never rewrite after resolve. */
   const eventHrefResolved = $derived.by(() => {
-    if (!source) return null;
-    if (source.type === 'http') return null;
-    if (resolved) {
-      return eventHref(resolved) ?? `#${feedThreadPath(resolved)}`;
-    }
+    if (!source || source.type === 'http') return null;
     if (source.type === 'event') {
       return `#/feed?thread=${feedThreadPointerFromId(source.eventId)}`;
     }
+    if (resolved) {
+      const path = eventHref(resolved);
+      if (path) return path.startsWith('#') ? path : `#${path.replace(/^\//, '')}`;
+    }
     const path = addressPath(source.coordinate);
-    return path ? `#${path}` : null;
+    return path ? `#${path.replace(/^\//, '')}` : null;
   });
 
   const labelText = $derived.by(() => {

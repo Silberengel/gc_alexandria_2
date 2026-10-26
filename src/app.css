@@ -5928,13 +5928,19 @@ a.embed-event-line:focus-visible {
 .contact-actions .btn {
   text-decoration: none;
 }
-.contact-page .card label {
+.contact-page .card label,
+.about-contact .card label {
   display: grid;
   gap: 0.35rem;
   font-family: var(--ui-font);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--ink-soft);
+}
+.about-contact {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule, color-mix(in srgb, var(--ink) 12%, transparent));
 }
 .contact-form-error {
   color: color-mix(in srgb, #8b2e24 85%, var(--ink));

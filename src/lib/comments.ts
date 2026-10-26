@@ -73,6 +73,13 @@ export function isKind1Reply(event: Event): boolean {
   );
 }
 
+/** Kind 1 that cites another event via `q` (quote/repost-with-comment), not a thread `e` reply. */
+export function isKind1Quote(event: Event): boolean {
+  if (event.kind !== KIND.TEXT_NOTE) return false;
+  if (isKind1Reply(event)) return false;
+  return event.tags.some((t) => t[0] === 'q' && Boolean(t[1]?.trim()));
+}
+
 /** Kind 1 original: offer 1111 by default, plus an optional kind 1 reply. */
 export function canOfferKind1Reply(parent: Event): boolean {
   return parent.kind === KIND.TEXT_NOTE && !isKind1Reply(parent);

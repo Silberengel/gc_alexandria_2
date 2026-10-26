@@ -2,6 +2,7 @@ import type { Event, Filter } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
 import { KIND } from './constants';
 import { isKind1Reply } from './comments';
+import { parseAddress } from './library-scope';
 import { hexPubkey } from './metadata';
 import { filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { uniqueRelayUrls } from './nostr/mailboxes';
@@ -12,6 +13,15 @@ import { relayPool } from './nostr/pool';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { forestRelay, getSelectorContext, socialStack } from './nostr/selector';
 import { firstTag } from './nostr/verify';
+
+const HEX_ID = /^[0-9a-f]{64}$/i;
+
+function tagThreadMarker(tag: string[]): 'root' | 'reply' | null {
+  for (const slot of [tag[3], tag[2]]) {
+    if (slot === 'root' || slot === 'reply') return slot;
+  }
+  return null;
+}
 
 const FOLLOW_AUTHOR_BATCH = 50;
 const FOLLOW_AUTHOR_CAP = 200;
@@ -688,8 +698,84 @@ export function feedThreadPointerFromId(id: string): string {
   return nip19.neventEncode({ id: id.toLowerCase() });
 }
 
+function pointerFromAddressCoord(coord: string): string | null {
+  const parsed = parseAddress(coord);
+  if (!parsed) return null;
+  try {
+    return nip19.naddrEncode({
+      kind: parsed.kind,
+      pubkey: parsed.pubkey,
+      identifier: parsed.d
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Kind 7 / 17 reactions and kind 9735 zap receipts — open the target, not themselves. */
+export function isFeedInteractionEvent(event: Event): boolean {
+  return event.kind === KIND.REACTION || event.kind === KIND.ZAP || event.kind === 17;
+}
+
+/**
+ * Pointer for the event a reaction or zap targets.
+ * NIP-25: last `e` is the reacted-to note; NIP-57 may use `e` and/or `a`/`A`.
+ */
+export function feedInteractionTargetPointer(event: Event): string | null {
+  if (!isFeedInteractionEvent(event)) return null;
+  const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
+  if (eTags.length) {
+    const id = eTags[eTags.length - 1]?.[1];
+    if (id) return feedThreadPointerFromId(id);
+  }
+  const aTag = event.tags.find((t) => (t[0] === 'a' || t[0] === 'A') && t[1]?.trim());
+  if (aTag?.[1]) return pointerFromAddressCoord(aTag[1]);
+  return null;
+}
+
+/**
+ * For a reply/comment, the OP to open as `?thread=` (and focus via `?comment=`).
+ * Returns null when this event is its own thread root (OPs, top-level web comments).
+ */
+export function feedThreadRootPointer(event: Event): string | null {
+  if (isTopLevelWebComment(event)) return null;
+
+  if (event.kind === KIND.TEXT_NOTE && isKind1Reply(event)) {
+    const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
+    const eRoot = eTags.find((t) => tagThreadMarker(t) === 'root');
+    if (eRoot?.[1]) return feedThreadPointerFromId(eRoot[1]);
+    // Classic NIP-10: first e is root when unmarked; lone e is the parent/OP.
+    if (eTags[0]?.[1]) return feedThreadPointerFromId(eTags[0][1]);
+    const aRoot = event.tags.find(
+      (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && tagThreadMarker(t) === 'root'
+    );
+    if (aRoot?.[1]) return pointerFromAddressCoord(aRoot[1]);
+    return null;
+  }
+
+  if (event.kind === KIND.COMMENT) {
+    // NIP-22: uppercase tags name the thread root.
+    const E = event.tags.find((t) => t[0] === 'E' && t[1] && HEX_ID.test(t[1]));
+    if (E?.[1]) return feedThreadPointerFromId(E[1]);
+    const A = event.tags.find((t) => t[0] === 'A' && t[1]);
+    if (A?.[1]) return pointerFromAddressCoord(A[1]);
+    // Lowercase-only clients: treat marked/positional e like NIP-10.
+    const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
+    const eRoot = eTags.find((t) => tagThreadMarker(t) === 'root');
+    if (eRoot?.[1]) return feedThreadPointerFromId(eRoot[1]);
+    if (eTags[0]?.[1]) return feedThreadPointerFromId(eTags[0][1]);
+    const aRoot = event.tags.find(
+      (t) => (t[0] === 'a' || t[0] === 'A') && t[1] && tagThreadMarker(t) === 'root'
+    );
+    if (aRoot?.[1]) return pointerFromAddressCoord(aRoot[1]);
+  }
+
+  return null;
+}
+
 /**
  * In-feed thread URL on the same `/feed` route (query `thread=`).
+ * Replies open the OP thread and focus with `comment=`; OPs open themselves.
  * Staying on `/feed` avoids remounting the list when opening/closing a card.
  */
 export type FeedListOpts = { author?: string | null };
@@ -704,8 +790,39 @@ export function feedThreadPath(
   tab: FeedTab = 'original',
   opts: FeedListOpts = {}
 ): string {
+  // Reactions / zaps open the reacted-to or zapped event's thread (not themselves).
+  // Never recurse into another reaction/zap — that can stack-overflow during list render.
+  if (isFeedInteractionEvent(event)) {
+    const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
+    const targetId = eTags[eTags.length - 1]?.[1]?.toLowerCase();
+    if (targetId) {
+      const warm = memoryGetEvent(targetId);
+      if (
+        warm &&
+        warm.id.toLowerCase() !== event.id.toLowerCase() &&
+        !isFeedInteractionEvent(warm)
+      ) {
+        return feedThreadPath(warm, tab, opts);
+      }
+    }
+    const targetPointer = feedInteractionTargetPointer(event);
+    if (targetPointer) {
+      const q = new URLSearchParams();
+      q.set('thread', targetPointer);
+      if (tab !== 'original') q.set('tab', tab);
+      appendFeedAuthor(q, opts.author);
+      return `/feed?${q.toString()}`;
+    }
+  }
+
   const q = new URLSearchParams();
-  q.set('thread', feedThreadPointer(event));
+  const rootPointer = feedThreadRootPointer(event);
+  if (rootPointer) {
+    q.set('thread', rootPointer);
+    q.set('comment', event.id.toLowerCase());
+  } else {
+    q.set('thread', feedThreadPointer(event));
+  }
   if (tab !== 'original') q.set('tab', tab);
   appendFeedAuthor(q, opts.author);
   return `/feed?${q.toString()}`;

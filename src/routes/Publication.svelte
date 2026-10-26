@@ -22,6 +22,7 @@
   import ReadingFinishModal from '$lib/components/ReadingFinishModal.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
+  import { eventTranslations } from '$lib/event-translation';
   import { KIND, NIP32_READ_LABEL } from '$lib/constants';
   import { publicationPath, hasPublicationSection, publicationSectionCount } from '$lib/metadata';
   import { muteState, filterMuted } from '$lib/mute';
@@ -3645,7 +3646,9 @@
                 {#each verses as verse (verse.id)}
                   {@const sectionKey = eventAddress(verse)}
                   {@const disp = bibleDisplay(verse)}
-                  {@const split = bibleContentParts(verse.content, disp)}
+                  {@const verseBody =
+                    $eventTranslations[verse.id.toLowerCase()]?.content ?? verse.content}
+                  {@const split = bibleContentParts(verseBody, disp)}
                   {@const pos = sectionReadPos.get(verse.id) ?? 0}
                   {#if disp.kind === 'heading'}
                     <div
@@ -3986,11 +3989,14 @@
                 {:else if isMarkupKind(section.kind)}
                   {#if isBibleSection(section)}
                     {@const disp = bibleDisplay(section)}
-                    {@const parts = bibleContentParts(section.content, disp)}
+                    {@const sectionBody =
+                      $eventTranslations[section.id.toLowerCase()]?.content ?? section.content}
+                    {@const parts = bibleContentParts(sectionBody, disp)}
                     <div class:bible-preamble-text={isPreambleHeading(disp)}>
                       {#if parts.text}
                         <EventBody
                           event={{ ...section, content: parts.text }}
+                          applyTranslation={false}
                           quotes={quotesFor(section)}
                           dedupeHeroImage={Boolean(showHero)}
                           dedupeHeroUrls={publicationHeroUrls}

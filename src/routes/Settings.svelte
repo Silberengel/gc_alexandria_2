@@ -21,9 +21,20 @@
     fontSelectValue,
     isKnownFont
   } from '$lib/fonts';
+  import {
+    availableTranslateLanguages,
+    preferredTranslateLanguage
+  } from '$lib/event-translation';
+  import {
+    FALLBACK_TRANSLATE_LANGUAGES,
+    translateApiCode,
+    translateDisplayName,
+    type TranslateLanguageOption
+  } from '$lib/libre-translate';
 
   let size = $state('0 B');
   let localOnlyBusy = $state(false);
+  let translateLanguages = $state<TranslateLanguageOption[]>([...FALLBACK_TRANSLATE_LANGUAGES]);
 
   async function setLocalOnly(on: boolean) {
     if (localOnlyBusy) return;
@@ -102,6 +113,36 @@
 
   $effect(() => {
     void refreshSize();
+  });
+
+  $effect(() => {
+    let cancelled = false;
+    void availableTranslateLanguages().then((langs) => {
+      if (!cancelled && langs.length) translateLanguages = langs;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const translateSelectValue = $derived(translateApiCode($preferredTranslateLanguage));
+  const translateSelectOptions = $derived.by(() => {
+    const preferred = translateSelectValue;
+    const seen = new Set<string>();
+    const out: TranslateLanguageOption[] = [];
+    const push = (opt: TranslateLanguageOption) => {
+      const code = translateApiCode(opt.code);
+      if (seen.has(code)) return;
+      seen.add(code);
+      out.push({ code, name: opt.name || translateDisplayName(code, translateLanguages) });
+    };
+    const prefHit =
+      translateLanguages.find((l) => translateApiCode(l.code) === preferred) ??
+      FALLBACK_TRANSLATE_LANGUAGES.find((l) => translateApiCode(l.code) === preferred);
+    if (prefHit) push(prefHit);
+    else push({ code: preferred, name: translateDisplayName(preferred, translateLanguages) });
+    for (const opt of translateLanguages) push(opt);
+    return out;
   });
 </script>
 
@@ -264,6 +305,25 @@
     {#if $appearance.customPrimary}
       <button class="btn" type="button" onclick={() => appearance.resetColors()}>Reset custom color</button>
     {/if}
+  </section>
+
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Language</h2>
+      <p class="muted">Notes can be translated on demand from the ⋯ menu.</p>
+    </header>
+    <label class="settings-field">
+      <span>Translate to {translateDisplayName(translateSelectValue, translateSelectOptions)}</span>
+      <select
+        class="settings-font-select"
+        value={translateSelectValue}
+        onchange={(e) => preferredTranslateLanguage.set((e.target as HTMLSelectElement).value)}
+      >
+        {#each translateSelectOptions as opt (opt.code)}
+          <option value={opt.code}>{opt.name}</option>
+        {/each}
+      </select>
+    </label>
   </section>
 
   <section class="settings-panel">

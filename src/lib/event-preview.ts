@@ -2,7 +2,7 @@ import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { blurbMarkupForKind, cardBlurb } from './card-blurb';
 import { looksLikeNativeAsciidoc } from './markup';
-import { kindDescription, kindLabelLine } from './kind-label';
+import { eventKindDescription, eventKindLabelLine } from './kind-label';
 import { parseKind0 } from './profile-fields';
 
 export const PREVIEW_TITLE_MAX = 100;
@@ -141,9 +141,9 @@ export function eventPreview(event: Event): EventPreview {
 
   const headline = title
     ? plainCardText(title, event.kind, PREVIEW_TITLE_MAX)
-    : kindDescription(event.kind);
+    : eventKindDescription(event);
 
-  const kindLine = kindLabelLine(event.kind);
+  const kindLine = eventKindLabelLine(event);
   const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
   let body: string | undefined;

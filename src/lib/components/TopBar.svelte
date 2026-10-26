@@ -25,7 +25,6 @@
   const onHome = $derived(path === '/' || path === '');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));
-  const onContact = $derived(path.startsWith('/contact'));
   const onSettings = $derived(path.startsWith('/settings'));
   const onAbout = $derived(path.startsWith('/about'));
 
@@ -83,9 +82,6 @@
     <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
     <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
     <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
-    {#if $session.pubkey}
-      <a href="#/contact" use:link aria-current={onContact ? 'page' : undefined}>Contact</a>
-    {/if}
     <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
   </nav>
   {#if searchVisible}

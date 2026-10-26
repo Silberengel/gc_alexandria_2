@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { cropListingCell, cropText, listingPageSize, listingTableRow, sortListingRows } from './listing-table';
+import {
+  cropListingCell,
+  cropText,
+  eventHref,
+  listingPageSize,
+  listingTableRow,
+  sortListingRows
+} from './listing-table';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey'>): Event {
   return {
@@ -64,6 +71,24 @@ describe('listing table rows', () => {
     expect(row.author).toBe('Plato');
     expect(row.pubkey).toBe('aa'.repeat(32));
     expect(row.href).toContain('/publication/');
+  });
+
+  it('links publication ratings to the edition info page', () => {
+    const pubPk = 'bb'.repeat(32);
+    const rating = ev({
+      id: 'cd'.repeat(32),
+      kind: 34259,
+      pubkey: 'aa'.repeat(32),
+      tags: [
+        ['d', `30040:${pubPk}:wuthering-heights`],
+        ['m', 'book'],
+        ['a', `30040:${pubPk}:wuthering-heights`],
+        ['rating', '1.000']
+      ]
+    });
+    const href = eventHref(rating)!;
+    expect(href.startsWith('#/publication/d/wuthering-heights/')).toBe(true);
+    expect(href).toContain(`rating=${rating.id}`);
   });
 
   it('sorts by title, author, and pubkey', () => {

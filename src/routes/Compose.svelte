@@ -71,6 +71,7 @@
     isComposeDraftEmpty,
     localDraftMatchesEncrypted,
     stageComposeDraft,
+    clearStagedComposeDraft,
     flushStagedComposeDraft
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
@@ -132,7 +133,8 @@
   let kind0Tags = $state<string[][]>(emptyKind0TagRows());
   let existingKind0 = $state<Record<string, unknown>>({});
 
-  let grammarOn = $state(true);
+  /** Off by default — GrammarTool would see draft text, including later-encrypted bodies. */
+  let grammarOn = $state(false);
   let grammarLang = $state(defaultGrammarLanguageToolCode());
   let grammarIssues = $state<GrammarIssue[]>([]);
   let grammarCheckedSource = $state('');
@@ -432,8 +434,21 @@
   async function deleteEncryptedDraft(wrap: DecryptedDraftWrap): Promise<void> {
     formError = '';
     try {
+      const openMatches =
+        activeDraftD === wrap.d ||
+        (!!wrap.d && values.d?.trim() === wrap.d) ||
+        localDraftMatchesEncrypted(snapshotDraft(), wrap);
       await deleteDraftWrap(wrap.d, wrap.draftKind);
-      if (activeDraftD === wrap.d) {
+      const pk = $session.pubkey;
+      if (pk) {
+        // Drop the tab autosave mirror or delete looks like a no-op in the list.
+        const local = loadComposeDraft(pk, wrap.draftKind);
+        if (local && localDraftMatchesEncrypted(local, wrap)) {
+          deleteComposeDraft(pk, wrap.draftKind);
+        }
+      }
+      if (openMatches) abandonOpenComposeShell();
+      else if (activeDraftD === wrap.d) {
         activeDraftD = null;
         draftCheckpoints = [];
       }
@@ -441,6 +456,19 @@
     } catch (err) {
       formError = err instanceof Error ? err.message : String(err);
     }
+  }
+
+  function deleteLocalDraftItem(item: DraftListItem): void {
+    const pk = $session.pubkey;
+    if (!pk || item.source !== 'local') return;
+    const mode = item.mode ?? 'compose';
+    deleteComposeDraft(pk, item.kind, mode);
+    // Autosave would immediately rewrite the draft while the form still holds it.
+    if (!otherMode && !shortNoteEditSource && item.kind === kind && mode === 'compose') {
+      abandonOpenComposeShell();
+    }
+    refreshDraftList();
+    draftListOpen = listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
   }
 
   async function copyPreviewJson(): Promise<void> {
@@ -614,10 +642,37 @@
     if (opts?.refreshList !== false) refreshDraftList();
   }
 
+  /**
+   * Empty the open form in place (keep kind) so debounce/pagehide cannot
+   * resurrect a draft the user just deleted from the list.
+   */
+  function abandonOpenComposeShell(): void {
+    clearStagedComposeDraft();
+    activeDraftD = null;
+    draftCheckpoints = [];
+    content = '';
+    values = emptyValuesFor(kind);
+    hashtagRows = [''];
+    imetaTags = [];
+    freeformTags = [['', '']];
+    kind0Tags = emptyKind0TagRows();
+    existingKind0 = {};
+    formError = '';
+    grammarIssues = [];
+    grammarCheckedSource = '';
+    editorTab = 'edit';
+    advancedOpen = false;
+    shortNoteEditSource = null;
+    markReplaceablePreloaded(false);
+    resetEditorMarkup(kind, '');
+    bumpPreview();
+  }
+
   /** Wipe the form and return the kind picker to the default short note. */
   function clearForm(): void {
     const pk = $session.pubkey;
     const previousKind = kind;
+    clearStagedComposeDraft();
     if (pk) {
       deleteComposeDraft(pk, previousKind);
       if (previousKind !== 1) deleteComposeDraft(pk, 1);
@@ -645,6 +700,8 @@
     editorMarkup = null;
     shortNoteEditSource = null;
     appliedIntentKey = null;
+    activeDraftD = null;
+    draftCheckpoints = [];
     markReplaceablePreloaded(false);
     bumpPreview();
   }
@@ -1493,14 +1550,7 @@
                       <button
                         type="button"
                         class="btn"
-                        onclick={() => {
-                          const pk = $session.pubkey;
-                          if (!pk) return;
-                          deleteComposeDraft(pk, item.kind, item.mode);
-                          refreshDraftList();
-                          draftListOpen =
-                            listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
-                        }}>Delete</button
+                        onclick={() => deleteLocalDraftItem(item)}>Delete</button
                       >
                     {/if}
                   </td>

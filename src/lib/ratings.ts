@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { addressPath } from './library-scope';
 import { firstTag, eventAddress } from './nostr/verify';
 import { isNewerReplaceable } from './nostr/replaceable';
 import { type MuteState, notMuted } from './mute';
@@ -103,6 +104,19 @@ export function isPublicationRatingEvent(event: Event): boolean {
   const d = firstTag(event, 'd')?.trim();
   if (!d) return false;
   return stripPublicationRatingMarkPrefix(d) !== d;
+}
+
+/**
+ * Publication info page for a rating, focused on that review (`?rating=`).
+ * Null when the event is not a publication rating or has no usable coordinate.
+ */
+export function publicationRatingPagePath(event: Event): string | null {
+  if (!isPublicationRatingEvent(event)) return null;
+  const coord = publicationCoordinateFromRatingEvent(event);
+  if (!coord) return null;
+  const path = addressPath(coord);
+  if (!path?.startsWith('/publication/')) return null;
+  return `${path}?rating=${event.id.toLowerCase()}`;
 }
 
 export function ratingEventTargetsPublication(event: Event, publication: Event): boolean {
