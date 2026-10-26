@@ -237,9 +237,15 @@ export async function fetchByAddress(
     if (cached && !isThinPublicationIndex(cached)) return hideIfDeleted(cached);
     if (opts?.localOnly) return cached ? hideIfDeleted(cached) : null;
 
-    const dValues = dTagVariants(parsed.d);
-    const slug = normalizeDTag(parsed.d);
-    if (slug && !dValues.includes(slug)) dValues.unshift(slug);
+    // Always include the raw d (NIP-B0 bookmark URLs, paths with `/`, etc.).
+    // Wiki-style normalizeDTag alone would query `www-sec-gov…` and miss the event.
+    const rawD = parsed.d.trim();
+    const dValues = rawD ? [rawD] : [];
+    for (const v of dTagVariants(rawD)) {
+      if (!dValues.includes(v)) dValues.push(v);
+    }
+    const slug = normalizeDTag(rawD);
+    if (slug && !dValues.includes(slug)) dValues.push(slug);
     const filter: Filter = {
       kinds: [parsed.kind],
       authors: [parsed.pubkey],

@@ -42,7 +42,7 @@
   import RoomPresenceCard from './RoomPresenceCard.svelte';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import { openMediaViewer } from '$lib/stores/media-viewer';
-  import { webBookmarkUrl } from '$lib/web-bookmark';
+  import { webBookmarkHrefFromD, webBookmarkUrl } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import WikiMergeCard from './WikiMergeCard.svelte';
   import WikiRedirectCard from './WikiRedirectCard.svelte';
@@ -531,7 +531,18 @@
       {:else if resolved[block.index]}
         {@render embedCard(resolved[block.index]!)}
       {:else if resolved[block.index] === null}
-        <p class="muted">This item could not be found.</p>
+        {@const miss = segments[block.index]}
+        {@const bookmarkFallback =
+          miss?.type === 'ref' &&
+          miss.kind === 'naddr' &&
+          miss.naddr?.kind === KIND.WEB_BOOKMARK
+            ? webBookmarkHrefFromD(miss.naddr.identifier)
+            : null}
+        {#if bookmarkFallback}
+          <WebBookmarkEmbed url={bookmarkFallback} />
+        {:else}
+          <p class="muted">This item could not be found.</p>
+        {/if}
       {:else}
         <p class="muted">Opening…</p>
       {/if}

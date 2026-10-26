@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { webBookmarkUrl } from './web-bookmark';
+import { webBookmarkUrl, webBookmarkUrlFromCoordinate } from './web-bookmark';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'tags'>): Event {
   return {
@@ -47,5 +47,15 @@ describe('webBookmarkUrl', () => {
         })
       )
     ).toBeNull();
+  });
+
+  it('rebuilds a href from a 39701 coordinate when the event is missing', () => {
+    const pk = 'd'.repeat(64);
+    expect(
+      webBookmarkUrlFromCoordinate(
+        `39701:${pk}:www.sec.gov/Archives/edgar/data/2130357/filing.htm`
+      )
+    ).toBe('https://www.sec.gov/Archives/edgar/data/2130357/filing.htm');
+    expect(webBookmarkUrlFromCoordinate(`30023:${pk}:essay`)).toBeNull();
   });
 });

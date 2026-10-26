@@ -796,6 +796,7 @@ export async function cacheFindByAddress(
   const wanted = new Set(dTagVariants(d));
   const normalized = normalizeDTag(d);
   if (normalized) wanted.add(normalized);
+  if (d.trim()) wanted.add(d.trim());
 
   let best: Event | null = memoryFindByAddress(kind, pk, d);
   const consider = (e: Event | null) => {

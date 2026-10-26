@@ -25,6 +25,8 @@
   import { urlEmbedsNostrEvent } from '$lib/nostr-entity';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { lruGet, lruSet } from '$lib/compose-lru';
+  import { webBookmarkHrefFromD } from '$lib/web-bookmark';
+  import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
 
   /** Kinds that need a full card (player, gallery, …) instead of a one-line blurb. */
   function useRichEmbedCard(event: Event): boolean {
@@ -36,8 +38,15 @@
       event.kind === KIND.PUBLICATION ||
       event.kind === KIND.LONG_FORM ||
       event.kind === KIND.WIKI ||
-      event.kind === KIND.SPEC
+      event.kind === KIND.SPEC ||
+      event.kind === KIND.WEB_BOOKMARK
     );
+  }
+
+  function missingBookmarkUrl(seg: ContentSegment): string | null {
+    if (seg.type !== 'ref' || seg.kind !== 'naddr' || !seg.naddr) return null;
+    if (seg.naddr.kind !== KIND.WEB_BOOKMARK) return null;
+    return webBookmarkHrefFromD(seg.naddr.identifier);
   }
 
   interface Props {
@@ -351,7 +360,14 @@
           {/if}
         </div>
       {:else if seg?.type === 'ref' && showEmbeds && resolved[i] === null}
-        <p class="muted">This item could not be found.</p>
+        {@const bookmarkFallback = missingBookmarkUrl(seg)}
+        {#if bookmarkFallback}
+          <div class="nrt-embed nrt-embed-card">
+            <WebBookmarkEmbed url={bookmarkFallback} />
+          </div>
+        {:else}
+          <p class="muted">This item could not be found.</p>
+        {/if}
       {:else if seg?.type === 'ref' && showEmbeds}
         <p class="muted">Opening…</p>
       {:else if seg?.type === 'ref' && seg.bech32}

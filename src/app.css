@@ -3459,47 +3459,43 @@ a.nostrdown-ref {
   color: var(--ink-soft);
   padding: 0 0.12em;
 }
-/* Prose lists — keep markers visible (task-list rules below opt out). */
-.reading-body ul:not(.task-list):not(.checklist),
-.event-body ul:not(.task-list):not(.checklist),
-.reader-section ul:not(.task-list):not(.checklist),
-.reading-body ol,
-.event-body ol,
-.reader-section ol {
+/*
+ * Prose lists from Djot/AsciiDoc: bare <ul>/<ol> only.
+ * Never style every ul under .reading-body — that class wraps whole pages
+ * (feed, comments, menus) and chrome lists always carry a class.
+ */
+.event-body ul:not([class]),
+.reader-section ul:not([class]),
+.event-body ol:not([class]),
+.reader-section ol:not([class]) {
   margin: 0.85rem 0;
   padding-inline-start: 1.45rem;
   list-style-position: outside;
 }
-.reading-body ul:not(.task-list):not(.checklist),
-.event-body ul:not(.task-list):not(.checklist),
-.reader-section ul:not(.task-list):not(.checklist) {
+.event-body ul:not([class]),
+.reader-section ul:not([class]) {
   list-style-type: disc;
 }
-.reading-body ol,
-.event-body ol,
-.reader-section ol {
+.event-body ol:not([class]),
+.reader-section ol:not([class]) {
   list-style-type: decimal;
 }
-.reading-body :is(ul, ol) ul,
-.event-body :is(ul, ol) ul,
-.reader-section :is(ul, ol) ul {
+.event-body :is(ul, ol):not([class]) ul:not([class]),
+.reader-section :is(ul, ol):not([class]) ul:not([class]) {
   list-style-type: circle;
   margin-block: 0.35rem;
 }
-.reading-body :is(ul, ol) ol,
-.event-body :is(ul, ol) ol,
-.reader-section :is(ul, ol) ol {
+.event-body :is(ul, ol):not([class]) ol:not([class]),
+.reader-section :is(ul, ol):not([class]) ol:not([class]) {
   list-style-type: lower-alpha;
   margin-block: 0.35rem;
 }
-.reading-body li,
-.event-body li,
-.reader-section li {
+.event-body :is(ul, ol):not([class]) > li,
+.reader-section :is(ul, ol):not([class]) > li {
   margin: 0.28rem 0;
 }
-.reading-body li > p,
-.event-body li > p,
-.reader-section li > p {
+.event-body :is(ul, ol):not([class]) > li > p,
+.reader-section :is(ul, ol):not([class]) > li > p {
   margin: 0.2rem 0;
 }
 

@@ -196,4 +196,20 @@ describe('fetch cache fallback', () => {
     const { fetchByAddress } = await import('./fetch');
     await expect(fetchByAddress(`30040:${'b'.repeat(64)}:missing`)).resolves.toBeNull();
   });
+
+  it('queries the raw d-tag for web bookmarks (not only the slugified form)', async () => {
+    const d =
+      'www.sec.gov/Archives/edgar/data/2130357/000162828026067168/anthropicpbc-sx1.htm';
+    const bookmark = ev({
+      id: 'f'.repeat(64),
+      kind: 39701,
+      pubkey: 'b'.repeat(64),
+      tags: [['d', d], ['r', `https://${d}`]]
+    });
+    query.mockResolvedValue([bookmark]);
+    const { fetchByAddress } = await import('./fetch');
+    await expect(fetchByAddress(`39701:${'b'.repeat(64)}:${d}`)).resolves.toBe(bookmark);
+    const filter = query.mock.calls[0]?.[1]?.[0] as { '#d'?: string[] };
+    expect(filter['#d']?.[0]).toBe(d);
+  });
 });
