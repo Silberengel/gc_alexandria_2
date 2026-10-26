@@ -419,8 +419,10 @@ export type ProfilePageSnapshot = {
     updated?: number;
   }>;
   readingEditions: Event[];
-  /** Resolved notes from the profile's kind-10001 pin list. */
+  /** Displayed profile pinboard slips (pins and/or latest OPs). */
   pinnedNotes: Event[];
+  /** True when the cached board includes at least one kind-10001 pin. */
+  pinboardHasPins?: boolean;
   readCount: number;
 };
 
@@ -451,7 +453,8 @@ function cloneProfilePageSnapshot(snap: ProfilePageSnapshot): ProfilePageSnapsho
     paymentEvents: [...snap.paymentEvents],
     readingEntries: snap.readingEntries.map((e) => ({ ...e })),
     readingEditions: [...snap.readingEditions],
-    pinnedNotes: [...(snap.pinnedNotes ?? [])]
+    pinnedNotes: [...(snap.pinnedNotes ?? [])],
+    pinboardHasPins: snap.pinboardHasPins
   };
 }
 
@@ -512,6 +515,7 @@ export async function cacheGetProfilePageSnapshot(
         : [],
       readingEditions: ingestList(raw.readingEditions, true),
       pinnedNotes: ingestList(raw.pinnedNotes, true),
+      pinboardHasPins: raw.pinboardHasPins === true,
       readCount: typeof raw.readCount === 'number' ? raw.readCount : 0
     };
     touchProfilePageMemory(pk, snap);
@@ -550,7 +554,8 @@ export async function cachePutProfilePageSnapshot(snap: ProfilePageSnapshot): Pr
     paymentEvents: snap.paymentEvents.slice(0, 20),
     readingEntries: snap.readingEntries.slice(0, 40),
     readingEditions: snap.readingEditions.slice(0, 40),
-    pinnedNotes: (snap.pinnedNotes ?? []).slice(0, 24),
+    pinnedNotes: (snap.pinnedNotes ?? []).slice(0, 5),
+    pinboardHasPins: snap.pinboardHasPins === true,
     readCount: snap.readCount
   };
   if (body.profile) rememberIdentityEvent(body.profile);

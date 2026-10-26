@@ -1,13 +1,40 @@
 /**
- * NIP-51 kind 10001 pin list → resolved note events for a profile panel.
+ * NIP-51 kind 10001 pin list → profile pinboard slips (pins + latest OPs).
  */
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { coverFullImageUrl, coverImageUrl, firstContentImageUrl } from './cover';
+import { ensureMetadata } from './ensure-metadata';
+import { isFeedRepost, isOriginalPost } from './feed';
+import { cropText } from './listing-table';
+import { omitMediaUrls, uniqueMedia } from './media';
+import { isAllowedMediaUrl } from './markup';
+import { decodeNostrBech32 } from './nostr-refs';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
-import { fetchByIds } from './nostr/fetch';
+import { fetchByAddress, fetchById, fetchByIds } from './nostr/fetch';
 import { pickLatestReplaceable } from './nostr/replaceable';
+import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
+import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
+import { parseYouTubeUrl } from './youtube';
 
 const HEX_ID = /^[0-9a-f]{64}$/i;
+const CONTENT_HTTP_URL = /https?:\/\/[^\s<>"')\]]+/gi;
+const NOSTR_BECH32 = /(?:nostr:)?((?:npub|nprofile|note|nevent|naddr)1[a-z0-9]+)/gi;
+
+/** Max note slips on the profile pinboard. */
+export const PROFILE_PINBOARD_LIMIT = 5;
+
+/** Kinds queried when filling the board with original posts. */
+export const PROFILE_PINBOARD_OP_KINDS = [
+  KIND.TEXT_NOTE,
+  KIND.DJOT,
+  KIND.PICTURE,
+  KIND.VIDEO,
+  KIND.SHORT_VIDEO,
+  KIND.VOICE,
+  KIND.LONG_FORM,
+  KIND.WEB_BOOKMARK
+] as const;
 
 /** Ordered unique `#e` ids from a pin list (kind 10001). */
 export function pinEventIds(pinList: Event | null | undefined): string[] {
@@ -64,4 +91,238 @@ export async function resolvePinnedNotes(
 export function samePinnedNoteIds(a: Event[], b: Event[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((event, i) => event.id.toLowerCase() === (b[i]?.id ?? '').toLowerCase());
+}
+
+export type ProfilePinboard = {
+  slips: Event[];
+  /** True when at least one slip came from the pin list (heading = Pinned). */
+  hasPins: boolean;
+};
+
+/** Newest original posts for the pinboard fill (excludes boosts). */
+export function pickOriginalPostsForPinboard(events: Event[], limit = PROFILE_PINBOARD_LIMIT): Event[] {
+  return [...events]
+    .filter((e) => e?.id && isOriginalPost(e) && !isFeedRepost(e))
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, Math.max(0, limit));
+}
+
+/**
+ * Pins first (list order), then newest OPs not already included, up to `limit`.
+ * Empty when both sources are empty.
+ */
+export function composeProfilePinboardSlips(
+  pins: Event[],
+  originals: Event[],
+  limit = PROFILE_PINBOARD_LIMIT
+): ProfilePinboard {
+  const cap = Math.max(0, limit);
+  const slips: Event[] = [];
+  const seen = new Set<string>();
+  let hasPins = false;
+
+  for (const event of pins) {
+    if (slips.length >= cap) break;
+    const id = event?.id?.toLowerCase();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    slips.push(event);
+    hasPins = true;
+  }
+
+  const ops = pickOriginalPostsForPinboard(originals, cap);
+  for (const event of ops) {
+    if (slips.length >= cap) break;
+    const id = event.id.toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    slips.push(event);
+  }
+
+  return { slips, hasPins };
+}
+
+/** Short text for a pinboard slip face (media URLs stripped). */
+export function pinboardSlipPreview(event: Event, maxChars = 160): string {
+  const media = uniqueMedia(event);
+  const body = omitMediaUrls(event.content ?? '', media).replace(/\s+/g, ' ').trim();
+  if (body) return cropText(body, maxChars);
+  return '';
+}
+
+/** First allowed image URL on the event, if any. */
+export function pinboardSlipImage(event: Event): string | null {
+  for (const item of uniqueMedia(event)) {
+    if (item.type !== 'image') continue;
+    if (!isAllowedMediaUrl(item.url)) continue;
+    return item.url;
+  }
+  return null;
+}
+
+/** YouTube hqdefault still for a watch URL. */
+export function youtubeStillUrl(raw: string): string | null {
+  const ref = parseYouTubeUrl(raw);
+  if (!ref) return null;
+  return `https://i.ytimg.com/vi/${ref.videoId}/hqdefault.jpg`;
+}
+
+function contentHttpUrls(content: string | undefined): string[] {
+  return (content?.match(CONTENT_HTTP_URL) ?? []).map(tidyLinkUrl);
+}
+
+function contentNostrTokens(content: string | undefined): string[] {
+  if (!content) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of content.matchAll(NOSTR_BECH32)) {
+    const token = (m[1] ?? '').toLowerCase();
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
+}
+
+function acceptImageUrl(url: string | null | undefined): string | null {
+  const u = (url ?? '').trim();
+  if (!u || !isAllowedMediaUrl(u)) return null;
+  return u;
+}
+
+/**
+ * Immediate face image: tagged media, content images, covers, YouTube stills,
+ * cached profile thumbs for embedded npub/nprofile.
+ */
+export function pinboardSyncFaceImage(event: Event): string | null {
+  const tagged = pinboardSlipImage(event);
+  if (tagged) return tagged;
+
+  const fromContent = acceptImageUrl(firstContentImageUrl(event.content));
+  if (fromContent) return fromContent;
+
+  const cover = acceptImageUrl(coverImageUrl(event) ?? coverFullImageUrl(event));
+  if (cover) return cover;
+
+  for (const url of contentHttpUrls(event.content)) {
+    const yt = youtubeStillUrl(url);
+    if (yt) return yt;
+  }
+
+  for (const token of contentNostrTokens(event.content)) {
+    const ref = decodeNostrBech32(token);
+    if (!ref) continue;
+    if (ref.kind === 'npub' || ref.kind === 'nprofile') {
+      const pic = peekProfileThumb(ref.pubkey)?.picture;
+      const ok = acceptImageUrl(pic);
+      if (ok) return ok;
+    }
+    if ((ref.kind === 'note' || ref.kind === 'nevent') && ref.id) {
+      const hit = memoryGetEvent(ref.id);
+      if (hit) {
+        const nested = pinboardSlipImage(hit) || acceptImageUrl(firstContentImageUrl(hit.content));
+        if (nested) return nested;
+      }
+    }
+  }
+
+  return null;
+}
+
+/** First https URL in note content suitable for an Open Graph card. */
+export function pinboardFirstOgUrl(event: Event): string | null {
+  for (const url of contentHttpUrls(event.content)) {
+    if (shouldOgPreview(url)) return url;
+  }
+  return null;
+}
+
+/**
+ * Resolve a face image for a pin slip: sync sources first, then OG previews,
+ * then nostr profile / embedded-event images.
+ */
+export async function pinboardResolveFaceImage(
+  event: Event,
+  opts?: { signal?: AbortSignal }
+): Promise<string | null> {
+  const sync = pinboardSyncFaceImage(event);
+  if (sync) return sync;
+
+  for (const url of contentHttpUrls(event.content)) {
+    if (opts?.signal?.aborted) return null;
+    const yt = youtubeStillUrl(url);
+    if (yt) return yt;
+    if (!shouldOgPreview(url)) continue;
+    const og = await fetchOgPreview(url, { signal: opts?.signal });
+    const img = acceptImageUrl(og?.image);
+    if (img) return img;
+  }
+
+  for (const token of contentNostrTokens(event.content)) {
+    if (opts?.signal?.aborted) return null;
+    const ref = decodeNostrBech32(token);
+    if (!ref) continue;
+
+    if (ref.kind === 'npub' || ref.kind === 'nprofile') {
+      if (!ref.pubkey) continue;
+      const warm = acceptImageUrl(peekProfileThumb(ref.pubkey)?.picture);
+      if (warm) return warm;
+      const meta = await ensureMetadata(ref.pubkey);
+      if (!meta) continue;
+      const pic = acceptImageUrl(
+        peekProfileThumb(ref.pubkey)?.picture || profileThumbFromKind0(meta).picture
+      );
+      if (pic) return pic;
+      continue;
+    }
+
+    if ((ref.kind === 'note' || ref.kind === 'nevent') && ref.id) {
+      const hit =
+        memoryGetEvent(ref.id) ??
+        (await fetchById(ref.id, {
+          hintRelays: ref.relays,
+          authorPubkey: ref.pubkey
+        }));
+      if (!hit) continue;
+      const nested =
+        pinboardSyncFaceImage(hit) ||
+        acceptImageUrl(firstContentImageUrl(hit.content));
+      if (nested) return nested;
+      const nestedOg = pinboardFirstOgUrl(hit);
+      if (nestedOg) {
+        const og = await fetchOgPreview(nestedOg, { signal: opts?.signal });
+        const img = acceptImageUrl(og?.image);
+        if (img) return img;
+      }
+      continue;
+    }
+
+    if (ref.kind === 'naddr' && ref.naddr) {
+      const coord = `${ref.naddr.kind}:${ref.naddr.pubkey}:${ref.naddr.identifier}`;
+      const hit = await fetchByAddress(coord, { hintRelays: ref.naddr.relays });
+      if (!hit) continue;
+      const nested =
+        pinboardSyncFaceImage(hit) ||
+        acceptImageUrl(coverImageUrl(hit) ?? coverFullImageUrl(hit));
+      if (nested) return nested;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Short non-link text for a handwriting overlay on the hero OG photo
+ * (e.g. "GM" from a GM + links note).
+ */
+export function pinboardHandText(event: Event, maxChars = 40): string {
+  const media = uniqueMedia(event);
+  let body = omitMediaUrls(event.content ?? '', media);
+  body = body
+    .replace(CONTENT_HTTP_URL, ' ')
+    .replace(NOSTR_BECH32, ' ')
+    .replace(/#[\p{L}\p{N}_-]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cropText(body, maxChars);
 }

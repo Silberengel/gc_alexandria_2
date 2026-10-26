@@ -68,8 +68,20 @@
     profileKindHeading,
     profileKindPath
   } from '$lib/profile-route';
-  import { feedAuthorRepliesPath, feedThreadPath } from '$lib/feed';
-  import { pickPinList, resolvePinnedNotes, samePinnedNoteIds } from '$lib/profile-pins';
+  import { feedAuthorRepliesPath } from '$lib/feed';
+  import {
+    PROFILE_PINBOARD_LIMIT,
+    PROFILE_PINBOARD_OP_KINDS,
+    composeProfilePinboardSlips,
+    pickPinList,
+    resolvePinnedNotes,
+    samePinnedNoteIds
+  } from '$lib/profile-pins';
+  import PinSlip from '$lib/components/PinSlip.svelte';
+  import Cover from '$lib/components/Cover.svelte';
+  import { coverAuthor, coverTitle } from '$lib/cover-fallback';
+  import { warmNavEvent } from '$lib/nav-warm';
+  import { shelfWheel } from '$lib/shelf-wheel';
 
   interface Props {
     params?: { id?: string; kind?: string };
@@ -108,8 +120,11 @@
   let readingEntries = $state<ReadingQueueEntry[]>([]);
   let readingTitles = $state<Map<string, string>>(new Map());
   let readingEditions = $state<Map<string, Event>>(new Map());
-  /** Resolved notes from the profile's NIP-51 kind 10001 pin list. */
-  let pinnedNotes = $state<Event[]>([]);
+  /** Profile pinboard slips (pins first, then latest OPs). */
+  let pinboardSlips = $state<Event[]>([]);
+  /** True when the board includes at least one kind-10001 pin. */
+  let pinboardHasPins = $state(false);
+  const pinboardHeading = $derived(pinboardHasPins ? 'Pinned' : 'Latest');
 
   const fields = $derived(parseKind0(profile));
   const payments = $derived(paymentRows(fields, paymentEvents, profile));
@@ -142,6 +157,16 @@
   $effect(() => {
     if (kindFilter != null) kindDraft = String(kindFilter);
   });
+
+  function continueReadingHref(entry: ReadingQueueEntry, edition: Event): string {
+    const base = `#${publicationPath(edition)}`;
+    const q = new URLSearchParams();
+    q.set('read', '1');
+    const sid = (entry.sectionId ?? '').trim();
+    if (sid) q.set('section', sid);
+    if (Number.isFinite(entry.pos) && entry.pos >= 0) q.set('pos', String(Math.floor(entry.pos)));
+    return `${base}?${q.toString()}`;
+  }
 
   function submitKindJump(e: SubmitEvent): void {
     e.preventDefault();
@@ -318,7 +343,8 @@
     readingEntries = [];
     readingTitles = new Map();
     readingEditions = new Map();
-    pinnedNotes = [];
+    pinboardSlips = [];
+    pinboardHasPins = false;
     producedPage = 1;
     interactedPage = 1;
     pageFilter = '';
@@ -351,7 +377,10 @@
     const snapPayments = pruneToLatestReplaceables([...snap.paymentEvents]);
     if (snapPayments.length) paymentEvents = snapPayments;
     readCount = snap.readCount;
-    if (snap.pinnedNotes?.length) pinnedNotes = [...snap.pinnedNotes];
+    if (snap.pinnedNotes?.length) {
+      pinboardSlips = [...snap.pinnedNotes].slice(0, PROFILE_PINBOARD_LIMIT);
+      pinboardHasPins = snap.pinboardHasPins === true;
+    }
     const ownLocal =
       !!get(session).pubkey &&
       get(session).pubkey!.toLowerCase() === snap.pubkey &&
@@ -512,7 +541,7 @@
         if (nip) profilePathId = nip;
       }
 
-      const loadPinnedNotes = async (
+      const loadPinboard = async (
         query: (
           base: string[],
           filters: Parameters<typeof relayPool.query>[1],
@@ -522,22 +551,46 @@
       ): Promise<boolean> => {
         if (filterKind != null) return false;
         try {
-          const pinHits = await query(
-            socialStack(),
-            [{ kinds: [KIND.PIN], authors: [nextPk], limit: 5 }],
-            4000,
-            2
-          );
+          // Prefer a dedicated kind-1 REQ — multi-kind author filters often under-fill on relays.
+          const [pinHits, noteHits, otherHits] = await Promise.all([
+            query(socialStack(), [{ kinds: [KIND.PIN], authors: [nextPk], limit: 5 }], 4000, 2),
+            query(
+              socialStack(),
+              [{ kinds: [KIND.TEXT_NOTE], authors: [nextPk], limit: 40 }],
+              5000,
+              3
+            ),
+            query(
+              socialStack(),
+              [
+                {
+                  kinds: PROFILE_PINBOARD_OP_KINDS.filter((k) => k !== KIND.TEXT_NOTE),
+                  authors: [nextPk],
+                  limit: 20
+                }
+              ],
+              4000,
+              2
+            )
+          ]);
           if (cancelled) return false;
+          const opHits = [...noteHits, ...otherHits];
+          rememberEvents(opHits);
           const list = pickPinList(pinHits, nextPk);
-          // Relay miss: keep snapshot / already-painted pins.
-          if (!list && !pinHits.length) return false;
-          if (list) rememberEvents([list]);
-          const notes = await resolvePinnedNotes(list);
-          if (cancelled) return false;
-          const prev = untrack(() => pinnedNotes);
-          if (samePinnedNoteIds(prev, notes)) return false;
-          pinnedNotes = notes;
+          let pins: Event[] = [];
+          if (list) {
+            rememberEvents([list]);
+            pins = await resolvePinnedNotes(list, { limit: PROFILE_PINBOARD_LIMIT });
+            if (cancelled) return false;
+          }
+          // Always recompose — fill remaining slots with newest OPs (pins first).
+          const board = composeProfilePinboardSlips(pins, opHits, PROFILE_PINBOARD_LIMIT);
+          if (!board.slips.length) return false;
+          const prev = untrack(() => pinboardSlips);
+          const prevHas = untrack(() => pinboardHasPins);
+          if (samePinnedNoteIds(prev, board.slips) && prevHas === board.hasPins) return false;
+          pinboardSlips = board.slips;
+          pinboardHasPins = board.hasPins;
           return true;
         } catch {
           return false;
@@ -546,17 +599,19 @@
 
       // Within TTL: keep the cached page; only kind-0 was refreshed above.
       // Kind-filtered views always re-query so arbitrary kinds are not missed.
-      // Do not block on pin refresh — that was causing pool churn and panel flicker.
+      // Refresh the pinboard when empty or short of five slips (do not block paint).
       if (profilePageSnapshotFresh(snap) && filterKind == null) {
         listingsLoading = false;
-        if (!(snap?.pinnedNotes?.length)) {
-          void loadPinnedNotes((base, filters, timeout, baseMax) =>
+        const boardShort = (snap?.pinnedNotes?.length ?? 0) < PROFILE_PINBOARD_LIMIT;
+        if (boardShort) {
+          void loadPinboard((base, filters, timeout, baseMax) =>
             relayPool.query(base, filters, timeout, baseMax)
           ).then((changed) => {
             if (cancelled || !changed || !snap) return;
             void cachePutProfilePageSnapshot({
               ...snap,
-              pinnedNotes: untrack(() => pinnedNotes)
+              pinnedNotes: untrack(() => pinboardSlips),
+              pinboardHasPins: untrack(() => pinboardHasPins)
             });
           });
         }
@@ -748,11 +803,11 @@
               marksByWork = byWork;
             });
 
-      const pinsP = loadPinnedNotes((base, filters, timeout, baseMax) =>
+      const pinboardP = loadPinboard((base, filters, timeout, baseMax) =>
         queryAuthored(base, filters, timeout, baseMax)
       );
 
-      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP, pinsP]);
+      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP, pinboardP]);
       if (cancelled) return;
       listingsLoading = false;
 
@@ -772,7 +827,8 @@
         paymentEvents: paymentEventsAcc,
         readingEntries: untrack(() => readingEntries),
         readingEditions: [...untrack(() => readingEditions).values()],
-        pinnedNotes: untrack(() => pinnedNotes),
+        pinnedNotes: untrack(() => pinboardSlips),
+        pinboardHasPins: untrack(() => pinboardHasPins),
         readCount: untrack(() => readCount)
       });
     })();
@@ -1012,63 +1068,80 @@
         </details>
       {/if}
     </div>
-    {#if !isKindFiltered && pinnedNotes.length}
-      <section class="profile-pins" aria-label="Pinned">
-        <h3 class="profile-reading-heading">Pinned</h3>
-        <ul class="profile-pins-list">
-          {#each pinnedNotes as event (event.id)}
-            <li class="profile-pins-row">
-              <a class="profile-pins-link" href={`#${feedThreadPath(event)}`} use:link>
-                <span class="profile-pins-preview">{event.content.trim() || 'Untitled note'}</span>
-              </a>
-            </li>
-          {/each}
-        </ul>
-      </section>
-    {/if}
     {#if !isKindFiltered && (profileActiveReading.length || readingEntries.length)}
-      <section class="profile-reading" aria-label="Reading now">
-        <h3 class="profile-reading-heading">
-          Reading now
-          <span class="muted profile-reading-counts">
-            {profileActiveReading.length}
-            {#if readingEntries.length > profileActiveReading.length}
-              of {readingEntries.length} queued
-            {/if}
-          </span>
-        </h3>
+      <section class="landing-shelf landing-shelf-reading profile-reading-shelf" aria-label="Reading now">
+        <div class="shelf-heading">
+          <h2 class="section-title">Reading now</h2>
+        </div>
         {#if profileActiveReading.length}
-          <ul class="profile-reading-list">
-            {#each profileActiveReading as entry (entry.a)}
-              {@const pct = readingProgressPercent(entry)}
-              {@const edition = readingEditions.get(entry.a)}
-              <li class="profile-reading-row">
-                {#if edition}
-                  <a class="profile-reading-title" href={`#${publicationPath(edition)}`} use:link>
-                    {readingTitles.get(entry.a) || 'Untitled'}
+          <div class="shelf-track shelf-track-reading" use:shelfWheel>
+            <div class="shelf-bar">
+              {#each profileActiveReading as entry (entry.a)}
+                {@const pub = readingEditions.get(entry.a)}
+                {@const pct = readingProgressPercent(entry)}
+                {#if pub}
+                  {@const tipTitle = coverTitle(pub)}
+                  {@const tipAuthor = coverAuthor(pub)}
+                  {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+                  <a
+                    class="cover"
+                    href={continueReadingHref(entry, pub)}
+                    use:link
+                    title={tip}
+                    aria-label={`${tip} — ${pct}% read`}
+                    onpointerdown={() => warmNavEvent(pub)}
+                    onclick={() => warmNavEvent(pub)}
+                  >
+                    <Cover event={pub} />
                   </a>
                 {:else}
-                  <span class="profile-reading-title">
+                  <span class="cover profile-reading-cover-pending" aria-busy="true" aria-label="Loading edition">
                     <span class="jump-busy-spinner" aria-hidden="true"></span>
-                    {readingTitles.get(entry.a) || 'Loading…'}
                   </span>
                 {/if}
-                <div
-                  class="reading-progress"
-                  role="progressbar"
-                  aria-valuenow={pct}
-                  aria-valuemin="0"
-                  aria-valuemax="100"
-                >
-                  <span class="reading-progress-fill" style={`width:${pct}%`}></span>
+              {/each}
+            </div>
+            <div class="shelf-reading-captions">
+              {#each profileActiveReading as entry (entry.a)}
+                {@const pub = readingEditions.get(entry.a)}
+                {@const pct = readingProgressPercent(entry)}
+                {@const tipTitle = pub ? coverTitle(pub) : readingTitles.get(entry.a) || 'Loading…'}
+                {@const tipAuthor = pub ? coverAuthor(pub) : ''}
+                <div class="shelf-reading-caption">
+                  <span class="shelf-reading-caption-title">{tipTitle}</span>
+                  {#if tipAuthor}
+                    <span class="shelf-reading-caption-author">{tipAuthor}</span>
+                  {/if}
+                  <div
+                    class="shelf-reading-progress"
+                    role="progressbar"
+                    aria-valuenow={pct}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-label={`${pct}% read`}
+                  >
+                    <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
+                  </div>
+                  <span class="shelf-reading-caption-pct">{pct}%</span>
                 </div>
-                <span class="muted profile-reading-pct">{pct}%</span>
-              </li>
-            {/each}
-          </ul>
+              {/each}
+            </div>
+          </div>
         {:else}
-          <p class="muted">Queue has {readingEntries.length} waiting — none in the active set yet.</p>
+          <p class="muted profile-reading-empty">
+            Queue has {readingEntries.length} waiting — none in the active set yet.
+          </p>
         {/if}
+      </section>
+    {/if}
+    {#if !isKindFiltered && pinboardSlips.length}
+      <section class="profile-pinboard" aria-label={pinboardHeading}>
+        <h3 class="profile-reading-heading">{pinboardHeading}</h3>
+        <div class="profile-pinboard-board">
+          {#each pinboardSlips as event, i (event.id)}
+            <PinSlip {event} hero={i === 0} />
+          {/each}
+        </div>
       </section>
     {/if}
   {/if}

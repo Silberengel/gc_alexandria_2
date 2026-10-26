@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { pinEventIds, pickPinList, resolvePinnedNotes, samePinnedNoteIds } from './profile-pins';
+import {
+  composeProfilePinboardSlips,
+  pinboardFirstOgUrl,
+  pinboardHandText,
+  pinboardSlipPreview,
+  pinboardSyncFaceImage,
+  pinEventIds,
+  pickOriginalPostsForPinboard,
+  pickPinList,
+  resolvePinnedNotes,
+  samePinnedNoteIds,
+  youtubeStillUrl
+} from './profile-pins';
 import { rememberEvents } from './nostr/event-memory';
+import { rememberProfileFromKind0 } from './profile-cache';
+import { nip19 } from 'nostr-tools';
 
 function ev(over: Partial<Event> & { tags?: string[][] }): Event {
   return {
@@ -68,5 +82,101 @@ describe('profile pins', () => {
       }
     });
     expect(notes.map((e) => e.id)).toEqual([noteA.id, noteB.id]);
+  });
+
+  it('composes pinboard slips: pins first, then OPs, capped and deduped', () => {
+    const pin1 = ev({ id: '1'.repeat(64), content: 'pin one', created_at: 1 });
+    const pin2 = ev({ id: '2'.repeat(64), content: 'pin two', created_at: 2 });
+    const opNew = ev({ id: '3'.repeat(64), content: 'op new', created_at: 50 });
+    const opOld = ev({ id: '4'.repeat(64), content: 'op old', created_at: 10 });
+    const dup = ev({ id: '1'.repeat(64), content: 'same as pin', created_at: 99 });
+    const reply = ev({
+      id: '5'.repeat(64),
+      content: 'reply',
+      created_at: 80,
+      tags: [['e', 'a'.repeat(64), '', 'reply']]
+    });
+    const board = composeProfilePinboardSlips([pin1, pin2], [opNew, opOld, dup, reply], 5);
+    expect(board.hasPins).toBe(true);
+    expect(board.slips.map((e) => e.id)).toEqual([pin1.id, pin2.id, opNew.id, opOld.id]);
+  });
+
+  it('returns empty pinboard when there are no pins or OPs', () => {
+    expect(composeProfilePinboardSlips([], [], 5)).toEqual({ slips: [], hasPins: false });
+  });
+
+  it('uses Latest heading source when only OPs fill the board', () => {
+    const op = ev({ id: '9'.repeat(64), content: 'solo', created_at: 3 });
+    const board = composeProfilePinboardSlips([], [op], 5);
+    expect(board.hasPins).toBe(false);
+    expect(board.slips.map((e) => e.id)).toEqual([op.id]);
+  });
+
+  it('orders original-post fill newest first and skips replies', () => {
+    const newer = ev({ id: 'a'.repeat(64), created_at: 20, content: 'n' });
+    const older = ev({ id: 'b'.repeat(64), created_at: 5, content: 'o' });
+    const reply = ev({
+      id: 'c'.repeat(64),
+      created_at: 30,
+      content: 'r',
+      tags: [['e', 'd'.repeat(64)]]
+    });
+    expect(pickOriginalPostsForPinboard([older, reply, newer], 5).map((e) => e.id)).toEqual([
+      newer.id,
+      older.id
+    ]);
+  });
+
+  it('builds slip preview without media urls', () => {
+    const url = 'https://cdn.example.com/pic.png';
+    const note = ev({
+      content: `hello\n${url}`,
+      tags: [['image', url]]
+    });
+    expect(pinboardSlipPreview(note, 80)).toBe('hello');
+  });
+
+  it('picks the first OG-worthy https link and handwriting text without urls', () => {
+    const note = ev({
+      content: 'GM\n\nhttps://biblestr.imwald.eu\n\nhttps://gc-alexandria.imwald.eu\n\n#GitCitadel'
+    });
+    expect(pinboardFirstOgUrl(note)).toBe('https://biblestr.imwald.eu');
+    expect(pinboardHandText(note)).toBe('GM');
+  });
+
+  it('builds a YouTube still URL and uses it as a sync face image', () => {
+    const watch = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    expect(youtubeStillUrl(watch)).toBe(
+      'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+    );
+    const note = ev({ content: `check this\n${watch}` });
+    expect(pinboardSyncFaceImage(note)).toBe(
+      'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+    );
+  });
+
+  it('prefers tagged media over YouTube stills for the sync face', () => {
+    const pic = 'https://cdn.example.com/hero.png';
+    const note = ev({
+      content: `see https://youtu.be/dQw4w9WgXcQ`,
+      tags: [['image', pic]]
+    });
+    expect(pinboardSyncFaceImage(note)).toBe(pic);
+  });
+
+  it('uses a cached profile picture from an embedded npub', () => {
+    const pk = 'e'.repeat(64);
+    rememberProfileFromKind0(
+      ev({
+        kind: KIND.METADATA,
+        pubkey: pk,
+        content: JSON.stringify({
+          name: 'Face',
+          picture: 'https://cdn.example.com/face.jpg'
+        })
+      })
+    );
+    const note = ev({ content: `hello nostr:${nip19.npubEncode(pk)}` });
+    expect(pinboardSyncFaceImage(note)).toBe('https://cdn.example.com/face.jpg');
   });
 });
