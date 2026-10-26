@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { buildReadingQueueBookTags } from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import { coordinatesOverlap } from './publication-coordinate';
 import { eventAddress } from './nostr/verify';
@@ -142,19 +143,15 @@ export function readingQueueDraft(entries: ReadingQueueEntry[]): {
   content: string;
   tags: string[][];
 } {
-  const tags: string[][] = [];
-  for (const e of entries) {
-    const a = normalizeEditionAddr(e.a);
-    tags.push([
-      'book',
-      a,
-      String(Math.max(0, Math.floor(e.pos))),
-      String(Math.max(1, Math.floor(e.total))),
-      e.sectionId?.trim() ?? '',
-      String(e.updated ?? Math.floor(Date.now() / 1000))
-    ]);
-    tags.push(['a', a]);
-  }
+  const tags = buildReadingQueueBookTags(
+    entries.map((e) => ({
+      a: normalizeEditionAddr(e.a),
+      pos: e.pos,
+      total: e.total,
+      sectionId: e.sectionId,
+      updated: e.updated
+    }))
+  );
   return { kind: KIND.READING_QUEUE, content: '', tags };
 }
 

@@ -6,6 +6,7 @@
   import { KIND } from '$lib/constants';
   import {
     renderWithFallback,
+    renderHighlightEventHtml,
     markHighlights,
     resolveMarkup,
     isAllowedMediaUrl,
@@ -168,7 +169,10 @@
   const sourceKind = $derived(kind ?? displayEvent?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(displayEvent?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
-  const usePlaintextRich = $derived(markupFormat === 'plaintext');
+  /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
+  const isHighlightEvent = $derived(sourceKind === KIND.HIGHLIGHT);
+  const usePlaintextRich = $derived(markupFormat === 'plaintext' && !isHighlightEvent);
+  let highlightHtml = $state('');
   /** Kind 7/17 custom emoji reactions — paint the tagged face, not clipped alt text. */
   const reactionFace = $derived(event ? resolveReactionEmoji(event) : null);
   const heroUrls = $derived.by(() => {
@@ -254,6 +258,7 @@
     const tags = sourceTags;
     const whole = wholeDocument;
     const plaintext = usePlaintextRich;
+    const highlight = isHighlightEvent;
     const qSnap = quotesSig;
     const q = untrack(() => quotes);
     const heroes = heroUrls;
@@ -266,12 +271,14 @@
       segments = [];
       resolved = {};
       extraEmbeds = [];
+      highlightHtml = '';
       return;
     }
     bodyPending = true;
     segments = [];
     resolved = {};
     extraEmbeds = [];
+    highlightHtml = '';
     void (async () => {
       const found: Record<number, Event | null> = {};
       let next: Array<ContentSegment | RenderSegment> = [];
@@ -282,6 +289,21 @@
         if (early && heroes.length) out = stripEarlyDuplicateHeroImage(out, heroes);
         return out;
       };
+
+      if (highlight && ev) {
+        const html = maybeDedupe(
+          await renderHighlightEventHtml({
+            content: ev.content ?? src,
+            tags: ev.tags,
+            pubkey: ev.pubkey
+          })
+        );
+        if (!cancelled) {
+          highlightHtml = html;
+          bodyPending = false;
+        }
+        return;
+      }
 
       const { text: emojiReady, slots: emojiSlots } = await prepareContentWithEmojis(src, ev);
       const withEmojis = (html: string) => expandCustomEmojiPlaceholders(html, emojiSlots);
@@ -351,7 +373,9 @@
     const el = bodyEl;
     const ready = !bodyPending;
     const q = quotes;
-    if (!el || !ready || !q.length) return;
+    const selfMarked = highlightHtml.includes('text-highlight');
+    if (!el || !ready) return;
+    if (!q.length && !selfMarked) return;
     return attachHighlightBadges(el);
   });
 
@@ -448,6 +472,19 @@
     <WikiRedirectCard {event} />
   {:else if event && sourceKind === KIND.APP_HANDLER}
     <AppHandlerChip {event} showMenu={false} />
+  {:else if isHighlightEvent}
+    {#if bodyPending}
+      <LoadingHint message={loadingLabel} />
+    {:else if highlightHtml}
+      {@html highlightHtml}
+    {:else}
+      <NostrRichText
+        content={source}
+        event={displayEvent}
+        kind={sourceKind}
+        showEmbeds={false}
+      />
+    {/if}
   {:else if usePlaintextRich}
     <NostrRichText
       content={source}

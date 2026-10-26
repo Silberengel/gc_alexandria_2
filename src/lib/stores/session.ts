@@ -186,7 +186,13 @@ function createSessionStore() {
       // Phase 1: NIP-65 / favorites so subsequent shelf REQs include the viewer's outboxes.
       // A first wave often dies while the browser is still opening sockets. Retry before
       // the feed decides this account has no inboxes and stays on theforest.
-      const bootKinds = [KIND.RELAY_LIST, KIND.FAVORITE, KIND.BLOCKED, KIND.LOCAL];
+      const bootKinds = [
+        KIND.RELAY_LIST,
+        KIND.FAVORITE,
+        KIND.BLOCKED,
+        KIND.LOCAL,
+        KIND.PRIVATE_RELAY_LIST
+      ];
       const bootFilter = [{ authors: [pubkey], kinds: bootKinds, limit: 20 }];
       let bootEvents: Event[] = [];
       for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -593,6 +599,30 @@ function createSessionStore() {
     }
   }
 
+  /** Cache + remember, then publish only to the given relays (no outbox fan-out). */
+  async function publishToRelays(event: Event, relays: string[]): Promise<boolean> {
+    try {
+      await cachePutMany([event]);
+    } catch {
+      /* private mode / quota */
+    }
+    rememberEvent(event);
+    const urls = uniqueRelayUrls(relays);
+    if (!urls.length) return false;
+    let timer = 0;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = window.setTimeout(() => resolve(false), 8_000);
+    });
+    try {
+      return await Promise.race([
+        relayPool.publish(urls, event).then((accepted) => accepted > 0),
+        timeout
+      ]);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }
+
   /** True when at least one write relay accepts the event. */
   async function publish(event: Event): Promise<boolean> {
     // Cache + session metadata first so a confirmed publish can paint from cache
@@ -658,6 +688,7 @@ function createSessionStore() {
     restore,
     signOut,
     publish,
+    publishToRelays,
     rememberEvent,
     ensureBunkerSigner,
     metadata,

@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { buildHighlightBookSectionScopeTags } from '@silberengel/kind-compose-catalog';
 import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import {
   canOfferKind1Reply,
@@ -118,12 +119,6 @@ export function ratingDraft(
   return { kind: KIND.RATING, content, tags };
 }
 
-/** `kind:pubkey:d` with a lowercase pubkey, matching Bookshelf highlight coordinates. */
-function highlightCoordinate(event: Event): string {
-  const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
-  return `${event.kind}:${event.pubkey.toLowerCase()}:${d}`;
-}
-
 /**
  * NIP-84 highlight using Bookshelf's NIP-22 root/parent tags.
  * Uppercase `A`/`K`/`P` scope the book index; lowercase `a`/`k`/`e`/`p` name the chapter.
@@ -134,15 +129,7 @@ export function highlightDraft(
   quote: string,
   context?: string
 ): { kind: number; content: string; tags: string[][] } {
-  const tags: string[][] = [
-    ['A', highlightCoordinate(book)],
-    ['K', String(book.kind)],
-    ['P', book.pubkey.toLowerCase()],
-    ['a', highlightCoordinate(section)],
-    ['k', String(section.kind)],
-    ['e', section.id.toLowerCase()],
-    ['p', section.pubkey.toLowerCase(), '', 'publisher']
-  ];
+  const tags: string[][] = [...buildHighlightBookSectionScopeTags(book, section)];
   const source = chapterSourceUrl(section);
   if (source) tags.push(['r', source, 'source']);
   const ctx = context?.trim();

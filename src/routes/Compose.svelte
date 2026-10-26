@@ -18,6 +18,7 @@
   import ComposePaytoEditor from '$lib/components/ComposePaytoEditor.svelte';
   import ComposeRelayListEditor from '$lib/components/ComposeRelayListEditor.svelte';
   import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
+  import PrivateRelayListModal from '$lib/components/PrivateRelayListModal.svelte';
   import { emptyKind0TagRows } from '$lib/compose-kind0';
   import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
   import { session } from '$lib/stores/session';
@@ -36,6 +37,20 @@
     customFormForClass,
     isCatalogued
   } from '@silberengel/kind-compose-catalog';
+  import {
+    deleteDraftWrap,
+    fetchCheckpoints,
+    fetchDraftWraps,
+    fetchPrivateRelayListEvent,
+    normalizePrivateRelayUrls,
+    parsePrivateRelayList,
+    privateStorageRelays,
+    publishPrivateRelayList,
+    saveDraftWrap,
+    signerSupportsNip44,
+    type DecryptedCheckpoint,
+    type DecryptedDraftWrap
+  } from '$lib/nip37';
   import type { EventClassId, FieldDef } from '@silberengel/kind-compose-catalog';
   import {
     OTHER_KIND_SENTINEL,
@@ -57,8 +72,8 @@
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
   import {
     pickLatestByKind,
-    shouldPreloadMetadata,
-    valuesFromMetadataEvent
+    shouldPreloadReplaceable,
+    valuesFromReplaceableEvent
   } from '$lib/compose-preload';
   import {
     canEditAsShortNote,
@@ -88,7 +103,7 @@
   } from '$lib/blossom';
   import { lruGet, lruSet } from '$lib/compose-lru';
   import { relayPool } from '$lib/nostr/pool';
-  import { profileStack } from '$lib/nostr/selector';
+  import { profileStack, writeStack } from '$lib/nostr/selector';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
   import { cacheGetEvent } from '$lib/nostr/cache';
   import { fetchById } from '$lib/nostr/fetch';
@@ -129,6 +144,12 @@
   let draftListOpen = $state(false);
   /** Bumped when sessionStorage drafts change so the list re-reads. */
   let draftRevision = $state(0);
+  let encryptedDrafts = $state<DecryptedDraftWrap[]>([]);
+  let privateRelayModalOpen = $state(false);
+  let savingDraft = $state(false);
+  /** Stable NIP-37 `d` for the current compose session (re-saves replace the same wrap). */
+  let activeDraftD = $state<string | null>(null);
+  let draftCheckpoints = $state<DecryptedCheckpoint[]>([]);
   type EditorTab = 'edit' | 'preview' | 'json';
   let editorTab = $state<EditorTab>('edit');
   let advancedOpen = $state(false);
@@ -138,6 +159,14 @@
   let shortNoteEditSource = $state<NostrEvent | null>(null);
   /** Last `?copy=` / `?edit=` id we applied, so the effect does not loop. */
   let appliedIntentKey = $state<string | null>(null);
+  /** True when the form was filled from the viewer's newest replaceable of this kind. */
+  let replaceablePreloaded = $state(false);
+  /** Fingerprint of the pristine preload; drafts stay off until the form diverges. */
+  let preloadBaseline = $state<string | null>(null);
+  const documentKindSet = new Set<number>(COMPOSE_DOCUMENT_PRESETS);
+  const showSaveToDraft = $derived(
+    !shortNoteEditSource && !otherMode && documentKindSet.has(kind)
+  );
 
   const fields = $derived.by((): FieldDef[] => {
     if (isCatalogued(kind)) return composerFieldSpecs(kind);
@@ -147,7 +176,9 @@
   const contentMeta = $derived(getKind(kind)?.content);
   const showBody = $derived(showContentBox(kind) || (!isCatalogued(kind) && otherLocked));
   const showHashtags = $derived(
-    !shortNoteEditSource && (isCatalogued(kind) ? supportsHashtags(kind) : true)
+    !shortNoteEditSource &&
+      !isMetadataComposeKind(kind) &&
+      (isCatalogued(kind) ? supportsHashtags(kind) : true)
   );
   const showFreeform = $derived(
     !shortNoteEditSource && kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
@@ -156,13 +187,191 @@
   const markupFormat = $derived(
     showBody ? composeMarkupFormat(kind, content, previewEvent?.tags) : null
   );
-  const draftItems = $derived.by(() => {
+  type DraftListItem =
+    | {
+        source: 'local';
+        kind: number;
+        mode: string;
+        label: string;
+        updatedAt: number;
+      }
+    | {
+        source: 'encrypted';
+        kind: number;
+        d: string;
+        label: string;
+        updatedAt: number;
+        wrap: DecryptedDraftWrap;
+      };
+
+  const draftItems = $derived.by((): DraftListItem[] => {
     void draftRevision;
-    return $session.pubkey ? listComposeDrafts($session.pubkey) : [];
+    const pk = $session.pubkey;
+    const local: DraftListItem[] = pk
+      ? listComposeDrafts(pk).map((item) => ({
+          source: 'local' as const,
+          kind: item.kind,
+          mode: item.mode,
+          label: composeKindLabel(item.kind),
+          updatedAt: item.updatedAt
+        }))
+      : [];
+    const encrypted: DraftListItem[] = encryptedDrafts.map((wrap) => ({
+      source: 'encrypted' as const,
+      kind: wrap.draftKind,
+      d: wrap.d,
+      label: composeKindLabel(wrap.draftKind),
+      updatedAt: wrap.updatedAt,
+      wrap
+    }));
+    return [...encrypted, ...local].sort((a, b) => b.updatedAt - a.updatedAt);
   });
+
+  const revisionHistory = $derived(
+    draftCheckpoints.map((cp) => ({
+      created_at: cp.created_at,
+      content: cp.content,
+      id: cp.event.id,
+      kind: cp.draft?.kind
+    }))
+  );
 
   function refreshDraftList(): void {
     draftRevision += 1;
+  }
+
+  async function refreshEncryptedDrafts(): Promise<void> {
+    if (!$session.pubkey) {
+      encryptedDrafts = [];
+      return;
+    }
+    try {
+      encryptedDrafts = await fetchDraftWraps();
+    } catch {
+      encryptedDrafts = [];
+    }
+    refreshDraftList();
+  }
+
+  async function loadCheckpointsFor(d: string | null): Promise<void> {
+    if (!d || !$session.pubkey) {
+      draftCheckpoints = [];
+      return;
+    }
+    try {
+      draftCheckpoints = await fetchCheckpoints(d);
+    } catch {
+      draftCheckpoints = [];
+    }
+  }
+
+  function newDraftId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `draft-${Date.now().toString(36)}`;
+  }
+
+  function resolveDraftD(): string {
+    const fromForm = values.d?.trim();
+    if (fromForm) return fromForm;
+    if (activeDraftD) return activeDraftD;
+    const id = newDraftId();
+    activeDraftD = id;
+    return id;
+  }
+
+  async function ensurePrivateRelaysOrPrompt(): Promise<boolean> {
+    const existing = await fetchPrivateRelayListEvent();
+    if (existing) {
+      const urls = await privateStorageRelays();
+      if (urls.length) return true;
+    }
+    privateRelayModalOpen = true;
+    return false;
+  }
+
+  async function saveToDraft(): Promise<void> {
+    formError = '';
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    if (!signerSupportsNip44()) {
+      formError = 'Your signer does not support NIP-44 encryption (required for drafts).';
+      return;
+    }
+    if (!(await ensurePrivateRelaysOrPrompt())) return;
+
+    savingDraft = true;
+    try {
+      const state = formState();
+      const partial = buildComposePartial(state);
+      const d = resolveDraftD();
+      if (!values.d?.trim() && isCatalogued(kind)) {
+        // Keep addressable forms aligned with the wrap d when the field was empty.
+        const specs = composerFieldSpecs(kind);
+        if (specs.some((f) => f.id === 'd' || f.tag === 'd')) {
+          values = { ...values, d };
+        }
+      }
+      const result = await saveDraftWrap({
+        draftEvent: {
+          kind: partial.kind,
+          content: partial.content,
+          tags: partial.tags,
+          created_at: Math.floor(Date.now() / 1000)
+        },
+        d
+      });
+      if (!result) {
+        formError = consumeSignFailure() ?? 'Could not save draft.';
+        return;
+      }
+      activeDraftD = d;
+      showNotice('Draft saved.', true);
+      await refreshEncryptedDrafts();
+      await loadCheckpointsFor(d);
+    } catch (err) {
+      formError = err instanceof Error ? err.message : String(err);
+    } finally {
+      savingDraft = false;
+    }
+  }
+
+  function restoreEncryptedDraft(wrap: DecryptedDraftWrap): void {
+    if (!wrap.draft) {
+      formError = 'Could not decrypt that draft.';
+      return;
+    }
+    markReplaceablePreloaded(false);
+    const synthetic = {
+      id: wrap.wrap.id,
+      pubkey: wrap.wrap.pubkey,
+      created_at: wrap.wrap.created_at,
+      kind: wrap.draft.kind,
+      tags: wrap.draft.tags,
+      content: wrap.draft.content,
+      sig: ''
+    } as NostrEvent;
+    applyDraft(eventToComposeDraft(synthetic));
+    activeDraftD = wrap.d;
+    draftListOpen = false;
+    void loadCheckpointsFor(wrap.d);
+  }
+
+  async function deleteEncryptedDraft(wrap: DecryptedDraftWrap): Promise<void> {
+    formError = '';
+    try {
+      await deleteDraftWrap(wrap.d, wrap.draftKind);
+      if (activeDraftD === wrap.d) {
+        activeDraftD = null;
+        draftCheckpoints = [];
+      }
+      await refreshEncryptedDrafts();
+    } catch (err) {
+      formError = err instanceof Error ? err.message : String(err);
+    }
   }
 
   function emptyValuesFor(nextKind: number): Record<string, string> {
@@ -209,6 +418,26 @@
     };
   }
 
+  function draftFingerprint(
+    d: ReturnType<typeof snapshotDraft> = snapshotDraft()
+  ): string {
+    return JSON.stringify({
+      kind: d.kind,
+      content: d.content,
+      values: d.values,
+      hashtags: d.hashtags,
+      imetaTags: d.imetaTags,
+      freeformTags: d.freeformTags,
+      kind0Tags: d.kind0Tags,
+      markup: d.markup
+    });
+  }
+
+  function markReplaceablePreloaded(on: boolean): void {
+    replaceablePreloaded = on;
+    preloadBaseline = on ? draftFingerprint() : null;
+  }
+
   function applyDraft(d: {
     kind: number;
     content: string;
@@ -243,6 +472,15 @@
   function persistCurrent() {
     const pk = $session.pubkey;
     if (!pk || otherMode || shortNoteEditSource) return;
+    if (replaceablePreloaded && preloadBaseline) {
+      if (draftFingerprint() === preloadBaseline) {
+        // Untouched preload of an existing list/replaceable — not a draft.
+        return;
+      }
+      // User edited the preloaded form; start auto-drafting from here.
+      replaceablePreloaded = false;
+      preloadBaseline = null;
+    }
     const draft = snapshotDraft();
     if (isComposeDraftEmpty(draft, emptyValuesFor(draft.kind))) {
       deleteComposeDraft(pk, draft.kind);
@@ -283,6 +521,7 @@
     editorMarkup = null;
     shortNoteEditSource = null;
     appliedIntentKey = null;
+    markReplaceablePreloaded(false);
     bumpPreview();
   }
 
@@ -364,6 +603,66 @@
     bumpPreview();
   }
 
+  /** Load the signed-in viewer's live replaceable into the open form. */
+  async function applyReplaceablePreload(nextKind: number): Promise<boolean> {
+    const pk = $session.pubkey;
+    if (!pk || !shouldPreloadReplaceable(nextKind)) return false;
+
+    if (nextKind === KIND.PRIVATE_RELAY_LIST) {
+      try {
+        const live =
+          pickLatestByKind(session.getMetadata(), nextKind) ??
+          (await fetchPrivateRelayListEvent());
+        if (live) {
+          const urls = await parsePrivateRelayList(live);
+          values = {
+            ...emptyValuesFor(nextKind),
+            relays: urls.join('\n')
+          };
+          return true;
+        }
+      } catch {
+        /* ignore decrypt / network */
+      }
+      return false;
+    }
+
+    let live = pickLatestByKind(session.getMetadata(), nextKind);
+    if (!live) {
+      try {
+        const relays = [...new Set([...writeStack(), ...profileStack()])];
+        const hits = await relayPool.query(
+          relays.length ? relays : profileStack(),
+          [{ authors: [pk], kinds: [nextKind], limit: 1 }],
+          4000,
+          4
+        );
+        live = hits[0] ?? null;
+        if (live) session.rememberEvent(live);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!live) return false;
+
+    const pre = valuesFromReplaceableEvent(live);
+    content = pre.content;
+    values = { ...emptyValuesFor(nextKind), ...pre.values };
+    if (pre.existingKind0) existingKind0 = pre.existingKind0;
+    if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
+    if (pre.hashtags?.length) hashtagRows = [...pre.hashtags];
+    if (pre.imetaTags?.length) imetaTags = pre.imetaTags.map((t) => [...t]);
+    if (pre.freeformTags?.length) {
+      freeformTags = pre.freeformTags.map((t) =>
+        t.length >= 2 ? [...t] : [t[0] ?? '', '']
+      );
+    } else if (!isCatalogued(nextKind) && live.tags.length) {
+      // Uncatalogued replaceables: surface every tag as freeform rows.
+      freeformTags = live.tags.map((t) => (t.length >= 2 ? [...t] : [t[0] ?? '', '']));
+    }
+    return true;
+  }
+
   async function loadKind(nextKind: number) {
     persistCurrent();
     const pk = $session.pubkey;
@@ -375,6 +674,7 @@
     otherError = '';
     formError = '';
     grammarIssues = [];
+    markReplaceablePreloaded(false);
     if (saved) {
       applyDraft(saved);
       bumpPreview();
@@ -387,37 +687,9 @@
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
     existingKind0 = {};
-    if (pk && shouldPreloadMetadata(nextKind)) {
-      const live = pickLatestByKind(session.getMetadata(), nextKind);
-      if (live) {
-        const pre = valuesFromMetadataEvent(live);
-        content = pre.content;
-        values = { ...emptyValuesFor(nextKind), ...pre.values };
-        if (pre.existingKind0) existingKind0 = pre.existingKind0;
-        if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
-      } else if (isMetadataComposeKind(nextKind)) {
-        // Fetch once if login metadata missed this kind.
-        try {
-          const hits = await relayPool.query(
-            profileStack(),
-            [{ authors: [pk], kinds: [nextKind], limit: 1 }],
-            4000,
-            2
-          );
-          const hit = hits[0];
-          if (hit) {
-            const pre = valuesFromMetadataEvent(hit);
-            content = pre.content;
-            values = { ...emptyValuesFor(nextKind), ...pre.values };
-            if (pre.existingKind0) existingKind0 = pre.existingKind0;
-            if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    const preloaded = await applyReplaceablePreload(nextKind);
     resetEditorMarkup(nextKind, content, freeformTags);
+    markReplaceablePreloaded(preloaded);
     bumpPreview();
   }
 
@@ -430,12 +702,13 @@
       otherLocked = false;
       otherKindText = '';
       otherError = '';
+      markReplaceablePreloaded(false);
       return;
     }
     void loadKind(selected);
   }
 
-  function validateOtherKind() {
+  async function validateOtherKind() {
     otherError = '';
     // type=number bind may yield a number; never call string methods on it.
     const raw = String(otherKindText ?? '').trim();
@@ -448,10 +721,30 @@
       otherError = `Kind ${n} is not in the ${getEventClass(otherClass).label} class.`;
       return;
     }
+
+    persistCurrent();
+    const pk = $session.pubkey;
+    const saved = pk ? loadComposeDraft(pk, n) : null;
+
     otherLocked = true;
     otherMode = false;
     kind = n;
     pickerValue = OTHER_KIND_SENTINEL;
+    editorTab = 'edit';
+    formError = '';
+    grammarIssues = [];
+    markReplaceablePreloaded(false);
+
+    if (saved) {
+      applyDraft(saved);
+      // Stay on the Other/custom chrome after restoring a draft.
+      otherLocked = true;
+      otherMode = false;
+      pickerValue = OTHER_KIND_SENTINEL;
+      bumpPreview();
+      return;
+    }
+
     content = '';
     values = emptyValuesFor(n);
     if (!isCatalogued(n)) {
@@ -465,9 +758,10 @@
     imetaTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
-    editorTab = 'edit';
-    formError = '';
+    existingKind0 = {};
+    const preloaded = await applyReplaceablePreload(n);
     resetEditorMarkup(n, content, freeformTags);
+    markReplaceablePreloaded(preloaded);
     bumpPreview();
   }
 
@@ -726,13 +1020,41 @@
         ingestShortNoteEdit(signed, editedNote);
         deleteComposeDraft($session.pubkey, KIND.TEXT_NOTE);
         refreshDraftList();
-        showPublishResult(true);
-        showNotice('Edit published.');
+        showNotice('Edit published.', true);
         shortNoteEditSource = null;
         appliedIntentKey = null;
         content = '';
         warmNavEvent(editedNote);
         void push(feedThreadPath(editedNote));
+        return;
+      }
+
+      if (kind === KIND.PRIVATE_RELAY_LIST) {
+        if (!signerSupportsNip44()) {
+          formError = 'Your signer does not support NIP-44 encryption (required for draft relays).';
+          return;
+        }
+        const urls = normalizePrivateRelayUrls((values.relays ?? '').split(/\n+/));
+        if (!urls.length) {
+          formError = 'Add at least one ws:// or wss:// relay.';
+          return;
+        }
+        try {
+          const signed = await publishPrivateRelayList(urls);
+          if (!signed) {
+            formError = consumeSignFailure() ?? 'Could not sign or publish.';
+            showPublishResult(false);
+            return;
+          }
+        } catch (err) {
+          formError = err instanceof Error ? err.message : String(err);
+          showPublishResult(false);
+          return;
+        }
+        deleteComposeDraft($session.pubkey, kind);
+        refreshDraftList();
+        showNotice('Draft relay list published.', true);
+        bumpPreview();
         return;
       }
 
@@ -751,8 +1073,7 @@
       }
       deleteComposeDraft($session.pubkey, kind);
       refreshDraftList();
-      showPublishResult(true);
-      showNotice('Published.');
+      showNotice('Published.', true);
       content = showBody ? '' : content;
       if (!isMetadataComposeKind(kind)) {
         values = emptyValuesFor(kind);
@@ -768,6 +1089,18 @@
   }
 
   let bootstrappedFor = $state<string | null>(null);
+  let encryptedLoadedFor = $state<string | null>(null);
+  $effect(() => {
+    const pk = $session.pubkey;
+    if (!pk) {
+      encryptedDrafts = [];
+      encryptedLoadedFor = null;
+      return;
+    }
+    if (encryptedLoadedFor === pk) return;
+    encryptedLoadedFor = pk;
+    void refreshEncryptedDrafts();
+  });
   $effect(() => {
     const pk = $session.pubkey;
     if (!pk || bootstrappedFor === pk) return;
@@ -903,7 +1236,14 @@
         >
       {/if}
       {#if !shortNoteEditSource}
-        <button type="button" class="btn" onclick={() => (draftListOpen = !draftListOpen)}>
+        <button
+          type="button"
+          class="btn"
+          onclick={() => {
+            draftListOpen = !draftListOpen;
+            if (draftListOpen) void refreshEncryptedDrafts();
+          }}
+        >
           Drafts ({draftItems.length})
         </button>
       {/if}
@@ -913,20 +1253,44 @@
       <ul class="compose-drafts">
         {#each draftItems as item}
           <li>
-            <button type="button" class="btn" onclick={() => void loadKind(item.kind)}>
-              Restore {composeKindLabel(item.kind)}
-            </button>
-            <button
-              type="button"
-              class="btn"
-              onclick={() => {
-                const pk = $session.pubkey;
-                if (!pk) return;
-                deleteComposeDraft(pk, item.kind, item.mode);
-                refreshDraftList();
-                draftListOpen = listComposeDrafts(pk).length > 0;
-              }}>Delete</button
-            >
+            {#if item.source === 'encrypted'}
+              <span class="compose-draft-lock" title="Encrypted draft" aria-label="Encrypted draft">
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
+                  />
+                </svg>
+              </span>
+              <button type="button" class="btn" onclick={() => restoreEncryptedDraft(item.wrap)}>
+                Restore {item.label}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                onclick={() => void deleteEncryptedDraft(item.wrap)}>Delete</button
+              >
+            {:else}
+              <button type="button" class="btn" onclick={() => void loadKind(item.kind)}>
+                Restore {item.label}
+              </button>
+              <button
+                type="button"
+                class="btn"
+                onclick={() => {
+                  const pk = $session.pubkey;
+                  if (!pk) return;
+                  deleteComposeDraft(pk, item.kind, item.mode);
+                  refreshDraftList();
+                  draftListOpen =
+                    listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
+                }}>Delete</button
+              >
+            {/if}
           </li>
         {/each}
       </ul>
@@ -963,7 +1327,9 @@
         {#if otherError}
           <p class="compose-error">{otherError}</p>
         {/if}
-        <button type="button" class="btn btn-primary" onclick={validateOtherKind}>Validate</button>
+        <button type="button" class="btn btn-primary" onclick={() => void validateOtherKind()}
+          >Validate</button
+        >
       </section>
     {:else}
       <form
@@ -973,6 +1339,12 @@
           void publish();
         }}
       >
+        {#if replaceablePreloaded}
+          <p class="compose-preload-banner" role="status">
+            Showing data from the newest existing kind {kind} event for your signed-in key. Publishing
+            replaces that event.
+          </p>
+        {/if}
         <div class="compose-tabs" role="tablist" aria-label="Editor view">
           <button
             type="button"
@@ -1237,7 +1609,7 @@
         {/if}
 
         <div class="compose-actions">
-          <button class="btn btn-primary" type="submit" disabled={posting || uploading}>
+          <button class="btn btn-primary" type="submit" disabled={posting || uploading || savingDraft}>
             {#if posting}
               Publishing…
             {:else if shortNoteEditSource}
@@ -1246,10 +1618,24 @@
               Publish
             {/if}
           </button>
+          {#if showSaveToDraft}
+            <button
+              class="btn"
+              type="button"
+              disabled={posting || uploading || savingDraft}
+              onclick={() => void saveToDraft()}
+            >
+              {#if savingDraft}
+                Saving draft…
+              {:else}
+                Save to Draft
+              {/if}
+            </button>
+          {/if}
           <button
             class="btn"
             type="button"
-            disabled={posting || uploading}
+            disabled={posting || uploading || savingDraft}
             onclick={clearForm}
           >
             Clear
@@ -1309,8 +1695,18 @@
     }}
     onUploadMedia={uploadBlossomFile}
     {uploading}
+    {revisionHistory}
   />
 {/if}
+
+<PrivateRelayListModal
+  open={privateRelayModalOpen}
+  onClose={() => (privateRelayModalOpen = false)}
+  onPublished={() => {
+    privateRelayModalOpen = false;
+    void saveToDraft();
+  }}
+/>
 
 <style>
   .compose-kind-fixed {
@@ -1450,6 +1846,17 @@
   .compose-error {
     color: var(--danger, #a33);
   }
+  .compose-preload-banner {
+    margin: 0 0 0.85rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--accent, #8b6914) 45%, transparent);
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--accent, #8b6914) 16%, var(--paper, #fff));
+    color: var(--ink, inherit);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
   .compose-drafts {
     list-style: none;
     padding: 0;
@@ -1460,7 +1867,13 @@
   }
   .compose-drafts li {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
+  }
+  .compose-draft-lock {
+    display: inline-flex;
+    color: var(--text-muted);
+    flex: 0 0 auto;
   }
   .other-summary {
     font-size: 0.9rem;

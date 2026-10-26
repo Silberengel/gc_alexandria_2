@@ -186,9 +186,15 @@ export const KIND = {
   RELAY_LIST: 10002,
   BLOCKED: 10006,
   FAVORITE: 10012,
+  /** NIP-37 private storage relay list (encrypted content). */
+  PRIVATE_RELAY_LIST: 10013,
   /** NIP-30 user emoji list (pointers to kind 30030 packs). */
   USER_EMOJI_LIST: 10030,
+  /** HTTP auth relay list (NIP-66-style). */
+  HTTP_RELAY_LIST: 10243,
   LOCAL: 10432,
+  /** NIP-37 draft checkpoint (revision of a 31234 wrap). */
+  DRAFT_CHECKPOINT: 1234,
   COMMENT: 1111,
   LABEL: 1985,
   ISSUE: 1621,
@@ -202,6 +208,8 @@ export const KIND = {
   /** NIP-A0 voice message. */
   VOICE: 1222,
   LONG_FORM: 30023,
+  /** NIP-37 encrypted draft wrap (addressable). */
+  DRAFT_WRAP: 31234,
   PUBLICATION: 30040,
   SECTION: 30041,
   /** NKBIP-04 directory index (bookshelf folders). */
@@ -247,6 +255,7 @@ export const LOGIN_METADATA_KINDS = [
   KIND.BOOKMARK,
   KIND.BLOCKED,
   KIND.FAVORITE,
+  KIND.PRIVATE_RELAY_LIST,
   KIND.LOCAL,
   KIND.PAYMENT,
   KIND.LABEL,

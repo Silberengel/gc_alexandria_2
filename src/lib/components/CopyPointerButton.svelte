@@ -196,7 +196,7 @@
         showNotice('Deference was signed, but no relay accepted it.');
         return;
       }
-      showNotice('Deferred to this version.');
+      showNotice('Deferred to this version.', true);
       close();
     } finally {
       deferPending = false;

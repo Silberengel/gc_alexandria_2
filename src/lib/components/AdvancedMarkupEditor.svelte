@@ -17,6 +17,14 @@
   import { activeMention, insertMention, type MentionCandidate } from '$lib/mention';
   import { searchMentions } from '$lib/mention-search';
   import { editMarkup, editMedia, type MarkupTool, type MediaFile, type SourceEdit } from '$lib/markup-editor';
+  import { diffHasChanges, diffLines, type DiffLine } from '$lib/text-diff';
+
+  export type DraftRevisionEntry = {
+    created_at: number;
+    content: string;
+    id?: string;
+    kind?: number;
+  };
 
   interface Props {
     content?: string;
@@ -33,6 +41,8 @@
     /** Blossom upload. Returns the published file so the URL can be inserted as markup. */
     onUploadMedia?: (file: File) => Promise<MediaFile>;
     uploading?: boolean;
+    /** NIP-37 checkpoint chain (oldest → newest) for History diffs. */
+    revisionHistory?: DraftRevisionEntry[];
   }
 
   let {
@@ -48,8 +58,51 @@
     onClose,
     onFormat,
     onUploadMedia,
-    uploading = false
+    uploading = false,
+    revisionHistory = []
   }: Props = $props();
+
+  let historyOpen = $state(false);
+
+  type HistoryRevision = {
+    index: number;
+    created_at: number;
+    id?: string;
+    kind?: number;
+    lines: DiffLine[];
+    hasChanges: boolean;
+  };
+
+  const historyRevisions = $derived.by((): HistoryRevision[] => {
+    if (!revisionHistory.length) return [];
+    const out: HistoryRevision[] = [];
+    let prev = '';
+    let n = 0;
+    for (const entry of revisionHistory) {
+      const next = entry.content ?? '';
+      if (next === prev && n > 0) continue;
+      n += 1;
+      const lines = diffLines(prev, next);
+      out.push({
+        index: n,
+        created_at: entry.created_at,
+        id: entry.id,
+        kind: entry.kind,
+        lines,
+        hasChanges: diffHasChanges(lines)
+      });
+      prev = next;
+    }
+    return out;
+  });
+
+  function formatCheckpointTime(sec: number): string {
+    try {
+      return new Date(sec * 1000).toLocaleString();
+    } catch {
+      return String(sec);
+    }
+  }
 
   let sourceEl = $state<HTMLTextAreaElement | null>(null);
   let previewEl = $state<HTMLDivElement | null>(null);
@@ -455,6 +508,17 @@
       </button>
     </div>
     <div class="advanced-editor-actions">
+      {#if historyRevisions.length}
+        <button
+          type="button"
+          class="btn"
+          aria-pressed={historyOpen}
+          title="Checkpoint revision history"
+          onclick={() => (historyOpen = !historyOpen)}
+        >
+          History ({historyRevisions.length})
+        </button>
+      {/if}
       <button
         type="button"
         class="btn"
@@ -469,6 +533,41 @@
       <button type="button" class="btn" onclick={() => onClose?.()}>Close</button>
     </div>
   </header>
+
+  {#if historyOpen && historyRevisions.length}
+    <section class="advanced-history" aria-label="Draft revision history">
+      <ol class="advanced-history-list">
+        {#each historyRevisions as rev (rev.id ?? rev.index)}
+          <li>
+            <header class="advanced-history-head">
+              <span>Checkpoint {rev.index}</span>
+              <time datetime={new Date(rev.created_at * 1000).toISOString()}
+                >{formatCheckpointTime(rev.created_at)}</time
+              >
+              {#if rev.kind != null}
+                <span class="muted">kind {rev.kind}</span>
+              {/if}
+            </header>
+            {#if rev.hasChanges}
+              <pre class="details-edit-diff" aria-label={`Diff for checkpoint ${rev.index}`}
+                ><code
+                  >{#each rev.lines as line, i (i)}<span
+                      class="diff-line"
+                      class:diff-add={line.type === 'add'}
+                      class:diff-del={line.type === 'del'}
+                      class:diff-same={line.type === 'same'}
+                      >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                ></pre
+              >
+            {:else}
+              <p class="muted">No line changes.</p>
+            {/if}
+          </li>
+        {/each}
+      </ol>
+    </section>
+  {/if}
 
   <div class="advanced-split">
     <section class="advanced-pane advanced-source" aria-label="Source">
@@ -900,6 +999,30 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+  .advanced-history {
+    flex: 0 0 auto;
+    max-height: min(40vh, 22rem);
+    overflow: auto;
+    padding: 0.65rem 0.9rem 0.85rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+    background: color-mix(in srgb, var(--paper) 70%, var(--paper-light));
+  }
+  .advanced-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.75rem;
+  }
+  .advanced-history-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.25rem;
+    font-family: var(--ui-font);
+    font-size: 0.85rem;
   }
 
   @media (min-width: 720px) {

@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { KIND } from './constants';
 import {
   markupFromTags,
-  withMarkupTag, 
+  withMarkupTag,
   resolveMarkup,
   renderDjotHtml,
-  renderWithFallback, 
+  renderWithFallback,
+  renderHighlightEventHtml,
+  markHighlights,
   linkifyTopicHashtags,
   looksLikeNativeAsciidoc,
-  looksLikeDjot, 
+  looksLikeDjot,
   normalizeMarkdownEmphasis
 } from './markup';
 
@@ -221,5 +223,50 @@ describe('topic hashtags', () => {
       'subject='
     );
     expect(linkifyTopicHashtags('<code>#archjourney</code>')).toBe('<code>#archjourney</code>');
+  });
+});
+
+describe('NIP-84 highlight passage', () => {
+  const pk = 'a'.repeat(64);
+
+  it('marks the quote inside the context passage', async () => {
+    const quote = 'The river runs cold in March.';
+    const context = `${quote} Further along the bank the willows lean in.`;
+    const html = await renderHighlightEventHtml({
+      content: quote,
+      tags: [['context', context]],
+      pubkey: pk
+    });
+    expect(html).toContain('class="text-highlight"');
+    expect(html).toContain(`data-highlight-pubkey="${pk}"`);
+    expect(html).toContain(quote);
+    expect(html).toContain('willows lean in');
+    expect(html.indexOf('<mark')).toBeLessThan(html.indexOf('willows'));
+  });
+
+  it('does not wrap when content is the whole passage', async () => {
+    const quote = 'Only this sentence is present here.';
+    const html = await renderHighlightEventHtml({
+      content: quote,
+      tags: [['context', quote]],
+      pubkey: pk
+    });
+    expect(html).toContain(quote);
+    expect(html).not.toContain('<mark');
+  });
+
+  it('falls back to the quote when context is missing', async () => {
+    const quote = 'A lonely highlight without surrounding context.';
+    const html = await renderHighlightEventHtml({ content: quote, tags: [], pubkey: pk });
+    expect(html).toContain(quote);
+    expect(html).not.toContain('<mark');
+  });
+
+  it('markHighlights wraps flexible whitespace matches', () => {
+    const html = markHighlights('<p>Hello   world from the river.</p>', [
+      { quote: 'Hello world from the river.', pubkey: pk }
+    ]);
+    expect(html).toContain('<mark class="text-highlight"');
+    expect(html).toContain('Hello');
   });
 });

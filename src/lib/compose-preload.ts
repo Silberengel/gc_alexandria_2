@@ -1,20 +1,29 @@
 import type { Event } from 'nostr-tools';
 import { parseKind0Json } from './kind-compose';
 import { buildKind0TagListFromEvent } from './compose-kind0';
-import { isMetadataComposeKind } from './compose-presets';
+import { eventToComposeDraft } from './event-compose-preload';
+import { isReplaceableKind } from './nostr/replaceable';
 
-/** Values + content for a replaceable metadata kind from a live event. */
-export function valuesFromMetadataEvent(event: Event): {
+export type ReplaceableComposePreload = {
   content: string;
   values: Record<string, string>;
   existingKind0?: Record<string, unknown>;
   kind0Tags?: string[][];
-} {
+  hashtags?: string[];
+  imetaTags?: string[][];
+  freeformTags?: string[][];
+};
+
+/**
+ * Map a live replaceable event into compose form state.
+ * Relay-list / payto / kind-0 keep hand-tuned parsers; everything else uses
+ * {@link eventToComposeDraft}.
+ */
+export function valuesFromReplaceableEvent(event: Event): ReplaceableComposePreload {
   const kind = event.kind;
   if (kind === 0) {
     const existing = parseKind0Json(event.content);
     const kind0Tags = buildKind0TagListFromEvent(event);
-    // Flat values kept for draft/compat; the kind-0 editor uses kind0Tags.
     const values: Record<string, string> = {};
     for (const row of kind0Tags) {
       const key = row[0];
@@ -30,17 +39,6 @@ export function valuesFromMetadataEvent(event: Event): {
     return { content: '', values, existingKind0: existing, kind0Tags };
   }
 
-  if (kind === 30315) {
-    const values: Record<string, string> = {
-      d: event.tags.find((t) => t[0] === 'd')?.[1] ?? 'general'
-    };
-    const link = event.tags.find((t) => t[0] === 'r')?.[1];
-    if (link) values.link_r = link;
-    const exp = event.tags.find((t) => t[0] === 'expiration')?.[1];
-    if (exp) values.expiration = exp;
-    return { content: event.content ?? '', values };
-  }
-
   if (kind === 10133) {
     const lines = event.tags.filter((t) => t[0] === 'payto').map((t) => t.slice(1).join(' '));
     return { content: '', values: { payto: lines.join('\n') } };
@@ -53,7 +51,19 @@ export function valuesFromMetadataEvent(event: Event): {
     return { content: '', values: { relays: lines.join('\n') } };
   }
 
-  return { content: event.content ?? '', values: {} };
+  const draft = eventToComposeDraft(event);
+  return {
+    content: draft.content,
+    values: draft.values,
+    hashtags: draft.hashtags,
+    imetaTags: draft.imetaTags,
+    freeformTags: draft.freeformTags
+  };
+}
+
+/** @deprecated Prefer {@link valuesFromReplaceableEvent}. */
+export function valuesFromMetadataEvent(event: Event): ReplaceableComposePreload {
+  return valuesFromReplaceableEvent(event);
 }
 
 export function pickLatestByKind(events: Event[], kind: number): Event | null {
@@ -65,6 +75,15 @@ export function pickLatestByKind(events: Event[], kind: number): Event | null {
   return best;
 }
 
+/**
+ * Signed-in compose should preload the viewer's live event for NIP-01 replaceable
+ * kinds (0, 3, 10000–19999) — never addressable 30000–39999 (those need a `d`).
+ */
+export function shouldPreloadReplaceable(kind: number): boolean {
+  return isReplaceableKind(kind);
+}
+
+/** @deprecated Prefer {@link shouldPreloadReplaceable}. */
 export function shouldPreloadMetadata(kind: number): boolean {
-  return isMetadataComposeKind(kind);
+  return shouldPreloadReplaceable(kind);
 }

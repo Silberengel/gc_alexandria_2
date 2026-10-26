@@ -6,9 +6,17 @@ import {
 import { resolveMarkup } from './markup';
 
 export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041] as const;
-export const COMPOSE_METADATA_KINDS = [0, 30315, 10133, 10002, 10006, 10012, 10243] as const;
+export const COMPOSE_METADATA_KINDS = [
+  0, 30315, 10133, 10002, 10006, 10012, 10013, 10243
+] as const;
 /** Action / context kinds composed elsewhere — not offered in the picker. */
-export const COMPOSE_PICKER_EXCLUDED = [5, 7, 819, 1621, 1985, 16375, 30045, 34259] as const;
+export const COMPOSE_PICKER_EXCLUDED = [
+  5, 7, 819, 1621, 1985, 16374, 30045, 34259,
+  /** NIP-53 live chat / presence — composed from the live room UI. */
+  1311, 10312,
+  /** NIP-37 wraps/checkpoints — Save to Draft, not the picker. */
+  1234, 31234
+] as const;
 export const OTHER_KIND_SENTINEL = -1;
 
 export type ComposePickerGroup = {
@@ -57,6 +65,8 @@ export function hasContentField(kind: number): boolean {
 
 /** Body textarea — hide for empty encoding and kind-0 JSON (fields own the body). */
 export function showContentBox(kind: number): boolean {
+  // Kind 10013: ciphertext is built from the relays field on publish.
+  if (kind === 10013) return false;
   const encoding = getKind(kind)?.content?.encoding;
   if (!encoding || encoding === 'empty' || encoding === 'json') return false;
   return true;

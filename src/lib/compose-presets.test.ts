@@ -54,4 +54,14 @@ describe('composePickerGroups', () => {
       expect(listed.has(kind)).toBe(false);
     }
   });
+
+  it('offers the draft relay list in metadata and hides live chat / presence', () => {
+    const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
+    expect(COMPOSE_METADATA_KINDS).toContain(KIND.PRIVATE_RELAY_LIST);
+    expect(listed.has(KIND.PRIVATE_RELAY_LIST)).toBe(true);
+    expect(listed.has(KIND.LIVE_CHAT)).toBe(false);
+    expect(listed.has(KIND.ROOM_PRESENCE)).toBe(false);
+    expect(listed.has(KIND.DRAFT_WRAP)).toBe(false);
+    expect(listed.has(KIND.DRAFT_CHECKPOINT)).toBe(false);
+  });
 });

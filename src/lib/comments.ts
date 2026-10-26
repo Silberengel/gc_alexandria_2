@@ -1,5 +1,6 @@
 import type { Event, Filter } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
+import { buildNip22TagsForTarget } from '@silberengel/kind-compose-catalog';
 import { KIND, MUTED_PARENT_PLACEHOLDER } from './constants';
 import { type MuteState, isMutedEvent } from './mute';
 import { publicationCoordinateLookupKeys, coordinatesOverlap } from './publication-coordinate';
@@ -352,59 +353,9 @@ export function nip10ReplyTags(
   ];
 }
 
-function copyNip22Root(from: Event): string[][] | null {
-  const A = from.tags.find((t) => t[0] === 'A' && t[1]);
-  const E = from.tags.find((t) => t[0] === 'E' && t[1]);
-  const I = from.tags.find((t) => t[0] === 'I' && t[1]);
-  if (!A && !E && !I) return null;
-  const tags: string[][] = [];
-  if (A) tags.push(['A', A[1]!]);
-  else if (E) {
-    const id = E[1]!.toLowerCase();
-    const relay = E[2] ?? '';
-    const pk = E[3] ?? '';
-    tags.push(pk ? ['E', id, relay, pk.toLowerCase()] : ['E', id, relay]);
-  } else if (I) tags.push(['I', I[1]!]);
-  const K = from.tags.find((t) => t[0] === 'K' && t[1]);
-  const P = from.tags.find((t) => t[0] === 'P' && t[1]);
-  if (K) tags.push(['K', K[1]!]);
-  if (P && (A || E)) tags.push(['P', P[1]!.toLowerCase()]);
-  return tags;
-}
-
-function buildNip22Root(target: Event): string[][] {
-  const pk = target.pubkey.toLowerCase();
-  const coord = nip22Coordinate(target);
-  if (coord) return [['A', coord], ['K', String(target.kind)], ['P', pk]];
-  return [['E', target.id.toLowerCase(), '', pk], ['K', String(target.kind)], ['P', pk]];
-}
-
-function nip22ParentTags(parent: Event): string[][] {
-  const pk = parent.pubkey.toLowerCase();
-  return [
-    ['e', parent.id.toLowerCase(), '', pk],
-    ['k', String(parent.kind)],
-    ['p', pk]
-  ];
-}
-
 export function nip22TagsForTarget(target: Event, replyTo?: Event): string[][] {
-  const pk = target.pubkey.toLowerCase();
-  if (replyTo) {
-    const root = copyNip22Root(replyTo) ?? buildNip22Root(target);
-    return [...root, ...nip22ParentTags(replyTo)];
-  }
-  const coord = nip22Coordinate(target);
-  if (coord) {
-    return [
-      ...buildNip22Root(target),
-      ['a', coord],
-      ['e', target.id.toLowerCase(), '', pk],
-      ['k', String(target.kind)],
-      ['p', pk]
-    ];
-  }
-  return [...buildNip22Root(target), ...nip22ParentTags(target)];
+  // Shared wire shape lives in kind-compose-catalog (NIP-22 root/parent scopes).
+  return buildNip22TagsForTarget(target, replyTo);
 }
 
 /** Social + document (+ inbox/outbox when signed in). Kind 1 search relays are a follow-up. */

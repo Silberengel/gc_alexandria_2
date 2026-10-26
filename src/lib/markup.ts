@@ -586,3 +586,30 @@ export function markHighlights(html: string, quotes: Array<string | HighlightQuo
   }
   return out;
 }
+
+/** NIP-84 `context` tag — surrounding passage for the highlighted subset. */
+export function highlightContextTag(tags: string[][] | undefined): string {
+  if (!tags?.length) return '';
+  return tags.find((t) => t[0] === 'context' && t[1])?.[1]?.trim() ?? '';
+}
+
+/**
+ * Render a kind-9802 body: prefer `context` as the passage and wrap `.content`
+ * (the quote) in {@link markHighlights}. Falls back to the quote alone when
+ * there is no usable surrounding context.
+ */
+export async function renderHighlightEventHtml(opts: {
+  content: string;
+  tags?: string[][];
+  pubkey?: string;
+}): Promise<string> {
+  const quote = (opts.content ?? '').replace(/\s+/g, ' ').trim();
+  const context = highlightContextTag(opts.tags);
+  const passage = context || quote;
+  if (!passage) return '';
+  const html = await renderFormat('plaintext', passage);
+  if (!quote || quote.length < 8) return html;
+  const normPassage = passage.replace(/\s+/g, ' ').trim();
+  if (normPassage.toLowerCase() === quote.toLowerCase()) return html;
+  return markHighlights(html, [{ quote, pubkey: opts.pubkey }]);
+}

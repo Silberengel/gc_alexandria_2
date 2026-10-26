@@ -121,7 +121,7 @@
         return;
       }
       reactions = [signed, ...reactions.filter((r) => r.pubkey !== signed.pubkey)];
-      showNotice(content === '+' ? 'Merge request accepted.' : 'Merge request rejected.');
+      showNotice(content === '+' ? 'Merge request accepted.' : 'Merge request rejected.', true);
     } finally {
       pending = false;
     }

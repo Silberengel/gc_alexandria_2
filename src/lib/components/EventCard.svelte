@@ -142,13 +142,12 @@
       {/if}
       <div class="card-clip">
         <p class="generic-card-kind muted">{preview.kindLine}</p>
-        <h3 class="generic-card-title">{preview.headline}</h3>
         <p class="note-card-by muted">
           by <UserBadge pubkey={event.pubkey} />
         </p>
-        {#if preview.body}
-          <p class="generic-card-body muted">{preview.body}</p>
-        {/if}
+        <div class="generic-card-body">
+          <EventBody {event} embedDepth={embedDepth} showEmbeds={false} />
+        </div>
       </div>
     </article>
   {:else if event.kind === KIND.APP_HANDLER}
