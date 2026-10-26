@@ -425,18 +425,33 @@ body:has(main.reading-page) .top-bar {
   white-space: nowrap;
 }
 
+/* Sits above every route's TopBar so About/Feed/etc. can prompt too. */
+.pwa-update-host {
+  padding: 0.5rem 0.85rem 0;
+}
+.pwa-update-host:empty,
+.pwa-update-host:not(:has(.pwa-update-banner)) {
+  display: none;
+}
+@media (min-width: 720px) {
+  .pwa-update-host {
+    padding: 0.55rem 1.1rem 0;
+  }
+}
 .pwa-update-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem 1rem;
-  margin: 0 0 1rem;
+  margin: 0 auto;
+  max-width: 72rem;
   padding: 0.75rem 1rem;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--rule));
   border-left: 0.28rem solid var(--accent-strong);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  box-shadow: 0 0.35rem 1.1rem color-mix(in srgb, var(--ink) 12%, transparent);
 }
 .pwa-update-copy {
   margin: 0;

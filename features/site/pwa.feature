@@ -11,5 +11,6 @@ Feature: Progressive web app
     Then I can install it as a standalone app
     And revisits load the shell from the service worker cache
     And the existing client event cache still serves publications and covers offline
-    And when a newer service worker is waiting, the landing page shows an update banner
-    And choosing OK on that banner activates the update and reloads the app
+    And when a newer deploy is detected (waiting service worker or /version.json), a site-wide update banner appears
+    And choosing OK on that banner activates the update, clears stale caches, and reloads the app
+    And document navigations are not served from a precached index.html (so deploys are not sticky)

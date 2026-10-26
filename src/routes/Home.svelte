@@ -55,7 +55,6 @@
   import { eventAddress } from '$lib/nostr/verify';
   import { MY_BOOK_COLLECTION_D_TAG } from '$lib/bookshelf';
   import LandingFollowsReading from '$lib/components/LandingFollowsReading.svelte';
-  import PwaUpdateBanner from '$lib/components/PwaUpdateBanner.svelte';
 
   const LOG = '[alexandria:landing]';
 
@@ -692,7 +691,6 @@
 <TopBar />
 
 <main class="shell shell-wide landing-page">
-  <PwaUpdateBanner />
   <header class="landing-hero">
     <div class="landing-hero-media">
       <img src="/screenshots/old_books.jpg" alt="" />

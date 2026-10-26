@@ -7,6 +7,7 @@
   import MediaViewer from './lib/components/MediaViewer.svelte';
   import RawEventViewer from './lib/components/RawEventViewer.svelte';
   import PublishToast from './lib/components/PublishToast.svelte';
+  import PwaUpdateBanner from './lib/components/PwaUpdateBanner.svelte';
 
   const routes = {
     '/': wrap({ asyncComponent: () => import('./routes/Home.svelte') }),
@@ -77,6 +78,9 @@
   });
 </script>
 
+<div class="pwa-update-host">
+  <PwaUpdateBanner />
+</div>
 <Router {routes} />
 <MediaViewer />
 <RawEventViewer />

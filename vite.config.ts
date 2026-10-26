@@ -1,5 +1,5 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lookup as dnsLookup, setDefaultResultOrder } from 'node:dns';
 import { readFileSync } from 'node:fs';
@@ -11,6 +11,20 @@ setDefaultResultOrder('ipv4first');
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
   version: string;
 };
+
+/** Emit /version.json (not precached) so clients can detect a newer deploy. */
+function versionJsonPlugin(): Plugin {
+  return {
+    name: 'alexandria-version-json',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: `${JSON.stringify({ version: pkg.version }, null, 2)}\n`
+      });
+    }
+  };
+}
 
 /** This machine's getaddrinfo fails IPv6-first for *.imwald.eu; A records work. */
 const ipv4Https = new HttpsAgent({
@@ -49,8 +63,9 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     svelte(),
+    versionJsonPlugin(),
     VitePWA({
-      // Prompt on the landing page; OK activates the waiting SW and reloads.
+      // Prompt when a new SW is waiting; banner OK activates it and reloads.
       registerType: 'prompt',
       // Manifest lives in public/ so index.html can link it without duplication.
       manifest: false,
@@ -66,8 +81,10 @@ export default defineConfig(({ mode }) => {
         globPatterns: ['**/*.{js,css,html,png,jpg,svg,ico,webmanifest}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/healthz$/, /^\/mercury/, /^\/api\//, /^\/seeds\//],
+        // Falsy disables NavigationRoute. Precached index.html was trapping
+        // clients on an old shell after deploys; assets stay precached.
+        navigateFallback: null,
+
         runtimeCaching: [
           {
             // Manifest must follow a new export. Shard URLs are versioned (?v=) and stay CacheFirst.

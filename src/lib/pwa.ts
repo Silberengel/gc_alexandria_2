@@ -1,23 +1,80 @@
 import { writable } from 'svelte/store';
+import { APP_VERSION } from './constants';
 
 /**
- * True when a newer service worker is waiting. Landing shows an update banner
- * so the reader can apply it deliberately (vite-plugin-pwa `prompt` mode).
+ * True when a newer build is available (waiting service worker and/or
+ * `/version.json` disagrees with the baked-in APP_VERSION).
  */
 export const pwaUpdateAvailable = writable(false);
 
 type UpdateSW = (reloadPage?: boolean) => Promise<void>;
 
 let updateSW: UpdateSW | null = null;
+let versionWatchStarted = false;
 
-/** Activate the waiting service worker and reload the page. */
-export function applyPwaUpdate(): void {
+/** Activate the waiting service worker (if any), drop caches, and reload. */
+export async function applyPwaUpdate(): Promise<void> {
   pwaUpdateAvailable.set(false);
-  if (!updateSW) {
-    globalThis.location?.reload();
-    return;
+  try {
+    if (updateSW) {
+      await updateSW(true);
+      return;
+    }
+  } catch (error) {
+    console.warn('[pwa] updateServiceWorker failed; forcing clean reload', error);
   }
-  void updateSW(true);
+  await forceCleanReload();
+}
+
+async function forceCleanReload(): Promise<void> {
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.unregister()));
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    if ('caches' in globalThis) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+  } catch {
+    /* ignore */
+  }
+  globalThis.location?.reload();
+}
+
+/** Compare the live release file to the shell we are running. */
+export async function checkDeployedVersion(): Promise<void> {
+  if (import.meta.env.DEV) return;
+  try {
+    const res = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = (await res.json()) as { version?: string };
+    const remote = data.version?.trim();
+    if (remote && remote !== APP_VERSION) {
+      pwaUpdateAvailable.set(true);
+    }
+  } catch {
+    /* offline or blocked — ignore */
+  }
+}
+
+function startVersionWatch(): void {
+  if (versionWatchStarted || import.meta.env.DEV) return;
+  versionWatchStarted = true;
+  void checkDeployedVersion();
+  window.setInterval(() => {
+    void checkDeployedVersion();
+  }, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void checkDeployedVersion();
+  });
+  window.addEventListener('focus', () => {
+    void checkDeployedVersion();
+  });
 }
 
 /**
@@ -25,6 +82,7 @@ export function applyPwaUpdate(): void {
  * Skipped in dev so HMR is not intercepted.
  */
 export function registerPwa(): void {
+  startVersionWatch();
   if (import.meta.env.DEV) return;
   if (typeof window === 'undefined' || !window.isSecureContext) return;
   if (!('serviceWorker' in navigator)) return;
@@ -37,11 +95,16 @@ export function registerPwa(): void {
           pwaUpdateAvailable.set(true);
         },
         onRegisteredSW(_swUrl, registration) {
-          // Periodic update checks while the tab stays open.
           if (!registration) return;
-          window.setInterval(() => {
+          const poke = () => {
             void registration.update();
-          }, 60 * 60 * 1000);
+            void checkDeployedVersion();
+          };
+          poke();
+          window.setInterval(poke, 5 * 60 * 1000);
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') poke();
+          });
         },
         onRegisterError(error) {
           console.warn('[pwa] service worker registration failed', error);
