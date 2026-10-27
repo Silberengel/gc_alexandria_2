@@ -7,7 +7,7 @@ const MAX_STACK = 64;
 let stack: string[] = [];
 /** Last tracked location; seeded on first track. */
 let lastSeen = '';
-/** When true, the next track is from Return itself — do not push. */
+/** When true, the next track is from Return / a quiet rewrite — do not push. */
 let skipping = false;
 
 /** Stack depth for optional UI; Return always works (empty → landing). */
@@ -28,6 +28,14 @@ export function currentNavKey(): string {
 
 function publishDepth(): void {
   navHistoryDepth.set(stack.length);
+}
+
+/**
+ * Next location change is a quiet rewrite (default feed tab, canonical path) —
+ * update lastSeen without pushing a history entry.
+ */
+export function skipNextNavTrack(): void {
+  skipping = true;
 }
 
 /**
@@ -54,7 +62,9 @@ export function trackNavChange(nextRaw: string): void {
 
 /** Where Return would go without mutating the stack. */
 export function peekReturnTarget(): string {
-  const cur = currentNavKey();
+  // Prefer lastSeen (SPA track state) over window.hash — stays correct in
+  // tests and when hash lags a quiet rewrite.
+  const cur = lastSeen || currentNavKey();
   for (let i = stack.length - 1; i >= 0; i--) {
     const prev = stack[i];
     if (prev && prev !== cur) return prev;
@@ -64,7 +74,7 @@ export function peekReturnTarget(): string {
 
 /** Pop to the previous location, or landing (`/`) when the stack is empty. */
 export function navigateReturn(): void {
-  const cur = currentNavKey();
+  const cur = lastSeen || currentNavKey();
   let target = '/';
   while (stack.length) {
     const prev = stack.pop();
@@ -74,9 +84,18 @@ export function navigateReturn(): void {
     }
   }
   publishDepth();
+  let dest = normalizeNavKey(target);
+  // replace() is a no-op when already there — do not leave `skipping` stuck
+  // or the next real navigation will be dropped from the stack.
+  if (dest === cur) {
+    skipping = false;
+    lastSeen = cur;
+    if (cur === '/') return;
+    dest = '/';
+  }
   skipping = true;
-  lastSeen = target;
-  void replace(target);
+  lastSeen = dest;
+  void replace(dest);
 }
 
 /** Test helper — reset module state. */

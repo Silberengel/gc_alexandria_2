@@ -99,7 +99,8 @@
     !!$session.pubkey && $session.pubkey.toLowerCase() === event.pubkey.toLowerCase()
   );
   /** Repost only others' events (signed-out users see the item and get the login dialog). */
-  const showRepost = $derived(!isOwnEvent);
+  const showRepost = $derived(!!$session.pubkey && !isOwnEvent);
+  const showBroadcast = $derived(!!$session.pubkey);
   const hasMyRepost = $derived(!!myRepost);
   const showCopyEvent = $derived(
     canCopyEventToCompose(event.kind) || canReplaceOwnWikiEvent(event, $session.pubkey)
@@ -725,21 +726,23 @@
           </button>
         </li>
       {/if}
-      <li role="none">
-        <button
-          class="menu-item"
-          type="button"
-          role="menuitem"
-          disabled={broadcastPending}
-          onclick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void broadcast();
-          }}
-        >
-          {broadcastPending ? 'Broadcasting…' : 'Broadcast to your outboxes'}
-        </button>
-      </li>
+      {#if showBroadcast}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={broadcastPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void broadcast();
+            }}
+          >
+            {broadcastPending ? 'Broadcasting…' : 'Broadcast to your outboxes'}
+          </button>
+        </li>
+      {/if}
       {#if showDeleteEvent}
         <li role="none">
           <button

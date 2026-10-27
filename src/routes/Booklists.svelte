@@ -23,6 +23,9 @@
   let scope = $state<BooklistScope>('all');
 
   const signedIn = $derived(Boolean($session.pubkey));
+  let followCount = $state(0);
+  const showMineScope = $derived(signedIn);
+  const showFollowsScope = $derived(signedIn && followCount > 0);
   const visible = $derived(
     filterBooklists(entries, scope).map((entry) => {
       const view = scopedBooklistView(entry, scope);
@@ -39,9 +42,16 @@
   }
 
   function setScope(next: BooklistScope): void {
+    if (next === 'mine' && !showMineScope) return;
+    if (next === 'follows' && !showFollowsScope) return;
     scope = next;
     const base = '#/booklists';
     window.location.hash = next === 'all' ? base : `${base}?scope=${next}`;
+  }
+
+  function clampScope(): void {
+    if (scope === 'mine' && !showMineScope) setScope('all');
+    else if (scope === 'follows' && !showFollowsScope) setScope('all');
   }
 
   async function refresh(): Promise<void> {
@@ -50,7 +60,9 @@
       const events = await loadBooklistLabelEvents();
       const viewer = session.getPubkey();
       const follows = followPubkeysFromMetadata(session.getMetadata());
+      followCount = follows.size;
       entries = aggregateBooklists(events, viewer, follows, $muteState);
+      clampScope();
     } finally {
       loading = false;
     }
@@ -98,29 +110,27 @@
       aria-pressed={scope === 'all'}
       onclick={() => setScope('all')}
     >All</button>
-    <button
-      type="button"
-      class="booklist-scope-btn"
-      class:active={scope === 'mine'}
-      aria-pressed={scope === 'mine'}
-      disabled={!signedIn}
-      title={signedIn ? 'Lists you have used' : 'Sign in to see your lists'}
-      onclick={() => setScope('mine')}
-    >My own lists</button>
-    <button
-      type="button"
-      class="booklist-scope-btn"
-      class:active={scope === 'follows'}
-      aria-pressed={scope === 'follows'}
-      disabled={!signedIn}
-      title={signedIn ? 'Lists from accounts you follow' : 'Sign in to see lists from follows'}
-      onclick={() => setScope('follows')}
-    >From follows</button>
+    {#if showMineScope}
+      <button
+        type="button"
+        class="booklist-scope-btn"
+        class:active={scope === 'mine'}
+        aria-pressed={scope === 'mine'}
+        title="Lists you have used"
+        onclick={() => setScope('mine')}
+      >My own lists</button>
+    {/if}
+    {#if showFollowsScope}
+      <button
+        type="button"
+        class="booklist-scope-btn"
+        class:active={scope === 'follows'}
+        aria-pressed={scope === 'follows'}
+        title="Lists from accounts you follow"
+        onclick={() => setScope('follows')}
+      >From follows</button>
+    {/if}
   </div>
-
-  {#if !signedIn && scope !== 'all'}
-    <p class="muted booklists-hint">Sign in to filter by your lists or follows.</p>
-  {/if}
 
   {#if loading}
     <LoadingHint message="Loading booklists…" />

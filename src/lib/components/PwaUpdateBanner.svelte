@@ -7,7 +7,12 @@
   async function onOk() {
     if (applying) return;
     applying = true;
-    await applyPwaUpdate();
+    try {
+      await applyPwaUpdate();
+    } catch (error) {
+      console.warn('[pwa] apply update failed', error);
+      applying = false;
+    }
   }
 </script>
 

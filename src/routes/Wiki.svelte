@@ -25,6 +25,7 @@
   import { isNewerReplaceable, pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { cacheFindByAddress } from '$lib/nostr/cache';
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
+  import { skipNextNavTrack } from '$lib/nav-history';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
   import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
@@ -156,25 +157,33 @@
       }
       return best;
     };
-    // Mercury HTTP first — does not take a WebSocket pool slot.
-    const mHits = await mercuryFilter(filter);
-    const fromMercury = pickNewest(mHits);
-    if (fromMercury) {
-      report(fromMercury);
-      return fromMercury;
+    const absorb = (batch: Event[]): void => {
+      const hit = pickNewest(batch);
+      if (hit) report(hit);
+    };
+    // Race Mercury HTTP with wiki/document relays. Specs like nkbip-04 may live on
+    // thecitadel while Mercury only indexes a subset (e.g. nkbip-01).
+    // includeCooling: a prior soft-fail must not hide library hosts for deep links.
+    const queryOpts = { priority: true, includeCooling: true };
+    const [mHits, wHits] = await Promise.all([
+      mercuryFilter(filter),
+      relayPool.query(stackForArticleKind(kind), [filter], 8000, 6, absorb, queryOpts)
+    ]);
+    let hit = pickNewest([...mHits, ...wHits]);
+    if (hit) {
+      report(hit);
+      return hit;
     }
-    const wHits = await relayPool.query(
-      stackForArticleKind(kind),
+    // Second pass: document search hosts only (thecitadel / Mercury WSS).
+    const docHits = await relayPool.query(
+      documentStack(),
       [filter],
-      4000,
-      5,
-      (batch) => {
-        const hit = pickNewest(batch);
-        if (hit) report(hit);
-      },
-      { priority: true }
+      8000,
+      6,
+      absorb,
+      queryOpts
     );
-    const hit = pickNewest(wHits);
+    hit = pickNewest(docHits);
     if (hit) report(hit);
     return hit;
   }
@@ -436,6 +445,7 @@
           const path = libraryDocumentPath(fetched);
           const here = window.location.hash.replace(/^#/, '').split('?')[0];
           if (here !== path) {
+            skipNextNavTrack();
             replace(path);
             return;
           }
@@ -479,6 +489,7 @@
               const path = wikiPathFromCoordinate(targets[0]);
               if (path) {
                 forwarding = true;
+                skipNextNavTrack();
                 replace(path);
                 return;
               }

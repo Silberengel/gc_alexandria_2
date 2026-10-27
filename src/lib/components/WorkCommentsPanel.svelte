@@ -127,13 +127,13 @@
           onCancel={() => closeOpCompose(target.id)}
         />
       </div>
-    {:else if !replyOnToolbar && !replyOpenId}
+    {:else if $session.pubkey && !replyOnToolbar && !replyOpenId}
       <button
         class="btn btn-icon icon-action-btn thread-reply"
         type="button"
-        aria-label={$session.pubkey ? 'Reply' : 'Sign in to reply'}
-        title={$session.pubkey ? 'Reply' : 'Sign in to reply'}
-        onclick={() => ($session.pubkey ? toggleOpCompose(target.id) : openLoginDialog())}
+        aria-label="Reply"
+        title="Reply"
+        onclick={() => toggleOpCompose(target.id)}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <path

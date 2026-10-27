@@ -7,6 +7,7 @@
     parseFeedTab
   } from '$lib/feed';
   import { querystring } from 'svelte-spa-router';
+  import { skipNextNavTrack } from '$lib/nav-history';
 
   let { params = {} }: { params?: { id?: string } } = $props();
 
@@ -15,6 +16,7 @@
     const target = raw ? decodeFeedThreadTarget(raw) : null;
     const tab = parseFeedTab(new URLSearchParams($querystring ?? '').get('tab'));
     if (!target) {
+      skipNextNavTrack();
       void replace(feedListPath(tab));
       return;
     }
@@ -24,7 +26,8 @@
       'thread',
       target.type === 'addr' ? raw : feedThreadPointerFromId(target.id)
     );
-    if (tab !== 'original') q.set('tab', tab);
+    q.set('tab', tab);
+    skipNextNavTrack();
     void replace(`/feed?${q.toString()}`);
   });
 </script>

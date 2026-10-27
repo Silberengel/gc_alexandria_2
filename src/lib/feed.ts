@@ -108,12 +108,52 @@ export const NOTIFICATION_KINDS = [
 
 const NOTIFICATION_KIND_SET = new Set<number>(NOTIFICATION_KINDS);
 
-export type FeedTab = 'original' | 'replies' | 'notifications';
+/** Fixed feed views (always present in the tab strip). */
+export const BUILTIN_FEED_TABS = ['follows', 'original', 'replies', 'notifications'] as const;
+export type BuiltinFeedTab = (typeof BUILTIN_FEED_TABS)[number];
+
+/** Built-in tabs plus user-added `kind:N` filters. */
+export type FeedTab = BuiltinFeedTab | `kind:${number}`;
+
+/** Default strip order — Follows first. */
+export const DEFAULT_FEED_TAB_ORDER: FeedTab[] = [
+  'follows',
+  'original',
+  'replies',
+  'notifications'
+];
+
+const BUILTIN_FEED_TAB_SET = new Set<string>(BUILTIN_FEED_TABS);
+
+export function isKindFeedTab(tab: string): tab is `kind:${number}` {
+  return /^kind:\d+$/.test(tab);
+}
+
+export function feedTabKind(tab: FeedTab): number | null {
+  const m = /^kind:(\d+)$/.exec(tab);
+  if (!m) return null;
+  return Number(m[1]);
+}
+
+export function isFeedTab(raw: string): raw is FeedTab {
+  return BUILTIN_FEED_TAB_SET.has(raw) || isKindFeedTab(raw);
+}
 
 export function parseFeedTab(raw: string | null | undefined): FeedTab {
   const t = (raw ?? '').trim().toLowerCase();
-  if (t === 'replies' || t === 'notifications') return t;
+  if (t === 'follows' || t === 'replies' || t === 'notifications') return t;
+  if (isKindFeedTab(t)) return t;
   return 'original';
+}
+
+/** Short label for a feed tab button. */
+export function feedTabLabel(tab: FeedTab): string {
+  if (tab === 'follows') return 'Follows';
+  if (tab === 'original') return 'Original Posts';
+  if (tab === 'replies') return 'Replies';
+  if (tab === 'notifications') return 'Notifications';
+  const kind = feedTabKind(tab);
+  return kind == null ? tab : `Kind ${kind}`;
 }
 
 /** Lowercase hex pubkey from `?author=` (hex, npub, or nprofile). */
@@ -238,6 +278,32 @@ function followNoteFilters(authors: string[]): Filter[] {
       kinds: [...FEED_REPOST_KINDS],
       authors: batch,
       limit: 15
+    });
+  }
+  return filters;
+}
+
+/** Broader follow REQs for the Follows-only tab (notes, library posts, boosts). */
+function followOriginalFilters(authors: string[]): Filter[] {
+  const filters: Filter[] = [];
+  for (let i = 0; i < authors.length; i += FOLLOW_AUTHOR_BATCH) {
+    const batch = authors.slice(i, i + FOLLOW_AUTHOR_BATCH);
+    filters.push({ kinds: [KIND.TEXT_NOTE], authors: batch, limit: 20 });
+    filters.push({ kinds: [...FEED_POST_KINDS], authors: batch, limit: 16 });
+    filters.push({ kinds: [KIND.COMMENT], authors: batch, limit: 12 });
+    filters.push({ kinds: [...FEED_REPOST_KINDS], authors: batch, limit: 16 });
+  }
+  return filters;
+}
+
+function kindFeedFilters(kind: number, authors?: string[]): Filter[] {
+  if (!authors?.length) return [{ kinds: [kind], limit: 40 }];
+  const filters: Filter[] = [];
+  for (let i = 0; i < authors.length; i += FOLLOW_AUTHOR_BATCH) {
+    filters.push({
+      kinds: [kind],
+      authors: authors.slice(i, i + FOLLOW_AUTHOR_BATCH),
+      limit: 20
     });
   }
   return filters;
@@ -370,6 +436,123 @@ export async function loadFeed(
   ]);
   for (const event of [...fromPersonal, ...fromShipped, ...fromFollows]) {
     if (!isOriginalPost(event)) continue;
+    byId.set(event.id, event);
+  }
+  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+}
+
+/** Cached original posts from accounts the viewer follows. */
+export async function recallFollowsFeed(
+  metadataEvents: Event[] = [],
+  muted: MuteState = emptyMute
+): Promise<Event[]> {
+  const authors = new Set(feedFollowAuthors(metadataEvents, muted));
+  if (!authors.size) return [];
+  return (await recallFeedPosts())
+    .filter((event) => authors.has(event.pubkey.toLowerCase()))
+    .slice(0, 40);
+}
+
+/**
+ * Original posts from follow-list authors only (no open relay dump).
+ * Empty when signed out or the contact list has no usable pubkeys.
+ */
+export async function loadFollowsFeed(
+  metadataEvents: Event[] = [],
+  muted: MuteState = emptyMute,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
+  if (!getSelectorContext().signedIn) return [];
+  const authors = feedFollowAuthors(metadataEvents, muted);
+  if (!authors.length) return [];
+  const authorSet = new Set(authors);
+  const cached = filterMuted(await recallFollowsFeed(metadataEvents, muted), muted);
+  const byId = new Map<string, Event>();
+  const paint = (): void => {
+    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    if (posts.length) onCache?.(posts);
+  };
+  for (const event of cached) {
+    if (isOriginalPost(event) && authorSet.has(event.pubkey.toLowerCase())) {
+      byId.set(event.id, event);
+    }
+  }
+  if (byId.size) paint();
+  const { personal, shipped } = feedRelayGroups();
+  const relays = uniqueRelayUrls([...personal, ...shipped]);
+  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const filters = followOriginalFilters(authors);
+  const queryOpts = { includeCooling: true };
+  const absorb = (batch: Event[]): void => {
+    let added = false;
+    for (const event of batch) {
+      if (
+        !isOriginalPost(event) ||
+        !authorSet.has(event.pubkey.toLowerCase()) ||
+        byId.has(event.id)
+      ) {
+        continue;
+      }
+      byId.set(event.id, event);
+      added = true;
+    }
+    if (added) paint();
+  };
+  const hits = await relayPool
+    .query(relays, filters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
+    .catch(() => [] as Event[]);
+  for (const event of hits) {
+    if (!isOriginalPost(event) || !authorSet.has(event.pubkey.toLowerCase())) continue;
+    byId.set(event.id, event);
+  }
+  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+}
+
+/** Cached events of one kind (newest first). */
+export async function recallKindFeed(kind: number): Promise<Event[]> {
+  if (!Number.isInteger(kind) || kind < 0) return [];
+  return (await cachedEventsByKind(kind)).sort((a, b) => b.created_at - a.created_at).slice(0, 40);
+}
+
+/** Newest events of a single kind from the session's feed relays. */
+export async function loadKindFeed(
+  kind: number,
+  muted: MuteState = emptyMute,
+  onCache?: (events: Event[]) => void
+): Promise<Event[]> {
+  if (!Number.isInteger(kind) || kind < 0) return [];
+  const cached = filterMuted(await recallKindFeed(kind), muted);
+  const byId = new Map<string, Event>();
+  const paint = (): void => {
+    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    if (posts.length) onCache?.(posts);
+  };
+  for (const event of cached) {
+    if (event.kind === kind) byId.set(event.id, event);
+  }
+  if (byId.size) paint();
+  const { personal, shipped } = feedRelayGroups();
+  const relays = uniqueRelayUrls([...personal, ...shipped]);
+  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const filters = kindFeedFilters(kind);
+  const queryOpts = { includeCooling: true };
+  const absorb = (batch: Event[]): void => {
+    let added = false;
+    for (const event of batch) {
+      if (event.kind !== kind || byId.has(event.id)) continue;
+      byId.set(event.id, event);
+      added = true;
+    }
+    if (added) paint();
+  };
+  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
+    relayPool.query(urls, filters, 7000, maxRelays, absorb, queryOpts).catch(() => [] as Event[]);
+  const [fromPersonal, fromShipped] = await Promise.all([
+    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
+    shipped.length ? ask(shipped, 4) : Promise.resolve([])
+  ]);
+  for (const event of [...fromPersonal, ...fromShipped]) {
+    if (event.kind !== kind) continue;
     byId.set(event.id, event);
   }
   return filterMuted(sortFeedEvents([...byId.values()]), muted);
@@ -785,6 +968,11 @@ function appendFeedAuthor(q: URLSearchParams, author?: string | null): void {
   if (hex && /^[0-9a-f]{64}$/.test(hex)) q.set('author', hex);
 }
 
+/** Always write `tab=` so bare `/feed` can mean “first strip tab”. */
+function appendFeedTab(q: URLSearchParams, tab: FeedTab): void {
+  q.set('tab', tab);
+}
+
 export function feedThreadPath(
   event: Event,
   tab: FeedTab = 'original',
@@ -809,7 +997,7 @@ export function feedThreadPath(
     if (targetPointer) {
       const q = new URLSearchParams();
       q.set('thread', targetPointer);
-      if (tab !== 'original') q.set('tab', tab);
+      appendFeedTab(q, tab);
       appendFeedAuthor(q, opts.author);
       return `/feed?${q.toString()}`;
     }
@@ -823,7 +1011,7 @@ export function feedThreadPath(
   } else {
     q.set('thread', feedThreadPointer(event));
   }
-  if (tab !== 'original') q.set('tab', tab);
+  appendFeedTab(q, tab);
   appendFeedAuthor(q, opts.author);
   return `/feed?${q.toString()}`;
 }
@@ -831,10 +1019,9 @@ export function feedThreadPath(
 /** List URL for a feed tab (no open thread). */
 export function feedListPath(tab: FeedTab = 'original', opts: FeedListOpts = {}): string {
   const q = new URLSearchParams();
-  if (tab !== 'original') q.set('tab', tab);
+  appendFeedTab(q, tab);
   appendFeedAuthor(q, opts.author);
-  const s = q.toString();
-  return s ? `/feed?${s}` : '/feed';
+  return `/feed?${q.toString()}`;
 }
 
 /** Profile → Replies tab filtered to that pubkey. */

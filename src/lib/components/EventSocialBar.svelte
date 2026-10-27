@@ -151,12 +151,12 @@
   <div class="event-social-actions">
     <HeartButton {event} />
     <ThreadRefBadges {event} {zaps} {boosts} />
-    {#if allowReply}
+    {#if allowReply && canReply}
       <button
         class="btn btn-icon icon-action-btn thread-reply"
         type="button"
-        aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-        title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+        aria-label={replyOpen ? 'Cancel reply' : 'Reply'}
+        title={replyOpen ? 'Cancel reply' : 'Reply'}
         aria-expanded={replyOpen}
         onclick={onReplyClick}
       >

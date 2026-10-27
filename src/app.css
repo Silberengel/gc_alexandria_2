@@ -229,7 +229,6 @@ body:has(main.reading-page) .top-bar {
 .top-bar nav {
   grid-column: 1 / -1;
   grid-row: 2;
-  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -247,32 +246,42 @@ body:has(main.reading-page) .top-bar {
   gap: 0.1rem 0.15rem;
   min-width: 0;
 }
-/* History back — pinned left; tabs stay centered in the full row. */
+/*
+ * Back left, tabs optically centered: equal side tracks so the
+ * absolute-left Back never sits on top of Home/Feed on wide layouts.
+ */
 .top-bar-nav-with-return {
+  display: grid;
+  grid-template-columns: minmax(2rem, 1fr) auto minmax(2rem, 1fr);
+  align-items: center;
+  column-gap: 0.35rem;
   min-height: 2rem;
 }
+.top-bar-nav-with-return .top-bar-return {
+  grid-column: 1;
+  justify-self: start;
+}
+.top-bar-nav-with-return .top-bar-nav-tabs {
+  grid-column: 2;
+  justify-self: center;
+}
 .top-bar-return {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
+  justify-content: center;
   margin: 0;
-  padding: 0.2rem 0.15rem;
+  padding: 0.45rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
   border: 0;
-  border-radius: 0;
+  border-radius: 0.4rem;
   background: transparent;
   color: var(--text-muted);
-  font-family: var(--ui-font);
-  font-size: 0.82rem;
-  font-weight: 500;
   line-height: 1;
   cursor: pointer;
   box-shadow: none;
-  transition: color 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 .top-bar-return svg {
   flex: 0 0 auto;
@@ -282,12 +291,19 @@ body:has(main.reading-page) .top-bar {
 .top-bar-return:hover,
 .top-bar-return:focus-visible {
   color: var(--text);
-  background: transparent;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   outline: none;
 }
-.top-bar-return:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
+.top-bar-home,
+.top-bar-settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem !important;
+}
+.top-bar-home svg,
+.top-bar-settings svg {
+  display: block;
 }
 .top-bar nav a {
   color: var(--text-muted);
@@ -403,7 +419,11 @@ body:has(main.reading-page) .top-bar {
     grid-row: 1;
     flex-wrap: nowrap;
     justify-content: center;
-    min-width: 0;
+    /* Give the Back+tabs cluster room so Home is not under Back. */
+    min-width: 18rem;
+  }
+  .top-bar-nav-with-return {
+    width: 100%;
   }
   .top-bar .top-bar-search,
   .top-bar .search-form.top-bar-search,
@@ -479,9 +499,16 @@ body:has(main.reading-page) .top-bar {
   white-space: nowrap;
 }
 
-/* Sits above every route's TopBar so About/Feed/etc. can prompt too. */
+/*
+ * Sits above every route's TopBar. Sticky + higher z-index so a scrolled
+ * sticky TopBar cannot cover the OK button and eat clicks.
+ */
 .pwa-update-host {
+  position: sticky;
+  top: 0;
+  z-index: 60;
   padding: 0.5rem 0.85rem 0;
+  background: color-mix(in srgb, var(--paper-light) 92%, transparent);
 }
 .pwa-update-host:empty,
 .pwa-update-host:not(:has(.pwa-update-banner)) {
@@ -1595,6 +1622,175 @@ select:hover {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+}
+
+.search-pointer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: -0.15rem 0 1.15rem;
+  max-width: 100%;
+}
+.search-pointer-kicker {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+}
+/* Mobile-first: kind / pubkey / d stacked. */
+.search-pointer-parts {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  width: 100%;
+}
+.search-pointer-part {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  width: 100%;
+}
+.search-pointer-part-wide {
+  width: 100%;
+}
+.search-pointer-label {
+  font-family: var(--ui-font);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.search-pointer-input {
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
+  border-radius: 0.4rem;
+  background: var(--paper-light);
+  color: var(--ink);
+  font-family: var(--display-font);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.search-pointer-input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.search-pointer-input.invalid {
+  border-color: color-mix(in srgb, #9a3a2a 55%, var(--rule));
+}
+.search-pointer-input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.search-pointer-sep {
+  display: none;
+}
+.search-pointer-sep-mark {
+  display: block;
+}
+.search-pointer-error {
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  color: color-mix(in srgb, #9a3a2a 75%, var(--ink));
+}
+.search-pointer-readonly {
+  margin: 0;
+  padding: 0.4rem 0.15rem;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.search-pointer-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.15rem;
+  min-width: 0;
+}
+.search-pointer-badge .userbadge {
+  font-size: 0.88rem;
+}
+.search-pointer-relays {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  max-width: 36rem;
+}
+.search-pointer-relays-input {
+  min-height: 4.5rem;
+  resize: vertical;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.search-pointer-hint {
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+}
+.search-pointer-go {
+  font-size: 0.88rem;
+  padding: 0.35rem 0.75rem;
+}
+
+/* Very wide: kind : pubkey : d on one row. */
+@media (min-width: 1200px) {
+  .search-pointer-parts {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.45rem 0.35rem;
+  }
+  .search-pointer-part {
+    width: auto;
+    flex: 0 1 auto;
+  }
+  .search-pointer-part-wide {
+    flex: 1 1 12rem;
+    min-width: min(100%, 12rem);
+    width: auto;
+  }
+  /* Same column rhythm as .search-pointer-part: label row, then input-height mark. */
+  .search-pointer-sep {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    align-self: flex-start;
+    flex: 0 0 auto;
+    font-family: var(--display-font);
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+    user-select: none;
+  }
+  .search-pointer-sep::before {
+    content: '\00a0';
+    font-family: var(--ui-font);
+    font-size: 0.68rem;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    line-height: 1.2;
+    visibility: hidden;
+  }
+  .search-pointer-sep-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(0.8rem + 1.05rem * 1.25);
+    line-height: 1;
+  }
 }
 
 .listing-toolbar {

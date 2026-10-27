@@ -314,9 +314,7 @@
         {/if}
       </div>
     </div>
-  {:else if !hideEntryCta && !$session.pubkey}
-    <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to rate</button>
-  {:else if !hideEntryCta && !minePublished}
+  {:else if !hideEntryCta && $session.pubkey && !minePublished}
     <button class="btn" type="button" onclick={openCompose}>Write a review</button>
   {/if}
 </section>

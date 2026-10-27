@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { untrack } from 'svelte';
-  import { link, querystring, replace } from 'svelte-spa-router';
+  import { link, location, querystring, replace } from 'svelte-spa-router';
   import TopBar from '$lib/components/TopBar.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
@@ -52,8 +52,11 @@
     feedFollowAuthors,
     feedListPath,
     feedRelayGroups,
+    feedTabKind,
+    feedTabLabel,
     eventMatchesThreadTarget,
     isFeedInteractionEvent,
+    isKindFeedTab,
     feedThreadPath,
     feedThreadPointerFromId,
     fetchFeedThreadTarget,
@@ -62,6 +65,8 @@
     loadAuthorFeedWithReplies,
     loadFeed,
     loadFeedWithReplies,
+    loadFollowsFeed,
+    loadKindFeed,
     loadNotifications,
     parseFeedAuthorParam,
     parseFeedTab,
@@ -71,9 +76,13 @@
     recallAuthorFeedWithReplies,
     recallFeedPosts,
     recallFeedWithReplies,
+    recallFollowsFeed,
+    recallKindFeed,
     recallNotifications,
     type FeedTab
   } from '$lib/feed';
+  import { feedTabOrder } from '$lib/stores/feed-tab-order';
+  import { skipNextNavTrack } from '$lib/nav-history';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
   import { memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
@@ -90,17 +99,42 @@
   const signedIn = $derived(!!$session.pubkey);
   const feedQuery = $derived(new URLSearchParams($querystring ?? ''));
   const feedAuthor = $derived(parseFeedAuthorParam(feedQuery.get('author')));
-  const feedTab = $derived(
-    feedAuthor && parseFeedTab(feedQuery.get('tab')) === 'notifications'
-      ? 'replies'
-      : parseFeedTab(feedQuery.get('tab'))
-  );
+  /** Raw `?tab=` — null/empty means “use the first strip tab”. */
+  const feedTabParam = $derived(feedQuery.get('tab'));
+  let kindDraft = $state('');
+  let dragFrom = $state<number | null>(null);
+  let dragOver = $state<number | null>(null);
+  let dragMoved = $state(false);
   let metadataEvents = $state<Event[]>([]);
   /**
    * Stable feed-load deps. Raw `metadataEvents` / `$muteState` get new identities on every
    * kind-0 merge and would cancel in-flight list REQs forever ("Loading original posts…").
    */
   const followAuthorsKey = $derived(feedFollowAuthors(metadataEvents, $muteState).join('\n'));
+  const hasFollows = $derived(followAuthorsKey.length > 0);
+  /**
+   * Author-scoped feed: Original / Replies only.
+   * Follows needs a signed-in contact list; Notifications needs a session.
+   * While session metadata is still loading, keep Follows visible so a deep link
+   * is not bounced before the contact list arrives.
+   */
+  const visibleFeedTabs = $derived(
+    $feedTabOrder.filter((tab) => {
+      if (feedAuthor) return tab === 'original' || tab === 'replies';
+      if (tab === 'notifications') return signedIn;
+      if (tab === 'follows') return signedIn && (hasFollows || $session.loading);
+      return true;
+    })
+  );
+  const defaultFeedTab = $derived(visibleFeedTabs[0] ?? 'original');
+  const feedTab = $derived.by(() => {
+    if (feedTabParam == null || feedTabParam === '') return defaultFeedTab;
+    const tab = parseFeedTab(feedTabParam);
+    if (feedAuthor && (tab === 'notifications' || tab === 'follows' || isKindFeedTab(tab))) {
+      return 'replies';
+    }
+    return tab;
+  });
   const muteKey = $derived.by(() => {
     const m = $muteState;
     return `${[...m.pubkeys].sort().join(',')}|${[...m.eventIds].sort().join(',')}`;
@@ -113,6 +147,17 @@
       return feedTab === 'replies'
         ? 'Original posts and replies from this reader.'
         : 'Original posts from this reader.';
+    }
+    const kind = feedTabKind(feedTab);
+    if (kind != null) {
+      return signedIn
+        ? `Events of kind ${kind} from your feed relays.`
+        : `Events of kind ${kind} from theforest.`;
+    }
+    if (feedTab === 'follows') {
+      return signedIn
+        ? 'Original posts from accounts you follow.'
+        : 'Sign in to see posts from accounts you follow.';
     }
     if (feedTab === 'notifications') {
       return signedIn
@@ -143,8 +188,32 @@
       : `Original posts from your inbox relays${follows}.`;
   });
 
+  /**
+   * Bare `/feed` → first strip tab. Hidden/invalid `?tab=` → same.
+   * Wait out session loading before bouncing Follows away.
+   * Only while still on `/feed` — `$querystring` is global, so leaving for Home
+   * must not re-`replace` us back onto the feed.
+   */
+  $effect(() => {
+    const path = ($location ?? '').split('?')[0] || '';
+    if (path !== '/feed') return;
+    if (pointer) return;
+    const first = defaultFeedTab;
+    if (feedTabParam == null || feedTabParam === '') {
+      // Quiet rewrite — must not create a Back step of bare `/feed`.
+      skipNextNavTrack();
+      void replace(feedListPath(first, { author: feedAuthor }));
+      return;
+    }
+    if (feedAuthor) return;
+    if (feedTab === 'follows' && signedIn && $session.loading) return;
+    if (visibleFeedTabs.includes(feedTab)) return;
+    skipNextNavTrack();
+    void replace(feedListPath(first));
+  });
+
   function setFeedTab(next: FeedTab): void {
-    if (feedAuthor && next === 'notifications') return;
+    if (!visibleFeedTabs.includes(next)) return;
     if (next === feedTab) return;
     pendingFocusId = null;
     listRestorePending = false;
@@ -159,6 +228,84 @@
     listSettled = false;
     listLoading = true;
     void replace(feedListPath(next, { author: feedAuthor }));
+  }
+
+  function onTabDragStart(index: number, e: DragEvent): void {
+    dragFrom = index;
+    dragMoved = false;
+    dragOver = index;
+    e.dataTransfer?.setData('text/plain', String(index));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function onTabDragOver(index: number, e: DragEvent): void {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (dragFrom !== null && dragFrom !== index) dragMoved = true;
+    dragOver = index;
+  }
+
+  function onTabDrop(index: number, e: DragEvent): void {
+    e.preventDefault();
+    if (dragFrom !== null && dragFrom !== index) {
+      const fromTab = visibleFeedTabs[dragFrom];
+      const toTab = visibleFeedTabs[index];
+      if (fromTab && toTab) {
+        const full = $feedTabOrder;
+        const from = full.indexOf(fromTab);
+        const to = full.indexOf(toTab);
+        if (from >= 0 && to >= 0) feedTabOrder.reorder(from, to);
+      }
+    }
+    dragFrom = null;
+    dragOver = null;
+  }
+
+  function onTabDragEnd(): void {
+    dragFrom = null;
+    dragOver = null;
+  }
+
+  function onTabClick(tab: FeedTab): void {
+    if (dragMoved) {
+      dragMoved = false;
+      return;
+    }
+    setFeedTab(tab);
+  }
+
+  function addKindTab(): void {
+    const n = Number(kindDraft.trim());
+    if (!Number.isInteger(n) || n < 0) return;
+    const tab = feedTabOrder.addKind(n);
+    kindDraft = '';
+    if (tab) setFeedTab(tab);
+  }
+
+  function removeKindTab(tab: FeedTab, e: MouseEvent): void {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!isKindFeedTab(tab)) return;
+    feedTabOrder.remove(tab);
+    if (feedTab === tab) setFeedTab('original');
+  }
+
+  function loadingMessageForTab(tab: FeedTab): string {
+    if (tab === 'notifications') return 'Loading notifications…';
+    if (tab === 'follows') return 'Loading follows…';
+    if (tab === 'replies') return 'Loading posts and replies…';
+    if (isKindFeedTab(tab)) return `Loading kind ${feedTabKind(tab)}…`;
+    return 'Loading original posts…';
+  }
+
+  function emptyMessageForTab(tab: FeedTab): string {
+    if (tab === 'notifications') return 'No notifications yet.';
+    if (tab === 'follows') {
+      return signedIn ? 'No posts from follows yet.' : 'Sign in to see follows.';
+    }
+    if (tab === 'replies') return 'No posts or replies here yet.';
+    if (isKindFeedTab(tab)) return `No kind ${feedTabKind(tab)} events here yet.`;
+    return 'No original posts here yet.';
   }
 
   let items = $state<Event[]>([]);
@@ -492,7 +639,7 @@
     if (warm) warmNavEvent(warm);
     const q = new URLSearchParams();
     q.set('thread', feedThreadPointerFromId(targetId));
-    if (feedTab !== 'original') q.set('tab', feedTab);
+    q.set('tab', feedTab);
     if (feedAuthor) q.set('author', feedAuthor);
     void replace(`/feed?${q.toString()}`);
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
@@ -558,7 +705,7 @@
       listLoading = true;
     }
 
-    if (tab === 'notifications' && !pubkey) {
+    if ((tab === 'notifications' || tab === 'follows') && !pubkey) {
       items = [];
       pendingNew = [];
       listLoading = false;
@@ -567,13 +714,18 @@
     }
 
     if (pubkey && sessionLoading && !feedRelayGroups().personal.length && tab !== 'notifications') {
+      const kind = feedTabKind(tab);
       const recall = author
         ? tab === 'replies'
           ? recallAuthorFeedWithReplies(author)
           : recallAuthorFeedPosts(author)
-        : tab === 'replies'
-          ? recallFeedWithReplies()
-          : recallFeedPosts();
+        : tab === 'follows'
+          ? recallFollowsFeed(meta, muted)
+          : kind != null
+            ? recallKindFeed(kind)
+            : tab === 'replies'
+              ? recallFeedWithReplies()
+              : recallFeedPosts();
       void recall.then((cached) => {
         if (cancelled || !cached.length) return;
         ingestFeedEvents(cached, muted);
@@ -610,6 +762,13 @@
           ? loadAuthorFeedWithReplies(author, muted, onCache)
           : loadAuthorFeed(author, muted, onCache);
       }
+      if (tab === 'follows') {
+        return loadFollowsFeed(meta, muted, onCache);
+      }
+      const kind = feedTabKind(tab);
+      if (kind != null) {
+        return loadKindFeed(kind, muted, onCache);
+      }
       if (tab === 'replies') {
         return loadFeedWithReplies(meta, muted, onCache);
       }
@@ -623,6 +782,9 @@
           ? recallAuthorFeedWithReplies(author)
           : recallAuthorFeedPosts(author);
       }
+      if (tab === 'follows') return recallFollowsFeed(meta, muted);
+      const kind = feedTabKind(tab);
+      if (kind != null) return recallKindFeed(kind);
       if (tab === 'replies') return recallFeedWithReplies();
       return recallFeedPosts();
     };
@@ -701,7 +863,7 @@
     const pubkey = $session.pubkey;
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
-    if (tab === 'notifications' && !pubkey) return;
+    if ((tab === 'notifications' || tab === 'follows') && !pubkey) return;
 
     let cancelled = false;
     const pull = async () => {
@@ -714,6 +876,10 @@
             tab === 'replies'
               ? await loadAuthorFeedWithReplies(author, muted)
               : await loadAuthorFeed(author, muted);
+        } else if (tab === 'follows') {
+          events = await loadFollowsFeed(meta, muted);
+        } else if (feedTabKind(tab) != null) {
+          events = await loadKindFeed(feedTabKind(tab)!, muted);
         } else if (tab === 'replies') {
           events = await loadFeedWithReplies(meta, muted);
         } else {
@@ -955,64 +1121,70 @@
         {/if}
       </div>
     </form>
-    <div class="feed-tabs" role="tablist" aria-label="Feed view">
-      <button
-        type="button"
-        role="tab"
-        class="feed-tab"
-        class:active={feedTab === 'original'}
-        aria-selected={feedTab === 'original'}
-        tabindex={pointer ? -1 : 0}
-        onclick={() => setFeedTab('original')}>Original Posts</button
-      >
-      <button
-        type="button"
-        role="tab"
-        class="feed-tab"
-        class:active={feedTab === 'replies'}
-        aria-selected={feedTab === 'replies'}
-        tabindex={pointer ? -1 : 0}
-        onclick={() => setFeedTab('replies')}>Replies</button
-      >
+    <div class="feed-tabs-row">
+      <div class="feed-tabs" role="tablist" aria-label="Feed view">
+        {#each visibleFeedTabs as tab, index (tab)}
+          <button
+            type="button"
+            role="tab"
+            class="feed-tab"
+            class:active={feedTab === tab}
+            class:feed-tab-dragging={dragFrom === index}
+            class:feed-tab-drop={dragOver === index && dragFrom !== null && dragFrom !== index}
+            aria-selected={feedTab === tab}
+            tabindex={pointer ? -1 : 0}
+            draggable={!pointer}
+            title="Drag to reorder tabs"
+            ondragstart={(e) => onTabDragStart(index, e)}
+            ondragover={(e) => onTabDragOver(index, e)}
+            ondrop={(e) => onTabDrop(index, e)}
+            ondragend={onTabDragEnd}
+            onclick={() => onTabClick(tab)}
+          >
+            <span class="feed-tab-label">{feedTabLabel(tab)}</span>
+            {#if isKindFeedTab(tab)}
+              <span
+                class="feed-tab-remove"
+                role="presentation"
+                title="Remove kind tab"
+                onclick={(e) => removeKindTab(tab, e)}>×</span
+              >
+            {/if}
+          </button>
+        {/each}
+      </div>
       {#if !feedAuthor}
-        <button
-          type="button"
-          role="tab"
-          class="feed-tab"
-          class:active={feedTab === 'notifications'}
-          aria-selected={feedTab === 'notifications'}
-          tabindex={pointer ? -1 : 0}
-          onclick={() => setFeedTab('notifications')}>Notifications</button
+        <form
+          class="feed-kind-add"
+          onsubmit={(e) => {
+            e.preventDefault();
+            addKindTab();
+          }}
         >
+          <label class="sr-only" for="feed-kind-draft">Add kind filter tab</label>
+          <input
+            id="feed-kind-draft"
+            class="feed-kind-input"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Kind"
+            bind:value={kindDraft}
+            disabled={!!pointer}
+          />
+          <button class="btn feed-kind-add-btn" type="submit" disabled={!!pointer || !kindDraft.trim()}
+            >Add</button
+          >
+        </form>
       {/if}
     </div>
-    {#if feedTab === 'notifications' && !signedIn}
-      <p class="muted">
-        <button type="button" class="btn btn-primary" onclick={() => openLoginDialog()}
-          >Sign in</button
-        >
-        to see responses to your posts.
-      </p>
-    {:else if !visibleItems.length && listError}
+    {#if !visibleItems.length && listError}
       <p class="muted">{listError}</p>
     {:else if !visibleItems.length && !listSettled}
-      <LoadingHint
-        message={feedTab === 'notifications'
-          ? 'Loading notifications…'
-          : feedTab === 'replies'
-            ? 'Loading posts and replies…'
-            : 'Loading original posts…'}
-      />
+      <LoadingHint message={loadingMessageForTab(feedTab)} />
     {:else if !visibleItems.length}
-      <p class="muted">
-        {#if feedTab === 'notifications'}
-          No notifications yet.
-        {:else if feedTab === 'replies'}
-          No posts or replies here yet.
-        {:else}
-          No original posts here yet.
-        {/if}
-      </p>
+      <p class="muted">{emptyMessageForTab(feedTab)}</p>
       {#if pendingNew.length}
         <p class="feed-new-wrap">
           <button type="button" class="btn feed-new-events" onclick={admitNewEvents}>
@@ -1078,7 +1250,7 @@
             </li>
           {:else}
             {@const target = boostTargets[row.targetId]}
-            {@const threadHref = `#/feed?thread=${feedThreadPointerFromId(row.targetId)}${feedTab !== 'original' ? `&tab=${feedTab}` : ''}${feedAuthor ? `&author=${feedAuthor}` : ''}`}
+            {@const threadHref = `#/feed?thread=${feedThreadPointerFromId(row.targetId)}&tab=${encodeURIComponent(feedTab)}${feedAuthor ? `&author=${feedAuthor}` : ''}`}
             <li
               class="card feed-row feed-row-boost"
               data-feed-row={row.targetId}
@@ -1173,15 +1345,26 @@
     gap: 0.55rem 0.85rem;
     margin: 0.35rem 0 0;
   }
+  .feed-tabs-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.45rem 0.75rem;
+    margin: 0 0 1rem;
+    max-width: 40rem;
+  }
   .feed-tabs {
     display: flex;
     flex-wrap: wrap;
     gap: 0.15rem 0.35rem;
-    margin: 0 0 1rem;
-    max-width: 40rem;
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .feed-tab {
     appearance: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
@@ -1190,7 +1373,10 @@
     font: inherit;
     font-size: 0.95rem;
     color: color-mix(in srgb, currentColor 55%, transparent);
-    cursor: pointer;
+    cursor: grab;
+  }
+  .feed-tab:active {
+    cursor: grabbing;
   }
   .feed-tab:hover {
     color: inherit;
@@ -1199,6 +1385,50 @@
     color: inherit;
     border-bottom-color: var(--accent, currentColor);
     font-weight: 600;
+  }
+  .feed-tab-dragging {
+    opacity: 0.55;
+  }
+  .feed-tab-drop {
+    border-bottom-color: color-mix(in srgb, var(--accent, currentColor) 45%, transparent);
+  }
+  .feed-tab-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    margin-left: 0.05rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    line-height: 1;
+    color: color-mix(in srgb, currentColor 55%, transparent);
+  }
+  .feed-tab-remove:hover {
+    color: inherit;
+    background: color-mix(in srgb, var(--rule) 55%, transparent);
+  }
+  .feed-kind-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+  .feed-kind-input {
+    width: 4.5rem;
+    margin: 0;
+    padding: 0.3rem 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
+    border-radius: 0.35rem;
+    background: var(--paper-light, var(--paper));
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+  }
+  .feed-kind-add-btn {
+    font-size: 0.82rem;
+    padding: 0.28rem 0.55rem;
   }
   .feed-list {
     list-style: none;

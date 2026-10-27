@@ -326,49 +326,51 @@
     </label>
   </section>
 
-  <section class="settings-panel">
-    <header class="settings-panel-head">
-      <h2>Reading</h2>
-      <p class="muted">Rotation size and whether your queue stays on this device.</p>
-    </header>
-    <label class="settings-field">
-      <span>Books to read at once</span>
-      <input
-        type="number"
-        min={READING_CONCURRENT_MIN}
-        max={READING_CONCURRENT_MAX}
-        value={$readingPrefs.concurrent}
-        onchange={(e) => readingPrefs.setConcurrent(Number((e.target as HTMLInputElement).value))}
-      />
-    </label>
-    <p class="muted settings-hint">
-      Extra tracked books wait in Up next and shift into rotation when you finish one.
-    </p>
-    <label class="settings-toggle" class:settings-toggle-on={$readingPrefs.localOnly}>
-      <span class="settings-toggle-text">
-        <span class="settings-toggle-title">Keep reading queue on this device only</span>
-        <span class="muted"
-          >Track, progress, and Stop stay in this browser — kind 16374 is not published. Turning this
-          off publishes your on-device queue.</span
-        >
-      </span>
-      <input
-        type="checkbox"
-        checked={$readingPrefs.localOnly}
-        disabled={localOnlyBusy}
-        onchange={(e) => {
-          const el = e.target as HTMLInputElement;
-          const want = el.checked;
-          // Snap back until the store updates (publish may fail / cancel).
-          el.checked = $readingPrefs.localOnly;
-          void setLocalOnly(want);
-        }}
-      />
-    </label>
-    {#if localOnlyBusy}
-      <LoadingHint message="Publishing your reading queue…" compact />
-    {/if}
-  </section>
+  {#if $session.pubkey}
+    <section class="settings-panel">
+      <header class="settings-panel-head">
+        <h2>Reading</h2>
+        <p class="muted">Rotation size and whether your queue stays on this device.</p>
+      </header>
+      <label class="settings-field">
+        <span>Books to read at once</span>
+        <input
+          type="number"
+          min={READING_CONCURRENT_MIN}
+          max={READING_CONCURRENT_MAX}
+          value={$readingPrefs.concurrent}
+          onchange={(e) => readingPrefs.setConcurrent(Number((e.target as HTMLInputElement).value))}
+        />
+      </label>
+      <p class="muted settings-hint">
+        Extra tracked books wait in Up next and shift into rotation when you finish one.
+      </p>
+      <label class="settings-toggle" class:settings-toggle-on={$readingPrefs.localOnly}>
+        <span class="settings-toggle-text">
+          <span class="settings-toggle-title">Keep reading queue on this device only</span>
+          <span class="muted"
+            >Track, progress, and Stop stay in this browser — kind 16374 is not published. Turning this
+            off publishes your on-device queue.</span
+          >
+        </span>
+        <input
+          type="checkbox"
+          checked={$readingPrefs.localOnly}
+          disabled={localOnlyBusy}
+          onchange={(e) => {
+            const el = e.target as HTMLInputElement;
+            const want = el.checked;
+            // Snap back until the store updates (publish may fail / cancel).
+            el.checked = $readingPrefs.localOnly;
+            void setLocalOnly(want);
+          }}
+        />
+      </label>
+      {#if localOnlyBusy}
+        <LoadingHint message="Publishing your reading queue…" compact />
+      {/if}
+    </section>
+  {/if}
 
   <section class="settings-panel">
     <header class="settings-panel-head">

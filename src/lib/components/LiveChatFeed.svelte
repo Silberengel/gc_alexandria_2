@@ -115,30 +115,24 @@
     </button>
   </div>
 
-  {#if allowCompose}
-    {#if $session.pubkey}
-      <form
-        class="live-chat-compose"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void post();
-        }}
-      >
-        <input
-          type="text"
-          bind:value={text}
-          placeholder="Say something…"
-          disabled={posting}
-          autocomplete="off"
-          enterkeyhint="send"
-          aria-label="Live chat message"
-        />
-      </form>
-    {:else}
-      <button class="btn" type="button" onclick={() => openLoginDialog()}>
-        Sign in to chat
-      </button>
-    {/if}
+  {#if allowCompose && $session.pubkey}
+    <form
+      class="live-chat-compose"
+      onsubmit={(e) => {
+        e.preventDefault();
+        void post();
+      }}
+    >
+      <input
+        type="text"
+        bind:value={text}
+        placeholder="Say something…"
+        disabled={posting}
+        autocomplete="off"
+        enterkeyhint="send"
+        aria-label="Live chat message"
+      />
+    </form>
   {/if}
 
   {#if rows.length}

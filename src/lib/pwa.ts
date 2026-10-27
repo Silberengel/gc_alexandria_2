@@ -12,17 +12,30 @@ type UpdateSW = (reloadPage?: boolean) => Promise<void>;
 let updateSW: UpdateSW | null = null;
 let versionWatchStarted = false;
 
-/** Activate the waiting service worker (if any), drop caches, and reload. */
+/**
+ * Activate the waiting service worker (if any), drop caches, and reload.
+ *
+ * vite-plugin-pwa's `updateSW(true)` only posts SKIP_WAITING — the page reload
+ * is tied to a later `controlling` event, and only if `onNeedRefresh` ran.
+ * Version-json prompts often have no waiting worker yet, so we always finish
+ * with a hard clean reload (unregister + caches + reload).
+ */
 export async function applyPwaUpdate(): Promise<void> {
-  pwaUpdateAvailable.set(false);
   try {
     if (updateSW) {
-      await updateSW(true);
-      return;
+      await Promise.race([
+        updateSW(true),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 500);
+        })
+      ]);
     }
   } catch (error) {
     console.warn('[pwa] updateServiceWorker failed; forcing clean reload', error);
   }
+  // Hide only once reload is committed — earlier clears made the banner
+  // flicker off while the page never refreshed.
+  pwaUpdateAvailable.set(false);
   await forceCleanReload();
 }
 
@@ -44,6 +57,11 @@ async function forceCleanReload(): Promise<void> {
     /* ignore */
   }
   globalThis.location?.reload();
+}
+
+/** Test helper — inject the SW updater callback vite-plugin-pwa would set. */
+export function setPwaUpdateSWForTests(fn: UpdateSW | null): void {
+  updateSW = fn;
 }
 
 /** Compare the live release file to the shell we are running. */

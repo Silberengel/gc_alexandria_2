@@ -25,6 +25,8 @@
     runReadingQueueSearch,
     npubFromInput
   } from '$lib/search';
+  import { parseSearchPointer } from '$lib/search-pointer';
+  import SearchPointerEditor from '$lib/components/SearchPointerEditor.svelte';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import { session } from '$lib/stores/session';
@@ -46,6 +48,9 @@
 
   const signedIn = $derived(Boolean($session.pubkey));
   let follows = $state<Set<string>>(new Set());
+  const hasFollows = $derived(follows.size > 0);
+  const showMineScope = $derived(signedIn);
+  const showFollowsScope = $derived(signedIn && hasFollows);
 
   function hashParams(): URLSearchParams {
     const hash = window.location.hash;
@@ -148,6 +153,11 @@
     page = 1;
   }
 
+  $effect(() => {
+    if (resultScope === 'mine' && !showMineScope) resultScope = 'all';
+    else if (resultScope === 'follows' && !showFollowsScope) resultScope = 'all';
+  });
+
   function filterByScope(list: Event[], scope: ResultScope): Event[] {
     if (scope === 'all') return list;
     const me = $session.pubkey?.toLowerCase();
@@ -190,6 +200,8 @@
     filterByScope(filterPageEvents(filterMuted(events, $muteState), pageFilter), resultScope)
   );
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
+  /** Bech32 / coordinate queries → editable kind · pubkey · d (or event id) parts. */
+  const searchPointer = $derived(searchTerm ? parseSearchPointer(searchTerm) : null);
 </script>
 
 <TopBar />
@@ -203,10 +215,14 @@
     <SearchForm class="page-search-form" initialQuery={searchTerm} />
   </header>
   {#if searchTerm}
-    <p class="search-term">
-      {#if searchKind}<span class="muted">{searchKind}</span>{/if}
-      <span>{searchTerm}</span>
-    </p>
+    {#if searchPointer}
+      <SearchPointerEditor pointer={searchPointer} />
+    {:else}
+      <p class="search-term">
+        {#if searchKind}<span class="muted">{searchKind}</span>{/if}
+        <span>{searchTerm}</span>
+      </p>
+    {/if}
   {/if}
   <div class="listing-toolbar">
     <PageFilter bind:value={pageFilter} />
@@ -220,24 +236,26 @@
         aria-pressed={resultScope === 'all'}
         onclick={() => setResultScope('all')}
       >All</button>
-      <button
-        type="button"
-        class="booklist-scope-btn"
-        class:active={resultScope === 'mine'}
-        aria-pressed={resultScope === 'mine'}
-        disabled={!signedIn}
-        title={signedIn ? 'Published by you' : 'Sign in to filter to your publications'}
-        onclick={() => setResultScope('mine')}
-      >From me</button>
-      <button
-        type="button"
-        class="booklist-scope-btn"
-        class:active={resultScope === 'follows'}
-        aria-pressed={resultScope === 'follows'}
-        disabled={!signedIn}
-        title={signedIn ? 'Published by accounts you follow' : 'Sign in to filter to follows'}
-        onclick={() => setResultScope('follows')}
-      >From follows</button>
+      {#if showMineScope}
+        <button
+          type="button"
+          class="booklist-scope-btn"
+          class:active={resultScope === 'mine'}
+          aria-pressed={resultScope === 'mine'}
+          title="Published by you"
+          onclick={() => setResultScope('mine')}
+        >From me</button>
+      {/if}
+      {#if showFollowsScope}
+        <button
+          type="button"
+          class="booklist-scope-btn"
+          class:active={resultScope === 'follows'}
+          aria-pressed={resultScope === 'follows'}
+          title="Published by accounts you follow"
+          onclick={() => setResultScope('follows')}
+        >From follows</button>
+      {/if}
     </div>
     <ListingViewToggle label="Search results" />
   </div>
@@ -258,7 +276,7 @@
   {:else}
     <div class="card-grid card-grid-results">
       {#each paged as event (event.id)}
-        <EventCard {event} openAsThread />
+        <EventCard {event} asCard openAsThread />
       {/each}
     </div>
     <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />

@@ -4,6 +4,7 @@ import {
   normalizeNavKey,
   peekReturnTarget,
   resetNavHistoryForTests,
+  skipNextNavTrack,
   trackNavChange
 } from './nav-history';
 
@@ -16,7 +17,6 @@ import { replace } from 'svelte-spa-router';
 afterEach(() => {
   resetNavHistoryForTests();
   vi.mocked(replace).mockClear();
-  vi.unstubAllGlobals();
 });
 
 describe('normalizeNavKey', () => {
@@ -31,6 +31,7 @@ describe('normalizeNavKey', () => {
 
 describe('nav history stack', () => {
   it('falls back to landing when empty', () => {
+    trackNavChange('/about');
     expect(peekReturnTarget()).toBe('/');
     navigateReturn();
     expect(replace).toHaveBeenCalledWith('/');
@@ -43,6 +44,7 @@ describe('nav history stack', () => {
     expect(peekReturnTarget()).toBe('/feed');
     navigateReturn();
     expect(replace).toHaveBeenCalledWith('/feed');
+    // After Return, lastSeen is the destination — peek walks further back.
     expect(peekReturnTarget()).toBe('/search?q=nostr');
   });
 
@@ -51,9 +53,27 @@ describe('nav history stack', () => {
     trackNavChange('/settings');
     navigateReturn();
     expect(replace).toHaveBeenCalledWith('/about');
-    // Simulate the location update that follows replace.
+    // Simulate the location update that follows replace (skipping is set).
     trackNavChange('/about');
     expect(peekReturnTarget()).toBe('/');
   });
 
+  it('skips quiet rewrites so Feed default-tab does not trap Back', () => {
+    trackNavChange('/');
+    trackNavChange('/feed');
+    skipNextNavTrack();
+    trackNavChange('/feed?tab=follows');
+    expect(peekReturnTarget()).toBe('/');
+    navigateReturn();
+    expect(replace).toHaveBeenCalledWith('/');
+  });
+
+  it('does not leave skipping stuck on a no-op Return', () => {
+    trackNavChange('/');
+    navigateReturn();
+    expect(replace).not.toHaveBeenCalled();
+    trackNavChange('/settings');
+    trackNavChange('/compose');
+    expect(peekReturnTarget()).toBe('/settings');
+  });
 });

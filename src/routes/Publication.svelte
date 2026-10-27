@@ -3460,9 +3460,6 @@
               >
             {/if}
           {:else if cardPrimary === 'read'}
-            <button class="btn" type="button" onclick={() => openLoginDialog()}
-              >Sign in to interact with this publication</button
-            >
             {#if canContinue}
               <button class="btn btn-primary" type="button" onclick={() => void continueReading()}
                 >Continue reading</button
@@ -3472,10 +3469,6 @@
                 >Read the publication</button
               >
             {/if}
-          {:else}
-            <button class="btn btn-primary" type="button" onclick={() => openLoginDialog()}
-              >Sign in to interact with this publication</button
-            >
           {/if}
         </div>
         {#if !canRead}
@@ -3678,8 +3671,8 @@
                           shareUrl={readerShareUrl(event, verse)}
                         >
                           {#snippet before()}
-                            <li role="none">
-                              {#if $session.pubkey}
+                            {#if $session.pubkey}
+                              <li role="none">
                                 <button
                                   class="menu-item"
                                   type="button"
@@ -3690,19 +3683,8 @@
                                 >
                                   Save highlight
                                 </button>
-                              {:else}
-                                <button
-                                  class="menu-item"
-                                  type="button"
-                                  role="menuitem"
-                                  onclick={() => {
-                                    openLoginDialog();
-                                  }}
-                                >
-                                  Sign in to highlight
-                                </button>
-                              {/if}
-                            </li>
+                              </li>
+                          {/if}
                           {/snippet}
                           {#snippet after()}
                             <li role="none">
@@ -3758,8 +3740,8 @@
                           <span class="bible-verse-num" title={disp.label}>{disp.verse}</span>
                         {/snippet}
                         {#snippet before()}
-                          <li role="none">
-                            {#if $session.pubkey}
+                          {#if $session.pubkey}
+                            <li role="none">
                               <button
                                 class="menu-item"
                                 type="button"
@@ -3770,19 +3752,8 @@
                               >
                                 Save highlight
                               </button>
-                            {:else}
-                              <button
-                                class="menu-item"
-                                type="button"
-                                role="menuitem"
-                                onclick={() => {
-                                  openLoginDialog();
-                                }}
-                              >
-                                Sign in to highlight
-                              </button>
-                            {/if}
-                          </li>
+                            </li>
+                          {/if}
                         {/snippet}
                         {#snippet after()}
                           <li role="none">
@@ -3931,8 +3902,8 @@
                       >
                         {#snippet before()}
                           {#if !missing}
-                            <li role="none">
-                              {#if $session.pubkey}
+                            {#if $session.pubkey}
+                              <li role="none">
                                 <button
                                   class="menu-item"
                                   type="button"
@@ -3943,19 +3914,8 @@
                                 >
                                   Save highlight
                                 </button>
-                              {:else}
-                                <button
-                                  class="menu-item"
-                                  type="button"
-                                  role="menuitem"
-                                  onclick={() => {
-                                    openLoginDialog();
-                                  }}
-                                >
-                                  Sign in to highlight
-                                </button>
-                              {/if}
-                            </li>
+                              </li>
+                          {/if}
                           {/if}
                         {/snippet}
                         {#snippet after()}
@@ -4036,8 +3996,8 @@
                   <CopyPointerButton event={section} shareUrl={event ? readerShareUrl(event, section) : ''}>
                     {#snippet before()}
                       {#if !missing}
-                      <li role="none">
-                        {#if $session.pubkey}
+                      {#if $session.pubkey}
+                        <li role="none">
                           <button
                             class="menu-item"
                             type="button"
@@ -4048,19 +4008,8 @@
                           >
                             Save highlight
                           </button>
-                        {:else}
-                          <button
-                            class="menu-item"
-                            type="button"
-                            role="menuitem"
-                            onclick={() => {
-                              openLoginDialog();
-                            }}
-                          >
-                            Sign in to highlight
-                          </button>
-                        {/if}
-                      </li>
+                        </li>
+                      {/if}
                       {/if}
                     {/snippet}
                     {#snippet after()}

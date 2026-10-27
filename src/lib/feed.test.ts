@@ -222,10 +222,14 @@ describe('notifications', () => {
 });
 
 describe('parseFeedTab', () => {
-  it('defaults to original and accepts replies/notifications', () => {
+  it('defaults to original and accepts follows/replies/notifications/kind tabs', () => {
     expect(parseFeedTab(null)).toBe('original');
+    expect(parseFeedTab('follows')).toBe('follows');
     expect(parseFeedTab('replies')).toBe('replies');
     expect(parseFeedTab('notifications')).toBe('notifications');
+    expect(parseFeedTab('kind:1')).toBe('kind:1');
+    expect(parseFeedTab('kind:30023')).toBe('kind:30023');
+    expect(parseFeedTab('kind:nope')).toBe('original');
     expect(parseFeedTab('nope')).toBe('original');
   });
 });
@@ -245,7 +249,10 @@ describe('feedAuthorRepliesPath', () => {
     const pk = 'a'.repeat(64);
     expect(feedAuthorRepliesPath(pk)).toBe(`/feed?tab=replies&author=${pk}`);
     expect(feedListPath('replies', { author: pk })).toBe(`/feed?tab=replies&author=${pk}`);
-    expect(feedListPath('original', { author: pk })).toBe(`/feed?author=${pk}`);
+    expect(feedListPath('original', { author: pk })).toBe(`/feed?tab=original&author=${pk}`);
+    expect(feedListPath('follows')).toBe('/feed?tab=follows');
+    expect(feedListPath('kind:1')).toBe('/feed?tab=kind%3A1');
+    expect(feedListPath('original')).toBe('/feed?tab=original');
   });
 });
 
@@ -384,7 +391,7 @@ describe('feed thread query paths', () => {
       author: note.pubkey,
       kind: note.kind
     });
-    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}`);
+    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}&tab=original`);
     expect(feedThreadPath(note, 'replies')).toBe(`/feed?thread=${nevent}&tab=replies`);
     expect(feedListPath('replies')).toBe('/feed?tab=replies');
     expect(parseFeedThreadParam(`thread=${nevent}`)).toBe(note.id);
@@ -406,7 +413,7 @@ describe('feed thread query paths', () => {
       pubkey: live.pubkey,
       identifier: 'room-1'
     });
-    expect(feedThreadPath(live)).toBe(`/feed?thread=${naddr}`);
+    expect(feedThreadPath(live)).toBe(`/feed?thread=${naddr}&tab=original`);
     expect(parseFeedThreadParam(`thread=${naddr}`)).toBe(
       `${live.kind}:${live.pubkey}:room-1`
     );
@@ -521,6 +528,6 @@ describe('feed thread query paths', () => {
       tags: [['e', inner.id]]
     });
     const innerNevent = nip19.neventEncode({ id: inner.id });
-    expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}`);
+    expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}&tab=original`);
   });
 });

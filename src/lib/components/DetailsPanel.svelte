@@ -157,21 +157,23 @@
 <div class="details-panel-wrap">
   <div class="details-toolbar">
     <HeartButton {event} />
-    <button
-      class="btn btn-icon icon-action-btn thread-reply"
-      type="button"
-      aria-label={canReply ? 'Reply' : 'Sign in to reply'}
-      title={canReply ? 'Reply' : 'Sign in to reply'}
-      aria-expanded={replyOpen}
-      onclick={onReplyClick}
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
-        />
-      </svg>
-    </button>
+    {#if canReply}
+      <button
+        class="btn btn-icon icon-action-btn thread-reply"
+        type="button"
+        aria-label="Reply"
+        title="Reply"
+        aria-expanded={replyOpen}
+        onclick={onReplyClick}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+          />
+        </svg>
+      </button>
+    {/if}
     <CopyPointerButton {event} class="details-more-menu">
       {#snippet after()}
         {#if canExport}
