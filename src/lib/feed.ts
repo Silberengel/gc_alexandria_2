@@ -968,8 +968,18 @@ function appendFeedAuthor(q: URLSearchParams, author?: string | null): void {
   if (hex && /^[0-9a-f]{64}$/.test(hex)) q.set('author', hex);
 }
 
-/** Always write `tab=` so bare `/feed` can mean “first strip tab”. */
-function appendFeedTab(q: URLSearchParams, tab: FeedTab): void {
+/**
+ * List URLs always write `tab=` so bare `/feed` can mean “first strip tab”
+ * (rewritten in Feed.svelte). Thread URLs omit the historical default
+ * `original` — `parseFeedTab(null)` already returns that, and an open
+ * thread skips the bare-`/feed` rewrite.
+ */
+function appendFeedTab(
+  q: URLSearchParams,
+  tab: FeedTab,
+  opts: { omitDefault?: boolean } = {}
+): void {
+  if (opts.omitDefault && tab === 'original') return;
   q.set('tab', tab);
 }
 
@@ -997,7 +1007,7 @@ export function feedThreadPath(
     if (targetPointer) {
       const q = new URLSearchParams();
       q.set('thread', targetPointer);
-      appendFeedTab(q, tab);
+      appendFeedTab(q, tab, { omitDefault: true });
       appendFeedAuthor(q, opts.author);
       return `/feed?${q.toString()}`;
     }
@@ -1011,7 +1021,7 @@ export function feedThreadPath(
   } else {
     q.set('thread', feedThreadPointer(event));
   }
-  appendFeedTab(q, tab);
+  appendFeedTab(q, tab, { omitDefault: true });
   appendFeedAuthor(q, opts.author);
   return `/feed?${q.toString()}`;
 }

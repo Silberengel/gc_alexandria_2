@@ -391,9 +391,12 @@ describe('feed thread query paths', () => {
       author: note.pubkey,
       kind: note.kind
     });
-    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}&tab=original`);
+    // Default tab omitted so thread bookmarks stay canonical (`parseFeedTab` → original).
+    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}`);
     expect(feedThreadPath(note, 'replies')).toBe(`/feed?thread=${nevent}&tab=replies`);
     expect(feedListPath('replies')).toBe('/feed?tab=replies');
+    // List paths still always write tab= (bare /feed ≠ original).
+    expect(feedListPath('original')).toBe('/feed?tab=original');
     expect(parseFeedThreadParam(`thread=${nevent}`)).toBe(note.id);
     expect(parseFeedThreadParam(`thread=${note.id}&tab=replies`)).toBe(note.id);
     // Legacy note1 bookmarks still resolve.
@@ -413,7 +416,7 @@ describe('feed thread query paths', () => {
       pubkey: live.pubkey,
       identifier: 'room-1'
     });
-    expect(feedThreadPath(live)).toBe(`/feed?thread=${naddr}&tab=original`);
+    expect(feedThreadPath(live)).toBe(`/feed?thread=${naddr}`);
     expect(parseFeedThreadParam(`thread=${naddr}`)).toBe(
       `${live.kind}:${live.pubkey}:room-1`
     );
@@ -528,6 +531,6 @@ describe('feed thread query paths', () => {
       tags: [['e', inner.id]]
     });
     const innerNevent = nip19.neventEncode({ id: inner.id });
-    expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}&tab=original`);
+    expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}`);
   });
 });
