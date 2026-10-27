@@ -19,6 +19,16 @@ export type PublicationManuscriptMeta = {
   dTag: string;
   maxIndexLevel: PublicationIndexDepth;
   updatedAt: number;
+  /**
+   * Kind-30040 catalog fields (authors, summary, …) stored with the manuscript so
+   * hard refresh / Drafts book open do not drop metadata that only lived in
+   * sessionStorage.
+   */
+  composeValues?: Record<string, string>;
+  composeContent?: string;
+  composeHashtags?: string[];
+  composeImetaTags?: string[][];
+  composeFreeformTags?: string[][];
 };
 
 export type PublicationManuscript = PublicationManuscriptMeta & {
@@ -64,6 +74,19 @@ let flushListenersInstalled = false;
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let onFlushListeners = new Set<() => void>();
 let onPersistErrorListeners = new Set<(err: Error) => void>();
+/** Serialize put/delete so a late put cannot recreate a row after delete. */
+let writeChain: Promise<void> = Promise.resolve();
+/** Ids deleted in this session — skip subsequent puts until a deliberate recreate. */
+const deletedIds = new Set<string>();
+
+function enqueueManuscriptWrite(op: () => Promise<void>): Promise<void> {
+  const run = writeChain.then(op, op);
+  writeChain = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
 
 export function newManuscriptId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -80,14 +103,51 @@ export function clampManuscriptIndexDepth(n: unknown): PublicationIndexDepth {
   return 3;
 }
 
+function normalizeStringRecord(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function normalizeStringList(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw.map((x) => String(x ?? '')).filter((s) => s.trim());
+  return out.length ? out : undefined;
+}
+
+function normalizeTagRows(raw: unknown): string[][] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: string[][] = [];
+  for (const row of raw) {
+    if (!Array.isArray(row)) continue;
+    const cells = row.map((c) => String(c ?? ''));
+    if (cells.some((c) => c.trim())) out.push(cells);
+  }
+  return out.length ? out : undefined;
+}
+
 function normalizeMeta(raw: Partial<PublicationManuscriptMeta>): PublicationManuscriptMeta {
+  const composeValues = normalizeStringRecord(raw.composeValues);
+  const composeContent =
+    typeof raw.composeContent === 'string' ? raw.composeContent : undefined;
+  const composeHashtags = normalizeStringList(raw.composeHashtags);
+  const composeImetaTags = normalizeTagRows(raw.composeImetaTags);
+  const composeFreeformTags = normalizeTagRows(raw.composeFreeformTags);
   return {
     id: String(raw.id ?? '').trim(),
     pubkey: String(raw.pubkey ?? '').trim().toLowerCase(),
     title: String(raw.title ?? '').trim() || 'Untitled manuscript',
     dTag: String(raw.dTag ?? '').trim(),
     maxIndexLevel: clampManuscriptIndexDepth(raw.maxIndexLevel),
-    updatedAt: Number(raw.updatedAt) || Date.now()
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+    ...(composeValues ? { composeValues } : {}),
+    ...(composeContent != null && composeContent !== '' ? { composeContent } : {}),
+    ...(composeHashtags ? { composeHashtags } : {}),
+    ...(composeImetaTags ? { composeImetaTags } : {}),
+    ...(composeFreeformTags ? { composeFreeformTags } : {})
   };
 }
 
@@ -352,6 +412,8 @@ function backend(): ManuscriptBackend {
 export function installMemoryManuscriptStoreForTests(): void {
   backendOverride = memoryBackend();
   staged = null;
+  deletedIds.clear();
+  writeChain = Promise.resolve();
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
@@ -373,6 +435,8 @@ export function resetManuscriptStoreForTests(): void {
   staged = null;
   dropBodyForTests = null;
   failNextPutForTests = null;
+  deletedIds.clear();
+  writeChain = Promise.resolve();
   onFlushListeners.clear();
   onPersistErrorListeners.clear();
   if (debounceTimer) {
@@ -457,32 +521,37 @@ export async function getManuscript(id: string): Promise<PublicationManuscript |
 }
 
 export async function putManuscript(m: PublicationManuscript): Promise<void> {
-  if (failNextPutForTests) {
-    const err = failNextPutForTests;
-    failNextPutForTests = null;
-    throw err;
-  }
   const row = normalizeManuscript({ ...m, updatedAt: m.updatedAt || Date.now() });
-  await backend().put(row);
+  await enqueueManuscriptWrite(async () => {
+    if (failNextPutForTests) {
+      const err = failNextPutForTests;
+      failNextPutForTests = null;
+      throw err;
+    }
+    // A delete for this id already won — do not resurrect from a raced flush.
+    if (deletedIds.has(row.id)) return;
+    await backend().put(row);
+  });
 }
 
 export async function deleteManuscript(id: string): Promise<void> {
-  if (!id.trim()) return;
-  if (staged?.id === id) clearStagedManuscript();
-  try {
-    await backend().delete(id.trim());
-  } catch {
-    /* ignore */
-  }
+  const key = id.trim();
+  if (!key) return;
+  if (staged?.id === key) clearStagedManuscript();
+  deletedIds.add(key);
+  await enqueueManuscriptWrite(async () => {
+    await backend().delete(key);
+  });
 }
 
 export async function deleteManuscriptsForPubkey(pubkey: string): Promise<void> {
-  if (staged && staged.pubkey === pubkey.toLowerCase()) clearStagedManuscript();
-  try {
-    await backend().deleteForPubkey(pubkey);
-  } catch {
-    /* ignore */
-  }
+  const pk = pubkey.toLowerCase();
+  if (staged && staged.pubkey === pk) clearStagedManuscript();
+  await enqueueManuscriptWrite(async () => {
+    const metas = await backend().listMeta(pk);
+    for (const m of metas) deletedIds.add(m.id);
+    await backend().deleteForPubkey(pk);
+  });
 }
 
 export function stageManuscript(m: PublicationManuscript): void {
@@ -500,7 +569,7 @@ export function clearStagedManuscript(): void {
 
 export async function flushStagedManuscript(): Promise<void> {
   if (!staged) return;
-  if (!staged.source.trim()) return;
+  // Empty source is intentional (cleared editor / meta-only row) — still persist.
   const snap = staged;
   try {
     await putManuscript(snap);

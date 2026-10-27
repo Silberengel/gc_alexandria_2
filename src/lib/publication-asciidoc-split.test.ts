@@ -5,6 +5,7 @@ import {
   applyIdealPublicationSplit,
   flattenPublishOrder,
   foldDeepHeadingsToDiscrete,
+  formatIdealSplitNote,
   packParagraphsToLimit,
   parseAsciiDocHeading,
   parsePublicationAsciiDoc,
@@ -157,11 +158,95 @@ describe('packParagraphsToLimit / ideal split', () => {
     expect(parsed.root.children[0]!.kind).toBe(KIND.PUBLICATION);
   });
 
+  it('exposes folded === chapters before packing Section N under them', () => {
+    const big = `${'word '.repeat(12_000)}\n\n${'more '.repeat(12_000)}`;
+    expect(new TextEncoder().encode(big).length).toBeGreaterThan(MAX_LEAF_BYTES);
+    // Shallow index depth folds chapters into the mansion body — Ideal must not
+    // insert === Section siblings beside those chapters once depth rises.
+    const src = `== The Sixth Mansions
+
+=== Chapter I
+
+${big}
+
+=== Chapter VII
+
+${big}
+`;
+    const applied = applyIdealPublicationSplit(src, {
+      rootTitle: 'Interior Castle',
+      rootDTag: 'interior-castle',
+      maxIndexLevel: 2
+    });
+    expect(applied.maxIndexLevel).toBeGreaterThanOrEqual(4);
+    expect(applied.report.depthRaised).toBe(true);
+    expect(applied.source).toMatch(/=== Chapter VII\n\n==== Section 1/);
+    expect(applied.source).not.toMatch(/=== Chapter VII\n\n=== Section /);
+    expect(applied.source).not.toMatch(/=== Section \d+\n\n=== Chapter/);
+    const parsed = parsePublicationAsciiDoc(applied.source, {
+      rootTitle: 'Interior Castle',
+      rootDTag: 'interior-castle',
+      maxIndexLevel: applied.maxIndexLevel
+    });
+    expect(parsed.oversizeLeaves).toHaveLength(0);
+    expect(parsed.warnings.filter((w) => w.code === 'empty_leaf')).toHaveLength(0);
+    const mansion = parsed.root.children.find((c) => c.title === 'The Sixth Mansions');
+    expect(mansion?.kind).toBe(KIND.PUBLICATION);
+    const chapterSeven = mansion?.children.find((c) => c.title === 'Chapter VII');
+    expect(chapterSeven?.kind).toBe(KIND.PUBLICATION);
+    expect(chapterSeven?.children.some((c) => c.title.startsWith('Section '))).toBe(true);
+  });
+
+  it('raises depth only when nested chapters are already under the ceiling', () => {
+    // Like Interior Castle: mansions look oversize at == depth, but each === chapter is fine.
+    const chapter = `${'word '.repeat(3_000)}\n\n${'more '.repeat(3_000)}`;
+    expect(new TextEncoder().encode(chapter).length).toBeLessThan(MAX_LEAF_BYTES);
+    const src = `== The Sixth Mansions
+
+=== Chapter I
+
+${chapter}
+
+=== Chapter II
+
+${chapter}
+
+=== Chapter III
+
+${chapter}
+`;
+    expect(
+      parsePublicationAsciiDoc(src, {
+        rootTitle: 'Book',
+        maxIndexLevel: 2
+      }).oversizeLeaves.length
+    ).toBeGreaterThan(0);
+
+    const applied = applyIdealPublicationSplit(src, {
+      rootTitle: 'Book',
+      rootDTag: 'book',
+      maxIndexLevel: 2
+    });
+    expect(applied.maxIndexLevel).toBe(3);
+    expect(applied.report.sectionsAdded).toBe(0);
+    expect(applied.report.depthRaised).toBe(true);
+    expect(applied.source).toBe(src);
+    expect(formatIdealSplitNote(applied)).toMatch(/Raised index depth/);
+    const parsed = parsePublicationAsciiDoc(applied.source, {
+      rootTitle: 'Book',
+      rootDTag: 'book',
+      maxIndexLevel: applied.maxIndexLevel
+    });
+    expect(parsed.oversizeLeaves).toHaveLength(0);
+  });
+
   it('previews ghosts before apply', () => {
     const big = `${'aaa '.repeat(15_000)}\n\n${'bbb '.repeat(15_000)}`;
     const src = `== Huge\n\n${big}\n`;
-    const parsed = parsePublicationAsciiDoc(src, { rootTitle: 'Book', maxIndexLevel: 2 });
-    const ghosts = previewIdealSplitGhosts(parsed);
+    const ghosts = previewIdealSplitGhosts(src, {
+      rootTitle: 'Book',
+      maxIndexLevel: 2
+    });
     expect(ghosts.length).toBe(1);
     expect(ghosts[0]!.sections.length).toBeGreaterThan(1);
   });

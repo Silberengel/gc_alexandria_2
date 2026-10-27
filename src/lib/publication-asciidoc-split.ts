@@ -60,6 +60,10 @@ export type IdealSplitReport = {
   splitTitles: string[];
   sectionsAdded: number;
   ghosts: IdealSplitGhost[];
+  /** Index depth before Ideal ran. */
+  depthBefore: PublicationIndexDepth;
+  /** True when Ideal raised depth so folded headings became real leaves. */
+  depthRaised: boolean;
 };
 
 export type IdealSplitApplyResult = {
@@ -67,6 +71,22 @@ export type IdealSplitApplyResult = {
   maxIndexLevel: PublicationIndexDepth;
   report: IdealSplitReport;
 };
+
+/** Human-readable Ideal outcome for the splitter chrome. */
+export function formatIdealSplitNote(result: IdealSplitApplyResult): string {
+  const { report, maxIndexLevel } = result;
+  const depthLabel =
+    maxIndexLevel <= 2 ? '== chapters' : maxIndexLevel === 3 ? '=== sections' : '==== subsections';
+  if (report.sectionsAdded > 0) {
+    const under = report.splitTitles.join(', ') || '—';
+    const depthBit = report.depthRaised ? ` Index depth is now ${depthLabel}.` : '';
+    return `Inserted ${report.sectionsAdded} section(s) under: ${under}.${depthBit}`;
+  }
+  if (report.depthRaised) {
+    return `Raised index depth to ${depthLabel} so nested headings are separate leaves. None exceed 50 KiB — no Section N packing needed.`;
+  }
+  return 'No oversize leaves to split.';
+}
 
 function utf8Bytes(text: string): number {
   return new TextEncoder().encode(text).length;
@@ -472,18 +492,48 @@ function nodeKey(n: PublicationSplitNode): string {
   return `${n.sourceLine}:${n.dTag || n.title}`;
 }
 
-/** Preview Ideal split cuts without mutating source. */
+/** Preview Ideal split cuts (after the same structure-expose pass as apply). */
 export function previewIdealSplitGhosts(
-  parsed: PublicationSplitResult,
-  maxIndexLevel: PublicationIndexDepth = DEFAULT_INDEX_DEPTH
+  sourceOrParsed: string | PublicationSplitResult,
+  optsOrDepth?:
+    | PublicationIndexDepth
+    | {
+        rootTitle: string;
+        rootDTag?: string;
+        maxIndexLevel?: PublicationIndexDepth;
+      }
 ): IdealSplitGhost[] {
+  let parsed: PublicationSplitResult;
+  let maxIndexLevel: PublicationIndexDepth;
+
+  if (typeof sourceOrParsed === 'string') {
+    const opts =
+      typeof optsOrDepth === 'object' && optsOrDepth
+        ? optsOrDepth
+        : {
+            rootTitle: 'Untitled',
+            maxIndexLevel:
+              typeof optsOrDepth === 'number' ? optsOrDepth : DEFAULT_INDEX_DEPTH
+          };
+    const exposed = exposeStructureForIdealSplit(sourceOrParsed, opts);
+    maxIndexLevel = exposed.maxIndexLevel;
+    parsed = parsePublicationAsciiDoc(exposed.source, {
+      rootTitle: opts.rootTitle,
+      rootDTag: opts.rootDTag,
+      maxIndexLevel
+    });
+  } else {
+    parsed = sourceOrParsed;
+    maxIndexLevel =
+      typeof optsOrDepth === 'number'
+        ? optsOrDepth
+        : (optsOrDepth?.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
+  }
+
   const ghosts: IdealSplitGhost[] = [];
   for (const leaf of parsed.oversizeLeaves) {
     const parts = packParagraphsToLimit(leaf.content);
     if (parts.length <= 1 && utf8Bytes(parts[0] ?? '') <= MAX_LEAF_BYTES) continue;
-    const childLevel = Math.min(leaf.level + 1, 4);
-    // At max depth, siblings replace the leaf — still show as Section N under parent conceptually.
-    void childLevel;
     void maxIndexLevel;
     ghosts.push({
       parentKey: nodeKey(leaf),
@@ -524,6 +574,70 @@ export function serializePublicationTree(root: PublicationSplitNode): string {
 }
 
 /**
+ * True when leaf body still contains headings that would become real outline
+ * nodes if `maxIndexLevel` were raised (including `[discrete]`-folded ones).
+ */
+function bodyHasExposableHeading(content: string, deeperThan: number): boolean {
+  for (const line of content.split('\n')) {
+    const h = parseAsciiDocHeading(line);
+    if (h && h.level > deeperThan && h.level <= 4) return true;
+  }
+  return false;
+}
+
+/**
+ * Drop `[discrete]` immediately before headings that are now indexable so a
+ * re-parse at the higher depth promotes them instead of leaving orphan markers.
+ */
+export function stripDiscreteBeforeIndexableHeadings(
+  source: string,
+  maxIndexLevel: PublicationIndexDepth
+): string {
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (line.trim() === '[discrete]') {
+      const next = lines[i + 1];
+      const h = next ? parseAsciiDocHeading(next) : null;
+      if (h && h.level >= 2 && h.level <= maxIndexLevel) continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+/**
+ * Before packing, raise index depth so folded deeper headings become real leaves.
+ * Otherwise Ideal inserts `=== Section N` beside those chapters once depth rises.
+ */
+export function exposeStructureForIdealSplit(
+  source: string,
+  opts: {
+    rootTitle: string;
+    rootDTag?: string;
+    maxIndexLevel?: PublicationIndexDepth;
+  }
+): { source: string; maxIndexLevel: PublicationIndexDepth } {
+  let depth = clampIndexDepth(opts.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
+  let text = source.replace(/\r\n/g, '\n');
+
+  while (depth < 4) {
+    const parsed = parsePublicationAsciiDoc(text, { ...opts, maxIndexLevel: depth });
+    const needsExpose = parsed.oversizeLeaves.some((leaf) =>
+      bodyHasExposableHeading(leaf.content, depth)
+    );
+    if (!needsExpose) break;
+    const next = clampIndexDepth(depth + 1);
+    if (next <= depth) break;
+    text = stripDiscreteBeforeIndexableHeadings(text, next);
+    depth = next;
+  }
+
+  return { source: text, maxIndexLevel: depth };
+}
+
+/**
  * Apply Ideal split: insert Section 1..N under oversized leaves (or sibling ==== at max depth).
  */
 export function applyIdealPublicationSplit(
@@ -534,25 +648,33 @@ export function applyIdealPublicationSplit(
     maxIndexLevel?: PublicationIndexDepth;
   }
 ): IdealSplitApplyResult {
-  let maxIndexLevel = clampIndexDepth(opts.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
-  const parsed = parsePublicationAsciiDoc(source, { ...opts, maxIndexLevel });
-  const report: IdealSplitReport = { splitTitles: [], sectionsAdded: 0, ghosts: [] };
+  const depthBefore = clampIndexDepth(opts.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
+  const report: IdealSplitReport = {
+    splitTitles: [],
+    sectionsAdded: 0,
+    ghosts: [],
+    depthBefore,
+    depthRaised: false
+  };
+  const exposed = exposeStructureForIdealSplit(source, opts);
+  let working = exposed.source;
+  let depth = exposed.maxIndexLevel;
+  let maxIndexLevel = depth;
+  report.depthRaised = depth > depthBefore;
 
-  if (!parsed.oversizeLeaves.length) {
-    return { source, maxIndexLevel, report };
-  }
-
-  // Work on a mutable clone of the tree built from source, then serialize.
-  // Re-parse after each batch is simpler and safer.
-  let working = source;
-  let depth = maxIndexLevel;
-
-  // Process from deepest / later lines first so line offsets stay stable when rewriting via serialize.
-  const round = parsePublicationAsciiDoc(working, {
+  const parsed = parsePublicationAsciiDoc(working, {
     rootTitle: opts.rootTitle,
     rootDTag: opts.rootDTag,
     maxIndexLevel: depth
   });
+
+  if (!parsed.oversizeLeaves.length) {
+    // Depth may still have been raised / discrete stripped — keep that rewrite.
+    return { source: working, maxIndexLevel, report };
+  }
+
+  // Process from deepest / later lines first so line offsets stay stable when rewriting via serialize.
+  const round = parsed;
 
   function splitLeafInTree(leaf: PublicationSplitNode, parent: PublicationSplitNode): void {
     const parts = packParagraphsToLimit(leaf.content);
@@ -623,14 +745,14 @@ export function applyIdealPublicationSplit(
 
   working = serializePublicationTree(round.root);
   maxIndexLevel = depth;
+  report.depthRaised = maxIndexLevel > depthBefore;
 
   // Ghosts after apply should be empty if successful; keep report from this pass.
-  const after = parsePublicationAsciiDoc(working, {
+  report.ghosts = previewIdealSplitGhosts(working, {
     rootTitle: opts.rootTitle,
     rootDTag: opts.rootDTag,
     maxIndexLevel
   });
-  report.ghosts = previewIdealSplitGhosts(after, maxIndexLevel);
 
   return { source: working, maxIndexLevel, report };
 }

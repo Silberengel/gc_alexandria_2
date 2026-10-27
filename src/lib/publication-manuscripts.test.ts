@@ -58,6 +58,28 @@ describe('publication-manuscripts', () => {
     expect(await getManuscript(a.id)).toMatchObject({ title: 'A', source: a.source });
   });
 
+  it('round-trips compose metadata on the manuscript meta row', async () => {
+    const m = sample({
+      id: 'with-meta',
+      composeValues: { title: 'Castle', authors: 'Teresa of Avila', summary: 'Mansions' },
+      composeHashtags: ['mystic'],
+      composeContent: 'preface'
+    });
+    await putManuscript(m);
+    const got = await getManuscript('with-meta');
+    expect(got?.composeValues).toEqual({
+      title: 'Castle',
+      authors: 'Teresa of Avila',
+      summary: 'Mansions'
+    });
+    expect(got?.composeHashtags).toEqual(['mystic']);
+    expect(got?.composeContent).toBe('preface');
+    const listed = await listManuscriptMetas(PK);
+    expect(listed.find((row) => row.id === 'with-meta')?.composeValues?.authors).toBe(
+      'Teresa of Avila'
+    );
+  });
+
   it('deletes one and all for pubkey', async () => {
     const a = sample({ id: 'a1' });
     const b = sample({ id: 'b1', dTag: 'b' });
@@ -81,6 +103,31 @@ describe('publication-manuscripts', () => {
     expect(await getManuscript('staged-1')).toMatchObject({ source: '== Hi\n\nx' });
     expect(flushed).toBe(1);
     stop();
+  });
+
+  it('flushes an empty source so clearing the editor persists', async () => {
+    await putManuscript(sample({ id: 'clear-body', source: '== Keep\n\nx' }));
+    stageManuscript(
+      sample({
+        id: 'clear-body',
+        source: '',
+        composeValues: { title: 'Keep title', authors: 'Ada' }
+      })
+    );
+    await flushStagedManuscript();
+    expect(await getManuscript('clear-body')).toMatchObject({
+      source: '',
+      composeValues: { title: 'Keep title', authors: 'Ada' }
+    });
+  });
+
+  it('does not let a put after delete resurrect the manuscript', async () => {
+    const m = sample({ id: 'race-del', source: '== A\n\nx' });
+    await putManuscript(m);
+    const putAfter = putManuscript(sample({ id: 'race-del', source: '== B\n\ny' }));
+    const del = deleteManuscript('race-del');
+    await Promise.all([putAfter, del]);
+    expect(await getManuscript('race-del')).toBeNull();
   });
 
   it('scheduleManuscriptPersist writes after debounce', async () => {

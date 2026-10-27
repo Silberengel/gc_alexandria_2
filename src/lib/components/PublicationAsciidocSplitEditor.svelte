@@ -2,6 +2,8 @@
   import {
     MAX_LEAF_BYTES,
     applyIdealPublicationSplit,
+    exposeStructureForIdealSplit,
+    formatIdealSplitNote,
     parsePublicationAsciiDoc,
     previewIdealSplitGhosts,
     type IdealSplitGhost,
@@ -41,7 +43,14 @@
 
   let sourceEl = $state<HTMLTextAreaElement | null>(null);
   let idealNote = $state('');
+  /** Snapshot of source/depth when `idealNote` was set — clear the note once either drifts. */
+  let idealNoteAt = $state<{ source: string; depth: PublicationIndexDepth } | null>(null);
 
+  /**
+   * Outline matches Index depth + raw editor buffer (same inputs publish uses).
+   * Ideal expose is preview-only so we never hide oversize leaves that publish
+   * would still hit at the current depth.
+   */
   const parsed = $derived.by((): PublicationSplitResult =>
     parsePublicationAsciiDoc(source, {
       rootTitle,
@@ -50,11 +59,52 @@
     })
   );
 
-  const ghosts = $derived(previewIdealSplitGhosts(parsed, maxIndexLevel));
+  const idealExpose = $derived(
+    exposeStructureForIdealSplit(source, {
+      rootTitle,
+      rootDTag: rootDTag || undefined,
+      maxIndexLevel
+    })
+  );
+  const idealDepthRaised = $derived(idealExpose.maxIndexLevel > maxIndexLevel);
+  const idealDepthLabel = $derived(
+    idealExpose.maxIndexLevel <= 2
+      ? '== chapters'
+      : idealExpose.maxIndexLevel === 3
+        ? '=== sections'
+        : '==== deep'
+  );
+  const idealParsed = $derived.by((): PublicationSplitResult =>
+    parsePublicationAsciiDoc(idealExpose.source, {
+      rootTitle,
+      rootDTag: rootDTag || undefined,
+      maxIndexLevel: idealExpose.maxIndexLevel
+    })
+  );
+  /** Ghosts after Ideal’s expose pass (what Apply will pack). */
+  const idealGhosts = $derived(
+    previewIdealSplitGhosts(idealParsed, idealExpose.maxIndexLevel)
+  );
+  /**
+   * Attach ghosts to the visible tree only when depth already matches Ideal.
+   * Otherwise parents would be mansions while Ideal packs chapters.
+   */
+  const ghosts = $derived(idealDepthRaised ? [] : idealGhosts);
+  const idealSectionsPlanned = $derived(
+    idealGhosts.reduce((n, g) => n + g.sections.length, 0)
+  );
   const ghostByParent = $derived.by(() => {
     const m = new Map<string, IdealSplitGhost>();
     for (const g of ghosts) m.set(`${g.parentSourceLine}:${g.parentTitle}`, g);
     return m;
+  });
+
+  $effect(() => {
+    if (!idealNoteAt) return;
+    if (source !== idealNoteAt.source || maxIndexLevel !== idealNoteAt.depth) {
+      idealNote = '';
+      idealNoteAt = null;
+    }
   });
 
   function formatKiB(bytes: number): string {
@@ -84,10 +134,8 @@
     });
     source = result.source;
     maxIndexLevel = result.maxIndexLevel;
-    idealNote =
-      result.report.sectionsAdded > 0
-        ? `Inserted ${result.report.sectionsAdded} section(s) under: ${result.report.splitTitles.join(', ') || '—'}`
-        : 'No oversize leaves to split.';
+    idealNote = formatIdealSplitNote(result);
+    idealNoteAt = { source: result.source, depth: result.maxIndexLevel };
     onApplyIdeal?.({ source: result.source, maxIndexLevel: result.maxIndexLevel });
   }
 
@@ -172,7 +220,7 @@
         type="button"
         class="btn btn-primary"
         disabled={publishing}
-        title="Insert Section 1…N under oversize leaves so each stays under 50 KiB"
+        title="Raise index depth to expose nested headings, then insert Section 1…N under any leaf still over 50 KiB"
         onclick={applyIdeal}
       >
         Apply ideal split
@@ -188,6 +236,15 @@
 
   {#if idealNote}
     <p class="muted pub-split-ideal-note">{idealNote}</p>
+  {:else if idealDepthRaised}
+    <p class="muted pub-split-ideal-note">
+      Ideal will raise Index depth to {idealDepthLabel}
+      {#if idealSectionsPlanned > 0}
+        and insert {idealSectionsPlanned} section(s) under oversize leaves
+      {:else}
+        ; nested headings become separate leaves and none exceed 50 KiB
+      {/if}. Publish still uses the depth above until you Apply.
+    </p>
   {/if}
 
   {#if progress}

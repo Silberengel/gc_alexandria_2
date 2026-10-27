@@ -27,9 +27,11 @@
     deleteManuscript,
     deleteManuscriptsForPubkey,
     ensureManuscriptDb,
+    clampManuscriptIndexDepth,
     flushStagedManuscript,
     getManuscriptResult,
     listManuscriptMetas,
+    localDraftMatchesManuscript,
     newManuscriptId,
     onManuscriptFlushed,
     onManuscriptPersistError,
@@ -325,7 +327,7 @@
       liveMsId &&
       publicationManuscriptListedAt > 0 &&
       !listedIds.has(liveMsId) &&
-      publicationAsciiDoc.trim() &&
+      (publicationAsciiDoc.trim() || publicationComposeHasMeta()) &&
       kind === KIND.PUBLICATION &&
       publicationSectionsMode === 'split'
     ) {
@@ -426,20 +428,49 @@
     refreshDraftList();
   }
 
+  /** True when split-mode catalog fields differ from kind defaults / empty shell. */
+  function publicationComposeHasMeta(): boolean {
+    const baseline = emptyValuesFor(KIND.PUBLICATION);
+    for (const [id, raw] of Object.entries(values)) {
+      const v = String(raw ?? '').trim();
+      if (!v) continue;
+      if (v !== String(baseline[id] ?? '').trim()) return true;
+    }
+    if (content.trim()) return true;
+    if (cleanedHashtags(hashtagRows).length) return true;
+    if (imetaTags.some((t) => t.some((c) => String(c).trim()))) return true;
+    if (cleanedFreeformTags(freeformTags).length) return true;
+    return false;
+  }
+
   /** Pure snapshot of the live split manuscript (does not mutate reactive state). */
   function manuscriptSnapshot(): PublicationManuscript | null {
     const pk = $session.pubkey;
     if (!pk) return null;
     if (kind !== KIND.PUBLICATION || publicationSectionsMode !== 'split') return null;
-    if (!publicationAsciiDoc.trim()) return null;
+    const existingId = publicationManuscriptId?.trim() || '';
+    const body = publicationAsciiDoc;
+    // Allow meta-only rows (authors/summary before AsciiDoc) and empty-body clears
+    // once an id exists; do not mint a blank manuscript with no metadata.
+    if (!body.trim() && !existingId && !publicationComposeHasMeta()) return null;
+    const hashtags = cleanedHashtags(hashtagRows);
+    const freeform = cleanedFreeformTags(freeformTags);
+    const imeta = imetaTags
+      .map((t) => [...t])
+      .filter((t) => t.some((c) => String(c).trim()));
     return {
-      id: publicationManuscriptId?.trim() || newManuscriptId(),
+      id: existingId || newManuscriptId(),
       pubkey: pk,
       title: values.title?.trim() || 'Untitled manuscript',
       dTag: values.d?.trim() || '',
-      source: publicationAsciiDoc,
+      source: body,
       maxIndexLevel: publicationIndexDepth,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      composeValues: { ...values },
+      ...(content.trim() ? { composeContent: content } : {}),
+      ...(hashtags.length ? { composeHashtags: hashtags } : {}),
+      ...(imeta.length ? { composeImetaTags: imeta } : {}),
+      ...(freeform.length ? { composeFreeformTags: freeform } : {})
     };
   }
 
@@ -464,7 +495,16 @@
   /** Drop a listed meta that has no body (corrupt / mid-migrate ghost). */
   async function purgeOrphanManuscript(id: string): Promise<void> {
     if (!id.trim()) return;
-    await deleteManuscript(id);
+    try {
+      await deleteManuscript(id);
+    } catch (err) {
+      showNotice(
+        err instanceof Error
+          ? err.message
+          : 'Could not remove the damaged manuscript from local storage.'
+      );
+      return;
+    }
     await refreshManuscriptDrafts();
   }
 
@@ -656,7 +696,15 @@
     if (!pk || item.source !== 'manuscript' || !id) return;
     // Id only — a shared d-tag must not abandon a different open manuscript.
     const openMatches = publicationManuscriptId === id;
-    await deleteManuscript(id);
+    try {
+      await deleteManuscript(id);
+    } catch (err) {
+      formError =
+        err instanceof Error
+          ? err.message
+          : 'Could not delete that manuscript from local storage.';
+      return;
+    }
     if (openMatches) abandonOpenComposeShell();
     await refreshManuscriptDrafts();
     draftListOpen =
@@ -690,23 +738,53 @@
     pickerValue = KIND.PUBLICATION;
     otherMode = false;
     otherLocked = false;
-    content = '';
+    // Prefer metadata stored on the manuscript; fall back to the matching tab
+    // autosave (book rows hide that shell in the Drafts list).
+    const pk = $session.pubkey;
+    const saved = pk ? loadComposeDraft(pk, KIND.PUBLICATION) : null;
+    const tabMatch =
+      saved && localDraftMatchesManuscript(saved, row) ? saved : null;
+    const storedValues = row.composeValues ?? tabMatch?.values ?? {};
+    const titleFromRow =
+      row.title && row.title !== 'Untitled manuscript' ? row.title : '';
     values = {
       ...emptyValuesFor(KIND.PUBLICATION),
-      title: row.title === 'Untitled manuscript' ? '' : row.title,
-      d: row.dTag
+      ...storedValues,
+      ...(titleFromRow ? { title: titleFromRow } : {}),
+      ...(row.dTag ? { d: row.dTag } : {})
     };
-    hashtagRows = [''];
-    imetaTags = [];
-    freeformTags = [['', '']];
+    content = row.composeContent ?? tabMatch?.content ?? '';
+    hashtagRows =
+      row.composeHashtags?.length
+        ? [...row.composeHashtags]
+        : tabMatch?.hashtags?.length
+          ? [...tabMatch.hashtags]
+          : [''];
+    imetaTags =
+      row.composeImetaTags?.length
+        ? row.composeImetaTags.map((t) => [...t])
+        : tabMatch?.imetaTags?.length
+          ? tabMatch.imetaTags.map((t) => [...t])
+          : [];
+    freeformTags =
+      row.composeFreeformTags?.length
+        ? row.composeFreeformTags.map((t) =>
+            t.length >= 2 ? [...t] : [t[0] ?? '', '']
+          )
+        : tabMatch?.freeformTags?.length
+          ? tabMatch.freeformTags.map((t) =>
+              t.length >= 2 ? [...t] : [t[0] ?? '', '']
+            )
+          : [['', '']];
     kind0Tags = emptyKind0TagRows();
     publicationSectionsMode = 'split';
     publicationAsciiDoc = row.source;
     publicationManuscriptId = row.id;
     publicationManuscriptListedAt = row.updatedAt;
-    publicationIndexDepth = row.maxIndexLevel;
+    // IDB depth is authoritative after Ideal / splitter edits; tab shell can lag.
+    publicationIndexDepth = clampManuscriptIndexDepth(row.maxIndexLevel);
     editorMarkup = 'asciidoc';
-    activeDraftD = row.dTag || null;
+    activeDraftD = row.dTag || values.d?.trim() || null;
     draftListOpen = false;
     formError = '';
     editorTab = 'edit';
@@ -738,8 +816,12 @@
       await refreshEncryptedDrafts();
       const wraps = [...encryptedDrafts];
       clearComposeDraftsForPubkey(pk);
-      await deleteManuscriptsForPubkey(pk);
       const errors: string[] = [];
+      try {
+        await deleteManuscriptsForPubkey(pk);
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : String(err));
+      }
       const seen = new Set<string>();
       for (const wrap of wraps) {
         const key = `${wrap.d}\0${wrap.draftKind}`;
@@ -803,7 +885,7 @@
   }
 
   function snapshotDraft(): ComposeDraftState {
-    return {
+    const draft: ComposeDraftState = {
       kind,
       content,
       values: { ...values },
@@ -812,13 +894,17 @@
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       markup: editorMarkup,
-      publicationSectionsMode,
-      // Body lives in IndexedDB; keep only the id + length on the tab autosave.
-      publicationManuscriptId: publicationManuscriptId ?? undefined,
-      publicationAsciiDocLen: publicationAsciiDoc.length,
-      publicationIndexDepth,
       updatedAt: Date.now()
     };
+    // Only attach split-manuscript fields on kind 30040 split mode — otherwise a
+    // kind switch leaves a phantom autosave that hydrates AsciiDoc under the wrong kind.
+    if (kind === KIND.PUBLICATION && publicationSectionsMode === 'split') {
+      draft.publicationSectionsMode = 'split';
+      draft.publicationManuscriptId = publicationManuscriptId ?? undefined;
+      draft.publicationAsciiDocLen = publicationAsciiDoc.length;
+      draft.publicationIndexDepth = publicationIndexDepth;
+    }
+    return draft;
   }
 
   function draftFingerprint(
@@ -897,16 +983,18 @@
       d.kind === 0 && d.kind0Tags?.length
         ? d.kind0Tags.map((t) => [...t])
         : emptyKind0TagRows();
-    publicationSectionsMode = d.publicationSectionsMode === 'split' ? 'split' : 'link';
-    publicationAsciiDoc = d.publicationAsciiDoc ?? '';
-    publicationManuscriptId = d.publicationManuscriptId?.trim() || null;
-    publicationManuscriptListedAt = publicationManuscriptId
-      ? publicationManuscriptListedAt || d.updatedAt || Date.now()
-      : 0;
-    publicationIndexDepth =
-      d.publicationIndexDepth === 3 || d.publicationIndexDepth === 4
-        ? d.publicationIndexDepth
-        : DEFAULT_INDEX_DEPTH;
+    if (d.kind === KIND.PUBLICATION && d.publicationSectionsMode === 'split') {
+      publicationSectionsMode = 'split';
+      publicationAsciiDoc = d.publicationAsciiDoc ?? '';
+      publicationManuscriptId = d.publicationManuscriptId?.trim() || null;
+      publicationManuscriptListedAt = publicationManuscriptId
+        ? publicationManuscriptListedAt || d.updatedAt || Date.now()
+        : 0;
+      publicationIndexDepth = clampManuscriptIndexDepth(d.publicationIndexDepth);
+    } else {
+      // Drop leaked manuscript pointers from older autosaves on non-30040 kinds.
+      clearPublicationManuscriptFields();
+    }
     editorMarkup =
       d.markup === 'djot' || d.markup === 'asciidoc'
         ? d.markup
@@ -928,6 +1016,7 @@
 
   /** Load AsciiDoc from IndexedDB (or migrate a legacy sessionStorage body). */
   async function hydrateManuscriptForDraft(d: ComposeDraftState): Promise<void> {
+    if (d.kind !== KIND.PUBLICATION || d.publicationSectionsMode !== 'split') return;
     const mid = d.publicationManuscriptId?.trim();
     if (mid) {
       const got = await getManuscriptResult(mid);
@@ -938,11 +1027,38 @@
         publicationAsciiDoc = row.source;
         publicationIndexDepth = row.maxIndexLevel;
         publicationSectionsMode = 'split';
-        if (row.title && !values.title?.trim()) {
+        // Fill any catalog fields missing from the tab autosave from durable IDB meta.
+        if (row.composeValues) {
+          const merged = { ...values };
+          for (const [k, v] of Object.entries(row.composeValues)) {
+            if (!String(merged[k] ?? '').trim() && String(v ?? '').trim()) {
+              merged[k] = v;
+            }
+          }
+          values = merged;
+        }
+        if (row.title && row.title !== 'Untitled manuscript' && !values.title?.trim()) {
           values = { ...values, title: row.title };
         }
         if (row.dTag && !values.d?.trim()) {
           values = { ...values, d: row.dTag };
+        }
+        if (row.composeContent?.trim() && !content.trim()) {
+          content = row.composeContent;
+        }
+        if (row.composeHashtags?.length && !hashtagRows.some((h) => h.trim())) {
+          hashtagRows = [...row.composeHashtags];
+        }
+        if (row.composeImetaTags?.length && !imetaTags.length) {
+          imetaTags = row.composeImetaTags.map((t) => [...t]);
+        }
+        if (
+          row.composeFreeformTags?.length &&
+          !freeformTags.some((rowTags) => rowTags.some((c) => c.trim()))
+        ) {
+          freeformTags = row.composeFreeformTags.map((t) =>
+            t.length >= 2 ? [...t] : [t[0] ?? '', '']
+          );
         }
         return;
       }
@@ -977,29 +1093,50 @@
     const legacy = d.publicationAsciiDoc?.trim();
     if (legacy && $session.pubkey) {
       const id = newManuscriptId();
+      const legacyHashtags = cleanedHashtags(d.hashtags ?? []);
+      const legacyFreeform = cleanedFreeformTags(d.freeformTags ?? []);
+      const legacyImeta = (d.imetaTags ?? [])
+        .map((t) => [...t])
+        .filter((t) => t.some((c) => String(c).trim()));
       const snap: PublicationManuscript = {
         id,
         pubkey: $session.pubkey,
         title: values.title?.trim() || 'Untitled manuscript',
         dTag: values.d?.trim() || '',
         source: d.publicationAsciiDoc!,
-        maxIndexLevel:
-          d.publicationIndexDepth === 3 || d.publicationIndexDepth === 4
-            ? d.publicationIndexDepth
-            : DEFAULT_INDEX_DEPTH,
-        updatedAt: Date.now()
+        maxIndexLevel: clampManuscriptIndexDepth(d.publicationIndexDepth),
+        updatedAt: Date.now(),
+        composeValues: { ...values },
+        ...(content.trim() ? { composeContent: content } : {}),
+        ...(legacyHashtags.length ? { composeHashtags: legacyHashtags } : {}),
+        ...(legacyImeta.length ? { composeImetaTags: legacyImeta } : {}),
+        ...(legacyFreeform.length ? { composeFreeformTags: legacyFreeform } : {})
       };
-      await putManuscript(snap);
+      try {
+        await putManuscript(snap);
+      } catch (err) {
+        // Keep the legacy body in the tab autosave so a quota/IDB failure is recoverable.
+        formError =
+          err instanceof Error
+            ? err.message
+            : 'Could not migrate the AsciiDoc manuscript into local storage.';
+        publicationAsciiDoc = d.publicationAsciiDoc!;
+        publicationSectionsMode = 'split';
+        publicationIndexDepth = snap.maxIndexLevel;
+        return;
+      }
       publicationManuscriptId = id;
       publicationManuscriptListedAt = snap.updatedAt;
       publicationAsciiDoc = snap.source;
       publicationSectionsMode = 'split';
+      publicationIndexDepth = snap.maxIndexLevel;
       // Rewrite tab autosave without the body.
       saveComposeDraft($session.pubkey, {
         ...d,
         publicationManuscriptId: id,
         publicationAsciiDoc: undefined,
-        publicationSectionsMode: 'split'
+        publicationSectionsMode: 'split',
+        publicationIndexDepth: snap.maxIndexLevel
       });
       await refreshManuscriptDrafts();
     }
@@ -1354,7 +1491,7 @@
       return;
     }
 
-    persistCurrent();
+    persistCurrent({ immediateManuscript: true });
     draftPersistSuspended = true;
     clearStagedComposeDraft();
     try {
@@ -1382,6 +1519,8 @@
       freeformTags = [['', '']];
       kind0Tags = emptyKind0TagRows();
       existingKind0 = {};
+      // Match loadKind — do not carry split AsciiDoc / manuscript id into Other kinds.
+      clearPublicationManuscriptFields();
       const preloaded = await applyReplaceablePreload(n);
       resetEditorMarkup(n, content, freeformTags);
       markReplaceablePreloaded(preloaded);
@@ -1861,16 +2000,23 @@
         }
         deleteComposeDraft($session.pubkey, kind);
         const publishedMsId = publicationManuscriptId;
+        // Exit split mode before any reactive persist — otherwise meta-only
+        // manuscriptSnapshot() mints a new Drafts book after delete.
+        clearStagedManuscript();
+        clearPublicationManuscriptFields();
         if (publishedMsId) {
-          clearStagedManuscript();
-          await deleteManuscript(publishedMsId);
-          publicationManuscriptId = null;
-          publicationManuscriptListedAt = 0;
-          publicationAsciiDoc = '';
+          try {
+            await deleteManuscript(publishedMsId);
+          } catch (err) {
+            showNotice(
+              err instanceof Error
+                ? err.message
+                : 'Published, but the local manuscript could not be removed.'
+            );
+          }
           await refreshManuscriptDrafts();
         }
         refreshDraftList();
-        publicationSplitOpen = false;
         splitProgress = null;
         splitRetryEvents = [];
         splitMissingDTags = [];
@@ -1987,7 +2133,15 @@
       KIND.WIKI_MERGE_REQUEST,
       KIND.WIKI_REDIRECT
     ]);
-    const start = Number.isInteger(qKind) && allowed.has(qKind) ? qKind : kind;
+    // Prefer the most recently touched tab autosave so a hard refresh returns to
+    // the open 30040 (metadata + manuscript pointer) instead of blank kind 1.
+    const latestDraftKind = listComposeDrafts(pk)[0]?.kind;
+    const start =
+      Number.isInteger(qKind) && allowed.has(qKind)
+        ? qKind
+        : latestDraftKind != null && allowed.has(latestDraftKind)
+          ? latestDraftKind
+          : kind;
     void (async () => {
       await loadKind(start);
       if (start === KIND.WIKI_REDIRECT) {
