@@ -300,39 +300,8 @@
     {/if}
   {/if}
   <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
-  <div class="listing-toolbar">
-    <PageFilter bind:value={pageFilter} />
-  </div>
   <div class="listing-toolbar search-result-filters" role="group" aria-label="Result filters">
-    <div class="booklist-scope search-result-scope" role="group" aria-label="Result source">
-      <button
-        type="button"
-        class="booklist-scope-btn"
-        class:active={resultScope === 'all'}
-        aria-pressed={resultScope === 'all'}
-        onclick={() => setResultScope('all')}
-      >All</button>
-      {#if showMineScope}
-        <button
-          type="button"
-          class="booklist-scope-btn"
-          class:active={resultScope === 'mine'}
-          aria-pressed={resultScope === 'mine'}
-          title="Published by you"
-          onclick={() => setResultScope('mine')}
-        >From me</button>
-      {/if}
-      {#if showFollowsScope}
-        <button
-          type="button"
-          class="booklist-scope-btn"
-          class:active={resultScope === 'follows'}
-          aria-pressed={resultScope === 'follows'}
-          title="Published by accounts you follow"
-          onclick={() => setResultScope('follows')}
-        >From follows</button>
-      {/if}
-    </div>
+    <PageFilter bind:value={pageFilter} />
     <ListingViewToggle label="Search results" />
   </div>
   <SearchRefineBar
@@ -342,12 +311,19 @@
     sinceDate={refineSinceDate}
     untilDate={refineUntilDate}
     sort={refineSort}
+    {resultScope}
+    {showMineScope}
+    {showFollowsScope}
     onKind={(v) => (refineKind = v)}
     onPubkey={(v) => (refinePubkey = v)}
     onSinceDate={(v) => (refineSinceDate = v)}
     onUntilDate={(v) => (refineUntilDate = v)}
     onSort={(v) => (refineSort = v)}
-    onClear={() => resetRefine()}
+    onResultScope={(v) => setResultScope(v)}
+    onClear={() => {
+      resetRefine();
+      setResultScope('all');
+    }}
   />
   {#if loading}<LoadingHint message={events.length ? 'Updating…' : 'Searching…'} />{/if}
   {#if !loading && visible.length === 0}

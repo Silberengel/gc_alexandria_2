@@ -1868,23 +1868,38 @@ select:hover {
   margin-left: auto;
 }
 .search-result-filters {
+  flex-wrap: nowrap;
   margin-bottom: 1rem;
 }
-.search-result-filters .search-result-scope {
-  margin: 0;
-  flex: 1 1 auto;
+.search-result-filters .page-filter {
+  flex: 1 1 12rem;
   min-width: 0;
+  max-width: 20rem;
 }
 .search-result-filters .listing-view-toggle {
-  margin-left: 0;
   flex: 0 0 auto;
+  margin-left: auto;
+}
+.search-refine-panel {
+  margin: 0 0 1rem;
+}
+/* Keep native summary marker (chevron); display:flex would hide it. */
+.search-refine-summary-active {
+  margin-left: 0.45rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.search-refine-panel .search-result-scope {
+  margin: 0 0 0.75rem;
 }
 .search-refine-bar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
   gap: 0.55rem 0.75rem;
-  margin: 0 0 1rem;
+  margin: 0;
+  padding-bottom: 0.85rem;
 }
 .search-refine-field {
   display: flex;

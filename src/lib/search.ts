@@ -429,7 +429,7 @@ async function fanOutSearch(
     ]),
     mercurySectionSearch({ q, limit: 100 }),
     mercuryWikiSearch({ q, limit: 100 }),
-    resolveWikiAliasArticles(q).then((r) => r.targets),
+    resolveWikiAliasArticles(q, 100).then((r) => r.targets),
     cacheScanText(q),
     brainstormSearch(q),
     ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
@@ -507,7 +507,7 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
       title.trim().length >= 2
         ? mercuryWikiSearch({ q: title, title, limit: 100 })
         : Promise.resolve([] as Event[]),
-      resolveWikiAliasArticles(title).then((r) => r.targets),
+      resolveWikiAliasArticles(title, 100).then((r) => r.targets),
       relayPool.query(documentStack(), [
         { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }
       ]),
@@ -535,7 +535,7 @@ export async function runIdentifierSearch(identifier: string, onUpdate: (r: Sear
           ? mercuryWikiSearch({ q: id, s: id, limit: 100 })
           : Promise.resolve([] as Event[])
       ]),
-      resolveWikiAliasArticles(identifier).then((r) => r.targets),
+      resolveWikiAliasArticles(identifier, 100).then((r) => r.targets),
       brainstormSearch(identifier)
     ]);
     return mergeById(batches.flat());
@@ -558,7 +558,7 @@ export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResu
   await cachedOrLive(key, onUpdate, async () => {
     const [subjects, aliases, brainstorm] = await Promise.all([
       searchBySubject(subject),
-      resolveWikiAliasArticles(subject).then((r) => r.targets),
+      resolveWikiAliasArticles(subject, 100).then((r) => r.targets),
       brainstormSearch(subject)
     ]);
     return mergeById([...subjects, ...aliases, ...brainstorm]);
@@ -728,7 +728,7 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
         slug.length >= 2
           ? mercuryWikiSearch({ q: slug, d: slug, limit: 100 })
           : Promise.resolve([] as Event[]),
-        resolveWikiAliasArticles(slug || d).then((r) => r.targets),
+        resolveWikiAliasArticles(slug || d, 100).then((r) => r.targets),
         relayPool.query(documentStack(), [filter]),
         mercuryFilter(filter),
         brainstormSearch(slug)
