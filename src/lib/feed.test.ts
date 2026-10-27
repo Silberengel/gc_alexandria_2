@@ -116,6 +116,20 @@ describe('isOriginalPost', () => {
     ).toBe(true);
   });
 
+  it('excludes publications and wikis so mass imports do not flood the feed', () => {
+    expect(
+      isOriginalPost(ev({ kind: KIND.PUBLICATION, tags: [['d', 'book'], ['title', 'Book']] }))
+    ).toBe(false);
+    expect(isOriginalPost(ev({ kind: KIND.WIKI, tags: [['d', 'topic'], ['title', 'Topic']] }))).toBe(
+      false
+    );
+    expect(
+      isRepliesTimelineEvent(
+        ev({ kind: KIND.PUBLICATION, tags: [['d', 'book'], ['title', 'Book']] })
+      )
+    ).toBe(false);
+  });
+
   it('keeps top-level web comments and drops note-thread comments', () => {
     const web = ev({
       kind: KIND.COMMENT,

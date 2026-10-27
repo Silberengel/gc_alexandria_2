@@ -33,6 +33,8 @@ const NOTIFICATION_LOOKBACK_SEC = 7 * 24 * 60 * 60;
  * Library / media / bookmark posts for the Original Posts tab (plus kind 1 notes).
  * Top-level web comments (kind 1111 on a URL) are handled separately via
  * {@link isTopLevelWebComment}.
+ * Publications (30040) and wikis (30818) stay out — mass Gutenberg / Wikipedia
+ * imports would flood Follows and Original Posts.
  */
 const FEED_POST_KINDS = [
   KIND.DJOT,
@@ -42,8 +44,6 @@ const FEED_POST_KINDS = [
   KIND.VOICE,
   KIND.HIGHLIGHT,
   KIND.LONG_FORM,
-  KIND.PUBLICATION,
-  KIND.WIKI,
   KIND.SPEC,
   KIND.RATING,
   KIND.MUSIC,

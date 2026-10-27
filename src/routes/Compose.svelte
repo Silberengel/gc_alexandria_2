@@ -1959,7 +1959,11 @@
     }
     formError = '';
     posting = true;
-    if (publicationSectionsMode === 'split') publicationSplitOpen = true;
+    // Always surface progress in the splitter when this was a split publish;
+    // the main-form Retry stays available if the user closes the overlay later.
+    if (kind === KIND.PUBLICATION && publicationSectionsMode === 'split') {
+      publicationSplitOpen = true;
+    }
     try {
       const result = await retryPublicationEvents({
         events: splitRetryEvents,
@@ -3076,16 +3080,18 @@
 
         {#if formError}
           <p class="compose-error">{formError}</p>
-          {#if splitRetryEvents.length}
-            <button
-              class="btn"
-              type="button"
-              disabled={posting}
-              onclick={() => void retrySplitPublish()}
-            >
-              Retry failed
-            </button>
-          {/if}
+        {/if}
+        <!-- Keep Retry visible whenever misses remain — not only while formError is set
+             (retry clears the error at start; splitter may also be closed). -->
+        {#if splitRetryEvents.length}
+          <button
+            class="btn"
+            type="button"
+            disabled={posting}
+            onclick={() => void retrySplitPublish()}
+          >
+            Retry failed
+          </button>
         {/if}
 
         <div class="compose-actions">
