@@ -547,9 +547,19 @@ export async function deleteManuscript(id: string): Promise<void> {
 export async function deleteManuscriptsForPubkey(pubkey: string): Promise<void> {
   const pk = pubkey.toLowerCase();
   if (staged && staged.pubkey === pk) clearStagedManuscript();
+  // Tombstone synchronously before enqueue — same contract as deleteManuscript.
+  // Listing inside the write op left a window where an already-queued put ran
+  // first, saw an empty deletedIds set, and resurrected the row.
+  let metas: PublicationManuscriptMeta[] = [];
+  try {
+    metas = await backend().listMeta(pk);
+  } catch {
+    metas = [];
+  }
+  for (const m of metas) deletedIds.add(m.id);
   await enqueueManuscriptWrite(async () => {
-    const metas = await backend().listMeta(pk);
-    for (const m of metas) deletedIds.add(m.id);
+    const latest = await backend().listMeta(pk);
+    for (const m of latest) deletedIds.add(m.id);
     await backend().deleteForPubkey(pk);
   });
 }

@@ -130,6 +130,21 @@ describe('publication-manuscripts', () => {
     expect(await getManuscript('race-del')).toBeNull();
   });
 
+  it('tombstones pubkey deletes before queued puts can resurrect', async () => {
+    const a = sample({ id: 'pk-race-a', dTag: 'a' });
+    const b = sample({ id: 'pk-race-b', dTag: 'b' });
+    await putManuscript(a);
+    await putManuscript(b);
+    // Queue puts first, then delete-all — puts must see tombstones and no-op.
+    const putA = putManuscript(sample({ id: 'pk-race-a', dTag: 'a', source: '== resurrect\n\nx' }));
+    const putB = putManuscript(sample({ id: 'pk-race-b', dTag: 'b', source: '== resurrect\n\ny' }));
+    const delAll = deleteManuscriptsForPubkey(PK);
+    await Promise.all([putA, putB, delAll]);
+    expect(await listManuscriptMetas(PK)).toEqual([]);
+    expect(await getManuscript('pk-race-a')).toBeNull();
+    expect(await getManuscript('pk-race-b')).toBeNull();
+  });
+
   it('scheduleManuscriptPersist writes after debounce', async () => {
     const m = sample({ id: 'debounced' });
     scheduleManuscriptPersist(m, 20);
