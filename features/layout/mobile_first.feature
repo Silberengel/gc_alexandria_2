@@ -18,7 +18,8 @@ Feature: Mobile-first layout
     And reading, wiki, profile, and other content shells keep the publication reading measure
     And the home and search catalog shells stay wider so shelves and result grids can gain columns
     And on every width (phone through desktop) the table of contents is the same floating control: a quiet icon at the bottom-right over the text
-    And that icon opens a fixed viewport panel in place and closes it again without covering the top bar
+    And that icon opens a fixed viewport panel in place and closes it again without covering the top bar or sliding under the site footer
+    And the floating ToC stays inside the center scroll band (below the header, above the footer)
     And there is no separate sticky or sidebar ToC on wide screens — do not restore position:sticky desktop ToC rules
     And tapping or clicking outside the open ToC closes it
     And Highlights and What we are discussing sit in two columns

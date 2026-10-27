@@ -256,12 +256,34 @@ export async function mercuryFilter(filter: Filter): Promise<Event[]> {
   }
 }
 
+/** Clamp Mercury typed-search `limit` (API max 100). */
+function mercurySearchLimit(query: Record<string, unknown>): number {
+  return Math.min(100, Number(query.limit) || 100);
+}
+
+/**
+ * POST body for a Mercury typed search. Spread fields first, then force
+ * clamped `limit` (and trimmed `q` when provided) so caller values cannot
+ * undo validation.
+ */
+function mercurySearchBody(
+  query: Record<string, unknown>,
+  opts?: { q?: string }
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...query, limit: mercurySearchLimit(query) };
+  if (opts && 'q' in opts) {
+    if (opts.q) body.q = opts.q;
+    else delete body.q;
+  }
+  return body;
+}
+
 export async function mercuryPublicationSearch(query: Record<string, unknown>): Promise<Event[]> {
   if (!searchHasQuery(query)) return [];
   const res = await mercuryRequest('/api/publications/search', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query })
+    body: JSON.stringify(mercurySearchBody(query))
   });
   if (!res?.ok) return [];
   try {
@@ -271,13 +293,17 @@ export async function mercuryPublicationSearch(query: Record<string, unknown>): 
   }
 }
 
+/**
+ * Mercury `/api/wiki/search` requires `q` (min 2). Title/d/T/s/i refine that
+ * query — they do not replace it (see wiki-hub + advanced-search).
+ */
 export async function mercuryWikiSearch(query: Record<string, unknown>): Promise<Event[]> {
   const q = typeof query.q === 'string' ? query.q.trim() : '';
   if (q.length < 2) return [];
   const res = await mercuryRequest('/api/wiki/search', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query, q })
+    body: JSON.stringify(mercurySearchBody(query, { q }))
   });
   if (!res?.ok) return [];
   try {
@@ -287,13 +313,17 @@ export async function mercuryWikiSearch(query: Record<string, unknown>): Promise
   }
 }
 
+/**
+ * Mercury `/api/publications/sections/search` requires `q` (min 4).
+ * Other fields refine; they do not replace a short/missing `q`.
+ */
 export async function mercurySectionSearch(query: Record<string, unknown>): Promise<Event[]> {
   const q = typeof query.q === 'string' ? query.q.trim() : '';
   if (q.length < 4) return [];
   const res = await mercuryRequest('/api/publications/sections/search', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query, q })
+    body: JSON.stringify(mercurySearchBody(query, { q }))
   });
   if (!res?.ok) return [];
   try {

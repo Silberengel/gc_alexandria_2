@@ -4,7 +4,7 @@
   import { wrap } from 'svelte-spa-router/wrap';
   import { scheduleDeletionSweep } from './lib/deletions';
   import { currentNavKey, trackNavChange } from './lib/nav-history';
-  import { appScrollTo, setAppScrollRoot } from './lib/app-scroll';
+  import { appScrollTo, observeAppScrollInsets, setAppScrollRoot } from './lib/app-scroll';
   import { session } from './lib/stores/session';
   import MediaViewer from './lib/components/MediaViewer.svelte';
   import RawEventViewer from './lib/components/RawEventViewer.svelte';
@@ -17,7 +17,12 @@
 
   $effect(() => {
     setAppScrollRoot(scrollEl ?? null);
-    return () => setAppScrollRoot(null);
+    if (!scrollEl) return () => setAppScrollRoot(null);
+    const stopInsets = observeAppScrollInsets(scrollEl);
+    return () => {
+      stopInsets();
+      setAppScrollRoot(null);
+    };
   });
 
   const routes = {

@@ -168,6 +168,40 @@ describe('mercuryPublicationStream paging', () => {
   });
 });
 
+describe('mercury typed search body', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps clamped limit and trimmed q (spread cannot undo validation)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify([]), { status: 200 }))
+    );
+    const { mercuryWikiSearch, mercurySectionSearch, mercuryPublicationSearch, resetMercuryClientState } =
+      await import('./mercury');
+    resetMercuryClientState();
+
+    await mercuryWikiSearch({ q: '  ab  ', title: 'Ab', limit: 500 });
+    await mercurySectionSearch({ q: '  abcd  ', d: 'ch1', limit: 999 });
+    await mercuryPublicationSearch({ title: 'Monte', limit: 250 });
+    await mercuryWikiSearch({ q: 'x', d: 'solo' });
+
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const bodies = fetchMock.mock.calls.map((c) =>
+      JSON.parse(String((c[1] as RequestInit | undefined)?.body))
+    );
+    expect(bodies[0]).toMatchObject({ q: 'ab', title: 'Ab', limit: 100 });
+    expect(bodies[1]).toMatchObject({ q: 'abcd', d: 'ch1', limit: 100 });
+    expect(bodies[2]).toMatchObject({ title: 'Monte', limit: 100 });
+  });
+});
+
 describe('parsePublicationStreamNdjson', () => {
   it('unwraps NDJSON publication stream rows in pos order', async () => {
     const { finalizeEvent, generateSecretKey, getPublicKey } = await import('nostr-tools');

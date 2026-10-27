@@ -4513,7 +4513,7 @@ a.nostrdown-ref {
 .publish-toast-host {
   position: fixed;
   left: 50%;
-  bottom: 4.75rem;
+  bottom: calc(var(--app-scroll-bottom, 0px) + 4.75rem);
   transform: translateX(-50%);
   z-index: 70;
   pointer-events: none;
@@ -4558,7 +4558,7 @@ a.nostrdown-ref {
 .jump-busy-toast {
   position: fixed;
   left: 50%;
-  bottom: 4.75rem;
+  bottom: calc(var(--app-scroll-bottom, 0px) + 4.75rem);
   transform: translateX(-50%);
   z-index: 42;
   display: inline-flex;
@@ -7029,14 +7029,21 @@ a.embed-event-line:focus-visible {
 }
 /* Floating ToC on every viewport (intentional). Do NOT add a min-width media
    query that switches .toc to position:sticky / in-flow sidebar — phone and
-   desktop share the FAB + fixed panel. Spec: features/layout/mobile_first.feature */
+   desktop share the FAB + fixed panel. Spec: features/layout/mobile_first.feature
+   Insets (--app-scroll-top/bottom) keep the panel inside the center scroll
+   band: below the header, above the footer. */
 .toc {
   display: none;
   position: fixed;
   right: 1rem;
-  bottom: 4.75rem;
+  bottom: calc(var(--app-scroll-bottom, 0px) + 4.75rem);
   width: min(22rem, calc(100vw - 2rem));
-  max-height: min(70vh, calc(100dvh - 8rem));
+  max-height: min(
+    70vh,
+    calc(
+      100dvh - var(--app-scroll-top, 0px) - var(--app-scroll-bottom, 0px) - 5.75rem
+    )
+  );
   overflow: hidden;
   z-index: 40;
   margin: 0;
@@ -7240,7 +7247,8 @@ a.embed-event-line:focus-visible {
   display: inline-flex;
   position: fixed;
   right: 1rem;
-  bottom: 1rem;
+  /* Sit in the center scroll band — above the footer, not over it. */
+  bottom: calc(var(--app-scroll-bottom, 0px) + 1rem);
   z-index: 41;
   width: 2.75rem;
   height: 2.75rem;

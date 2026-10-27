@@ -14,6 +14,7 @@
     path === '/wiki' || path === '/wiki/recent' || path === '/wiki/search'
   );
   const searchVisible = $derived(!onSearchPage && !onWikiHub);
+  const onHome = $derived(path === '/' || path === '');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));
   const onDirectory = $derived(path.startsWith('/directory'));
@@ -71,6 +72,7 @@
   </a>
   <nav>
     <div class="top-bar-nav-tabs">
+      <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
       <a href="#/search" use:link aria-current={onSearchPage ? 'page' : undefined}>Search</a>
       <a href="#/wiki" use:link aria-current={onWikiHub ? 'page' : undefined}>Wiki</a>
       {#if signedIn}

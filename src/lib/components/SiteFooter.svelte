@@ -32,18 +32,6 @@
       </svg>
     </button>
     <a
-      href="#/"
-      use:link
-      class="site-footer-btn"
-      title="Home"
-      aria-label="Home"
-      aria-current={onHome ? 'page' : undefined}
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-      </svg>
-    </a>
-    <a
       href="#/about"
       use:link
       class="site-footer-btn"
