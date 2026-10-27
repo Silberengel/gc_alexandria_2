@@ -244,6 +244,30 @@ describe('parseFeedAuthorParam', () => {
   });
 });
 
+describe('feed URL contract', () => {
+  it('list paths always write tab= so bare /feed stays “first strip tab”', () => {
+    // Bare /feed is entry-only (Feed.svelte rewrites); original is explicit.
+    expect(feedListPath('original')).toBe('/feed?tab=original');
+    expect(feedListPath('follows')).toBe('/feed?tab=follows');
+    expect(feedListPath('replies')).toBe('/feed?tab=replies');
+    expect(feedListPath('kind:1')).toBe('/feed?tab=kind%3A1');
+  });
+
+  it('default thread omits tab; non-default keeps tab for close-back-to-list', () => {
+    const note = ev({ id: '1'.repeat(64), kind: KIND.TEXT_NOTE, pubkey: 'a'.repeat(64) });
+    const nevent = nip19.neventEncode({
+      id: note.id,
+      author: note.pubkey,
+      kind: note.kind
+    });
+    expect(feedThreadPath(note)).toBe(`/feed?thread=${nevent}`);
+    expect(feedThreadPath(note)).not.toContain('tab=');
+    expect(parseFeedTab(null)).toBe('original');
+    expect(feedThreadPath(note, 'follows')).toBe(`/feed?thread=${nevent}&tab=follows`);
+    expect(feedThreadPath(note, 'replies')).toBe(`/feed?thread=${nevent}&tab=replies`);
+  });
+});
+
 describe('feedAuthorRepliesPath', () => {
   it('builds a replies tab URL scoped to the author', () => {
     const pk = 'a'.repeat(64);

@@ -957,9 +957,19 @@ export function feedThreadRootPointer(event: Event): string | null {
 }
 
 /**
- * In-feed thread URL on the same `/feed` route (query `thread=`).
- * Replies open the OP thread and focus with `comment=`; OPs open themselves.
- * Staying on `/feed` avoids remounting the list when opening/closing a card.
+ * Feed URL contract (query-based — keeps list+thread on one `/feed` route so the
+ * list does not remount when opening/closing a card or switching tabs):
+ *
+ * 1. `/feed` — entry only; Feed.svelte quiet-rewrites to `feedListPath(firstVisibleTab)`.
+ * 2. `/feed?tab=T` — list for tab T (always include `tab`, including `original`;
+ *    bare `/feed` ≠ Original Posts — it means “first strip tab”).
+ * 3. `/feed?thread=P` — thread on Original Posts (`parseFeedTab(null)` → `original`);
+ *    open threads skip the bare-`/feed` rewrite.
+ * 4. `/feed?tab=T&thread=P` — thread while preserving list tab T for close.
+ * 5. `comment=` / `author=` — reply focus / profile-scoped list; orthogonal.
+ * 6. Legacy `/feed/:id` — redirect to `?thread=` only (FeedThreadRedirect).
+ *
+ * Replies open the OP as `thread=` and focus with `comment=`; OPs open themselves.
  */
 export type FeedListOpts = { author?: string | null };
 
@@ -968,12 +978,7 @@ function appendFeedAuthor(q: URLSearchParams, author?: string | null): void {
   if (hex && /^[0-9a-f]{64}$/.test(hex)) q.set('author', hex);
 }
 
-/**
- * List URLs always write `tab=` so bare `/feed` can mean “first strip tab”
- * (rewritten in Feed.svelte). Thread URLs omit the historical default
- * `original` — `parseFeedTab(null)` already returns that, and an open
- * thread skips the bare-`/feed` rewrite.
- */
+/** Write `tab=`. Thread builders pass `omitDefault` so `original` stays off the URL. */
 function appendFeedTab(
   q: URLSearchParams,
   tab: FeedTab,
@@ -1026,7 +1031,7 @@ export function feedThreadPath(
   return `/feed?${q.toString()}`;
 }
 
-/** List URL for a feed tab (no open thread). */
+/** List URL for a feed tab (no open thread). Always writes `tab=` — see contract above. */
 export function feedListPath(tab: FeedTab = 'original', opts: FeedListOpts = {}): string {
   const q = new URLSearchParams();
   appendFeedTab(q, tab);
