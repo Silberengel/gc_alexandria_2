@@ -3219,12 +3219,12 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 
 .reading-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .reading-body video,
-.reading-body svg,
+.reading-body svg:not(.nip05-check),
 .reading-body canvas,
 .reading-body iframe,
 .event-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .event-body video,
-.event-body svg,
+.event-body svg:not(.nip05-check),
 .event-body canvas,
 .event-body iframe,
 .reader-section img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
@@ -5576,6 +5576,13 @@ a.highlight-source-blurb:focus-visible {
   min-width: 0;
   padding-top: 0.85rem;
 }
+/* Banner flush to the card top; shell keeps its normal panel top padding. */
+.feed-profile-meta-thread:has(.profile-meta-hero-banner) {
+  padding-top: 0;
+  overflow: hidden;
+  border-top-left-radius: var(--radius);
+  border-top-right-radius: var(--radius);
+}
 .profile-meta-frame {
   position: relative;
   overflow: hidden;
@@ -5606,6 +5613,32 @@ a.highlight-source-blurb:focus-visible {
 .profile-meta-frame .profile-meta-inner {
   padding: 0.95rem 1.05rem 0.15rem;
 }
+.profile-meta-hero {
+  /*
+   * Length-only size (no %): % in a custom property resolves as width for
+   * `width` but as height for `min-height`/`padding`, which collapsed hang
+   * clearance and let the PFP paint over About.
+   */
+  --profile-avatar-size: clamp(5.75rem, 28vw, 17.333rem);
+  --profile-avatar-hang: 42%;
+  --profile-avatar-hang-length: calc(var(--profile-avatar-size) * 0.42);
+  --profile-avatar-inset: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  min-width: 0;
+}
+.profile-meta-hero-media {
+  position: relative;
+  min-width: 0;
+}
+.profile-meta-hero-banner .profile-meta-hero-media {
+  /* Hang room is filled by .profile-meta-hero-text beside the PFP. */
+  z-index: 0;
+}
+.profile-meta-hero-pic:not(.profile-meta-hero-banner) .profile-meta-hero-media {
+  min-height: var(--profile-avatar-size);
+}
 .profile-meta-banner {
   display: block;
   box-sizing: border-box;
@@ -5614,25 +5647,43 @@ a.highlight-source-blurb:focus-visible {
   margin: 0;
   padding: 0;
   border: 0;
+  border-bottom: 0.22rem solid var(--accent-strong);
   border-radius: 0.45rem;
   overflow: hidden;
   cursor: zoom-in;
   background: color-mix(in srgb, var(--border) 35%, transparent);
-  aspect-ratio: 16 / 5;
+  aspect-ratio: 16 / 8;
 }
-.profile-meta-frame .profile-meta-banner {
+.profile-meta-frame .profile-meta-hero-banner .profile-meta-hero-media {
   /* Span full card width, including the ⋯ menu gutter (padding-right: 2.35rem). */
   width: calc(100% + 1.05rem + 2.35rem);
   max-width: none;
   margin: -0.95rem -2.35rem 0 -1.05rem;
   border-radius: calc(var(--radius) - 0.05rem) calc(var(--radius) - 0.05rem) 0 0;
 }
-/* Thread OP: break out of .card horizontal padding so the banner is edge-to-edge. */
-.feed-profile-meta-thread .profile-meta-banner {
+.profile-meta-frame .profile-meta-hero-banner .profile-meta-banner {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-radius: inherit;
+}
+/* Keep PFP aligned with hero text (media breaks out of card padding). */
+.profile-meta-frame .profile-meta-hero-banner .profile-meta-avatar,
+.feed-profile-meta-thread .profile-meta-hero-banner .profile-meta-avatar {
+  left: calc(1.05rem + var(--profile-avatar-inset));
+}
+/* Thread OP: full-bleed banner at the top of the card / page column. */
+.feed-profile-meta-thread .profile-meta-hero-banner .profile-meta-hero-media {
   width: calc(100% + 2.1rem);
   max-width: none;
-  margin-inline: -1.05rem;
-  border-radius: 0.35rem;
+  margin: 0 -1.05rem;
+  border-radius: 0;
+}
+.feed-profile-meta-thread .profile-meta-hero-banner .profile-meta-banner {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
 }
 .profile-meta-banner img {
   display: block;
@@ -5640,6 +5691,38 @@ a.highlight-source-blurb:focus-visible {
   height: 100%;
   object-fit: cover;
   object-position: center;
+}
+/* Name / kind / NIP-05 sit below the banner, to the right of the hanging PFP. */
+.profile-meta-hero-text {
+  position: relative;
+  z-index: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.55rem 0.1rem 0.1rem
+    calc(var(--profile-avatar-inset) + var(--profile-avatar-size) + 1rem);
+  min-height: var(--profile-avatar-hang-length);
+  overflow-wrap: anywhere;
+}
+.profile-meta-hero-pic:not(.profile-meta-hero-banner) .profile-meta-hero-text {
+  padding-left: calc(var(--profile-avatar-inset) + var(--profile-avatar-size) + 1rem);
+  margin-top: -0.35rem;
+}
+.profile-meta-hero-text .profile-meta-title {
+  overflow-wrap: anywhere;
+}
+.profile-meta-hero-text .profile-meta-nip05 {
+  max-width: 100%;
+}
+/* Keep About / links / actions below the hanging PFP paint. */
+.profile-meta-inner:has(.profile-meta-hero-pic) > .profile-meta-about,
+.profile-meta-inner:has(.profile-meta-hero-pic) > .profile-meta-links,
+.profile-meta-inner:has(.profile-meta-hero-pic) > .profile-meta-actions {
+  position: relative;
+  z-index: 0;
+}
+.profile-meta-inner:has(.profile-meta-hero) > .profile-meta-about {
+  margin-top: 0.85rem;
+  padding-top: 0.35rem;
 }
 .profile-meta-identity {
   display: flex;
@@ -5658,6 +5741,52 @@ a.highlight-source-blurb:focus-visible {
   cursor: zoom-in;
   background: color-mix(in srgb, var(--border) 35%, transparent);
   box-shadow: 0 4px 14px color-mix(in srgb, #000 14%, transparent);
+}
+/* Full kind-0 card: large PFP over the banner’s lower-left. */
+.profile-meta-hero .profile-meta-avatar {
+  position: absolute;
+  z-index: 1;
+  left: var(--profile-avatar-inset);
+  bottom: 0;
+  width: var(--profile-avatar-size);
+  height: auto;
+  aspect-ratio: 1;
+  border: 0.22rem solid var(--accent-strong);
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--paper-light);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 20%, transparent);
+  transform: translateY(var(--profile-avatar-hang));
+}
+.profile-meta-hero-pic:not(.profile-meta-hero-banner) .profile-meta-avatar {
+  position: absolute;
+  left: var(--profile-avatar-inset);
+  bottom: auto;
+  top: 0;
+  transform: none;
+}
+.profile-meta-hero .profile-meta-avatar img {
+  border-radius: 50%;
+}
+/* Narrow columns: keep a modest PFP, put name/NIP-05 full-width under the hang. */
+@media (max-width: 639px) {
+  .profile-meta-hero {
+    --profile-avatar-size: clamp(5.5rem, 28vw, 8.5rem);
+    --profile-avatar-hang: 38%;
+    --profile-avatar-hang-length: calc(var(--profile-avatar-size) * 0.38);
+    --profile-avatar-inset: 0.65rem;
+  }
+  .profile-meta-hero-text,
+  .profile-meta-hero-pic:not(.profile-meta-hero-banner) .profile-meta-hero-text {
+    padding-left: 0.1rem;
+    /* Clear the full hang, then lay out kind/name/NIP-05 — never under the PFP. */
+    padding-top: calc(var(--profile-avatar-hang-length) + 0.55rem);
+    margin-top: 0;
+    min-height: calc(var(--profile-avatar-hang-length) + 0.55rem);
+  }
+  .profile-meta-hero-text .profile-meta-title {
+    font-size: clamp(1.2rem, 5.5vw, 1.55rem);
+  }
 }
 .profile-meta-avatar img {
   display: block;
@@ -5741,16 +5870,18 @@ a.highlight-source-blurb:focus-visible {
   padding-inline: 0.95rem;
 }
 .card-grid .profile-meta-frame,
-.event-embed-card .profile-meta-frame {
+.event-embed-card .profile-meta-frame,
+.profile-meta-frame.profile-meta-listing {
   max-height: 280px;
   overflow: hidden;
 }
 .card-grid .profile-meta-about,
-.event-embed-card .profile-meta-about {
+.event-embed-card .profile-meta-about,
+.profile-meta-compact .profile-meta-about {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
   white-space: normal;
 }
@@ -5759,6 +5890,41 @@ a.highlight-source-blurb:focus-visible {
 .card-grid .profile-meta-links,
 .event-embed-card .profile-meta-links {
   display: none;
+}
+/* Listing tiles: pic + handle + short npub + about in the 250px card. */
+.profile-meta-compact .profile-meta-avatar {
+  width: 5.25rem;
+  height: 5.25rem;
+  border-radius: 0.65rem;
+}
+.profile-meta-avatar-empty {
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--rule));
+  border: 2px solid color-mix(in srgb, var(--paper-light) 80%, var(--rule));
+  cursor: default;
+}
+.profile-meta-compact .profile-meta-title {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.profile-meta-npub {
+  margin: 0.2rem 0 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+}
+.profile-meta-compact .profile-meta-inner {
+  gap: 0.55rem;
+}
+.profile-meta-compact .profile-meta-identity {
+  gap: 0.65rem 0.85rem;
+  flex-wrap: nowrap;
+}
+.profile-meta-compact .profile-meta-about {
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
 }
 .result-card-wrap {
   position: relative;
@@ -8257,7 +8423,12 @@ a.user-status-line:hover {
 }
 .nip05-check {
   flex-shrink: 0;
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
   color: #1a7f37;
+  vertical-align: -0.12em;
 }
 .visually-hidden {
   position: absolute;

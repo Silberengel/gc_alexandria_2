@@ -1040,8 +1040,8 @@
           <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
         {:else if event.kind === KIND.METADATA}
           <article class="card reading-body feed-profile-meta-thread">
-            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
             <ProfileMetadataCard {event} showMenu={false} />
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
         {:else if event.kind === KIND.DIRECTORY}

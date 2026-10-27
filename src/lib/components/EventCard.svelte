@@ -190,8 +190,8 @@
   {:else if event.kind === KIND.APP_HANDLER}
     <AppHandlerChip {event} {showMenu} />
   {:else if event.kind === KIND.METADATA}
-    <article class="card profile-meta-frame">
-      <ProfileMetadataCard {event} {showMenu} />
+    <article class="card profile-meta-frame" class:profile-meta-listing={openAsThread || embedded}>
+      <ProfileMetadataCard {event} {showMenu} compact={openAsThread || embedded} />
     </article>
   {:else if event.kind === KIND.WIKI_MERGE_REQUEST || event.kind === KIND.WIKI_MERGE_ACCEPTANCE}
     <article class="card note-card">
