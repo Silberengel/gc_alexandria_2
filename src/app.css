@@ -2234,8 +2234,9 @@ a.listing-row:hover,
   border-color: color-mix(in srgb, var(--rule) 42%, transparent);
   background: color-mix(in srgb, var(--paper-light) 40%, var(--paper));
   box-shadow: 0 1px 4px rgb(60 40 25 / 7%);
-  /* Cover fills the padded content box (2:3). */
-  --pub-card-cover-h: calc(250px - 1.5rem);
+  /* Cover fills the padded content box (2:3). Subtract .card’s 1px border
+     (border-box height includes it) or the cover’s bottom edge is clipped. */
+  --pub-card-cover-h: calc(250px - 1.5rem - 2px);
 }
 :root.dark .pub-card {
   box-shadow: 0 1px 4px rgb(0 0 0 / 18%);
@@ -2252,7 +2253,8 @@ a.listing-row:hover,
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
-  overflow: hidden;
+  /* Visible so the cover stroke isn’t clipped; body still crops text. */
+  overflow: visible;
 }
 
 .pub-card-cover {
@@ -2265,8 +2267,20 @@ a.listing-row:hover,
   align-self: flex-start;
   border-radius: 0.35rem;
   overflow: hidden;
-  border: 1px solid var(--border);
+  /* Frame stroke via ::after so absolute cover art cannot paint over it /
+     parent overflow cannot nibble the bottom edge under fractional DPR. */
+  border: 0;
   background: var(--surface-2);
+  --pub-cover-stroke: var(--border);
+}
+.pub-card-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  border: 1px solid var(--pub-cover-stroke);
+  pointer-events: none;
 }
 
 /* Fill the plate height (crop sides if needed). Beat body img contain rules when embedded. */
@@ -2363,10 +2377,10 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
 }
 
 .pub-card-wiki .pub-card-cover {
-  border-color: color-mix(in srgb, var(--accent, #6a8fa8) 45%, var(--border));
+  --pub-cover-stroke: color-mix(in srgb, var(--accent, #6a8fa8) 45%, var(--border));
 }
 .pub-card-article .pub-card-cover {
-  border-color: color-mix(in srgb, #9a3a2a 40%, var(--border));
+  --pub-cover-stroke: color-mix(in srgb, #9a3a2a 40%, var(--border));
 }
 
 .pub-card-summary {
@@ -4915,7 +4929,7 @@ a.nostrdown-ref {
   left: auto;
   z-index: 2;
 }
-/* Embedded citation cards: whole surface opens the event; inner links don't steal the hit. */
+/* Citation + search listing cards: whole surface opens the event; inner links don't steal the hit. */
 .event-embed-card {
   cursor: pointer;
   display: block;
@@ -4930,6 +4944,11 @@ a.nostrdown-ref {
 .event-embed-card .userbadge,
 .event-embed-card .chip {
   pointer-events: none;
+}
+/* ⋯ menu stays clickable above the card hit target. */
+.event-embed-card .event-more-menu {
+  pointer-events: auto;
+  z-index: 2;
 }
 .generic-card-kind {
   margin: 0 0 0.2rem;

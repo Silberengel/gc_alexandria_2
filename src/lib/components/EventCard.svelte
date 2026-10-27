@@ -29,15 +29,34 @@
     embedDepth?: number;
     /** Citation inside a post: listing card, not the compact note. */
     asCard?: boolean;
+    /**
+     * Search (and similar) grids: whole card opens the feed thread.
+     * No ⋯ menu; cover enlarge is off so the hit reaches the card.
+     */
+    openAsThread?: boolean;
     /** Kind 10312 listeners for live event cards. */
     presence?: LivePresencePerson[];
   }
 
-  let { event, embedDepth = 0, asCard = false, presence = [] }: Props = $props();
+  let {
+    event,
+    embedDepth = 0,
+    asCard = false,
+    openAsThread = false,
+    presence = []
+  }: Props = $props();
 
   /** Nested citation — whole card opens the event; no ⋯ menu. */
   const embedded = $derived(embedDepth > 0);
-  const href = $derived(eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''));
+  /** Search listing cards also omit the ⋯ menu (whole card opens the thread). */
+  const showMenu = $derived(!embedded && !openAsThread);
+  /** Thread path when listing; library/event href for embeds. */
+  const href = $derived(
+    openAsThread && event.id
+      ? `#${feedThreadPath(event)}`
+      : (eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''))
+  );
+  const cardOpens = $derived((embedded || openAsThread) && Boolean(href));
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -54,29 +73,39 @@
   const relative = $derived(formatRelativeTime(event.created_at));
   const absolute = $derived(formatAbsoluteTime(event.created_at));
 
-  function openEmbedded(e: MouseEvent | KeyboardEvent): void {
-    if (!href || !embedded) return;
+  function openCard(e: MouseEvent | KeyboardEvent): void {
+    if (!href || !cardOpens) return;
     const target = e.target as Element | null;
-    // Keep in-page media controls usable; everything else opens the event.
-    if (target?.closest?.('video, audio, .live-stream-player, .event-imeta-btn')) return;
+    // Keep media controls and the ⋯ menu usable; everything else opens the event.
+    if (
+      target?.closest?.(
+        'video, audio, .live-stream-player, .event-imeta-btn, .event-more-menu, button'
+      )
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     warmNavEvent(event);
     push(href.startsWith('#') ? href.slice(1) : href);
   }
 
-  function onEmbeddedKey(e: KeyboardEvent): void {
+  function onCardKey(e: KeyboardEvent): void {
     if (e.key !== 'Enter' && e.key !== ' ') return;
-    openEmbedded(e);
+    openCard(e);
   }
 </script>
 
 {#snippet cardBody()}
   {#if isPubLike}
-    <PublicationCard {event} showMenu={!embedded} />
+    <PublicationCard
+      {event}
+      {showMenu}
+      enlargeOnClick={!openAsThread && !embedded}
+    />
   {:else if event.kind === KIND.PICTURE}
     <div class="result-card-wrap">
-      {#if !embedded}
+      {#if showMenu}
         <CopyPointerButton {event} class="generic-card-copy" />
       {/if}
       <div class="card-clip">
@@ -85,7 +114,7 @@
     </div>
   {:else if event.kind === KIND.VIDEO || event.kind === KIND.SHORT_VIDEO}
     <div class="result-card-wrap">
-      {#if !embedded}
+      {#if showMenu}
         <CopyPointerButton {event} class="generic-card-copy" />
       {/if}
       <div class="card-clip">
@@ -93,13 +122,13 @@
       </div>
     </div>
   {:else if event.kind === KIND.LIVE_EVENT}
-    <LiveStreamCard {event} {presence} showMenu={!embedded} />
+    <LiveStreamCard {event} {presence} {showMenu} />
   {:else if event.kind === KIND.MEETING_SPACE}
-    <MeetingSpaceCard {event} showMenu={!embedded} />
+    <MeetingSpaceCard {event} {showMenu} />
   {:else if event.kind === KIND.MEETING_ROOM}
-    <MeetingRoomCard {event} showMenu={!embedded} />
+    <MeetingRoomCard {event} {showMenu} />
   {:else if event.kind === KIND.ROOM_PRESENCE}
-    <RoomPresenceCard {event} showMenu={!embedded} />
+    <RoomPresenceCard {event} {showMenu} />
   {:else if event.kind === KIND.LIVE_CHAT}
     <div class="live-chat-line">
       <div class="live-chat-meta">
@@ -130,7 +159,7 @@
       <div class="thread-body">
         <EventBody {event} embedDepth={embedDepth} />
       </div>
-      {#if !embedded}
+      {#if showMenu}
         <div class="thread-actions">
           <CopyPointerButton {event} class="thread-more" />
         </div>
@@ -138,7 +167,7 @@
     </div>
   {:else if event.kind === KIND.HIGHLIGHT}
     <article class="card note-card">
-      {#if !embedded}
+      {#if showMenu}
         <CopyPointerButton {event} class="generic-card-copy" />
       {/if}
       <div class="card-clip">
@@ -152,14 +181,14 @@
       </div>
     </article>
   {:else if event.kind === KIND.APP_HANDLER}
-    <AppHandlerChip {event} showMenu={!embedded} />
+    <AppHandlerChip {event} {showMenu} />
   {:else if event.kind === KIND.METADATA}
     <article class="card profile-meta-frame">
-      <ProfileMetadataCard {event} showMenu={!embedded} />
+      <ProfileMetadataCard {event} {showMenu} />
     </article>
   {:else if event.kind === KIND.WIKI_MERGE_REQUEST || event.kind === KIND.WIKI_MERGE_ACCEPTANCE}
     <article class="card note-card">
-      {#if !embedded}
+      {#if showMenu}
         <CopyPointerButton {event} class="generic-card-copy" />
       {/if}
       <div class="card-clip">
@@ -171,7 +200,7 @@
     </article>
   {:else if event.kind === KIND.WIKI_REDIRECT}
     <article class="card note-card">
-      {#if !embedded}
+      {#if showMenu}
         <CopyPointerButton {event} class="generic-card-copy" />
       {/if}
       <div class="card-clip">
@@ -182,17 +211,17 @@
       </div>
     </article>
   {:else}
-    <GenericCard {event} {embedDepth} showMenu={!embedded} />
+    <GenericCard {event} {embedDepth} {showMenu} />
   {/if}
 {/snippet}
 
-{#if embedded && href}
+{#if cardOpens}
   <div
     class="event-embed-card"
     role="link"
     tabindex="0"
-    onclick={openEmbedded}
-    onkeydown={onEmbeddedKey}
+    onclick={openCard}
+    onkeydown={onCardKey}
   >
     {@render cardBody()}
   </div>

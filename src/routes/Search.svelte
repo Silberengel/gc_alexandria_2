@@ -258,7 +258,7 @@
   {:else}
     <div class="card-grid card-grid-results">
       {#each paged as event (event.id)}
-        <EventCard {event} />
+        <EventCard {event} openAsThread />
       {/each}
     </div>
     <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />

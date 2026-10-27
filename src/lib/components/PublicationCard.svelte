@@ -26,6 +26,8 @@
     ratingCount?: number;
     /** When false, hide the ⋯ menu (embedded citations). */
     showMenu?: boolean;
+    /** When false, cover is not a lightbox button (parent card owns the click). */
+    enlargeOnClick?: boolean;
   }
 
   let {
@@ -34,7 +36,8 @@
     variant = 'card',
     ratingAverage: ratingAverageProp,
     ratingCount: ratingCountProp,
-    showMenu = true
+    showMenu = true,
+    enlargeOnClick = true
   }: Props = $props();
 
   /** Resolved top edition when [event] is a 30041 section. */
@@ -172,7 +175,7 @@
   <div class="listing-row-wrap">
     <div class="listing-row listing-row-split">
       <span class="listing-row-cover">
-        <Cover {event} enlargeOnClick />
+        <Cover {event} enlargeOnClick={enlargeOnClick} />
       </span>
       <a
         class="listing-row-body"
@@ -208,7 +211,7 @@
     {/if}
     <div class="pub-card-top">
       <div class="pub-card-cover">
-        <Cover {event} enlargeOnClick />
+        <Cover {event} {enlargeOnClick} />
       </div>
       <div class="pub-card-body">
         <p class="pub-card-kind muted">{kindLabel}</p>
