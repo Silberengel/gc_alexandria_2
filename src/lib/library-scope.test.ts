@@ -4,7 +4,9 @@ import {
   isLibraryComment,
   isLibraryHighlight,
   newestCommentPerWork,
-  newestHighlightPerAddress
+  newestHighlightPerAddress,
+  parseAddress,
+  parseEventCoordinate
 } from './library-scope';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'tags'>): Event {
@@ -20,6 +22,35 @@ function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'tags'>): Event {
 
 const pubA = `30040:${'1'.repeat(64)}:jane-eyre`;
 const noteA = `1:${'2'.repeat(64)}:`;
+
+describe('parseEventCoordinate', () => {
+  const pk = '573634b648634cbad10f2451776089ea21090d9407f715e83c577b4611ae6edc';
+
+  it('parses addressable kind:pubkey:d and replaceable kind:pubkey', () => {
+    expect(
+      parseEventCoordinate(
+        `30041:${pk}:the-epistle-of-paul-the-apostle-to-the-romans.-chapter-14-14-by-cambridge-v-king-james-version`
+      )
+    ).toEqual({
+      kind: 30041,
+      pubkey: pk,
+      d: 'the-epistle-of-paul-the-apostle-to-the-romans.-chapter-14-14-by-cambridge-v-king-james-version'
+    });
+    expect(parseEventCoordinate(`10111:${pk}`)).toEqual({ kind: 10111, pubkey: pk, d: '' });
+    expect(parseAddress(`10111:${pk}`)).toBeNull();
+    expect(parseAddress(`30041:${pk}:romans-14`)).toEqual({
+      kind: 30041,
+      pubkey: pk,
+      d: 'romans-14'
+    });
+  });
+
+  it('rejects non-coordinates', () => {
+    expect(parseEventCoordinate('mansfield park')).toBeNull();
+    expect(parseEventCoordinate('gutenberg:123')).toBeNull();
+    expect(parseEventCoordinate(`1:not-a-pubkey`)).toBeNull();
+  });
+});
 
 describe('library-scope', () => {
   it('keeps comments rooted on publications or wikis', () => {

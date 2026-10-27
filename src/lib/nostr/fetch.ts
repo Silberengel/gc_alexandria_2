@@ -3,7 +3,7 @@ import { KIND } from '../constants';
 import { isEventDeleted } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { preferRicherEvent, publicationSectionCount } from '../metadata';
-import { parseAddress } from '../library-scope';
+import { parseAddress, parseEventCoordinate } from '../library-scope';
 import { cacheDeleteEvent, cacheFindByAddress, cacheGetEvent } from './cache';
 import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
 import { authorOutbox, withPreferredRelays } from './mailboxes';
@@ -221,14 +221,17 @@ export async function fetchByAddress(
 ): Promise<Event | null> {
   let cached: Event | null = null;
   try {
-    const parsed = parseAddress(coord);
+    // Addressable `kind:pk:d` or replaceable `kind:pk` (empty d).
+    const parsed = parseEventCoordinate(coord) ?? parseAddress(coord);
     if (!parsed) return null;
-    cached = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
-    if (!cached) {
-      try {
-        cached = await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
-      } catch {
-        cached = null;
+    if (parsed.d) {
+      cached = memoryFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+      if (!cached) {
+        try {
+          cached = await cacheFindByAddress(parsed.kind, parsed.pubkey, parsed.d);
+        } catch {
+          cached = null;
+        }
       }
     }
     if (cached && isSyntheticPlaceholder(cached)) cached = null;
@@ -239,6 +242,7 @@ export async function fetchByAddress(
 
     // Always include the raw d (NIP-B0 bookmark URLs, paths with `/`, etc.).
     // Wiki-style normalizeDTag alone would query `www-sec-gov…` and miss the event.
+    // Replaceable `kind:pubkey` omits `#d` (one live event per author+kind).
     const rawD = parsed.d.trim();
     const dValues = rawD ? [rawD] : [];
     for (const v of dTagVariants(rawD)) {
@@ -249,9 +253,9 @@ export async function fetchByAddress(
     const filter: Filter = {
       kinds: [parsed.kind],
       authors: [parsed.pubkey],
-      '#d': dValues.slice(0, 12),
       limit: 5
     };
+    if (dValues.length) filter['#d'] = dValues.slice(0, 12);
     const pick = (events: Event[]) =>
       pickBestAddressable(events, parsed.kind, parsed.pubkey.toLowerCase());
     // Citadel-only books: skip Mercury so a hung/empty /filter cannot stall the a-tag walk.

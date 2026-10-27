@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { suggestTitles, npubFromInput, isNsec } from '$lib/search';
+  import { suggestTitles, npubFromInput, isNsec, exactEventQuery } from '$lib/search';
 
   interface Props {
     /** Extra class on the form (e.g. page-level layout). */
@@ -43,7 +43,7 @@
     suggestions = [];
     if (timer) clearTimeout(timer);
     const q = query.trim();
-    if (q.length < 2 || isNsec(q)) return;
+    if (q.length < 2 || isNsec(q) || exactEventQuery(q)) return;
     timer = setTimeout(() => {
       void suggestTitles(q).then((hits) => {
         suggestions = hits.slice(0, 8);

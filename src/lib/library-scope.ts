@@ -31,14 +31,30 @@ export function pubkeyFromCoordinateSegment(segment: string): string | null {
   }
 }
 
-export function parseAddress(coord: string): { kind: number; pubkey: string; d: string } | null {
-  const parts = coord.split(':');
-  if (parts.length < 3) return null;
+/**
+ * NIP-01 coordinate: `kind:pubkey:d` (addressable) or `kind:pubkey` (replaceable).
+ * Pubkey segment may be 64-hex or `npub1…`. Accepts an optional `nostr:` prefix.
+ */
+export function parseEventCoordinate(
+  coord: string
+): { kind: number; pubkey: string; d: string } | null {
+  const raw = coord.trim().replace(/^nostr:/i, '');
+  if (!raw.includes(':')) return null;
+  const parts = raw.split(':');
+  if (parts.length < 2) return null;
   const kind = Number(parts[0]);
+  if (!Number.isInteger(kind) || kind < 0) return null;
   const pubkey = pubkeyFromCoordinateSegment(parts[1] ?? '');
-  const d = parts.slice(2).join(':');
-  if (!Number.isInteger(kind) || !pubkey || !d) return null;
+  if (!pubkey) return null;
+  const d = parts.length === 2 ? '' : parts.slice(2).join(':');
   return { kind, pubkey, d };
+}
+
+/** Addressable `kind:pubkey:d` with a non-empty d (library a-tags, naddr). */
+export function parseAddress(coord: string): { kind: number; pubkey: string; d: string } | null {
+  const parsed = parseEventCoordinate(coord);
+  if (!parsed || !parsed.d) return null;
+  return parsed;
 }
 
 /**

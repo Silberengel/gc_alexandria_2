@@ -11,7 +11,7 @@ describe('normalizeSearchKey', () => {
 });
 
 describe('exactEventQuery', () => {
-  it('recognizes note, nevent, naddr, and hex ids, including a nostr: prefix', () => {
+  it('recognizes note, nevent, naddr, hex, and kind:pubkey[:d] coordinates', () => {
     const id = 'ab'.repeat(32);
     const nevent = nip19.neventEncode({ id });
     const note = nip19.noteEncode(id);
@@ -20,7 +20,15 @@ describe('exactEventQuery', () => {
     expect(exactEventQuery(`nostr:${note}`)).toBe('note');
     expect(exactEventQuery(naddr)).toBe('naddr');
     expect(exactEventQuery(id)).toBe('hex');
+    expect(
+      exactEventQuery(
+        `30041:${id}:the-epistle-of-paul-the-apostle-to-the-romans.-chapter-14-14-by-cambridge-v-king-james-version`
+      )
+    ).toBe('coord');
+    expect(exactEventQuery(`10111:${id}`)).toBe('coord');
+    expect(exactEventQuery(`nostr:10111:${id}`)).toBe('coord');
     expect(exactEventQuery('mansfield park')).toBeNull();
+    expect(exactEventQuery('gutenberg:123')).toBeNull();
   });
 });
 

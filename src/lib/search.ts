@@ -18,6 +18,7 @@ import {
   type GrapevineTrustContext
 } from './grapevine-rank';
 import { hasKnownRank } from './nip85-trusted-assertions';
+import { parseEventCoordinate } from './library-scope';
 import { hexPubkey, npubFromInput, preferRicherEvent, publicationSectionCount, sortSearchResults } from './metadata';
 import { followPubkeysFromMetadata, muteState } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
@@ -217,10 +218,13 @@ export function isNsec(input: string): boolean {
   }
 }
 
-/** note / nevent / naddr / 64-hex. These are lookups, not catalog text search. */
-export function exactEventQuery(query: string): 'hex' | 'note' | 'nevent' | 'naddr' | null {
+/** note / nevent / naddr / 64-hex / `kind:pubkey[:d]`. Lookups, not catalog text search. */
+export function exactEventQuery(
+  query: string
+): 'hex' | 'note' | 'nevent' | 'naddr' | 'coord' | null {
   const q = stripNostr(query);
   if (HEX64.test(q)) return 'hex';
+  if (parseEventCoordinate(q)) return 'coord';
   try {
     const decoded = nip19.decode(q);
     if (decoded.type === 'note' || decoded.type === 'nevent' || decoded.type === 'naddr') return decoded.type;
@@ -273,10 +277,14 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
     return;
   }
 
-  if (exactEventQuery(q)) {
+  const exact = exactEventQuery(q);
+  if (exact) {
     onUpdate({ events: [], loading: true, done: false });
     try {
-      const live = HEX64.test(q) ? await fetchByIdOrAuthor(q) : await fetchBech32(nip19.decode(q));
+      let live: Event[] = [];
+      if (exact === 'hex') live = await fetchByIdOrAuthor(q);
+      else if (exact === 'coord') live = await fetchCoordinate(q);
+      else live = await fetchBech32(nip19.decode(q));
       const events = filterDeletedEvents(live);
       rememberEvents(events);
       void cachePutMany(events);
@@ -335,6 +343,16 @@ async function fetchByIdOrAuthor(hex: string): Promise<Event[]> {
   const events = pruneToLatestReplaceables([...byId.values()]);
   await cachePutMany(events);
   return events;
+}
+
+async function fetchCoordinate(raw: string): Promise<Event[]> {
+  const parsed = parseEventCoordinate(stripNostr(raw));
+  if (!parsed) return [];
+  const coord = parsed.d
+    ? `${parsed.kind}:${parsed.pubkey}:${parsed.d}`
+    : `${parsed.kind}:${parsed.pubkey}`;
+  const hit = await fetchByAddress(coord);
+  return hit ? [hit] : [];
 }
 
 async function fetchBech32(
