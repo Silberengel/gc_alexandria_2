@@ -57,10 +57,11 @@
       ? `#${feedThreadPath(event)}`
       : (eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''))
   );
-  /** Directories use an interactive explorer — do not wrap the whole card as a link. */
-  const cardOpens = $derived(
-    event.kind !== KIND.DIRECTORY && (embedded || openAsThread) && Boolean(href)
-  );
+  /**
+   * Search listings: whole card opens the thread (directories are header-only indicators).
+   * Embedded / feed cards that need an interactive explorer keep cardOpens off.
+   */
+  const cardOpens = $derived((embedded || openAsThread) && Boolean(href));
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -80,10 +81,12 @@
   function openCard(e: MouseEvent | KeyboardEvent): void {
     if (!href || !cardOpens) return;
     const target = e.target as Element | null;
-    // Keep media controls and the ⋯ menu usable; everything else opens the event.
+    const directoryIndicator = Boolean(target?.closest?.('.directory-explorer-header-only'));
+    // Keep media controls and the ⋯ menu usable; directory indicators open wholly.
     if (
+      !directoryIndicator &&
       target?.closest?.(
-        'video, audio, .live-stream-player, .event-imeta-btn, .event-more-menu, button'
+        'video, audio, .live-stream-player, .event-imeta-btn, .event-more-menu, button, a'
       )
     ) {
       return;
@@ -215,7 +218,7 @@
       </div>
     </article>
   {:else if event.kind === KIND.DIRECTORY}
-    <DirectoryExplorer {event} showMenu={showMenu} />
+    <DirectoryExplorer {event} showMenu={showMenu} headerOnly={openAsThread || embedded} />
   {:else}
     <GenericCard {event} {embedDepth} {showMenu} />
   {/if}

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import TopBar from '$lib/components/TopBar.svelte';
   import Cover from '$lib/components/Cover.svelte';
   import LandingRefRow from '$lib/components/LandingRefRow.svelte';
   import LandingRatingRow from '$lib/components/LandingRatingRow.svelte';
@@ -593,7 +592,6 @@
   });
 </script>
 
-<TopBar />
 
 <main class="shell shell-wide landing-page">
   <header class="landing-hero">

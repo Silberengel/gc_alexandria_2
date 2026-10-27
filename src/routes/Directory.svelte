@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import TopBar from '$lib/components/TopBar.svelte';
   import DirectoryBrowser from '$lib/components/DirectoryBrowser.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { MY_BOOK_COLLECTION_D_TAG, ROOT_DIRECTORY_D_TAG } from '$lib/bookshelf';
@@ -45,11 +44,10 @@
   });
 </script>
 
-<TopBar />
 <main class="shell reading-body directory-page">
   <header class="page-header">
     <h1>Directory</h1>
-    <p class="muted">
+    <p class="muted directory-lede">
       Unix-style NKBIP-04 folders. Signed-in readers always start at
       <code>/{ROOT_DIRECTORY_D_TAG}</code>
       with

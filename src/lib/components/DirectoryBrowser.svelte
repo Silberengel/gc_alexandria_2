@@ -23,6 +23,12 @@
   import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
   import { parseEventCoordinate } from '$lib/library-scope';
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
+  import {
+    directoryBrowserPrefs,
+    resolvedDirectoryColumnWidth,
+    type DirectoryColumnId,
+    type DirectorySortCol
+  } from '$lib/stores/directory-browser-prefs';
 
   interface Props {
     /** Filesystem top — always the viewer's `/root` directory. */
@@ -35,7 +41,14 @@
   let stack = $state<Event[]>([root]);
   let resolved = $state<Record<string, Event | null>>({});
   let loadingKeys = $state<Record<string, boolean>>({});
-  let sortKey = $state<'name' | 'date'>('name');
+
+  const prefs = $derived($directoryBrowserPrefs);
+  const colWidth = $derived({
+    name: resolvedDirectoryColumnWidth(prefs, 'name'),
+    created: resolvedDirectoryColumnWidth(prefs, 'created'),
+    objects: resolvedDirectoryColumnWidth(prefs, 'objects'),
+    kind: resolvedDirectoryColumnWidth(prefs, 'kind')
+  });
 
   $effect(() => {
     // Keep `/root` at stack[0] when ensureUserHomeDirectories republishes it.
@@ -54,7 +67,7 @@
     }))
   );
 
-  const listing = $derived.by((): Array<{
+  type ListingRow = {
     key: string;
     role: 'folder' | 'file';
     name: string;
@@ -62,25 +75,29 @@
     createdAt: number | null;
     folders: number | null;
     events: number | null;
+    objects: number | null;
     kindLine: string;
     iconClass: string;
     entry?: DirectoryExplorerEntry;
     event?: Event;
-  }> => {
+  };
+
+  const listing = $derived.by((): ListingRow[] => {
     return directoryExplorerEntries(cwd).map((entry) => {
       const hit = resolved[entry.key] ?? undefined;
       if (entry.role === 'folder') {
         const counts = hit ? directoryChildCounts(hit) : null;
+        const folders = counts?.folders ?? null;
+        const events = counts?.events ?? null;
         return {
           key: entry.key,
           role: 'folder' as const,
-          name:
-            (hit ? directoryExplorerTitle(hit) : '') ||
-            entry.label,
+          name: (hit ? directoryExplorerTitle(hit) : '') || entry.label,
           dTag: hit ? directoryDTag(hit) : entry.coordinate?.split(':')[2] || entry.label,
           createdAt: hit?.created_at ?? null,
-          folders: counts?.folders ?? null,
-          events: counts?.events ?? null,
+          folders,
+          events,
+          objects: folders != null && events != null ? folders + events : null,
           kindLine: 'Folder',
           iconClass: 'is-folder',
           entry,
@@ -97,6 +114,7 @@
         createdAt: hit?.created_at ?? null,
         folders: null,
         events: null,
+        objects: null,
         kindLine: directoryEntryKindLine(entry),
         iconClass: directoryEntryIconClass(entry),
         entry,
@@ -108,10 +126,18 @@
   const sortedListing = $derived(
     [...listing].sort((a, b) => {
       if (a.role !== b.role) return a.role === 'folder' ? -1 : 1;
-      if (sortKey === 'date') {
-        return (b.createdAt ?? 0) - (a.createdAt ?? 0);
+      const dir = prefs.sortDir === 'asc' ? 1 : -1;
+      switch (prefs.sortCol) {
+        case 'created':
+          return ((a.createdAt ?? 0) - (b.createdAt ?? 0)) * dir;
+        case 'objects':
+          return ((a.objects ?? -1) - (b.objects ?? -1)) * dir;
+        case 'kind':
+          return a.kindLine.localeCompare(b.kindLine, undefined, { sensitivity: 'base' }) * dir;
+        case 'name':
+        default:
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) * dir;
       }
-      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
     })
   );
 
@@ -179,7 +205,7 @@
     stack = [...stack, ev];
   }
 
-  async function activateRow(row: (typeof sortedListing)[number]): Promise<void> {
+  async function activateRow(row: ListingRow): Promise<void> {
     if (row.role === 'folder') {
       if (row.event) {
         await openFolder(row.event);
@@ -211,12 +237,51 @@
     if (row.entry.eventId) push(`/feed?thread=${row.entry.eventId}`);
   }
 
-  function rowHref(row: (typeof sortedListing)[number]): string {
+  function rowHref(row: ListingRow): string {
     if (row.role === 'folder') return '';
     if (row.event) return directoryChildHref(row.event) ?? '';
     if (row.entry?.coordinate) return directoryCoordinateHref(row.entry.coordinate) ?? '';
     if (row.entry?.eventId) return `#/feed?thread=${row.entry.eventId}`;
     return '';
+  }
+
+  function sortArrow(col: DirectorySortCol): string {
+    if (prefs.sortCol !== col) return '';
+    return prefs.sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  function ariaSort(col: DirectorySortCol): 'ascending' | 'descending' | 'none' {
+    if (prefs.sortCol !== col) return 'none';
+    return prefs.sortDir === 'asc' ? 'ascending' : 'descending';
+  }
+
+  let resizeCol = $state<DirectoryColumnId | null>(null);
+  let resizeStartX = $state(0);
+  let resizeStartW = $state(0);
+
+  function onResizeStart(col: DirectoryColumnId, e: PointerEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeCol = col;
+    resizeStartX = e.clientX;
+    resizeStartW = resolvedDirectoryColumnWidth(prefs, col);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+
+  function onResizeMove(e: PointerEvent): void {
+    if (!resizeCol) return;
+    const next = resizeStartW + (e.clientX - resizeStartX);
+    directoryBrowserPrefs.setWidth(resizeCol, next);
+  }
+
+  function onResizeEnd(e: PointerEvent): void {
+    if (!resizeCol) return;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    resizeCol = null;
   }
 </script>
 
@@ -243,31 +308,100 @@
     <span class="muted dir-browser-cwd">
       /{pathSegments.map((s) => s.name).join('/')}
     </span>
-    <div class="dir-browser-sort" role="group" aria-label="Sort">
-      <button
-        type="button"
-        class="dir-browser-sort-btn"
-        class:is-active={sortKey === 'name'}
-        onclick={() => (sortKey = 'name')}>Name</button
-      >
-      <button
-        type="button"
-        class="dir-browser-sort-btn"
-        class:is-active={sortKey === 'date'}
-        onclick={() => (sortKey = 'date')}>Date</button
-      >
-    </div>
   </div>
 
   <div class="dir-browser-table-wrap">
     <table class="dir-browser-table">
+      <colgroup>
+        <col class="dir-col-icon" style="width: 2rem" />
+        <col style="width: {colWidth.name}px" />
+        <col style="width: {colWidth.created}px" />
+        <col style="width: {colWidth.objects}px" />
+        <col style="width: {colWidth.kind}px" />
+      </colgroup>
       <thead>
         <tr>
           <th class="dir-col-icon" scope="col"><span class="visually-hidden">Type</span></th>
-          <th class="dir-col-name" scope="col">Name</th>
-          <th class="dir-col-date" scope="col">Created</th>
-          <th class="dir-col-num" scope="col">Objects</th>
-          <th class="dir-col-kind" scope="col">Kind</th>
+          <th class="dir-col-name" scope="col" aria-sort={ariaSort('name')}>
+            <button
+              type="button"
+              class="dir-browser-th-btn"
+              class:is-active={prefs.sortCol === 'name'}
+              onclick={() => directoryBrowserPrefs.toggleSort('name')}
+            >
+              Name{sortArrow('name')}
+            </button>
+            <span
+              class="dir-browser-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize name column"
+              onpointerdown={(e) => onResizeStart('name', e)}
+              onpointermove={onResizeMove}
+              onpointerup={onResizeEnd}
+              onpointercancel={onResizeEnd}
+            ></span>
+          </th>
+          <th class="dir-col-date" scope="col" aria-sort={ariaSort('created')}>
+            <button
+              type="button"
+              class="dir-browser-th-btn"
+              class:is-active={prefs.sortCol === 'created'}
+              onclick={() => directoryBrowserPrefs.toggleSort('created')}
+            >
+              Created{sortArrow('created')}
+            </button>
+            <span
+              class="dir-browser-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize created column"
+              onpointerdown={(e) => onResizeStart('created', e)}
+              onpointermove={onResizeMove}
+              onpointerup={onResizeEnd}
+              onpointercancel={onResizeEnd}
+            ></span>
+          </th>
+          <th class="dir-col-num" scope="col" aria-sort={ariaSort('objects')}>
+            <button
+              type="button"
+              class="dir-browser-th-btn"
+              class:is-active={prefs.sortCol === 'objects'}
+              onclick={() => directoryBrowserPrefs.toggleSort('objects')}
+            >
+              Objects{sortArrow('objects')}
+            </button>
+            <span
+              class="dir-browser-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize objects column"
+              onpointerdown={(e) => onResizeStart('objects', e)}
+              onpointermove={onResizeMove}
+              onpointerup={onResizeEnd}
+              onpointercancel={onResizeEnd}
+            ></span>
+          </th>
+          <th class="dir-col-kind" scope="col" aria-sort={ariaSort('kind')}>
+            <button
+              type="button"
+              class="dir-browser-th-btn"
+              class:is-active={prefs.sortCol === 'kind'}
+              onclick={() => directoryBrowserPrefs.toggleSort('kind')}
+            >
+              Kind{sortArrow('kind')}
+            </button>
+            <span
+              class="dir-browser-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize kind column"
+              onpointerdown={(e) => onResizeStart('kind', e)}
+              onpointermove={onResizeMove}
+              onpointerup={onResizeEnd}
+              onpointercancel={onResizeEnd}
+            ></span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -280,10 +414,6 @@
             {@const busy = row.entry ? !!loadingKeys[row.entry.key] : false}
             {@const href = rowHref(row)}
             {@const created = row.createdAt != null ? formatDirectoryGmtParts(row.createdAt) : null}
-            {@const objects =
-              row.role === 'folder' && row.folders != null && row.events != null
-                ? row.folders + row.events
-                : null}
             <tr
               class="dir-browser-row"
               class:is-folder={row.role === 'folder'}
@@ -340,7 +470,7 @@
                 {/if}
               </td>
               <td class="dir-col-num">
-                {row.role === 'folder' ? (objects ?? (busy ? '…' : '—')) : '—'}
+                {row.role === 'folder' ? (row.objects ?? (busy ? '…' : '—')) : '—'}
               </td>
               <td class="dir-col-kind muted">{row.kindLine}</td>
             </tr>

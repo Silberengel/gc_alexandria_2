@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADVANCED_SEARCH_MAX_LIMIT,
+  buildMercurySearchBody,
   clampAdvancedLimit,
   defaultAdvancedSearchRelays,
   encodeAdvancedSearch,
   inferAdvancedSearchMode,
+  mercuryHasQuery,
   normalizeAdvancedFilter,
   normalizeRelayList,
   parseAdvancedSearch,
@@ -116,5 +118,29 @@ describe('advanced search encode/parse', () => {
         relays: ['wss://relay.example']
       })
     ).toBe('relays');
+  });
+
+  it('builds Mercury bodies per target and rejects short wiki/section q', () => {
+    expect(buildMercurySearchBody({ target: 'publications', title: 'Monte' }, 10)).toEqual({
+      limit: 10,
+      title: 'Monte'
+    });
+    expect(buildMercurySearchBody({ target: 'wiki', q: 'a' }, 10)).toBeNull();
+    expect(buildMercurySearchBody({ target: 'wiki', q: 'no', title: 'Nostr' }, 5)).toEqual({
+      limit: 5,
+      q: 'no',
+      title: 'Nostr'
+    });
+    expect(buildMercurySearchBody({ target: 'sections', q: 'abc' }, 10)).toBeNull();
+    expect(buildMercurySearchBody({ target: 'sections', q: 'abcd', d: 'ch1' }, 8)).toEqual({
+      limit: 8,
+      q: 'abcd',
+      d: 'ch1'
+    });
+    expect(
+      buildMercurySearchBody({ target: 'publications', identifier: 'gutenberg:1' }, 10)
+    ).toEqual({ limit: 10, i: 'gutenberg:1' });
+    expect(mercuryHasQuery({ target: 'wiki', author: 'Ada' })).toBe(false);
+    expect(mercuryHasQuery({ target: 'publications', author: 'Ada' })).toBe(true);
   });
 });

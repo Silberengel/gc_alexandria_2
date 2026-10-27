@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { MY_BOOK_COLLECTION_D_TAG } from './bookshelf';
+import { MY_BOOK_COLLECTION_D_TAG, ROOT_DIRECTORY_D_TAG } from './bookshelf';
 import {
+  compareDirectoryListing,
   directoryChildCounts,
   directoryChildHref,
   directoryCoordinateHref,
@@ -13,7 +14,6 @@ import {
   formatDirectoryGmt,
   formatDirectoryGmtParts
 } from './directory-explorer';
-import { ROOT_DIRECTORY_D_TAG } from './bookshelf';
 
 function ev(over: Partial<Event> & { tags?: string[][] }): Event {
   return {
@@ -121,6 +121,44 @@ describe('directoryChildCounts + formatDirectoryGmt', () => {
       time: '14:05:09 GMT'
     });
     expect(formatDirectoryGmt(1705327509)).toBe('Mo 15.01.2024 14:05:09 GMT');
+  });
+});
+
+describe('compareDirectoryListing', () => {
+  it('orders by pubkey, then root before bookshelf before others', () => {
+    const pkA = 'a'.repeat(64);
+    const pkB = 'b'.repeat(64);
+    const aOther = ev({
+      id: '1'.repeat(64),
+      pubkey: pkA,
+      created_at: 100,
+      tags: [['d', 'nested']]
+    });
+    const aRoot = ev({
+      id: '2'.repeat(64),
+      pubkey: pkA,
+      created_at: 50,
+      tags: [['d', ROOT_DIRECTORY_D_TAG]]
+    });
+    const aShelf = ev({
+      id: '3'.repeat(64),
+      pubkey: pkA,
+      created_at: 200,
+      tags: [['d', MY_BOOK_COLLECTION_D_TAG]]
+    });
+    const bRoot = ev({
+      id: '4'.repeat(64),
+      pubkey: pkB,
+      created_at: 10,
+      tags: [['d', ROOT_DIRECTORY_D_TAG]]
+    });
+    const sorted = [bRoot, aOther, aShelf, aRoot].sort(compareDirectoryListing);
+    expect(sorted.map((e) => e.id)).toEqual([
+      aRoot.id,
+      aShelf.id,
+      aOther.id,
+      bRoot.id
+    ]);
   });
 });
 

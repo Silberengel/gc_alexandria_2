@@ -1,5 +1,4 @@
 <script lang="ts">
-  import TopBar from '$lib/components/TopBar.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import Pager from '$lib/components/Pager.svelte';
@@ -924,7 +923,6 @@
   }
 </script>
 
-<TopBar />
 <main class="shell profile-page" class:profile-page-compact={!showReadingDesk && !isKindFiltered}>
   {#if kindInvalid}
     <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
@@ -1180,11 +1178,6 @@
         </div>
       </section>
     {/if}
-    {#if !isKindFiltered}
-      <div class="profile-filter-row profile-filter-row-after-card">
-        <PageFilter bind:value={pageFilter} />
-      </div>
-    {/if}
   {/if}
 
   {#if isKindFiltered && pubkey}
@@ -1212,9 +1205,12 @@
     {#if pubkey && listingsLoading && !visibleProduced.length && !visibleInteracted.length}
       <LoadingHint message="Loading publications…" />
     {/if}
-    {#if visibleProduced.length || visibleInteracted.length}
-      <div class="listing-toolbar listing-toolbar-section">
-        <ListingViewToggle label="Profile listings" />
+    {#if pubkey}
+      <div class="listing-toolbar profile-listings-toolbar">
+        <PageFilter bind:value={pageFilter} />
+        {#if visibleProduced.length || visibleInteracted.length}
+          <ListingViewToggle label="Profile listings" />
+        {/if}
       </div>
     {/if}
     {#if $listingDensity === 'table'}

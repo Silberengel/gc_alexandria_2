@@ -2,7 +2,6 @@
   import type { Event } from 'nostr-tools';
   import { untrack } from 'svelte';
   import { link, location, querystring, replace } from 'svelte-spa-router';
-  import TopBar from '$lib/components/TopBar.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
@@ -14,6 +13,7 @@
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import FeedBoosters from '$lib/components/FeedBoosters.svelte';
+  import { appScrollTo, appScrollY } from '$lib/app-scroll';
   import { KIND } from '$lib/constants';
   import { isNip53Kind, NIP53_KIND, parseLiveStream } from '$lib/nip53';
   import {
@@ -373,7 +373,7 @@
     items = mergeFeedPosts(untrack(() => items), fresh);
     pendingNew = [];
     feedWatermark = feedEventsWatermark(items);
-    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    appScrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
   function watchRow(node: HTMLElement, id: string) {
@@ -571,7 +571,7 @@
 
   function armListRestore(focusId: string): void {
     pendingFocusId = focusId.toLowerCase();
-    savedListScrollY = window.scrollY;
+    savedListScrollY = appScrollY();
     listRestorePending = true;
     shown = { ...shown, [pendingFocusId]: true };
   }
@@ -587,7 +587,7 @@
     const finish = () => {
       if (gen !== listRestoreGen) return;
       // List pane stays mounted (only `hidden`) so saved scrollY matches layout.
-      window.scrollTo({ top: y, left: 0, behavior: 'auto' });
+      appScrollTo({ top: y, left: 0, behavior: 'auto' });
       if (!id) return;
       const el = document.querySelector(`[data-feed-row="${id}"]`);
       if (!(el instanceof HTMLElement)) return;
@@ -612,6 +612,14 @@
   function openThreadForEvent(item: Event, e: MouseEvent, restoreId: string): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
+    /* Directory listing indicators: whole card opens the OP thread. */
+    if (target.closest('.directory-explorer-header-only')) {
+      armListRestore(restoreId);
+      warmNavEvent(item);
+      void replace(feedOpenPath(item));
+      queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
+      return;
+    }
     if (
       target.closest(
         'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge, .directory-explorer'
@@ -629,7 +637,7 @@
       warmNavEvent(item);
     }
     void replace(feedOpenPath(item));
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   function openThreadForTargetId(targetId: string, e: MouseEvent, warm?: Event | null): void {
@@ -642,13 +650,13 @@
       ? feedThreadPath(warm, feedTab, { author: feedAuthor })
       : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
     void replace(path);
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   function openThreadLink(item: Event, restoreId = item.id): void {
     armListRestore(restoreId);
     warmNavEvent(item);
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   $effect(() => {
@@ -1013,7 +1021,6 @@
   });
 </script>
 
-<TopBar />
 <main class="shell reading-body feed-page">
   {#if pointer}
     <div class="feed-thread-pane">
@@ -1234,7 +1241,7 @@
                 <FeedBoosters boosts={row.boosts} targetId={item.id} />
                 {#if item.kind === KIND.DIRECTORY}
                   <div class="feed-body feed-body-directory">
-                    <DirectoryExplorer event={item} showMenu={false} />
+                    <DirectoryExplorer event={item} showMenu={false} headerOnly />
                   </div>
                 {:else}
                   <div class="thread-head">

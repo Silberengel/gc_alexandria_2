@@ -6,7 +6,7 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import { KIND } from '$lib/constants';
-  import { MAX_BOOKSHELF_DEPTH } from '$lib/bookshelf';
+  import { directoryDTag, MAX_BOOKSHELF_DEPTH } from '$lib/bookshelf';
   import {
     directoryChildHref,
     directoryCoordinateHref,
@@ -32,6 +32,11 @@
     showMenu?: boolean;
     /** Compact chrome for nested folders. */
     nested?: boolean;
+    /**
+     * Listing / search card: title + meta only (no children).
+     * Whole card click opens the feed thread.
+     */
+    headerOnly?: boolean;
   }
 
   let {
@@ -39,10 +44,12 @@
     depth = 0,
     pathCoords = [],
     showMenu = true,
-    nested = false
+    nested = false,
+    headerOnly = false
   }: Props = $props();
 
   const title = $derived(directoryExplorerTitle(event));
+  const dTag = $derived(directoryDTag(event));
   const entries = $derived(directoryExplorerEntries(event));
   const relative = $derived(formatRelativeTime(event.created_at));
   const absolute = $derived(formatAbsoluteTime(event.created_at));
@@ -134,6 +141,7 @@
   }
 
   onMount(() => {
+    if (headerOnly) return;
     // Prefetch first wave of children so labels can upgrade from d-slugs to titles.
     void (async () => {
       for (const entry of entries.slice(0, 24)) {
@@ -162,13 +170,19 @@
 <section
   class="directory-explorer"
   class:directory-explorer-nested={nested}
+  class:directory-explorer-header-only={headerOnly}
   aria-label={title}
 >
   {#if !nested}
     <header class="directory-explorer-head">
       <span class="directory-explorer-folder-icon" aria-hidden="true"></span>
       <div class="directory-explorer-titles">
-        <h2 class="directory-explorer-title">{title}</h2>
+        <div class="directory-explorer-title-row">
+          <h2 class="directory-explorer-title">{title}</h2>
+          {#if dTag}
+            <span class="directory-explorer-dtag">{dTag}</span>
+          {/if}
+        </div>
         <p class="directory-explorer-meta muted">
           <UserBadge pubkey={event.pubkey} />
           <time datetime={new Date(event.created_at * 1000).toISOString()} title={absolute}
@@ -178,13 +192,15 @@
           <span>{entries.length} {entries.length === 1 ? 'item' : 'items'}</span>
         </p>
       </div>
-      {#if showMenu}
+      {#if showMenu && !headerOnly}
         <CopyPointerButton {event} class="directory-explorer-copy" />
       {/if}
     </header>
   {/if}
 
-  {#if entries.length === 0}
+  {#if headerOnly}
+    <!-- Listing indicator — children load on the feed thread. -->
+  {:else if entries.length === 0}
     <p class="muted directory-explorer-empty">This folder is empty.</p>
   {:else}
     <ul class="directory-explorer-list" role="tree">

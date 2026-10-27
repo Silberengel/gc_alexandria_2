@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { link } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
-  import TopBar from '$lib/components/TopBar.svelte';
   import WikiListRow from '$lib/components/WikiListRow.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { loadWikiRecent } from '$lib/wiki-hub';
@@ -21,7 +20,6 @@
   });
 </script>
 
-<TopBar showSearch={false} />
 <main class="shell wiki-hub wiki-hub-subpage">
   <header class="page-header">
     <p class="muted"><a href="#/wiki" use:link>← Wiki</a></p>

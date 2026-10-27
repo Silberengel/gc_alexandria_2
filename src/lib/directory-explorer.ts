@@ -123,6 +123,27 @@ export function directoryExplorerEntries(dir: Pick<Event, 'tags'>): DirectoryExp
   return out;
 }
 
+/** Rank within one author's directories: `/root` first, then bookshelf, then others. */
+export function directoryHomeRank(event: Pick<Event, 'tags'>): number {
+  const d = directoryDTag(event);
+  if (d === ROOT_DIRECTORY_D_TAG) return 0;
+  if (d === MY_BOOK_COLLECTION_D_TAG) return 1;
+  return 2;
+}
+
+/**
+ * Sort directories by pubkey, with each author's `/root` first (then my-book-collection),
+ * then newest within the same rank.
+ */
+export function compareDirectoryListing(a: Event, b: Event): number {
+  const byPk = a.pubkey.toLowerCase().localeCompare(b.pubkey.toLowerCase());
+  if (byPk !== 0) return byPk;
+  const byHome = directoryHomeRank(a) - directoryHomeRank(b);
+  if (byHome !== 0) return byHome;
+  if (a.created_at !== b.created_at) return b.created_at - a.created_at;
+  return a.id.localeCompare(b.id);
+}
+
 /** Display title for a directory (title tag, then known d-tags, then d / fallback). */
 export function directoryExplorerTitle(event: Event): string {
   const d = directoryDTag(event);

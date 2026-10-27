@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { link } from 'svelte-spa-router';
-  import TopBar from '$lib/components/TopBar.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import BooklistAvatar from '$lib/components/BooklistAvatar.svelte';
   import {
@@ -92,7 +91,6 @@
   });
 </script>
 
-<TopBar />
 <main class="shell settings-shell booklists-page">
   <header class="page-header">
     <p class="page-kicker">Library</p>

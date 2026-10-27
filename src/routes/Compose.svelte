@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Event as NostrEvent } from 'nostr-tools';
   import { push, querystring } from 'svelte-spa-router';
-  import TopBar from '$lib/components/TopBar.svelte';
   import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
   import EventBody from '$lib/components/EventBody.svelte';
@@ -1461,7 +1460,6 @@
 </script>
 
 <div class="compose-screen" inert={advancedOpen}>
-<TopBar />
 <main class="shell reading-body compose-page">
   <header class="page-header">
     <p class="page-kicker">Publish</p>

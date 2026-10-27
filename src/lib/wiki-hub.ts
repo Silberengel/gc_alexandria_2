@@ -62,10 +62,11 @@ export async function pickRandomWikiPage(): Promise<Event | null> {
 export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
   const query = q.trim();
   if (!query) return [];
+  // Wiki search requires `q` (min 2); title/d are optional filters on the same endpoint.
   const [byQ, byTitle, byD, relays] = await Promise.all([
     mercuryWikiSearch({ q: query, limit }).catch(() => [] as Event[]),
-    mercuryWikiSearch({ title: query, limit }).catch(() => [] as Event[]),
-    mercuryWikiSearch({ d: query, limit }).catch(() => [] as Event[]),
+    mercuryWikiSearch({ q: query, title: query, limit }).catch(() => [] as Event[]),
+    mercuryWikiSearch({ q: query, d: query, limit }).catch(() => [] as Event[]),
     relayPool
       .query(wikiStack(), [{ kinds: [...WIKI_KINDS], search: query, limit }], 4000)
       .catch(() => [] as Event[])

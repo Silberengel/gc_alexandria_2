@@ -8,11 +8,14 @@
     defaultAdvancedSearchRelays,
     encodeAdvancedSearch,
     inferAdvancedSearchMode,
+    mercuryMinQLength,
+    normalizeMercuryTarget,
     parseKindsInput,
     unixToDatetimeLocal,
     type AdvancedSearchMode,
     type AdvancedSearchRequest,
-    type MercurySearchFields
+    type MercurySearchFields,
+    type MercurySearchTarget
   } from '$lib/advanced-search';
   import { hexPubkey } from '$lib/metadata';
   import { parseEventIdToken } from '$lib/advanced-search';
@@ -46,17 +49,24 @@
   let tagTT = $state<string[]>(['']);
   let tagK = $state<string[]>(['']);
   let extraTags = $state<string[][]>([['', '']]);
+  let mercuryTarget = $state<MercurySearchTarget>('publications');
   let mercuryQ = $state('');
   let mercuryTitle = $state('');
   let mercuryAuthor = $state('');
-  let mercuryLanguage = $state('');
-  let mercurySubject = $state('');
   let mercuryD = $state('');
-  let mercuryIdentifier = $state('');
+  let mercuryT = $state('');
+  let mercuryS = $state('');
+  let mercuryI = $state('');
   let mercuryLimit = $state(ADVANCED_SEARCH_MAX_LIMIT);
   let relays = $state<string[]>(['']);
   let relaysDirty = $state(false);
   let error = $state('');
+
+  const mercuryQMin = $derived(mercuryMinQLength(mercuryTarget));
+  const showMercuryAuthor = $derived(mercuryTarget === 'publications');
+  const showMercuryS = $derived(mercuryTarget === 'publications' || mercuryTarget === 'wiki');
+  const showMercuryI = $derived(mercuryTarget === 'publications' || mercuryTarget === 'wiki');
+  const mercuryQRequired = $derived(mercuryQMin > 0);
 
   function asRows(values: string[] | undefined): string[] {
     return values?.length ? [...values] : [''];
@@ -92,8 +102,9 @@
   }
 
   function resetMercuryFields(): void {
-    mercuryQ = mercuryTitle = mercuryAuthor = mercuryLanguage = '';
-    mercurySubject = mercuryD = mercuryIdentifier = '';
+    mercuryTarget = 'publications';
+    mercuryQ = mercuryTitle = mercuryAuthor = '';
+    mercuryD = mercuryT = mercuryS = mercuryI = '';
     mercuryLimit = ADVANCED_SEARCH_MAX_LIMIT;
   }
 
@@ -132,13 +143,14 @@
     }
     extraTags = extras.length ? extras : [['', '']];
     const m = req.mercury ?? {};
+    mercuryTarget = normalizeMercuryTarget(m.target);
     mercuryQ = m.q ?? '';
     mercuryTitle = m.title ?? '';
     mercuryAuthor = m.author ?? '';
-    mercuryLanguage = m.language ?? '';
-    mercurySubject = m.subject ?? '';
     mercuryD = m.d ?? '';
-    mercuryIdentifier = m.identifier ?? '';
+    mercuryT = m.T ?? '';
+    mercuryS = m.s ?? '';
+    mercuryI = m.i ?? m.identifier ?? '';
     relays = asRows(req.relays?.length ? req.relays : defaultAdvancedSearchRelays(f));
     relaysDirty = true;
   }
@@ -240,18 +252,32 @@
   }
 
   function buildMercuryRequest(): AdvancedSearchRequest | null {
-    const mercury: MercurySearchFields = {};
+    const mercury: MercurySearchFields = { target: mercuryTarget };
     if (mercuryQ.trim()) mercury.q = mercuryQ.trim();
     if (mercuryTitle.trim()) mercury.title = mercuryTitle.trim();
-    if (mercuryAuthor.trim()) mercury.author = mercuryAuthor.trim();
-    if (mercuryLanguage.trim()) mercury.language = mercuryLanguage.trim();
-    if (mercurySubject.trim()) mercury.subject = mercurySubject.trim();
+    if (showMercuryAuthor && mercuryAuthor.trim()) mercury.author = mercuryAuthor.trim();
     if (mercuryD.trim()) mercury.d = mercuryD.trim();
-    if (mercuryIdentifier.trim()) mercury.identifier = mercuryIdentifier.trim();
-    if (!Object.keys(mercury).length) {
-      error = 'Set at least one Mercury field';
+    if (mercuryT.trim()) mercury.T = mercuryT.trim();
+    if (showMercuryS && mercuryS.trim()) mercury.s = mercuryS.trim();
+    if (showMercuryI && mercuryI.trim()) mercury.i = mercuryI.trim();
+
+    const minQ = mercuryMinQLength(mercuryTarget);
+    if (minQ > 0 && (mercury.q?.length ?? 0) < minQ) {
+      error =
+        mercuryTarget === 'sections'
+          ? 'Sections search needs a query of at least 4 characters.'
+          : 'Wiki search needs a query of at least 2 characters.';
       return null;
     }
+
+    const searchable = Object.entries(mercury).filter(
+      ([k, v]) => k !== 'target' && typeof v === 'string' && v.trim()
+    );
+    if (!searchable.length) {
+      error = 'Set at least one Mercury search field';
+      return null;
+    }
+
     return {
       mercury,
       filter: { limit: clampAdvancedLimit(mercuryLimit) },
@@ -385,27 +411,121 @@
       </fieldset>
     {:else}
       <p class="muted advanced-search-lede">
-        Search GitCitadel Mercury by title, author, language, and related document fields.
+        Query GitCitadel Mercury’s typed search APIs (no relay list). Pick a target — each maps to one
+        endpoint and only its accepted fields.
       </p>
 
+      <div class="advanced-search-modes" role="tablist" aria-label="Mercury search target">
+        <button
+          type="button"
+          role="tab"
+          class="advanced-search-mode"
+          class:active={mercuryTarget === 'publications'}
+          aria-selected={mercuryTarget === 'publications'}
+          onclick={() => (mercuryTarget = 'publications')}
+        >
+          Publications
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="advanced-search-mode"
+          class:active={mercuryTarget === 'sections'}
+          aria-selected={mercuryTarget === 'sections'}
+          onclick={() => (mercuryTarget = 'sections')}
+        >
+          Sections
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="advanced-search-mode"
+          class:active={mercuryTarget === 'wiki'}
+          aria-selected={mercuryTarget === 'wiki'}
+          onclick={() => (mercuryTarget = 'wiki')}
+        >
+          Wiki
+        </button>
+      </div>
+
       <fieldset class="advanced-search-fieldset">
-        <legend>Mercury fields</legend>
+        <legend>
+          {#if mercuryTarget === 'publications'}
+            /api/publications/search
+          {:else if mercuryTarget === 'sections'}
+            /api/publications/sections/search
+          {:else}
+            /api/wiki/search
+          {/if}
+        </legend>
+        <p class="muted advanced-search-hint">
+          {#if mercuryTarget === 'publications'}
+            Kind 30040 indexes — <code>d</code>/<code>T</code>/<code>N</code>/<code>s</code>/<code>i</code>
+            plus <code>title</code>/<code>author</code>.
+          {:else if mercuryTarget === 'sections'}
+            Kind 30041 sections — body search requires <code>q</code> (min 4 chars), plus
+            <code>d</code>/<code>T</code>/<code>title</code>.
+          {:else}
+            Kind 30818 wiki — content search requires <code>q</code> (min 2 chars), plus
+            <code>d</code>/<code>T</code>/<code>s</code>/<code>i</code>/<code>title</code>.
+          {/if}
+        </p>
         <div class="advanced-search-row">
-          <label><span>q</span><input type="text" bind:value={mercuryQ} placeholder="full-text" /></label>
-          <label><span>title</span><input type="text" bind:value={mercuryTitle} /></label>
-          <label><span>author</span><input type="text" bind:value={mercuryAuthor} /></label>
-          <label><span>language</span><input type="text" bind:value={mercuryLanguage} /></label>
-          <label><span>subject</span><input type="text" bind:value={mercurySubject} /></label>
-          <label><span>d</span><input type="text" bind:value={mercuryD} /></label>
-          <label><span>identifier</span><input type="text" bind:value={mercuryIdentifier} /></label>
+          <label>
+            <span>q{#if mercuryQRequired}*{/if}</span>
+            <input
+              type="text"
+              bind:value={mercuryQ}
+              placeholder={mercuryTarget === 'sections'
+                ? 'body text (min 4)'
+                : mercuryTarget === 'wiki'
+                  ? 'content (min 2)'
+                  : 'optional full-text'}
+              minlength={mercuryQMin || undefined}
+              required={mercuryQRequired}
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            <span>title</span>
+            <input type="text" bind:value={mercuryTitle} autocomplete="off" />
+          </label>
+          {#if showMercuryAuthor}
+            <label>
+              <span>author</span>
+              <input type="text" bind:value={mercuryAuthor} placeholder="name" autocomplete="off" />
+            </label>
+          {/if}
+          <label>
+            <span>d</span>
+            <input type="text" bind:value={mercuryD} placeholder="d-tag" autocomplete="off" />
+          </label>
+          <label>
+            <span>T</span>
+            <input type="text" bind:value={mercuryT} placeholder="#T type" autocomplete="off" />
+          </label>
+          {#if showMercuryS}
+            <label>
+              <span>s</span>
+              <input type="text" bind:value={mercuryS} placeholder="#s source URL" autocomplete="off" />
+            </label>
+          {/if}
+          {#if showMercuryI}
+            <label>
+              <span>i</span>
+              <input
+                type="text"
+                bind:value={mercuryI}
+                placeholder="#i id (e.g. gutenberg:1184)"
+                autocomplete="off"
+              />
+            </label>
+          {/if}
           <label>
             <span>Limit</span>
             <input type="number" min="1" max={ADVANCED_SEARCH_MAX_LIMIT} bind:value={mercuryLimit} />
           </label>
         </div>
-        <p class="muted advanced-search-hint">
-          Runs publication, wiki, and section searches on Mercury (no relay list).
-        </p>
       </fieldset>
     {/if}
 

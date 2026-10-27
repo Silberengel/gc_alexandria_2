@@ -13,6 +13,7 @@ import { relayPool } from './nostr/pool';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { forestRelay, getSelectorContext, socialStack } from './nostr/selector';
 import { firstTag } from './nostr/verify';
+import { compareDirectoryListing } from './directory-explorer';
 
 const HEX_ID = /^[0-9a-f]{64}$/i;
 
@@ -384,7 +385,12 @@ export async function recallFeedPosts(): Promise<Event[]> {
 }
 
 function sortFeedEvents(events: Event[]): Event[] {
-  return pruneToLatestReplaceables(events).sort((a, b) => b.created_at - a.created_at);
+  return pruneToLatestReplaceables(events).sort((a, b) => {
+    if (a.kind === KIND.DIRECTORY && b.kind === KIND.DIRECTORY) {
+      return compareDirectoryListing(a, b);
+    }
+    return b.created_at - a.created_at;
+  });
 }
 
 /** Newest original posts from the session's feed relays, plus follows' notes when signed in. */

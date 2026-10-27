@@ -113,7 +113,24 @@ export function parsePublicationExportNdjson(text: string, source = MERCURY_WSS)
 
 const JSON_HEADERS = { Accept: 'application/json', 'Content-Type': 'application/json' };
 
-const SEARCH_FIELDS = ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const;
+/**
+ * Fields that count as a non-empty Mercury typed query.
+ * Advanced Search UI only exposes the documented subset per target; general
+ * search may still pass legacy `language` / `subject` bodies.
+ */
+const SEARCH_FIELDS = [
+  'q',
+  'title',
+  'author',
+  'd',
+  'T',
+  'N',
+  's',
+  'i',
+  'identifier',
+  'language',
+  'subject'
+] as const;
 
 /** Hard cap so a hung Mercury TCP never blocks landing paint for minutes. */
 const MERCURY_FETCH_TIMEOUT_MS = 4_000;
@@ -255,10 +272,12 @@ export async function mercuryPublicationSearch(query: Record<string, unknown>): 
 }
 
 export async function mercuryWikiSearch(query: Record<string, unknown>): Promise<Event[]> {
+  const q = typeof query.q === 'string' ? query.q.trim() : '';
+  if (q.length < 2) return [];
   const res = await mercuryRequest('/api/wiki/search', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ limit: 100, ...query })
+    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query, q })
   });
   if (!res?.ok) return [];
   try {
@@ -269,10 +288,12 @@ export async function mercuryWikiSearch(query: Record<string, unknown>): Promise
 }
 
 export async function mercurySectionSearch(query: Record<string, unknown>): Promise<Event[]> {
+  const q = typeof query.q === 'string' ? query.q.trim() : '';
+  if (q.length < 4) return [];
   const res = await mercuryRequest('/api/publications/sections/search', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ limit: 100, ...query })
+    body: JSON.stringify({ limit: Math.min(100, Number(query.limit) || 100), ...query, q })
   });
   if (!res?.ok) return [];
   try {

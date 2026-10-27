@@ -9,9 +9,41 @@ import { normalizeWebSocketRelay } from './nostr/relay-filters';
 import { documentStack, socialStack } from './nostr/selector';
 import { kindDescription } from './kind-label';
 
-export type MercurySearchFields = Partial<
-  Record<'q' | 'title' | 'author' | 'language' | 'subject' | 'd' | 'identifier' | 's', string>
->;
+/**
+ * Mercury typed-search target — maps 1:1 to a REST endpoint:
+ * - publications → POST /api/publications/search (kind 30040)
+ * - sections → POST /api/publications/sections/search (kind 30041)
+ * - wiki → POST /api/wiki/search (kind 30818)
+ */
+export type MercurySearchTarget = 'publications' | 'sections' | 'wiki';
+
+/**
+ * Body fields accepted by Mercury search endpoints (v0.2.43).
+ * Legacy `identifier` / `language` / `subject` may appear in old `adv=` URLs;
+ * {@link normalizeMercury} maps or drops them.
+ */
+export type MercurySearchFields = {
+  target?: MercurySearchTarget;
+  q?: string;
+  title?: string;
+  /** Publications only (`author` → N+author). */
+  author?: string;
+  d?: string;
+  /** Title-type / taxonomy tag (`#T`). */
+  T?: string;
+  /** Author-name tag (`#N`) — publications; prefer `author` in the UI. */
+  N?: string;
+  /** Source / URL tag (`#s`) — publications + wiki. */
+  s?: string;
+  /** External id tag (`#i`) — publications + wiki. */
+  i?: string;
+  /** @deprecated Prefer `i`. Kept for old share links. */
+  identifier?: string;
+  /** @deprecated Not on current Mercury search APIs. */
+  language?: string;
+  /** @deprecated Not on current Mercury search APIs. */
+  subject?: string;
+};
 
 export type AdvancedSearchRequest = {
   filter?: Filter;
@@ -19,6 +51,29 @@ export type AdvancedSearchRequest = {
   /** Relays queried on the relay leg (always filled on submit / after parse). */
   relays: string[];
 };
+
+const MERCURY_TARGETS = new Set<MercurySearchTarget>(['publications', 'sections', 'wiki']);
+
+/** Fields each Mercury search endpoint documents / accepts. */
+export const MERCURY_TARGET_FIELDS: Record<
+  MercurySearchTarget,
+  readonly (keyof MercurySearchFields)[]
+> = {
+  publications: ['q', 'title', 'author', 'd', 'T', 'N', 's', 'i'],
+  sections: ['q', 'title', 'd', 'T'],
+  wiki: ['q', 'title', 'd', 'T', 's', 'i']
+};
+
+/** Minimum `q` length enforced by Mercury (sections is stricter). */
+export function mercuryMinQLength(target: MercurySearchTarget): number {
+  return target === 'sections' ? 4 : target === 'wiki' ? 2 : 0;
+}
+
+export function normalizeMercuryTarget(raw: unknown): MercurySearchTarget {
+  return MERCURY_TARGETS.has(raw as MercurySearchTarget)
+    ? (raw as MercurySearchTarget)
+    : 'publications';
+}
 
 export const ADVANCED_SEARCH_MAX_RELAYS = 20;
 export const ADVANCED_SEARCH_MAX_LIMIT = 100;
@@ -146,7 +201,50 @@ export function filterHasQueryKeys(filter: Filter | undefined): boolean {
 
 export function mercuryHasQuery(mercury: MercurySearchFields | undefined): boolean {
   if (!mercury) return false;
-  return Object.values(mercury).some((v) => typeof v === 'string' && v.trim().length > 0);
+  const target = normalizeMercuryTarget(mercury.target);
+  const allowed = new Set(MERCURY_TARGET_FIELDS[target]);
+  for (const key of allowed) {
+    const v = mercury[key];
+    if (typeof v === 'string' && v.trim()) return true;
+  }
+  // Legacy share links.
+  if (mercury.identifier?.trim() && allowed.has('i')) return true;
+  return false;
+}
+
+/**
+ * Build the POST body for one Mercury search endpoint.
+ * Returns null when the target has no usable query (or required `q` is too short).
+ */
+export function buildMercurySearchBody(
+  mercury: MercurySearchFields,
+  limit = ADVANCED_SEARCH_MAX_LIMIT
+): Record<string, unknown> | null {
+  const target = normalizeMercuryTarget(mercury.target);
+  const allowed = new Set(MERCURY_TARGET_FIELDS[target]);
+  const body: Record<string, unknown> = {
+    limit: clampAdvancedLimit(limit)
+  };
+  for (const key of MERCURY_TARGET_FIELDS[target]) {
+    if (key === 'target') continue;
+    const v = mercury[key]?.trim();
+    if (v) body[key] = v;
+  }
+  // Map legacy identifier → i when the target supports i.
+  if (!body.i && mercury.identifier?.trim() && allowed.has('i')) {
+    body.i = mercury.identifier.trim();
+  }
+  const minQ = mercuryMinQLength(target);
+  const q = typeof body.q === 'string' ? body.q : '';
+  if (minQ > 0) {
+    if (q.length < minQ) return null;
+  } else if (Object.keys(body).length <= 1) {
+    // publications: need at least one search field besides limit
+    return null;
+  }
+  // Drop empty q so publications metadata-only queries stay valid.
+  if (!q) delete body.q;
+  return body;
 }
 
 export function advancedSearchHasQuery(req: Partial<AdvancedSearchRequest>): boolean {
@@ -241,12 +339,20 @@ export function normalizeAdvancedFilter(raw: Filter | undefined): Filter {
 
 function normalizeMercury(raw: MercurySearchFields | undefined): MercurySearchFields | undefined {
   if (!raw) return undefined;
-  const out: MercurySearchFields = {};
-  for (const key of ['q', 'title', 'author', 'language', 'subject', 'd', 'identifier', 's'] as const) {
+  const target = normalizeMercuryTarget(raw.target);
+  const out: MercurySearchFields = { target };
+  const allowed = new Set(MERCURY_TARGET_FIELDS[target]);
+  for (const key of MERCURY_TARGET_FIELDS[target]) {
     const v = raw[key]?.trim();
     if (v) out[key] = v;
   }
-  return Object.keys(out).length ? out : undefined;
+  // Legacy identifier → i
+  const ident = raw.identifier?.trim() || raw.i?.trim();
+  if (ident && allowed.has('i') && !out.i) out.i = ident;
+  // Drop deprecated fields that are not on the live API.
+  const keys = Object.keys(out).filter((k) => k !== 'target');
+  if (!keys.length) return undefined;
+  return out;
 }
 
 /** Build a shareable `adv` query value. */

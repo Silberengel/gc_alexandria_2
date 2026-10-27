@@ -15,10 +15,12 @@ import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack, gitcitadelReadsAllowed, socialStack } from './nostr/selector';
 import {
   advancedSearchCacheKey,
+  buildMercurySearchBody,
   clampAdvancedLimit,
   filterHasQueryKeys,
   mercuryHasQuery,
   normalizeAdvancedFilter,
+  normalizeMercuryTarget,
   normalizeRelayList,
   defaultAdvancedSearchRelays,
   type AdvancedSearchRequest
@@ -481,7 +483,9 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
   await cachedOrLive(key, onUpdate, async () => {
     const [mercury, wiki, relays, brainstorm] = await Promise.all([
       mercuryPublicationSearch({ author, limit: 100 }),
-      mercuryWikiSearch({ author, limit: 100 }),
+      author.trim().length >= 2
+        ? mercuryWikiSearch({ q: author, limit: 100 })
+        : Promise.resolve([] as Event[]),
       relayPool.query(documentStack(), [
         { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [slug], limit: 100 }
       ]),
@@ -498,7 +502,9 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
   await cachedOrLive(key, onUpdate, async () => {
     const [mercury, wiki, relays, brainstorm] = await Promise.all([
       mercuryPublicationSearch({ title, limit: 100 }),
-      mercuryWikiSearch({ title, limit: 100 }),
+      title.trim().length >= 2
+        ? mercuryWikiSearch({ q: title, title, limit: 100 })
+        : Promise.resolve([] as Event[]),
       relayPool.query(documentStack(), [
         { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }
       ]),
@@ -517,9 +523,14 @@ export async function runIdentifierSearch(identifier: string, onUpdate: (r: Sear
     const batches = await Promise.all([
       ...ids.flatMap((id) => [
         mercuryPublicationSearch({ identifier: id, limit: 100 }),
+        mercuryPublicationSearch({ i: id, limit: 100 }),
         mercuryPublicationSearch({ s: id, limit: 100 }),
-        mercuryWikiSearch({ identifier: id, limit: 100 }),
-        mercuryWikiSearch({ s: id, limit: 100 })
+        id.trim().length >= 2
+          ? mercuryWikiSearch({ q: id, i: id, limit: 100 })
+          : Promise.resolve([] as Event[]),
+        id.trim().length >= 2
+          ? mercuryWikiSearch({ q: id, s: id, limit: 100 })
+          : Promise.resolve([] as Event[])
       ]),
       brainstormSearch(identifier)
     ]);
@@ -709,7 +720,9 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
     async () => {
       const [mercuryPubs, mercuryWiki, relays, filtered, brainstorm] = await Promise.all([
         mercuryPublicationSearch({ d: slug, limit: 100 }),
-        mercuryWikiSearch({ d: slug, limit: 100 }),
+        slug.length >= 2
+          ? mercuryWikiSearch({ q: slug, d: slug, limit: 100 })
+          : Promise.resolve([] as Event[]),
         relayPool.query(documentStack(), [filter]),
         mercuryFilter(filter),
         brainstormSearch(slug)
@@ -882,16 +895,14 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
     batches.push(relayPool.query(relays, [filter]));
   }
 
-  // Mercury mode: typed publication/wiki/section search (not a relay REQ).
+  // Mercury mode: one typed endpoint (publications / sections / wiki), not a relay REQ.
   if (mercuryOk && hasMercury && req.mercury) {
-    const typed: Record<string, unknown> = { limit: filter.limit };
-    for (const [k, v] of Object.entries(req.mercury)) {
-      if (typeof v === 'string' && v.trim()) typed[k] = v.trim();
-    }
-    if (Object.keys(typed).length > 1) {
-      batches.push(mercuryPublicationSearch(typed));
-      batches.push(mercuryWikiSearch(typed));
-      batches.push(mercurySectionSearch(typed));
+    const typed = buildMercurySearchBody(req.mercury, filter.limit);
+    if (typed) {
+      const target = normalizeMercuryTarget(req.mercury.target);
+      if (target === 'sections') batches.push(mercurySectionSearch(typed));
+      else if (target === 'wiki') batches.push(mercuryWikiSearch(typed));
+      else batches.push(mercuryPublicationSearch(typed));
     }
   }
 

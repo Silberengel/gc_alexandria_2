@@ -1,8 +1,17 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
+  import {
+    appClientHeight,
+    appOffsetTop,
+    appScrollBy,
+    appScrollHeight,
+    appScrollTo,
+    appScrollY,
+    onAppScroll
+  } from '$lib/app-scroll';
+  import { topBarAutoHide } from '$lib/stores/top-bar-ui';
   import { replace, querystring } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
-  import TopBar from '$lib/components/TopBar.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
@@ -174,6 +183,11 @@
   let readerSectionId = $state<string | undefined>(undefined);
   let sectionTick = $state(false);
   let reading = $state(false);
+
+  $effect(() => {
+    topBarAutoHide.set(reading);
+    return () => topBarAutoHide.set(false);
+  });
   let superindexes = $state<Event[]>([]);
   let sections = $state<Event[]>([]);
   /** Full loaded corpus — not reactive, so ingesting stream pages does not remount the pane. */
@@ -652,12 +666,12 @@
   /** Prepend earlier sections when the reader scrolls near the top of the window. */
   function extendPaintBackward(): void {
     if (paintOrigin <= 0 || !event) return;
-    const before = document.documentElement.scrollHeight;
+    const before = appScrollHeight();
     paintOrigin = Math.max(0, paintOrigin - PAINT_STEP);
     publishPainted(event, false);
     requestAnimationFrame(() => {
-      const delta = document.documentElement.scrollHeight - before;
-      if (delta > 0) window.scrollBy(0, delta);
+      const delta = appScrollHeight() - before;
+      if (delta > 0) appScrollBy(0, delta);
     });
   }
 
@@ -1418,7 +1432,7 @@
       opts?.preserveScroll === true &&
       scopedPaintIndex?.id === leaf.id &&
       typeof window !== 'undefined'
-        ? window.scrollY
+        ? appScrollY()
         : null;
     clearAdoptFlush();
     sectionCorpus = painted;
@@ -1447,7 +1461,7 @@
     void enrichHighlightsFromSections(painted);
     sectionsLoading = false;
     if (keepY != null && keepY > 0) {
-      requestAnimationFrame(() => window.scrollTo({ top: keepY, left: 0, behavior: 'auto' }));
+      requestAnimationFrame(() => appScrollTo({ top: keepY, left: 0, behavior: 'auto' }));
     }
     // Day indexes often arrive during paint (seed holes) — refresh ToC titles without a click.
     if (isReadingPlanEdition(edition) && !isPlaceholderIndex(leaf)) {
@@ -2215,7 +2229,7 @@
     if (reading) reading = false;
     focusKey = '';
     commentFocusApplied = '';
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   let commentFocusApplied = $state('');
@@ -2379,7 +2393,7 @@
     const deep =
       q.has('comment') || q.has('rating') || q.has('section') || q.has('quote') || q.has('book') || q.has('chapter') || q.get('read') === '1';
     if (!deep && !sameRoute) {
-      queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+      queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
     }
 
     const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
@@ -2575,7 +2589,7 @@
       if (wantScopedCover) {
         await fillReadingSections(event);
         if (event) paintScopedEditionTop(event);
-        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        appScrollTo({ top: 0, left: 0, behavior: 'auto' });
         return;
       }
       if (!sections.length || readingShellOnly || !scopedPaintIndex) {
@@ -2594,7 +2608,7 @@
           });
         }
       }
-      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      appScrollTo({ top: 0, left: 0, behavior: 'auto' });
       return;
     }
     if (!sections.length) {
@@ -2688,7 +2702,7 @@
     sectionsLoading = false;
     cancelTree();
     setReadQuery(false);
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
   function scrollToSection(pos: number, sectionId?: string, address?: string): void {
@@ -2723,14 +2737,9 @@
           );
 
         if (!el) return;
-        const topBar = document.querySelector('.top-bar');
-        const barHidden =
-          document.documentElement.classList.contains('top-bar-concealed') ||
-          topBar?.classList.contains('is-concealed');
-        const barH = barHidden ? 0 : (topBar?.getBoundingClientRect().height ?? 72);
-        const offset = Math.ceil(barH + 16);
-        const top = el.getBoundingClientRect().top + window.scrollY - offset;
-        window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+        /* Header sits outside the scroll panel — only a small inset is needed. */
+        const top = appOffsetTop(el) - 16;
+        appScrollTo({ top: Math.max(0, top), behavior: 'auto' });
       });
     });
   }
@@ -2945,7 +2954,7 @@
     if (!event || !canRead) return;
     ensurePaintedThrough(0);
     scrollToSectionRetry(0, event.id, eventAddress(event));
-    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    appScrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
   async function jumpTo(entry: TocEntry): Promise<void> {
@@ -2962,7 +2971,7 @@
       if (isRoot) {
         paintScopedEditionTop(edition);
         syncScopedReaderQuery(null);
-        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        appScrollTo({ top: 0, left: 0, behavior: 'smooth' });
         return;
       }
       const key = `toc:${entry.address ?? entry.id ?? entry.pos}`;
@@ -2994,7 +3003,7 @@
         if (gen !== jumpGen || event !== edition) return;
         const prog = scopedProgressForIndex(edition, toc, leaf);
         syncScopedReaderQuery(leaf, prog?.pos);
-        window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+        appScrollTo({ top: 0, left: 0, behavior: 'smooth' });
       } finally {
         endJump(gen);
       }
@@ -3165,13 +3174,13 @@
     const root = readingPane;
     if (!reading || !root) return;
     const onScroll = () => {
-      const room = document.documentElement.scrollHeight - window.scrollY - window.innerHeight;
+      const room = appScrollHeight() - appScrollY() - appClientHeight();
       if (room < 4000) extendPaint();
-      if (window.scrollY < 900 && paintOrigin > 0) extendPaintBackward();
+      if (appScrollY() < 900 && paintOrigin > 0) extendPaintBackward();
     };
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const stopScroll = onAppScroll(onScroll, { passive: true });
     onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => stopScroll();
   });
 
   /**
@@ -3225,7 +3234,7 @@
       raf = 0;
       const nodes = root.querySelectorAll<HTMLElement>('[data-read-pos][data-section-id]');
       if (!nodes.length) return;
-      const line = window.innerHeight * 0.35;
+      const line = appClientHeight() * 0.35;
       let chosen: HTMLElement | null = null;
       for (const node of nodes) {
         const rect = node.getBoundingClientRect();
@@ -3259,13 +3268,13 @@
       else flushReadingProgressOnVisible();
     };
     const onPageHide = () => flushReadingProgressOnHide();
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const stopScroll = onAppScroll(onScroll, { passive: true });
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onPageHide);
     // Delay first pick so initial layout/scroll-to-resume does not spam relay publishes.
     const boot = window.setTimeout(pickVisible, 400);
     return () => {
-      window.removeEventListener('scroll', onScroll);
+      stopScroll();
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', onPageHide);
       window.clearTimeout(boot);
@@ -3388,7 +3397,6 @@
   }
 </script>
 
-<TopBar autoHideOnScroll={reading} />
 <main class="shell" class:reading-page={reading}>
   {#if error}
     <ErrorPage title="Edition not found" />

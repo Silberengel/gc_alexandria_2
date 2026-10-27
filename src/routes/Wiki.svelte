@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { appScrollTo } from '$lib/app-scroll';
   import { replace, querystring } from 'svelte-spa-router';
-  import TopBar from '$lib/components/TopBar.svelte';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
@@ -197,7 +197,7 @@
     const id = urlFocusComment;
     if (!id) {
       commentFocusApplied = '';
-      queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+      queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
       return;
     }
     void responses;
@@ -516,7 +516,6 @@
   });
 </script>
 
-<TopBar />
 <main class="shell">
   {#if error}
     <ErrorPage title={`${surfaceLabel} page not found`} />

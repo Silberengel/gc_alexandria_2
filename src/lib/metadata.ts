@@ -12,6 +12,7 @@ import {
   isWikiDeference,
   wikiDeferTargetHref
 } from './wiki-defer';
+import { compareDirectoryListing } from './directory-explorer';
 
 export type CardMeta = {
   publishedBy: string;
@@ -233,6 +234,9 @@ export function sortSearchResults(
   return [...events].sort((a, b) => {
     const kindDiff = searchKindTier(a.kind) - searchKindTier(b.kind);
     if (kindDiff !== 0) return kindDiff;
+    if (a.kind === KIND.DIRECTORY && b.kind === KIND.DIRECTORY) {
+      return compareDirectoryListing(a, b);
+    }
     if (exactD) {
       const aExact = eventMatchesSearchD(a, exactD) ? 1 : 0;
       const bExact = eventMatchesSearchD(b, exactD) ? 1 : 0;

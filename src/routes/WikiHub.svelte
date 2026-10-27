@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { link, push } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
-  import TopBar from '$lib/components/TopBar.svelte';
   import WikiListRow from '$lib/components/WikiListRow.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { loadWikiRecent, pickRandomWikiPage, wikiHubResultHref } from '$lib/wiki-hub';
@@ -65,7 +64,6 @@
   }
 </script>
 
-<TopBar showSearch={false} />
 <main class="shell wiki-hub">
   <div class="wiki-hub-hero">
     <h1 class="wiki-hub-title">Wiki</h1>

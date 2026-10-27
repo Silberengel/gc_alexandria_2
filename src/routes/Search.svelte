@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import TopBar from '$lib/components/TopBar.svelte';
   import SearchForm from '$lib/components/SearchForm.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
@@ -281,7 +280,6 @@
   );
 </script>
 
-<TopBar />
 <main class="shell shell-wide">
   <header class="page-header">
     <p class="page-kicker">Catalog</p>

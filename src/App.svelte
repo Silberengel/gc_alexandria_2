@@ -4,11 +4,21 @@
   import { wrap } from 'svelte-spa-router/wrap';
   import { scheduleDeletionSweep } from './lib/deletions';
   import { currentNavKey, trackNavChange } from './lib/nav-history';
+  import { appScrollTo, setAppScrollRoot } from './lib/app-scroll';
   import { session } from './lib/stores/session';
   import MediaViewer from './lib/components/MediaViewer.svelte';
   import RawEventViewer from './lib/components/RawEventViewer.svelte';
   import PublishToast from './lib/components/PublishToast.svelte';
   import PwaUpdateBanner from './lib/components/PwaUpdateBanner.svelte';
+  import SiteFooter from './lib/components/SiteFooter.svelte';
+  import TopBar from './lib/components/TopBar.svelte';
+
+  let scrollEl = $state<HTMLElement | undefined>();
+
+  $effect(() => {
+    setAppScrollRoot(scrollEl ?? null);
+    return () => setAppScrollRoot(null);
+  });
 
   const routes = {
     '/': wrap({ asyncComponent: () => import('./routes/Home.svelte') }),
@@ -68,7 +78,7 @@
     // Reader scrollY otherwise carries onto Home (mobile lands at the bottom).
     // Feed list ↔ thread uses query params on `/feed`, so path stays `/feed` and
     // scroll is owned by Feed.svelte (no remount, no forced jump here).
-    queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   });
 
   /** App-owned back stack (path + query) for the global Return control. */
@@ -94,7 +104,11 @@
 <div class="pwa-update-host">
   <PwaUpdateBanner />
 </div>
-<Router {routes} />
+<TopBar />
+<div class="app-scroll" bind:this={scrollEl}>
+  <Router {routes} />
+</div>
+<SiteFooter />
 <MediaViewer />
 <RawEventViewer />
 <PublishToast />
