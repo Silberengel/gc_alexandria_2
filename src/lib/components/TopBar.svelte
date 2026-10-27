@@ -1,5 +1,6 @@
 <script lang="ts">
   import { link, location } from 'svelte-spa-router';
+  import { navigateReturn } from '$lib/nav-history';
   import { session } from '$lib/stores/session';
   import { loginDialogOpen, openLoginDialog, closeLoginDialog } from '$lib/stores/login-ui';
   import UserBadge from './UserBadge.svelte';
@@ -77,12 +78,31 @@
     <img src="/favicon.png" width="32" height="32" alt="" />
     <span>Library of Alexandria</span>
   </a>
-  <nav>
-    <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
-    <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
-    <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
-    <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
-    <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
+  <nav class:top-bar-nav-with-return={!onHome}>
+    {#if !onHome}
+      <button
+        type="button"
+        class="top-bar-return"
+        title="Back to the previous page"
+        aria-label="Back to the previous page"
+        onclick={() => navigateReturn()}
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
+          />
+        </svg>
+        <span>Back</span>
+      </button>
+    {/if}
+    <div class="top-bar-nav-tabs">
+      <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
+      <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
+      <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
+      <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
+      <a href="#/settings" use:link aria-current={onSettings ? 'page' : undefined}>Settings</a>
+    </div>
   </nav>
   {#if searchVisible}
     <SearchForm class="top-bar-search" />

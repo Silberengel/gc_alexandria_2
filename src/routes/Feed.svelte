@@ -504,11 +504,6 @@
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
-  /** Back to the feed list at the card that was opened (same route — list state intact). */
-  function returnToFeedList(): void {
-    void replace(feedListPath(feedTab, { author: feedAuthor }));
-  }
-
   $effect(() => {
     return session.metadata.subscribe((events) => {
       metadataEvents = events;
@@ -856,9 +851,6 @@
 <main class="shell reading-body feed-page">
   {#if pointer}
     <div class="feed-thread-pane">
-      <p class="feed-back">
-        <button type="button" class="btn feed-return-btn" onclick={returnToFeedList}>Return</button>
-      </p>
       {#if threadLoading}
         <LoadingHint message="Opening this thread…" />
       {:else if event}
@@ -1164,13 +1156,6 @@
   }
   .feed-note-compose textarea:disabled {
     opacity: 0.7;
-  }
-  .feed-back {
-    margin: 0 0 0.75rem;
-  }
-  .feed-return-btn {
-    font-size: 0.9rem;
-    padding: 0.3rem 0.7rem;
   }
   .feed-new-wrap {
     margin: 0 0 0.65rem;

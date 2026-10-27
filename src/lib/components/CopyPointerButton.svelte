@@ -27,7 +27,8 @@
   import {
     canCopyEventToCompose,
     canEditAsShortNote,
-    canForkWikiEvent
+    canForkWikiEvent,
+    canReplaceOwnWikiEvent
   } from '$lib/event-compose-preload';
   import { canRequestWikiMerge } from '$lib/wiki-merge';
   import { canDeferToWikiEvent, wikiDeferPublishDraft } from '$lib/wiki-defer-publish';
@@ -100,7 +101,9 @@
   /** Repost only others' events (signed-out users see the item and get the login dialog). */
   const showRepost = $derived(!isOwnEvent);
   const hasMyRepost = $derived(!!myRepost);
-  const showCopyEvent = $derived(canCopyEventToCompose(event.kind));
+  const showCopyEvent = $derived(
+    canCopyEventToCompose(event.kind) || canReplaceOwnWikiEvent(event, $session.pubkey)
+  );
   /** Own replaceable/addressable → "Replace"; others → "Copy". */
   const copyEventLabel = $derived(
     isOwnEvent && (isReplaceableKind(event.kind) || isAddressableKind(event.kind))
@@ -108,7 +111,8 @@
       : 'Copy this event'
   );
   const showEditEvent = $derived(canEditAsShortNote(event, $session.pubkey));
-  const showForkEvent = $derived(canForkWikiEvent(event.kind));
+  /** Fork is for others' wiki/spec; own articles use Replace (one d per author+kind). */
+  const showForkEvent = $derived(canForkWikiEvent(event.kind) && !isOwnEvent);
   const showRequestMerge = $derived(canRequestWikiMerge(event, $session.pubkey));
   const showDefer = $derived(canDeferToWikiEvent(event, $session.pubkey));
   const showCreateRedirect = $derived(isWikiOrSpecKind(event.kind));

@@ -5,6 +5,7 @@ import {
   canCopyEventToCompose,
   canEditAsShortNote,
   canForkWikiEvent,
+  canReplaceOwnWikiEvent,
   eventToComposeDraft
 } from './event-compose-preload';
 
@@ -73,6 +74,16 @@ describe('canCopy / canEdit / canFork gates', () => {
     expect(canForkWikiEvent(30818)).toBe(true);
     expect(canForkWikiEvent(30817)).toBe(true);
     expect(canForkWikiEvent(1)).toBe(false);
+  });
+
+  it('offers replace for own wiki/spec, not for others', () => {
+    const me = 'a'.repeat(64);
+    const own = ev({ kind: 30818, pubkey: me, tags: [['d', 'bitcoin']] });
+    const other = ev({ kind: 30818, pubkey: 'b'.repeat(64), tags: [['d', 'bitcoin']] });
+    expect(canReplaceOwnWikiEvent(own, me)).toBe(true);
+    expect(canReplaceOwnWikiEvent(other, me)).toBe(false);
+    expect(canReplaceOwnWikiEvent(own, null)).toBe(false);
+    expect(canReplaceOwnWikiEvent(ev({ kind: 1, pubkey: me }), me)).toBe(false);
   });
 
   it('allows edit only for own kind 1', () => {

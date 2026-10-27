@@ -153,9 +153,23 @@ export function canCopyEventToCompose(kind: number): boolean {
   return isCatalogued(kind) || kind === 0 || kind === 1;
 }
 
-/** Wiki / spec articles get “Fork this event” instead of Copy. */
+/** Wiki / spec articles can be forked (others) or replaced (own). */
 export function canForkWikiEvent(kind: number): boolean {
   return kind === 30817 || kind === 30818;
+}
+
+/**
+ * Own wiki/spec → compose Replace (same kind + pubkey + d).
+ * Fork is only for someone else's article.
+ */
+export function canReplaceOwnWikiEvent(
+  event: Event,
+  viewerPubkey: string | null | undefined
+): boolean {
+  if (!canForkWikiEvent(event.kind)) return false;
+  const pk = (viewerPubkey ?? '').trim().toLowerCase();
+  if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return false;
+  return event.pubkey.toLowerCase() === pk;
 }
 
 /** Own kind-1 notes get “Edit this event” → NIP-41 kind 1010. */

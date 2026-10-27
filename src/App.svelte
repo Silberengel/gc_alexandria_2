@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Router, { location } from 'svelte-spa-router';
+  import Router, { location, querystring } from 'svelte-spa-router';
   import { wrap } from 'svelte-spa-router/wrap';
   import { scheduleDeletionSweep } from './lib/deletions';
+  import { currentNavKey, trackNavChange } from './lib/nav-history';
   import { session } from './lib/stores/session';
   import MediaViewer from './lib/components/MediaViewer.svelte';
   import RawEventViewer from './lib/components/RawEventViewer.svelte';
@@ -63,6 +64,13 @@
     // Feed list ↔ thread uses query params on `/feed`, so path stays `/feed` and
     // scroll is owned by Feed.svelte (no remount, no forced jump here).
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+  });
+
+  /** App-owned back stack (path + query) for the global Return control. */
+  $effect(() => {
+    void $location;
+    void $querystring;
+    trackNavChange(currentNavKey());
   });
 
   onMount(() => {
