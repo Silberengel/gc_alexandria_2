@@ -73,6 +73,11 @@
       >Retry</button
     >
   {:else if rootFolder}
-    <DirectoryBrowser root={rootFolder} />
+    <DirectoryBrowser
+      root={rootFolder}
+      onRootChange={(next) => {
+        rootFolder = next;
+      }}
+    />
   {/if}
 </main>

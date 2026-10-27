@@ -3231,10 +3231,31 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   display: block;
   max-width: 100% !important;
   max-height: min(70vh, 32rem);
-  width: auto;
-  height: auto !important;
   object-fit: contain;
   margin-inline: auto;
+}
+/*
+ * Do not force width/height: auto on prose images — AsciiDoc image:…[alt,100]
+ * (and HTML width/height attrs) must stick. Cap with max-width/max-height only.
+ * Other replaced media still reset so embeds do not blow the column.
+ */
+.reading-body video,
+.reading-body svg:not(.nip05-check),
+.reading-body canvas,
+.reading-body iframe,
+.event-body video,
+.event-body svg:not(.nip05-check),
+.event-body canvas,
+.event-body iframe,
+.reader-section video,
+.reader-section iframe {
+  width: auto;
+  height: auto;
+}
+.reading-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
+.event-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
+.reader-section img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar) {
+  height: auto;
 }
 .event-body img:not(.content-emoji):not(.userbadge-avatar):not(.text-highlight-by-avatar),
 .event-body video,
@@ -4299,10 +4320,20 @@ a.nostrdown-ref {
 
 .reading-body .tableblock img,
 .event-body .tableblock img,
-.reader-section .tableblock img,
-.reading-body .imageblock img,
-.event-body .imageblock img {
+.reader-section .tableblock img {
   max-width: min(100%, 20rem);
+  height: auto;
+}
+/* Block images: keep a soft default cap only when AsciiDoc did not set width. */
+.reading-body .imageblock img:not([width]),
+.event-body .imageblock img:not([width]),
+.reader-section .imageblock img:not([width]) {
+  max-width: min(100%, 20rem);
+  height: auto;
+}
+.reading-body .imageblock img[width],
+.event-body .imageblock img[width],
+.reader-section .imageblock img[width] {
   height: auto;
 }
 
@@ -6970,6 +7001,14 @@ a.embed-event-line:focus-visible {
   font: inherit;
   box-sizing: border-box;
   white-space: nowrap;
+}
+.menu-item-indent {
+  padding-left: 1.35rem;
+  font-size: 0.92em;
+}
+.menu-item-static {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85em;
 }
 .event-more-menu {
   z-index: 3;
@@ -9894,7 +9933,8 @@ button.directory-explorer-link {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: space-between;
+  gap: 0.5rem 0.85rem;
 }
 .dir-browser-cwd {
   font-family: var(--mono-font, ui-monospace, monospace);
@@ -9903,6 +9943,88 @@ button.directory-explorer-link {
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-all;
+}
+.dir-browser-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.dir-browser-new-folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.dir-browser-new-folder input[type='text'] {
+  min-width: 8rem;
+  max-width: 12rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+}
+.dir-browser-new-folder-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  font-weight: 400;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--rule) 70%, transparent);
+  color: var(--muted, var(--ink));
+}
+.dir-browser-new-folder-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--paper-dark) 25%, transparent);
+  border-color: color-mix(in srgb, var(--rule) 90%, transparent);
+  color: var(--ink);
+}
+.dir-col-check {
+  text-align: center;
+  width: 2.75rem;
+}
+.dir-browser-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+.dir-browser-check input {
+  margin: 0;
+  cursor: pointer;
+}
+.dir-browser-row.is-selected {
+  background: color-mix(in srgb, var(--accent, #3b6) 10%, transparent);
+}
+.dir-browser-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  min-height: 1.75rem;
+}
+.dir-browser-selection-count {
+  font-size: 0.8rem;
+  margin-right: auto;
+}
+.dir-browser-rename {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+.dir-browser-rename input[type='text'] {
+  min-width: 6.5rem;
+  max-width: 9rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+}
+.dir-browser-op-btn {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
 }
 .dir-browser-table-wrap {
   overflow: auto;

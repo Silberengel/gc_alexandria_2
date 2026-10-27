@@ -173,6 +173,15 @@ export function canForkWikiEvent(kind: number): boolean {
   return kind === 30817 || kind === 30818;
 }
 
+function isViewerPubkey(
+  event: Event,
+  viewerPubkey: string | null | undefined
+): boolean {
+  const pk = (viewerPubkey ?? '').trim().toLowerCase();
+  if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return false;
+  return event.pubkey.toLowerCase() === pk;
+}
+
 /**
  * Own wiki/spec → compose Replace (same kind + pubkey + d).
  * Fork is only for someone else's article.
@@ -182,9 +191,19 @@ export function canReplaceOwnWikiEvent(
   viewerPubkey: string | null | undefined
 ): boolean {
   if (!canForkWikiEvent(event.kind)) return false;
-  const pk = (viewerPubkey ?? '').trim().toLowerCase();
-  if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return false;
-  return event.pubkey.toLowerCase() === pk;
+  return isViewerPubkey(event, viewerPubkey);
+}
+
+/**
+ * Own NKBIP-04 directories (30045) → compose Replace.
+ * Kept out of the kind picker; offered only from the event menu.
+ */
+export function canReplaceOwnDirectoryEvent(
+  event: Event,
+  viewerPubkey: string | null | undefined
+): boolean {
+  if (event.kind !== 30045) return false;
+  return isViewerPubkey(event, viewerPubkey);
 }
 
 /** Own kind-1 notes get “Edit this event” → NIP-41 kind 1010. */

@@ -4,20 +4,29 @@ import {
   DIRECTORY_HOME_D_TAGS,
   MY_BOOK_COLLECTION_D_TAG,
   ROOT_DIRECTORY_D_TAG,
+  allocateUniqueFolderDTag,
   canPublishBookshelfReplacement,
   createBookshelfDirectoryDraft,
   createEmptyBookshelfDirectoryDraft,
   directoryContainsPublication,
   directoryCoordinateFromEvent,
+  directoryDraft,
   directoryDTag,
+  isProtectedDirectoryDTag,
   listBookshelfShelfOptions,
+  membershipTargetFromRef,
+  rewriteDirectoryDTag,
   slugifyBookshelfDTag,
+  togglePublicationInDirectoryTags,
   type BookshelfShelfOption
 } from './bookshelf';
+import { deletionDraft } from './drafts';
+import { rememberDeletedTarget } from './deletions';
 import { documentStack } from './nostr/selector';
 import { relayPool } from './nostr/pool';
 import { rememberEvents } from './nostr/event-memory';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
+import { cacheDeleteEvent } from './nostr/cache';
 import { signAndPublish } from './sign';
 
 async function fetchDirectoryByD(pubkey: string, d: string): Promise<Event | null> {
@@ -246,4 +255,201 @@ export async function addNewBookshelf(
     membershipCoords,
     rootConfirmed: true
   };
+}
+
+/** Latest owned kind-30045 directories for the viewer (for Add to folder pickers). */
+export async function listOwnedDirectories(pubkey: string): Promise<Event[]> {
+  const pk = pubkey.toLowerCase();
+  const hits = await relayPool.query(
+    documentStack(),
+    [{ kinds: [KIND.DIRECTORY], authors: [pk], limit: 120 }],
+    5000
+  );
+  rememberEvents(hits);
+  return pruneToLatestReplaceables(hits)
+    .filter((e) => e.kind === KIND.DIRECTORY)
+    .sort((a, b) => {
+      const da = directoryDTag(a);
+      const db = directoryDTag(b);
+      if (da === ROOT_DIRECTORY_D_TAG) return -1;
+      if (db === ROOT_DIRECTORY_D_TAG) return 1;
+      if (da === MY_BOOK_COLLECTION_D_TAG) return -1;
+      if (db === MY_BOOK_COLLECTION_D_TAG) return 1;
+      return b.created_at - a.created_at;
+    });
+}
+
+/**
+ * Create an empty nested folder under `parent` and link it (Android-safe tags).
+ * Replaces the parent 30045 with the new membership.
+ */
+export async function createFolderInParent(
+  parent: Event,
+  name: string,
+  occupiedDTags: Iterable<string> = []
+): Promise<{ folder: Event; parent: Event } | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY) return { error: 'Not a folder' };
+  const d = allocateUniqueFolderDTag(name, occupiedDTags);
+  if (!d) return { error: 'Invalid folder name' };
+  if (!canPublishBookshelfReplacement(parent, false)) {
+    return { error: 'Folder not ready' };
+  }
+
+  const nested = await signAndPublish(createEmptyBookshelfDirectoryDraft(d));
+  if (!nested) return { error: 'Could not create folder' };
+
+  const linkDraft = createBookshelfDirectoryDraft(
+    parent,
+    directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
+    nested
+  );
+  if ('error' in linkDraft) return { error: 'Folder is full' };
+  const nextParent = await signAndPublish(linkDraft);
+  if (!nextParent) return { error: 'Could not link folder' };
+  rememberEvents([nested, nextParent]);
+  return { folder: nested, parent: nextParent };
+}
+
+/** Add (or no-op if already present) a member event under `parent`. */
+export async function addMemberToDirectory(
+  parent: Event,
+  member: Event
+): Promise<Event | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY) return { error: 'Not a folder' };
+  if (
+    member.kind === KIND.DIRECTORY &&
+    directoryCoordinateFromEvent(parent) === directoryCoordinateFromEvent(member)
+  ) {
+    return { error: 'Cannot add a folder to itself' };
+  }
+  if (directoryContainsPublication(parent, member)) return parent;
+  if (!canPublishBookshelfReplacement(parent, false)) {
+    return { error: 'Folder not ready' };
+  }
+  const draft = createBookshelfDirectoryDraft(
+    parent,
+    directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
+    member
+  );
+  if ('error' in draft) return { error: 'Folder is full' };
+  const published = await signAndPublish(draft);
+  if (!published) return { error: 'Publish failed' };
+  rememberEvents([published]);
+  return published;
+}
+
+/** Remove a member (by event or coordinate/id ref) from `parent`. */
+export async function removeMemberFromDirectory(
+  parent: Event,
+  memberRef: {
+    coordinate?: string;
+    eventId?: string;
+    event?: Event | null;
+  }
+): Promise<Event | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY) return { error: 'Not a folder' };
+  const target = membershipTargetFromRef(memberRef);
+  if (!target) return { error: 'Nothing to remove' };
+  if (!canPublishBookshelfReplacement(parent, false)) {
+    return { error: 'Folder not ready' };
+  }
+  const draft = createBookshelfDirectoryDraft(
+    parent,
+    directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
+    target
+  );
+  if ('error' in draft) return { error: 'Folder is full' };
+  // createBookshelfDirectoryDraft toggles — if it was present, tags omit it (added=false path).
+  // If it was absent, tags would add it; guard that case.
+  if (!directoryContainsPublication(parent, target)) {
+    return parent;
+  }
+  const published = await signAndPublish(draft);
+  if (!published) return { error: 'Publish failed' };
+  rememberEvents([published]);
+  return published;
+}
+
+/**
+ * Unlink `folder` from `parent`, then NIP-09 delete the folder replaceable
+ * (unless it is a protected home d-tag).
+ */
+export async function deleteFolderFromParent(
+  parent: Event,
+  folder: Event
+): Promise<{ parent: Event } | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY || folder.kind !== KIND.DIRECTORY) {
+    return { error: 'Not a folder' };
+  }
+  const folderD = directoryDTag(folder);
+  if (isProtectedDirectoryDTag(folderD) || directoryDTag(parent) === folderD) {
+    return { error: 'That system folder cannot be deleted' };
+  }
+  if (parent.pubkey.toLowerCase() !== folder.pubkey.toLowerCase()) {
+    return { error: 'You can only delete your own folders' };
+  }
+
+  const unlinked = await removeMemberFromDirectory(parent, { event: folder });
+  if ('error' in unlinked) return unlinked;
+
+  const deleted = await signAndPublish(deletionDraft(folder));
+  if (deleted) {
+    rememberDeletedTarget(folder, deleted);
+    void cacheDeleteEvent(folder.id).catch(() => {});
+  }
+  return { parent: unlinked };
+}
+
+/**
+ * Rename a nested folder: publish a new d-tag with the same children, relink
+ * the parent once, then NIP-09 the old replaceable (replaceable rewrite).
+ */
+export async function renameFolderInParent(
+  parent: Event,
+  folder: Event,
+  newName: string,
+  occupiedDTags: Iterable<string> = []
+): Promise<{ folder: Event; parent: Event } | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY || folder.kind !== KIND.DIRECTORY) {
+    return { error: 'Not a folder' };
+  }
+  const folderD = directoryDTag(folder);
+  if (isProtectedDirectoryDTag(folderD)) {
+    return { error: 'That system folder cannot be renamed' };
+  }
+  if (parent.pubkey.toLowerCase() !== folder.pubkey.toLowerCase()) {
+    return { error: 'You can only rename your own folders' };
+  }
+  if (!canPublishBookshelfReplacement(parent, false)) {
+    return { error: 'Folder not ready' };
+  }
+
+  const nextD = allocateUniqueFolderDTag(
+    newName,
+    [...occupiedDTags].filter((d) => d.trim().toLowerCase() !== folderD.toLowerCase())
+  );
+  if (!nextD) return { error: 'Invalid folder name' };
+  if (nextD === folderD) {
+    return { folder, parent };
+  }
+
+  const rewritten = await signAndPublish(rewriteDirectoryDTag(folder, nextD));
+  if (!rewritten) return { error: 'Could not create renamed folder' };
+
+  const parentD = directoryDTag(parent) || ROOT_DIRECTORY_D_TAG;
+  const unlinked = togglePublicationInDirectoryTags(parent, parentD, folder);
+  if (!unlinked.ok) return { error: 'Folder is full' };
+  const relinked = togglePublicationInDirectoryTags({ tags: unlinked.tags }, parentD, rewritten);
+  if (!relinked.ok) return { error: 'Folder is full' };
+  const nextParent = await signAndPublish(directoryDraft(relinked.tags));
+  if (!nextParent) return { error: 'Could not update parent folder' };
+
+  const deleted = await signAndPublish(deletionDraft(folder));
+  if (deleted) {
+    rememberDeletedTarget(folder, deleted);
+    void cacheDeleteEvent(folder.id).catch(() => {});
+  }
+
+  rememberEvents([rewritten, nextParent]);
+  return { folder: rewritten, parent: nextParent };
 }

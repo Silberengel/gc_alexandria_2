@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { KIND, NIP32_BOOKLIST_LABEL, NIP32_UGC_NAMESPACE } from './constants';
 import {
+  allocateUniqueFolderDTag,
   assertAndroidSafeBookshelfTags,
   buildBookshelfMembershipATag,
   canPublishBookshelfReplacement,
   createEmptyBookshelfDirectoryDraft,
   createBookshelfDirectoryDraft,
   directoryContainsPublication,
+  isProtectedDirectoryDTag,
   listBookshelfShelfOptions,
+  membershipTargetFromRef,
   MY_BOOK_COLLECTION_D_TAG,
+  rewriteDirectoryDTag,
+  ROOT_DIRECTORY_D_TAG,
   togglePublicationInDirectoryTags
 } from './bookshelf';
 import {
@@ -229,6 +234,38 @@ describe('bookshelf 30045', () => {
     expect(empty.kind).toBe(KIND.DIRECTORY);
     expect(empty.tags).toEqual([['d', 'summer-reads']]);
     expect(empty.tags.some((t) => t[0] === 'title')).toBe(false);
+  });
+
+  it('allocates unique folder d-tags and protects home folders', () => {
+    expect(allocateUniqueFolderDTag('Notes', [])).toBe('notes');
+    expect(allocateUniqueFolderDTag('Notes', ['notes'])).toBe('notes-2');
+    expect(allocateUniqueFolderDTag('root', [])).toMatch(/^root-/);
+    expect(isProtectedDirectoryDTag(ROOT_DIRECTORY_D_TAG)).toBe(true);
+    expect(isProtectedDirectoryDTag(MY_BOOK_COLLECTION_D_TAG)).toBe(true);
+    expect(isProtectedDirectoryDTag('notes')).toBe(false);
+  });
+
+  it('builds membership stubs from coordinates for remove/add', () => {
+    const stub = membershipTargetFromRef({
+      coordinate: `30040:${pk}:mansfield-park`,
+      eventId: pub.id
+    });
+    expect(stub?.kind).toBe(KIND.PUBLICATION);
+    expect(stub?.pubkey).toBe(pk);
+    expect(directoryContainsPublication({ tags: [['a', `30040:${pk}:mansfield-park`, '', pub.id]] }, stub!)).toBe(
+      true
+    );
+  });
+
+  it('rewrites directory d-tags while keeping memberships', () => {
+    const aTag = buildBookshelfMembershipATag(pub);
+    const next = rewriteDirectoryDTag(
+      { tags: [['d', 'notes'], aTag, ['e', pub.id]] },
+      'Drafts'
+    );
+    expect(next.tags[0]).toEqual(['d', 'drafts']);
+    expect(next.tags).toContainEqual(aTag);
+    expect(next.tags).toContainEqual(['e', pub.id]);
   });
 
   it('wipe-guards replacements until existing is known', () => {

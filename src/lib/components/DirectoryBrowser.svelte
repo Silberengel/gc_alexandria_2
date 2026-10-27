@@ -1,10 +1,22 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import { untrack } from 'svelte';
   import { link, push } from 'svelte-spa-router';
   import LoadingHint from './LoadingHint.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import { KIND } from '$lib/constants';
-  import { MAX_BOOKSHELF_DEPTH } from '$lib/bookshelf';
+  import {
+    MAX_BOOKSHELF_DEPTH,
+    ROOT_DIRECTORY_D_TAG,
+    directoryDTag,
+    isProtectedDirectoryDTag
+  } from '$lib/bookshelf';
+  import {
+    createFolderInParent,
+    deleteFolderFromParent,
+    removeMemberFromDirectory,
+    renameFolderInParent
+  } from '$lib/bookshelf-actions';
   import {
     directoryChildCounts,
     directoryChildHref,
@@ -18,11 +30,11 @@
     formatDirectoryGmtParts,
     type DirectoryExplorerEntry
   } from '$lib/directory-explorer';
-  import { directoryDTag } from '$lib/bookshelf';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
   import { parseEventCoordinate } from '$lib/library-scope';
   import { warmAddress, warmNavEvent } from '$lib/nav-warm';
+  import { showNotice } from '$lib/stores/toast';
   import {
     directoryBrowserPrefs,
     resolvedDirectoryColumnWidth,
@@ -33,14 +45,27 @@
   interface Props {
     /** Filesystem top — always the viewer's `/root` directory. */
     root: Event;
+    /** Fired when `/root` is republished after a membership change. */
+    onRootChange?: (root: Event) => void;
   }
 
-  let { root }: Props = $props();
+  let { root, onRootChange }: Props = $props();
 
   /** Stack of opened folders; index 0 is always `/root`. */
-  let stack = $state<Event[]>([root]);
+  let stack = $state<Event[]>(untrack(() => [root]));
   let resolved = $state<Record<string, Event | null>>({});
   let loadingKeys = $state<Record<string, boolean>>({});
+  let selectionBusy = $state(false);
+  let creatingFolder = $state(false);
+  let newFolderOpen = $state(false);
+  let newFolderName = $state('');
+  let newFolderInput: HTMLInputElement | undefined = $state();
+  let selectedKeys = $state<Record<string, boolean>>({});
+  let renameOpen = $state(false);
+  let renameName = $state('');
+  let renamingFolder = $state(false);
+  let renameInput: HTMLInputElement | undefined = $state();
+  let selectAllInput: HTMLInputElement | undefined = $state();
 
   const prefs = $derived($directoryBrowserPrefs);
   const colWidth = $derived({
@@ -142,6 +167,76 @@
   );
 
   const atDepthLimit = $derived(stack.length >= MAX_BOOKSHELF_DEPTH);
+  const occupiedDTags = $derived(
+    listing
+      .map((row) => row.dTag)
+      .filter(Boolean)
+      .concat(directoryDTag(cwd))
+  );
+
+  const selectedRows = $derived(sortedListing.filter((row) => selectedKeys[row.key]));
+  const selectedCount = $derived(selectedRows.length);
+  const allSelected = $derived(
+    sortedListing.length > 0 && sortedListing.every((row) => selectedKeys[row.key])
+  );
+  const someSelected = $derived(selectedCount > 0 && !allSelected);
+  const selectedDeletableFolders = $derived(
+    selectedRows.filter(
+      (row) => row.role === 'folder' && !isProtectedDirectoryDTag(row.dTag)
+    )
+  );
+  const singleRenameTarget = $derived(
+    selectedDeletableFolders.length === 1 && selectedCount === 1
+      ? selectedDeletableFolders[0]!
+      : null
+  );
+
+  $effect(() => {
+    // Drop checks when navigating into another folder.
+    void cwd.id;
+    selectedKeys = {};
+    renameOpen = false;
+    renameName = '';
+  });
+
+  $effect(() => {
+    if (newFolderOpen) newFolderInput?.focus();
+  });
+
+  $effect(() => {
+    if (renameOpen) renameInput?.focus();
+  });
+
+  $effect(() => {
+    if (selectAllInput) selectAllInput.indeterminate = someSelected;
+  });
+
+  function toggleRowSelected(key: string, checked: boolean): void {
+    selectedKeys = { ...selectedKeys, [key]: checked };
+  }
+
+  function toggleSelectAll(checked: boolean): void {
+    if (!checked) {
+      selectedKeys = {};
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    for (const row of sortedListing) next[row.key] = true;
+    selectedKeys = next;
+  }
+
+  function clearSelection(): void {
+    selectedKeys = {};
+    renameOpen = false;
+    renameName = '';
+  }
+
+  function replaceStackEvent(previousId: string, next: Event): void {
+    stack = stack.map((ev) => (ev.id === previousId ? next : ev));
+    if (directoryDTag(next) === ROOT_DIRECTORY_D_TAG || next.id === root.id) {
+      onRootChange?.(next);
+    }
+  }
 
   async function resolveEntry(entry: DirectoryExplorerEntry): Promise<Event | null> {
     if (entry.coordinate) {
@@ -283,6 +378,162 @@
     }
     resizeCol = null;
   }
+
+  function openNewFolder(): void {
+    newFolderName = '';
+    newFolderOpen = true;
+  }
+
+  async function submitNewFolder(): Promise<void> {
+    const name = newFolderName.trim();
+    if (!name || creatingFolder) return;
+    creatingFolder = true;
+    try {
+      const result = await createFolderInParent(cwd, name, occupiedDTags);
+      if ('error' in result) {
+        showNotice(result.error);
+        return;
+      }
+      replaceStackEvent(cwd.id, result.parent);
+      // Prefetch will re-key entries; seed by coordinate once listing rebuilds.
+      warmAddress(
+        `${result.folder.kind}:${result.folder.pubkey.toLowerCase()}:${directoryDTag(result.folder)}`
+      );
+      newFolderOpen = false;
+      newFolderName = '';
+      showNotice(`Created /${directoryDTag(result.folder)}`, true);
+    } finally {
+      creatingFolder = false;
+    }
+  }
+
+  async function removeSelected(): Promise<void> {
+    const rows = selectedRows.filter((row) => row.entry);
+    if (!rows.length || selectionBusy) return;
+    selectionBusy = true;
+    let parent = cwd;
+    let removed = 0;
+    const nextResolved = { ...resolved };
+    try {
+      for (const row of rows) {
+        const result = await removeMemberFromDirectory(parent, {
+          coordinate: row.entry!.coordinate,
+          eventId: row.entry!.eventId,
+          event: row.event ?? null
+        });
+        if ('error' in result) {
+          showNotice(result.error);
+          break;
+        }
+        parent = result;
+        delete nextResolved[row.key];
+        removed += 1;
+      }
+      if (removed) {
+        replaceStackEvent(cwd.id, parent);
+        resolved = nextResolved;
+        clearSelection();
+        showNotice(
+          removed === 1 ? `Removed “${rows[0]!.name}”` : `Removed ${removed} items`,
+          true
+        );
+      }
+    } finally {
+      selectionBusy = false;
+    }
+  }
+
+  async function deleteSelectedFolders(): Promise<void> {
+    const rows = selectedDeletableFolders;
+    if (!rows.length || selectionBusy) return;
+    const label =
+      rows.length === 1
+        ? `Delete folder “${rows[0]!.name}” and unlink it from this directory? Its contents stay on relays as orphaned events.`
+        : `Delete ${rows.length} folders and unlink them from this directory? Their contents stay on relays as orphaned events.`;
+    if (!window.confirm(label)) return;
+
+    selectionBusy = true;
+    let parent = cwd;
+    let deleted = 0;
+    const nextResolved = { ...resolved };
+    const deletedFolderIds = new Set<string>();
+    try {
+      for (const row of rows) {
+        const folder = row.event ?? (row.entry ? await ensureResolved(row.entry) : null);
+        if (!folder || folder.kind !== KIND.DIRECTORY) {
+          showNotice(`Could not load “${row.name}”.`);
+          continue;
+        }
+        const result = await deleteFolderFromParent(parent, folder);
+        if ('error' in result) {
+          showNotice(result.error);
+          break;
+        }
+        parent = result.parent;
+        delete nextResolved[row.key];
+        deletedFolderIds.add(folder.id);
+        deleted += 1;
+      }
+      if (deleted) {
+        replaceStackEvent(cwd.id, parent);
+        resolved = nextResolved;
+        stack = stack.filter((ev) => !deletedFolderIds.has(ev.id));
+        if (!stack.length) stack = [root];
+        clearSelection();
+        showNotice(
+          deleted === 1 ? `Deleted “${rows[0]!.name}”` : `Deleted ${deleted} folders`,
+          true
+        );
+      }
+    } finally {
+      selectionBusy = false;
+    }
+  }
+
+  function openRenameSelected(): void {
+    const row = singleRenameTarget;
+    if (!row) return;
+    renameOpen = true;
+    renameName = row.dTag || row.name;
+  }
+
+  function cancelRename(): void {
+    renameOpen = false;
+    renameName = '';
+  }
+
+  async function submitRenameSelected(): Promise<void> {
+    const row = singleRenameTarget;
+    const name = renameName.trim();
+    if (!row || !name || renamingFolder) return;
+    const folder = row.event ?? (row.entry ? await ensureResolved(row.entry) : null);
+    if (!folder || folder.kind !== KIND.DIRECTORY) {
+      showNotice('Could not load that folder.');
+      return;
+    }
+    renamingFolder = true;
+    selectionBusy = true;
+    try {
+      const result = await renameFolderInParent(cwd, folder, name, occupiedDTags);
+      if ('error' in result) {
+        showNotice(result.error);
+        return;
+      }
+      replaceStackEvent(cwd.id, result.parent);
+      const nextResolved = { ...resolved };
+      delete nextResolved[row.key];
+      if (row.entry) {
+        nextResolved[row.entry.key] = result.folder;
+      }
+      resolved = nextResolved;
+      stack = stack.map((ev) => (ev.id === folder.id ? result.folder : ev));
+      clearSelection();
+      showNotice(`Renamed to /${directoryDTag(result.folder)}`, true);
+    } finally {
+      renamingFolder = false;
+      selectionBusy = false;
+    }
+  }
 </script>
 
 <section class="dir-browser" aria-label="Directory browser">
@@ -308,6 +559,54 @@
     <span class="muted dir-browser-cwd">
       /{pathSegments.map((s) => s.name).join('/')}
     </span>
+    <div class="dir-browser-actions">
+      {#if newFolderOpen}
+        <form
+          class="dir-browser-new-folder"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void submitNewFolder();
+          }}
+        >
+          <label class="visually-hidden" for="dir-new-folder-name">Folder name</label>
+          <input
+            id="dir-new-folder-name"
+            type="text"
+            bind:this={newFolderInput}
+            bind:value={newFolderName}
+            placeholder="New folder name"
+            maxlength="80"
+            disabled={creatingFolder}
+          />
+          <button
+            class="btn dir-browser-op-btn"
+            type="submit"
+            disabled={creatingFolder || !newFolderName.trim()}
+          >
+            {creatingFolder ? 'Creating…' : 'Create'}
+          </button>
+          <button
+            class="btn dir-browser-op-btn"
+            type="button"
+            disabled={creatingFolder}
+            onclick={() => {
+              newFolderOpen = false;
+              newFolderName = '';
+            }}>Cancel</button
+          >
+        </form>
+      {:else}
+        <button
+          class="btn dir-browser-new-folder-btn"
+          type="button"
+          disabled={creatingFolder || atDepthLimit}
+          title={atDepthLimit ? 'Maximum folder depth reached' : 'Create a folder here'}
+          onclick={openNewFolder}
+        >
+          New folder
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="dir-browser-table-wrap">
@@ -318,6 +617,7 @@
         <col style="width: {colWidth.created}px" />
         <col style="width: {colWidth.objects}px" />
         <col style="width: {colWidth.kind}px" />
+        <col class="dir-col-check" style="width: 2.75rem" />
       </colgroup>
       <thead>
         <tr>
@@ -402,12 +702,24 @@
               onpointercancel={onResizeEnd}
             ></span>
           </th>
+          <th class="dir-col-check" scope="col">
+            <label class="dir-browser-check">
+              <input
+                type="checkbox"
+                bind:this={selectAllInput}
+                checked={allSelected}
+                disabled={!sortedListing.length || selectionBusy}
+                aria-label="Select all"
+                onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </label>
+          </th>
         </tr>
       </thead>
       <tbody>
         {#if !sortedListing.length}
           <tr>
-            <td colspan="5" class="dir-browser-empty muted">This folder is empty.</td>
+            <td colspan="6" class="dir-browser-empty muted">This folder is empty.</td>
           </tr>
         {:else}
           {#each sortedListing as row (row.key)}
@@ -418,6 +730,7 @@
               class="dir-browser-row"
               class:is-folder={row.role === 'folder'}
               class:is-file={row.role === 'file'}
+              class:is-selected={!!selectedKeys[row.key]}
             >
               <td class="dir-col-icon">
                 <span class="dir-browser-icon {row.iconClass}" aria-hidden="true"></span>
@@ -473,11 +786,88 @@
                 {row.role === 'folder' ? (row.objects ?? (busy ? '…' : '—')) : '—'}
               </td>
               <td class="dir-col-kind muted">{row.kindLine}</td>
+              <td class="dir-col-check">
+                <label class="dir-browser-check">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedKeys[row.key]}
+                    disabled={selectionBusy}
+                    aria-label={`Select ${row.name}`}
+                    onchange={(e) =>
+                      toggleRowSelected(row.key, (e.currentTarget as HTMLInputElement).checked)}
+                  />
+                </label>
+              </td>
             </tr>
           {/each}
         {/if}
       </tbody>
     </table>
+  </div>
+
+  <div class="dir-browser-selection-bar" aria-label="Selection actions">
+    {#if renameOpen && singleRenameTarget}
+      <form
+        class="dir-browser-rename"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void submitRenameSelected();
+        }}
+      >
+        <label class="visually-hidden" for="dir-rename-selected">New folder name</label>
+        <input
+          id="dir-rename-selected"
+          type="text"
+          bind:this={renameInput}
+          bind:value={renameName}
+          maxlength="80"
+          disabled={renamingFolder}
+        />
+        <button
+          class="btn btn-primary dir-browser-op-btn"
+          type="submit"
+          disabled={renamingFolder || !renameName.trim()}
+        >
+          {renamingFolder ? '…' : 'Save'}
+        </button>
+        <button class="btn dir-browser-op-btn" type="button" disabled={renamingFolder} onclick={cancelRename}
+          >Cancel</button
+        >
+      </form>
+    {:else}
+      <span class="muted dir-browser-selection-count">
+        {selectedCount ? `${selectedCount} selected` : 'None selected'}
+      </span>
+      <button
+        type="button"
+        class="btn dir-browser-op-btn"
+        disabled={!selectedCount || selectionBusy}
+        title="Remove selected items from this folder"
+        onclick={() => void removeSelected()}
+      >
+        {selectionBusy ? '…' : 'Remove'}
+      </button>
+      <button
+        type="button"
+        class="btn dir-browser-op-btn"
+        disabled={!selectedDeletableFolders.length || selectionBusy}
+        title="Delete selected folders"
+        onclick={() => void deleteSelectedFolders()}
+      >
+        Delete
+      </button>
+      {#if singleRenameTarget}
+        <button
+          type="button"
+          class="btn dir-browser-op-btn"
+          disabled={selectionBusy}
+          title="Rename selected folder"
+          onclick={openRenameSelected}
+        >
+          Rename
+        </button>
+      {/if}
+    {/if}
   </div>
 
   {#if loadingKeys && Object.values(loadingKeys).some(Boolean) && !sortedListing.some((r) => r.createdAt != null || r.role === 'file')}

@@ -10,6 +10,7 @@ import {
   markHighlights,
   linkifyTopicHashtags,
   linkifyBareHttpUrls,
+  honorHtmlImageSizeAttrs,
   looksLikeNativeAsciidoc,
   looksLikeDjot,
   normalizeMarkdownEmphasis,
@@ -29,6 +30,26 @@ describe('withMarkupTag', () => {
   });
 });
 
+describe('honorHtmlImageSizeAttrs', () => {
+  it('copies AsciiDoc width/height attrs into style so prose CSS cannot drop them', () => {
+    expect(
+      honorHtmlImageSizeAttrs(
+        '<span class="image"><img src="https://example.com/a.png" alt="Minion" width="100"></span>'
+      )
+    ).toContain('style="width:100px;height:auto"');
+    expect(
+      honorHtmlImageSizeAttrs(
+        '<img src="https://example.com/a.png" alt="Minion" width="150" height="200">'
+      )
+    ).toContain('style="width:150px;height:200px"');
+    expect(
+      honorHtmlImageSizeAttrs(
+        '<img src="https://example.com/a.png" alt="x" width="80" style="border-radius:4px">'
+      )
+    ).toContain('style="border-radius:4px;width:80px;height:auto"');
+  });
+});
+
 describe('asciidoc document header', () => {
   it('shows the title, author, and revision', async () => {
     const html = await renderWithFallback(
@@ -43,6 +64,18 @@ describe('asciidoc document header', () => {
     expect(html).toContain('mailto:author@email.org');
     expect(html).toContain('version 2.0, 2019-03-22');
     expect(html).toContain('>Section</h2>');
+  });
+});
+
+describe('asciidoc image size options', () => {
+  it('keeps image:…[alt,width] as an explicit style width after sanitize', async () => {
+    const html = await renderWithFallback(
+      KIND.WIKI,
+      'image:https://octodex.github.com/images/minion.png[Minion,100]',
+      [['m', 'text/asciidoc']]
+    );
+    expect(html).toMatch(/width="100"/i);
+    expect(html).toMatch(/style="[^"]*width:\s*100px/i);
   });
 });
 

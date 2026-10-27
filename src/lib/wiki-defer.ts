@@ -1,36 +1,22 @@
 import type { Event } from 'nostr-tools';
 import { nip19 } from 'nostr-tools';
+import {
+  readNip54Pointer,
+  type Nip54Reference
+} from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress } from './nostr/verify';
 import { memoryGetEvent } from './nostr/event-memory';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 
-export type WikiReference = {
-  coordinate?: string;
-  eventId?: string;
-  relayHint?: string;
-};
+export type WikiReference = Nip54Reference;
 
-function tagMarker(tag: string[]): string | undefined {
-  return tag[3]?.trim() || undefined;
-}
-
-function readReferenceByMarker(event: Event, marker: string): WikiReference | undefined {
-  const aTag = event.tags.find((t) => t[0] === 'a' && tagMarker(t) === marker && t[1]);
-  const eTag = event.tags.find((t) => t[0] === 'e' && tagMarker(t) === marker && t[1]);
-  if (!aTag && !eTag) return undefined;
-  return {
-    coordinate: aTag?.[1],
-    eventId: eTag?.[1],
-    relayHint: aTag?.[2] || eTag?.[2] || undefined
-  };
-}
+export { isDeferralPlaceholderContent } from '@silberengel/kind-compose-catalog';
 
 /** Kind 30818/30817 that tags another version with marker `defer`. */
 export function getWikiDeferTarget(event: Event): WikiReference | undefined {
-  if (event.kind !== KIND.WIKI && event.kind !== KIND.SPEC) return undefined;
-  return readReferenceByMarker(event, 'defer');
+  return readNip54Pointer(event, 'defer');
 }
 
 export function isWikiDeference(event: Event): boolean {
@@ -72,13 +58,6 @@ export function deferrerPubkeys(
     if (eventDefersTo(event, target)) add(event.pubkey);
   }
   return out;
-}
-
-/** NIP-54 style placeholder: "Read nostr:naddr1… instead." (optional nostr:, truncated OK). */
-export function isDeferralPlaceholderContent(content: string): boolean {
-  const s = content.trim();
-  if (!s) return false;
-  return /^\s*Read\s+(?:nostr:)?(?:nevent|naddr|note)1[02-9ac-hj-np-z]+/i.test(s);
 }
 
 /** `/wiki/…` or `/spec/…` for a `kind:pubkey:d` coordinate, else null. */

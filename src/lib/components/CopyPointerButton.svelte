@@ -25,9 +25,19 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { showNotice } from '$lib/stores/toast';
   import {
+    directoryContainsPublication,
+    directoryDTag
+  } from '$lib/bookshelf';
+  import {
+    addMemberToDirectory,
+    listOwnedDirectories
+  } from '$lib/bookshelf-actions';
+  import { directoryExplorerTitle } from '$lib/directory-explorer';
+  import {
     canCopyEventToCompose,
     canEditAsShortNote,
     canForkWikiEvent,
+    canReplaceOwnDirectoryEvent,
     canReplaceOwnWikiEvent
   } from '$lib/event-compose-preload';
   import { canRequestWikiMerge } from '$lib/wiki-merge';
@@ -103,7 +113,9 @@
   const showBroadcast = $derived(!!$session.pubkey);
   const hasMyRepost = $derived(!!myRepost);
   const showCopyEvent = $derived(
-    canCopyEventToCompose(event.kind) || canReplaceOwnWikiEvent(event, $session.pubkey)
+    canCopyEventToCompose(event.kind) ||
+      canReplaceOwnWikiEvent(event, $session.pubkey) ||
+      canReplaceOwnDirectoryEvent(event, $session.pubkey)
   );
   /** Own replaceable/addressable → "Replace"; others → "Copy". */
   const copyEventLabel = $derived(
@@ -125,6 +137,12 @@
   const canTranslate = $derived(!!eventIdKey && !!translatableBody(event).trim());
   let deferPending = $state(false);
   let deletePending = $state(false);
+  let folderPickerOpen = $state(false);
+  let folderPickerLoading = $state(false);
+  let folderPickerBusy = $state<string | null>(null);
+  let ownedFolders = $state<Event[]>([]);
+  /** Signed-in users can file this event (or nest a folder) into one of their 30045 dirs. */
+  const showAddToFolder = $derived(!!$session.pubkey && event.kind !== KIND.DELETION);
 
   async function translateThisEvent(): Promise<void> {
     if (translatePending || !canTranslate) return;
@@ -143,6 +161,46 @@
       return;
     }
     showNotice('Translation failed. Check your connection and try again.');
+  }
+
+  async function openFolderPicker(): Promise<void> {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    folderPickerOpen = true;
+    folderPickerLoading = true;
+    try {
+      ownedFolders = await listOwnedDirectories($session.pubkey);
+    } catch {
+      ownedFolders = [];
+      showNotice('Could not load your folders.');
+    } finally {
+      folderPickerLoading = false;
+    }
+  }
+
+  async function addToFolder(folder: Event): Promise<void> {
+    if (folderPickerBusy) return;
+    const key = folder.id;
+    folderPickerBusy = key;
+    try {
+      if (directoryContainsPublication(folder, event)) {
+        showNotice(`Already in /${directoryDTag(folder) || 'folder'}`, true);
+        close();
+        return;
+      }
+      const result = await addMemberToDirectory(folder, event);
+      if ('error' in result) {
+        showNotice(result.error);
+        return;
+      }
+      showNotice(`Added to /${directoryDTag(result) || directoryExplorerTitle(result)}`, true);
+      close();
+    } finally {
+      folderPickerBusy = null;
+    }
   }
 
   function openComposeCopy(): void {
@@ -349,6 +407,8 @@
   function close(): void {
     open = false;
     reposted = false;
+    folderPickerOpen = false;
+    folderPickerBusy = null;
   }
 
   function openInThread(e: MouseEvent): void {
@@ -667,6 +727,68 @@
           >
             Create redirect
           </button>
+        </li>
+      {/if}
+      {#if showAddToFolder}
+        <li role="none">
+          {#if !folderPickerOpen}
+            <button
+              class="menu-item"
+              type="button"
+              role="menuitem"
+              onclick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void openFolderPicker();
+              }}
+            >
+              Add to folder…
+            </button>
+          {:else}
+            <div class="menu-item-static muted" role="presentation">Add to folder</div>
+            {#if folderPickerLoading}
+              <div class="menu-item-static muted" role="presentation">Loading folders…</div>
+            {:else if !ownedFolders.length}
+              <div class="menu-item-static muted" role="presentation">No folders yet</div>
+            {:else}
+              {#each ownedFolders as folder (folder.id)}
+                {@const d = directoryDTag(folder) || folder.id.slice(0, 8)}
+                {@const already = directoryContainsPublication(folder, event)}
+                <button
+                  class="menu-item menu-item-indent"
+                  type="button"
+                  role="menuitem"
+                  disabled={already || folderPickerBusy === folder.id}
+                  onclick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void addToFolder(folder);
+                  }}
+                >
+                  {#if folderPickerBusy === folder.id}
+                    Adding…
+                  {:else if already}
+                    /{d} ✓
+                  {:else}
+                    /{d}
+                    <span class="muted"> — {directoryExplorerTitle(folder)}</span>
+                  {/if}
+                </button>
+              {/each}
+            {/if}
+            <button
+              class="menu-item"
+              type="button"
+              role="menuitem"
+              onclick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                folderPickerOpen = false;
+              }}
+            >
+              Back
+            </button>
+          {/if}
         </li>
       {/if}
       {#if showCopyEvent}

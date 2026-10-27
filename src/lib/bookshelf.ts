@@ -36,6 +36,66 @@ export function slugifyBookshelfDTag(name: string): string {
   return normalizeDTag(name.trim()) || 'bookshelf';
 }
 
+/**
+ * Pick a unique `d` among occupied slugs (append `-2`, `-3`, … when taken).
+ * Reserved home d-tags stay reserved.
+ */
+export function allocateUniqueFolderDTag(
+  name: string,
+  occupied: Iterable<string>,
+  reserved: readonly string[] = DIRECTORY_HOME_D_TAGS
+): string {
+  const base = slugifyBookshelfDTag(name);
+  const taken = new Set(
+    [...occupied, ...reserved].map((d) => d.trim().toLowerCase()).filter(Boolean)
+  );
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 10_000; i += 1) {
+    const candidate = `${base}-${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/** True for `/root` and `my-book-collection` — never NIP-09-deleted from the explorer. */
+export function isProtectedDirectoryDTag(d: string): boolean {
+  const key = d.trim().toLowerCase();
+  return (DIRECTORY_HOME_D_TAGS as readonly string[]).some((x) => x === key);
+}
+
+/**
+ * Build a minimal membership target from a directory listing entry
+ * (coordinate and/or event id) when the full event is not loaded yet.
+ */
+export function membershipTargetFromRef(ref: {
+  coordinate?: string;
+  eventId?: string;
+  event?: Pick<Event, 'id' | 'kind' | 'pubkey' | 'tags'> | null;
+}): Pick<Event, 'id' | 'kind' | 'pubkey' | 'tags'> | null {
+  if (ref.event) return ref.event;
+  const coord = ref.coordinate?.trim();
+  if (coord) {
+    const parsed = parseAddress(coord);
+    if (!parsed) return null;
+    const id = isEventIdHex(ref.eventId) ? ref.eventId!.toLowerCase() : '';
+    return {
+      id,
+      kind: parsed.kind,
+      pubkey: parsed.pubkey,
+      tags: [['d', parsed.d]]
+    };
+  }
+  if (isEventIdHex(ref.eventId)) {
+    return {
+      id: ref.eventId!.toLowerCase(),
+      kind: 0,
+      pubkey: '',
+      tags: []
+    };
+  }
+  return null;
+}
+
 export function bookshelfPublicationCoordinate(
   publication: Pick<Event, 'kind' | 'pubkey' | 'tags'>
 ): string {
@@ -182,6 +242,16 @@ export function createEmptyBookshelfDirectoryDraft(
 ): { kind: number; content: string; tags: string[][] } {
   const dTag = slugifyBookshelfDTag(d);
   return directoryDraft([['d', dTag]]);
+}
+
+/** Same memberships under a new `d` (rename / replaceable rewrite). */
+export function rewriteDirectoryDTag(
+  existing: Pick<Event, 'tags'>,
+  nextD: string
+): { kind: number; content: string; tags: string[][] } {
+  const dTag = slugifyBookshelfDTag(nextD);
+  const memberships = filterAndroidSafeTags(existing.tags ?? []).filter((t) => t[0] !== 'd');
+  return directoryDraft([['d', dTag], ...memberships]);
 }
 
 export function directoryDTag(event: Pick<Event, 'tags'>): string {

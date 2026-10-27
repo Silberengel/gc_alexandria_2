@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
+import { validateComposeForm } from './compose-build';
 import { KIND } from './constants';
 import {
   eventIsWikiForkOf,
@@ -103,5 +104,6 @@ describe('wiki-fork', () => {
     expect(draft.values.defer_a).toBeUndefined();
     expect(draft.freeformTags.some((t) => t[3] === 'fork' || t[3] === 'defer')).toBe(false);
     expect(draft.freeformTags.some((t) => t[0] === 'client')).toBe(false);
+    expect(validateComposeForm(draft)).toEqual({ ok: true });
   });
 });

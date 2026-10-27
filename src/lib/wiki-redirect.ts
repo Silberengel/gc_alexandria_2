@@ -1,4 +1,8 @@
 import type { Event, Filter } from 'nostr-tools';
+import {
+  parseWikiRedirect as catalogParseWikiRedirect,
+  type WikiRedirect
+} from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { fetchByAddresses } from './nostr/fetch';
@@ -11,11 +15,7 @@ import { eventAddress, firstTag } from './nostr/verify';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 import { wikiPathFromCoordinate } from './wiki-defer';
 
-export type WikiRedirect = {
-  alias: string;
-  targetCoordinate?: string;
-  relayHint?: string;
-};
+export type { WikiRedirect };
 
 export type WikiAliasLink = {
   /** Redirect d-tag (alias slug). */
@@ -28,14 +28,7 @@ export type WikiAliasLink = {
 
 /** Parse a kind-30819 wiki redirect. */
 export function parseWikiRedirect(event: Event): WikiRedirect | null {
-  if (event.kind !== KIND.WIKI_REDIRECT) return null;
-  const d = event.tags.find((t) => t[0] === 'd' && t[1])?.[1]?.trim() ?? '';
-  const aTag = event.tags.find((t) => t[0] === 'a' && t[1]);
-  return {
-    alias: d,
-    targetCoordinate: aTag?.[1],
-    relayHint: aTag?.[2] || undefined
-  };
+  return catalogParseWikiRedirect(event);
 }
 
 export function wikiRedirectTargetHref(event: Event): string | null {

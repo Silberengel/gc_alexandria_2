@@ -27,6 +27,12 @@ export {
   kindPickerLabel,
   fieldSpecs,
   composerFieldSpecs,
+  readNip54Pointer,
+  stripNip54ForkDeferTags,
+  parseWikiMergeRequest,
+  parseWikiMergeAcceptance,
+  parseWikiRedirect,
+  isDeferralPlaceholderContent,
 } from '@silberengel/kind-compose-catalog';
 export type {
   ComposeDraft,
@@ -34,6 +40,10 @@ export type {
   EventValidation,
   HighlightSourceRef,
   HighlightSourceEvent,
+  Nip54Reference,
+  WikiMergeAcceptance,
+  WikiMergeRequest,
+  WikiRedirect,
 } from '@silberengel/kind-compose-catalog';
 
 import {

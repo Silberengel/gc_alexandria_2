@@ -3,6 +3,7 @@ import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
   canCopyEventToCompose,
+  canReplaceOwnDirectoryEvent,
   canEditAsShortNote,
   canForkWikiEvent,
   canReplaceOwnWikiEvent,
@@ -84,6 +85,16 @@ describe('canCopy / canEdit / canFork gates', () => {
     expect(canReplaceOwnWikiEvent(other, me)).toBe(false);
     expect(canReplaceOwnWikiEvent(own, null)).toBe(false);
     expect(canReplaceOwnWikiEvent(ev({ kind: 1, pubkey: me }), me)).toBe(false);
+  });
+
+  it('offers replace for own directories, not via generic copy', () => {
+    const me = 'a'.repeat(64);
+    const own = ev({ kind: 30045, pubkey: me, tags: [['d', 'my-book-collection']] });
+    const other = ev({ kind: 30045, pubkey: 'b'.repeat(64), tags: [['d', 'root']] });
+    expect(canCopyEventToCompose(30045)).toBe(false);
+    expect(canReplaceOwnDirectoryEvent(own, me)).toBe(true);
+    expect(canReplaceOwnDirectoryEvent(other, me)).toBe(false);
+    expect(canReplaceOwnDirectoryEvent(own, null)).toBe(false);
   });
 
   it('allows edit only for own kind 1', () => {

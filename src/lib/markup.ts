@@ -623,9 +623,45 @@ export function linkifyBareHttpUrls(html: string): string {
   return mapHtmlTextNodes(html, linkifyHttpText);
 }
 
+/**
+ * AsciiDoc `image:url[alt,100]` emits `width="100"`, but prose layout CSS
+ * (max-height, object-fit, …) does not honor HTML presentational width/height.
+ * Copy numeric attrs into `style` so the authored size sticks (still capped by max-width).
+ */
+export function honorHtmlImageSizeAttrs(html: string): string {
+  if (!/<img\b/i.test(html) || !/\b(?:width|height)\s*=/i.test(html)) return html;
+  return html.replace(/<img\b([^>]*?)>/gi, (full, rawAttrs: string) => {
+    const width = /\bwidth\s*=\s*(?:"(\d+)"|'(\d+)'|(\d+))/i.exec(rawAttrs);
+    const height = /\bheight\s*=\s*(?:"(\d+)"|'(\d+)'|(\d+))/i.exec(rawAttrs);
+    const w = width?.[1] ?? width?.[2] ?? width?.[3];
+    const h = height?.[1] ?? height?.[2] ?? height?.[3];
+    if (!w && !h) return full;
+
+    const styleMatch = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(rawAttrs);
+    let style = (styleMatch?.[2] ?? styleMatch?.[3] ?? '').trim();
+    const hasWidth = /(?:^|;)\s*width\s*:/i.test(style);
+    const hasHeight = /(?:^|;)\s*height\s*:/i.test(style);
+    const bits: string[] = [];
+    if (w && !hasWidth) bits.push(`width:${w}px`);
+    if (h && !hasHeight) bits.push(`height:${h}px`);
+    else if (w && !h && !hasHeight) bits.push('height:auto');
+    if (!bits.length) return full;
+
+    const addition = bits.join(';');
+    if (styleMatch) {
+      const next = (style ? `${style.replace(/;?\s*$/, '')};` : '') + addition;
+      const quote = styleMatch[0].includes("'") ? "'" : '"';
+      return `<img${rawAttrs.replace(styleMatch[0], ` style=${quote}${next}${quote}`)}>`;
+    }
+    return `<img${rawAttrs} style="${addition}">`;
+  });
+}
+
 function presentHtml(html: string): string {
   return linkifyTopicHashtags(
-    cropRenderedUrlsInHtml(sanitizeHtml(promoteImageAutolinks(linkifyBareHttpUrls(html))))
+    cropRenderedUrlsInHtml(
+      sanitizeHtml(honorHtmlImageSizeAttrs(promoteImageAutolinks(linkifyBareHttpUrls(html))))
+    )
   );
 }
 
