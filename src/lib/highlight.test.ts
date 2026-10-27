@@ -45,4 +45,9 @@ describe('highlightCodeBlocks', () => {
   it('keeps highlightAsciidoctorHtml as an alias', () => {
     expect(highlightAsciidoctorHtml).toBe(highlightCodeBlocks);
   });
+
+  it('leaves latex/tex math listings for KaTeX', () => {
+    const input = '<pre><code class="language-latex">$$\nE=mc^2\n$$\n</code></pre>';
+    expect(highlightCodeBlocks(input)).toBe(input);
+  });
 });

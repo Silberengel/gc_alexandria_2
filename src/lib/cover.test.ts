@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
+import { KIND } from './constants';
 import {
   contentHasEarlyHeroImage,
   coverFullImageUrl,
   coverImageUrl,
   eventHeroImageUrls,
+  isContentHeroKind,
   gutenbergCoverUrl,
   readerSectionHeroFullUrl,
   readerSectionHeroUrl,
@@ -23,6 +25,17 @@ function ev(tags: string[][], id = 'a'.repeat(64)): Event {
     sig: 'c'.repeat(128)
   };
 }
+
+describe('isContentHeroKind', () => {
+  it('marks article kinds that paint the image tag in the header', () => {
+    expect(isContentHeroKind(KIND.LONG_FORM)).toBe(true);
+    expect(isContentHeroKind(KIND.WIKI)).toBe(true);
+    expect(isContentHeroKind(KIND.SPEC)).toBe(true);
+    expect(isContentHeroKind(KIND.PUBLICATION)).toBe(true);
+    expect(isContentHeroKind(1)).toBe(false);
+    expect(isContentHeroKind(KIND.PICTURE)).toBe(false);
+  });
+});
 
 describe('coverImageUrl', () => {
   it('prefers an image tag and thumbs i.nostr.build', () => {

@@ -107,6 +107,20 @@ describe('markup editor insertions', () => {
     expect(editMarkup('quote', 'djot', '', 0, 0).value).toContain('> ‘Hope’ is the thing with feathers');
   });
 
+  it('inserts inline and display TeX examples', () => {
+    const inline = editMarkup('tex-inline', 'djot', '', 0, 0);
+    expect(inline.value).toBe('$E = mc^2$');
+    expect(inline.value.slice(inline.selectionStart, inline.selectionEnd)).toBe('E = mc^2');
+
+    const display = editMarkup('tex-display', 'asciidoc', 'Hello', 5, 5);
+    expect(display.value).toContain('$$\n');
+    expect(display.value).toContain('\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}');
+    expect(display.value.slice(display.selectionStart, display.selectionEnd)).toContain('\\frac{-b');
+
+    const wrapped = editMarkup('tex-inline', 'djot', 'see a+b here', 4, 7);
+    expect(wrapped.value).toBe('see $a+b$ here');
+  });
+
   it('inserts a table and the next footnote', () => {
     expect(editTable('djot', '', 0, 0).value).toContain('|----|----|');
     expect(editTable('asciidoc', '', 0, 0).value).toContain('[cols="5,2,>3", options="footer"]');

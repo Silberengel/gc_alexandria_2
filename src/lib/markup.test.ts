@@ -237,6 +237,67 @@ describe('renderWithFallback', () => {
     expect(html).not.toContain('\\(');
     expect(html).not.toContain('\\[');
   });
+
+  it('renders AsciiDoc stem blocks and bare dollar TeX with KaTeX', async () => {
+    const src = [
+      'Inline $E=mc^2$ and stem:[a^2].',
+      '',
+      '[stem]',
+      '++++',
+      'E = mc^2',
+      '++++',
+      '',
+      '$$x = \\frac{1}{2}$$',
+      '',
+      'Price $10.50 and $primary-color'
+    ].join('\n');
+    const html = await renderWithFallback(KIND.WIKI, src, [['m', 'text/asciidoc']]);
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('katex-display');
+    expect(html).toContain('$10.50');
+    expect(html).toContain('$primary-color');
+  });
+
+  it('renders Djot dollar TeX in prose, inline code, and latex fences', async () => {
+    const src = [
+      'Greek $\\Psi$ and `$E=mc^2$`.',
+      '',
+      '$$\\sum_{i=1}^n x_i$$',
+      '',
+      '```latex',
+      '$$',
+      'f(x)=x^2',
+      '$$',
+      '```',
+      '',
+      'Price $10.50',
+      '',
+      'Empty $$',
+      '',
+      'Just $ $'
+    ].join('\n');
+    const html = await renderFormat('djot', src);
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('katex-display');
+    expect(html).toContain('$10.50');
+    expect(html).toContain('Empty');
+    expect(html).toMatch(/Just\s*\$\s*\$/);
+  });
+
+  it('keeps TeX subscripts in Djot dollar math (no emphasis on _)', async () => {
+    const src =
+      'Maxwell $\\left.\\frac{\\partial T}{\\partial P}\\right|_{s} = \\left.\\frac{\\partial v}{\\partial s}\\right|_{P}$.';
+    const html = await renderFormat('djot', src);
+    expect(html).toContain('class="katex"');
+    expect(html).not.toContain('<em>');
+    expect(html).not.toContain('\\right|');
+  });
+
+  it('renders plaintext dollar TeX through the markup path', async () => {
+    const html = await renderFormat('plaintext', 'See $E=mc^2$ and $19.99');
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('$19.99');
+  });
 });
 
 describe('djot block attributes', () => {

@@ -1,4 +1,5 @@
 import hljs from 'highlight.js/lib/common';
+import { isMathCodeBlock } from './katex-math';
 
 hljs.configure({ ignoreUnescapedHTML: true });
 
@@ -53,7 +54,10 @@ export function highlightCodeBlocks(html: string): string {
       const langFromClass = /\blanguage-([\w#+.-]+)\b/i.exec(codeAttrs)?.[1];
       const langFromData = /\bdata-lang=["']?([\w#+.-]+)/i.exec(codeAttrs)?.[1];
       const source = decodeBasicEntities(body);
-      const lang = guessLang(source, langFromClass || langFromData || '');
+      const declared = langFromClass || langFromData || '';
+      // Leave latex/tex/math (and `$…$`-wrapped bodies) for KaTeX.
+      if (isMathCodeBlock(source, declared)) return full;
+      const lang = guessLang(source, declared);
       if (!lang) return full;
 
       const resolved = hljs.getLanguage(lang) ? lang : lang.toLowerCase();

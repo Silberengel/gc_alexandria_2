@@ -27,6 +27,7 @@
   import { lruGet, lruSet } from '$lib/compose-lru';
   import { webBookmarkHrefFromD } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
+  import { renderKatexHtml, splitMathSegments } from '$lib/katex-math';
 
   /** Kinds that need a full card (player, gallery, …) instead of a one-line blurb. */
   function useRichEmbedCard(event: Event): boolean {
@@ -159,7 +160,7 @@
       .join('');
   }
 
-  function renderPlainBlock(text: string): string {
+  function renderPlainBlockInner(text: string): string {
     const lines = prepareLines(text);
     return lines
       .map((line) => {
@@ -176,7 +177,7 @@
   }
 
   /** Inline-safe lines so a UserBadge can sit mid-sentence without a hard break. */
-  function renderFlowText(text: string): string {
+  function renderFlowTextInner(text: string): string {
     const lines = prepareLines(text);
     return lines
       .map((line) => {
@@ -190,6 +191,27 @@
         return `<span class="nrt-phrase">${inner}</span>`;
       })
       .join('<br>');
+  }
+
+  /** KaTeX for `$…$` / `$$…$$` and math wrapped in backticks / ``` fences. */
+  function renderWithMath(text: string, inline: boolean): string {
+    if (!text.includes('$') && !text.includes('`')) {
+      return inline ? renderFlowTextInner(text) : renderPlainBlockInner(text);
+    }
+    return splitMathSegments(text)
+      .map((seg) => {
+        if (seg.type === 'math') return renderKatexHtml(seg.tex, seg.display);
+        return inline ? renderFlowTextInner(seg.value) : renderPlainBlockInner(seg.value);
+      })
+      .join('');
+  }
+
+  function renderPlainBlock(text: string): string {
+    return renderWithMath(text, false);
+  }
+
+  function renderFlowText(text: string): string {
+    return renderWithMath(text, true);
   }
 
   const bodyBlocks = $derived(coalescePlainMentionFlows(segments));

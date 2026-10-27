@@ -5,6 +5,7 @@ import { getKind } from '@silberengel/kind-compose-catalog';
 import { KIND } from './constants';
 import { normalizeDTag } from './dtag';
 import { cropRenderedUrlsInHtml } from './crop-url';
+import { preprocessDjotDollarMath } from './katex-math';
 import { promoteImageAutolinks, rewriteBareImageUrls } from './media';
 
 /** Catalog-driven body formats. Markdown is not a catalog encoding. */
@@ -408,11 +409,12 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
       import('@asciidoctor/core'),
       import('./highlight'),
       import('./katex-math')
-    ]).then(([mod, { highlightCodeBlocks }, { renderAsciidoctorMath }]) => {
+    ]).then(([mod, { highlightCodeBlocks }, { preprocessAsciidocDollarMath, renderMathInHtml }]) => {
       const factory = mod.default;
       const processor = typeof factory === 'function' ? factory() : factory;
       asciidoctorConvert = (src: string) => {
-        const doc = processor.load(src, {
+        const prepared = preprocessAsciidocDollarMath(src);
+        const doc = processor.load(prepared, {
           safe: 'secure',
           standalone: false,
           doctype: 'article',
@@ -426,7 +428,7 @@ async function loadAsciidoctor(): Promise<(src: string) => string> {
           }
         });
         const html = asciidocDocumentHeader(doc) + String(doc.convert());
-        return renderAsciidoctorMath(highlightCodeBlocks(html));
+        return renderMathInHtml(highlightCodeBlocks(html));
       };
     });
   }
@@ -465,7 +467,10 @@ function splitAsciiGlyphTail(text: string): { art: string; tail: string } {
 }
 
 export function renderDjotHtml(src: string): string {
-  const normalized = normalizeMarkdownEmphasis(ensureBlockFences(src));
+  // Dollar math → Djot `$`tex`` so `_` / `*` inside TeX are not emphasis.
+  const normalized = preprocessDjotDollarMath(
+    normalizeMarkdownEmphasis(ensureBlockFences(src))
+  );
   try {
     return renderDjot(parseDjot(normalized), {
       overrides: {
@@ -514,8 +519,11 @@ export function renderDjotHtml(src: string): string {
 }
 
 async function highlightRenderedHtml(html: string): Promise<string> {
-  const { highlightCodeBlocks } = await import('./highlight');
-  return highlightCodeBlocks(html);
+  const [{ highlightCodeBlocks }, { renderMathInHtml }] = await Promise.all([
+    import('./highlight'),
+    import('./katex-math')
+  ]);
+  return renderMathInHtml(highlightCodeBlocks(html));
 }
 
 async function renderAsciidocHtml(src: string): Promise<string> {
@@ -530,6 +538,11 @@ export function renderPlaintextHtml(src: string): string {
     .split(/\n\n+/)
     .map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`)
     .join('');
+}
+
+async function applyMathToHtml(html: string): Promise<string> {
+  const { renderMathInHtml } = await import('./katex-math');
+  return renderMathInHtml(html);
 }
 
 /** Hashtag after start or a non-word character. Body is letters, numbers, underscore. */
@@ -618,14 +631,14 @@ function presentHtml(html: string): string {
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
   if (format === 'plaintext') {
-    return presentHtml(renderPlaintextHtml(content ?? ''));
+    return presentHtml(await applyMathToHtml(renderPlaintextHtml(content ?? '')));
   }
   const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
   try {
     if (format === 'asciidoc') return presentHtml(await renderAsciidocHtml(rewritten));
     return presentHtml(await highlightRenderedHtml(renderDjotHtml(rewritten)));
   } catch {
-    return presentHtml(renderPlaintextHtml(content ?? ''));
+    return presentHtml(await applyMathToHtml(renderPlaintextHtml(content ?? '')));
   }
 }
 

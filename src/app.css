@@ -3646,7 +3646,8 @@ a.nostrdown-ref {
 /* KaTeX — inherit reading ink; center display stems. */
 .reading-body .katex,
 .event-body .katex,
-.reader-section .katex {
+.reader-section .katex,
+.nostr-rich-text .katex {
   color: var(--ink);
   font-size: 1.05em;
 }
@@ -3669,7 +3670,8 @@ a.nostrdown-ref {
 
 .reading-body .katex-display,
 .event-body .katex-display,
-.reader-section .katex-display {
+.reader-section .katex-display,
+.nostr-rich-text .katex-display {
   margin: 0.85rem 0;
   overflow-x: auto;
   overflow-y: hidden;

@@ -97,6 +97,11 @@ const CONTENT_HERO_KINDS = new Set<number>([
   KIND.LONG_FORM
 ]);
 
+/** True when the reading header paints the `image` tag as a cover (not a body attachment). */
+export function isContentHeroKind(kind: number): boolean {
+  return CONTENT_HERO_KINDS.has(kind);
+}
+
 function isMarkupImageUrl(url: string): boolean {
   if (!DIRECT_IMAGE.test(url)) return false;
   if (/\.(?:webm|mp4|m4v|mov|mp3|ogg|wav|m4a|aac)(?:[?#]|$)/i.test(url)) return false;

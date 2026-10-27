@@ -232,6 +232,25 @@ export function editCode(format: MarkupEditorFormat, source: string, start: numb
   return wrapInline(source, start, end, '`', '`', EXAMPLE_INLINE_CODE);
 }
 
+const EXAMPLE_INLINE_TEX = 'E = mc^2';
+const EXAMPLE_DISPLAY_TEX = `x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}`;
+
+/** Inline `$…$` or display `$$…$$` TeX (works for Djot and AsciiDoc). */
+export function editTex(
+  mode: 'inline' | 'display',
+  source: string,
+  start: number,
+  end: number
+): SourceEdit {
+  const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
+  if (mode === 'inline') {
+    const inner = selected.replace(/\n/g, ' ').trim() || EXAMPLE_INLINE_TEX;
+    return selectInner(splice(source, start, end, `$${inner}$`, 1, inner.length), inner);
+  }
+  const inner = selected || EXAMPLE_DISPLAY_TEX;
+  return selectInner(insertBlock(source, start, end, `$$\n${inner}\n$$`), inner);
+}
+
 /** Language-tagged source block (Djot fence / AsciiDoc [source]). */
 export function editCodeBlock(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
@@ -593,6 +612,8 @@ export type MarkupTool =
   | 'subscript'
   | 'code'
   | 'codeblock'
+  | 'tex-inline'
+  | 'tex-display'
   | 'link'
   | 'xref'
   | 'kbd'
@@ -641,6 +662,10 @@ export function editMarkup(
       return editCode(format, source, start, end);
     case 'codeblock':
       return editCodeBlock(format, source, start, end);
+    case 'tex-inline':
+      return editTex('inline', source, start, end);
+    case 'tex-display':
+      return editTex('display', source, start, end);
     case 'link':
       return editLink(format, source, start, end);
     case 'xref':

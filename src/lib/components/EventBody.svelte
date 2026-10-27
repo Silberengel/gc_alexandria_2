@@ -14,8 +14,8 @@
   } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { attachYoutubeEmbeds } from '$lib/attach-youtube';
-  import { eventHeroImageUrls, stripEarlyDuplicateHeroImage } from '$lib/cover';
-  import { omitMediaUrls, stripRenderedMedia, uniqueMedia } from '$lib/media';
+  import { eventHeroImageUrls, isContentHeroKind, stripEarlyDuplicateHeroImage } from '$lib/cover';
+  import { omitMediaUrls, sameMedia, stripRenderedMedia, uniqueMedia } from '$lib/media';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
@@ -156,12 +156,22 @@
       : ''
   );
 
-  /** NIP-92 imeta tags plus bare image/video/audio URLs in the content. */
-  const media = $derived(
-    hideMedia || !displayEvent
-      ? []
-      : uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url))
-  );
+  const sourceKind = $derived(kind ?? displayEvent?.kind ?? KIND.LONG_FORM);
+  const heroUrls = $derived.by(() => {
+    const urls: string[] = [...dedupeHeroUrls];
+    if (dedupeHeroImage && displayEvent) urls.push(...eventHeroImageUrls(displayEvent));
+    return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
+  });
+  /**
+   * NIP-92 imeta tags plus bare image/video/audio URLs in the content.
+   * Cover `image` tags for article kinds are only in the header — omit them here.
+   */
+  const media = $derived.by(() => {
+    if (hideMedia || !displayEvent) return [];
+    const items = uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
+    if (!dedupeHeroImage || !isContentHeroKind(sourceKind) || !heroUrls.length) return items;
+    return items.filter((item) => !heroUrls.some((hero) => sameMedia(item.url, hero)));
+  });
   const images = $derived(media.filter((item) => item.type === 'image'));
   const imageUrls = $derived(images.map((item) => item.url));
   const imageAlts = $derived(images.map((item) => item.alt?.trim() || ''));
@@ -190,7 +200,6 @@
       ? translationEntry.content
       : omitMediaUrls(displayEvent?.content ?? content, media)
   );
-  const sourceKind = $derived(kind ?? displayEvent?.kind ?? KIND.LONG_FORM);
   const sourceTags = $derived(displayEvent?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
@@ -202,11 +211,6 @@
   let highlightHtml = $state('');
   /** Kind 7/17 custom emoji reactions — paint the tagged face, not clipped alt text. */
   const reactionFace = $derived(event ? resolveReactionEmoji(event) : null);
-  const heroUrls = $derived.by(() => {
-    const urls: string[] = [...dedupeHeroUrls];
-    if (dedupeHeroImage && displayEvent) urls.push(...eventHeroImageUrls(displayEvent));
-    return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
-  });
   /**
    * One render pass so a nostr:npub stays inside its sentence.
    * Splitting before AsciiDoc also breaks listings and tables.

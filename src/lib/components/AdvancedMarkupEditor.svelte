@@ -115,6 +115,7 @@
   let mentionHits = $state<MentionCandidate[]>([]);
   let mentionBusy = $state(false);
   let mentionIndex = $state(0);
+  let texMenuOpen = $state(false);
   /** Latest mention list for listeners registered once on the textarea. */
   const mentionGate = {
     open: false,
@@ -433,6 +434,11 @@
     void applyEdit(editMarkup(id, format, content, start, end));
   }
 
+  function runTex(mode: 'tex-inline' | 'tex-display') {
+    texMenuOpen = false;
+    runTool(mode);
+  }
+
   function syncMention(el: HTMLTextAreaElement) {
     if (el.selectionStart !== el.selectionEnd) {
       mention = null;
@@ -589,6 +595,38 @@
           >
             {tool.label}
           </button>
+          {#if tool.id === 'codeblock'}
+            <details class="advanced-tex-menu" bind:open={texMenuOpen}>
+              <summary class="advanced-tool" title="TeX math ($…$ or $$…$$)" aria-label="TeX math">
+                TeX
+                <span class="advanced-tex-caret" aria-hidden="true">▾</span>
+              </summary>
+              <div class="advanced-tex-panel" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="advanced-tex-option"
+                  title="Inline math: $E = mc^2$"
+                  onmousedown={(event) => event.preventDefault()}
+                  onclick={() => runTex('tex-inline')}
+                >
+                  <span class="advanced-tex-option-label">Inline</span>
+                  <code class="advanced-tex-option-sample">$E = mc^2$</code>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  class="advanced-tex-option"
+                  title={'Display math: $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$'}
+                  onmousedown={(event) => event.preventDefault()}
+                  onclick={() => runTex('tex-display')}
+                >
+                  <span class="advanced-tex-option-label">Display</span>
+                  <code class="advanced-tex-option-sample">$$…$$</code>
+                </button>
+              </div>
+            </details>
+          {/if}
         {/each}
         <button
           type="button"
@@ -842,6 +880,63 @@
   .advanced-tool.is-busy {
     pointer-events: none;
     opacity: 0.7;
+  }
+  .advanced-tex-menu {
+    position: relative;
+    display: inline-flex;
+  }
+  .advanced-tex-menu > summary {
+    list-style: none;
+  }
+  .advanced-tex-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .advanced-tex-caret {
+    font-size: 0.7em;
+    opacity: 0.7;
+  }
+  .advanced-tex-panel {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% + 0.2rem);
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 11.5rem;
+    padding: 0.3rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 78%, transparent);
+    border-radius: 0.4rem;
+    background: var(--paper-light);
+    box-shadow: var(--shadow-soft, 0 4px 16px rgb(0 0 0 / 12%));
+  }
+  .advanced-tex-option {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    width: 100%;
+    margin: 0;
+    padding: 0.35rem 0.45rem;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: none;
+    border-radius: 0.3rem;
+    cursor: pointer;
+  }
+  .advanced-tex-option:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .advanced-tex-option-label {
+    font-family: var(--ui-font);
+    font-size: 0.85rem;
+  }
+  .advanced-tex-option-sample {
+    font-family: ui-monospace, 'Source Code Pro', Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    color: color-mix(in srgb, currentColor 62%, transparent);
   }
   .advanced-upload-error {
     flex: 0 0 auto;
