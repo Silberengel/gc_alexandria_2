@@ -12,7 +12,17 @@ import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest, MERCURY_DOCUMENT_KINDS } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
-import { documentStack, socialStack } from './nostr/selector';
+import { documentStack, gitcitadelReadsAllowed, socialStack } from './nostr/selector';
+import {
+  advancedSearchCacheKey,
+  clampAdvancedLimit,
+  filterHasQueryKeys,
+  mercuryHasQuery,
+  normalizeAdvancedFilter,
+  normalizeRelayList,
+  defaultAdvancedSearchRelays,
+  type AdvancedSearchRequest
+} from './advanced-search';
 import {
   shouldHideEventByGrapevine,
   type GrapevineTrustContext
@@ -854,6 +864,61 @@ export async function runBookshelfSearch(
 ): Promise<void> {
   const key = `bookshelf:${normalizeSearchKey(d)}:${npubOrHex ?? ''}`;
   await cachedOrLive(key, onUpdate, () => searchByBookshelf(d, npubOrHex));
+}
+
+async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> {
+  const filter = normalizeAdvancedFilter(req.filter);
+  filter.limit = clampAdvancedLimit(filter.limit ?? 100);
+  const hasFilter = filterHasQueryKeys(filter);
+  const hasMercury = mercuryHasQuery(req.mercury);
+  const mercuryOk = gitcitadelReadsAllowed();
+
+  const batches: Promise<Event[]>[] = [];
+
+  // Relays mode: NIP-01 REQ against the chosen relay list.
+  if (hasFilter) {
+    let relays = normalizeRelayList(req.relays);
+    if (!relays.length) relays = defaultAdvancedSearchRelays(filter);
+    batches.push(relayPool.query(relays, [filter]));
+  }
+
+  // Mercury mode: typed publication/wiki/section search (not a relay REQ).
+  if (mercuryOk && hasMercury && req.mercury) {
+    const typed: Record<string, unknown> = { limit: filter.limit };
+    for (const [k, v] of Object.entries(req.mercury)) {
+      if (typeof v === 'string' && v.trim()) typed[k] = v.trim();
+    }
+    if (Object.keys(typed).length > 1) {
+      batches.push(mercuryPublicationSearch(typed));
+      batches.push(mercuryWikiSearch(typed));
+      batches.push(mercurySectionSearch(typed));
+    }
+  }
+
+  const qText = filter.search?.trim() || req.mercury?.q?.trim();
+  if (qText) batches.push(cacheScanText(qText, filter.limit));
+
+  if (!batches.length) return [];
+  const settled = await Promise.all(batches);
+  return mergeById(settled.flat());
+}
+
+/** NIP-01 (+ Mercury typed) advanced search from a shareable `adv=` payload. */
+export async function runAdvancedSearch(
+  req: AdvancedSearchRequest,
+  onUpdate: (r: SearchResult) => void
+): Promise<void> {
+  const filter = normalizeAdvancedFilter(req.filter);
+  filter.limit = clampAdvancedLimit(filter.limit ?? 100);
+  let relays = normalizeRelayList(req.relays);
+  if (!relays.length) relays = defaultAdvancedSearchRelays(filter);
+  const normalized: AdvancedSearchRequest = {
+    filter,
+    mercury: req.mercury,
+    relays
+  };
+  const key = advancedSearchCacheKey(normalized);
+  await cachedOrLive(key, onUpdate, () => liveAdvancedSearch(normalized));
 }
 
 export { hexPubkey, npubFromInput };

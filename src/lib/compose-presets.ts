@@ -7,7 +7,7 @@ import { resolveMarkup } from './markup';
 
 export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041] as const;
 export const COMPOSE_METADATA_KINDS = [
-  0, 30315, 10133, 10002, 10006, 10012, 10013, 10243
+  0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10243
 ] as const;
 /** Action / context kinds composed elsewhere — not offered in the picker. */
 export const COMPOSE_PICKER_EXCLUDED = [

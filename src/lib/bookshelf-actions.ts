@@ -1,7 +1,9 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
+  DIRECTORY_HOME_D_TAGS,
   MY_BOOK_COLLECTION_D_TAG,
+  ROOT_DIRECTORY_D_TAG,
   canPublishBookshelfReplacement,
   createBookshelfDirectoryDraft,
   createEmptyBookshelfDirectoryDraft,
@@ -14,12 +16,82 @@ import {
 } from './bookshelf';
 import { documentStack } from './nostr/selector';
 import { relayPool } from './nostr/pool';
+import { rememberEvents } from './nostr/event-memory';
+import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { signAndPublish } from './sign';
 
 async function fetchDirectoryByD(pubkey: string, d: string): Promise<Event | null> {
   const filter = { kinds: [KIND.DIRECTORY], authors: [pubkey], '#d': [d], limit: 1 };
   const hits = await relayPool.query(documentStack(), [filter]);
   return hits[0] ?? null;
+}
+
+export type UserHomeDirectories = {
+  /** Kind 30045 with `d=root`. */
+  root: Event;
+  /** Kind 30045 with `d=my-book-collection`. */
+  books: Event;
+  /** Other directories owned by the user (latest per d). */
+  others: Event[];
+};
+
+/**
+ * Load the viewer's directories and mint `/root` plus `/root/my-book-collection`
+ * when either is missing (empty 30045, Android-safe: no title tag). Always nests
+ * `my-book-collection` under `root` so `/root` stays the filesystem top.
+ */
+export async function ensureUserHomeDirectories(pubkey: string): Promise<UserHomeDirectories> {
+  const pk = pubkey.toLowerCase();
+  const hits = await relayPool.query(
+    documentStack(),
+    [{ kinds: [KIND.DIRECTORY], authors: [pk], limit: 80 }],
+    5000
+  );
+  rememberEvents(hits);
+  const latest = pruneToLatestReplaceables(hits).filter((e) => e.kind === KIND.DIRECTORY);
+  const byD = new Map<string, Event>();
+  for (const ev of latest) {
+    const d = directoryDTag(ev);
+    if (d) byD.set(d, ev);
+  }
+
+  async function ensureD(d: string): Promise<Event> {
+    const existing = byD.get(d) ?? (await fetchDirectoryByD(pk, d));
+    if (existing) {
+      byD.set(d, existing);
+      return existing;
+    }
+    const published = await signAndPublish(createEmptyBookshelfDirectoryDraft(d));
+    if (!published) {
+      throw new Error(`Could not create /${d}`);
+    }
+    rememberEvents([published]);
+    byD.set(d, published);
+    return published;
+  }
+
+  let root = await ensureD(ROOT_DIRECTORY_D_TAG);
+  const books = await ensureD(MY_BOOK_COLLECTION_D_TAG);
+
+  // `/root` is always the filesystem top: nest my-book-collection under it when missing.
+  if (!directoryContainsPublication(root, books)) {
+    const draft = createBookshelfDirectoryDraft(root, ROOT_DIRECTORY_D_TAG, books);
+    if (!('error' in draft)) {
+      const published = await signAndPublish(draft);
+      if (published) {
+        rememberEvents([published]);
+        byD.set(ROOT_DIRECTORY_D_TAG, published);
+        root = published;
+      }
+    }
+  }
+
+  const home = new Set<string>(DIRECTORY_HOME_D_TAGS);
+  const others = [...byD.values()]
+    .filter((e) => !home.has(directoryDTag(e)))
+    .sort((a, b) => b.created_at - a.created_at);
+
+  return { root, books, others };
 }
 
 export type BookshelfState = {

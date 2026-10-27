@@ -8,6 +8,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
+  import DirectoryExplorer from '$lib/components/DirectoryExplorer.svelte';
   import ProfileMetadataCard from '$lib/components/ProfileMetadataCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
@@ -58,7 +59,7 @@
     isFeedInteractionEvent,
     isKindFeedTab,
     feedThreadPath,
-    feedThreadPointerFromId,
+    feedThreadPathFromId,
     fetchFeedThreadTarget,
     mergeFeedPosts,
     loadAuthorFeed,
@@ -102,8 +103,9 @@
   /** Raw `?tab=` — null/empty means “use the first strip tab”. */
   const feedTabParam = $derived(feedQuery.get('tab'));
   let kindDraft = $state('');
-  let dragFrom = $state<number | null>(null);
-  let dragOver = $state<number | null>(null);
+  /** Tab id under the pointer — never a visible-strip index (visibility can change mid-drag). */
+  let dragFromTab = $state<FeedTab | null>(null);
+  let dragOverTab = $state<FeedTab | null>(null);
   let dragMoved = $state(false);
   let metadataEvents = $state<Event[]>([]);
   /**
@@ -230,40 +232,39 @@
     void replace(feedListPath(next, { author: feedAuthor }));
   }
 
-  function onTabDragStart(index: number, e: DragEvent): void {
-    dragFrom = index;
+  function onTabDragStart(tab: FeedTab, e: DragEvent): void {
+    dragFromTab = tab;
     dragMoved = false;
-    dragOver = index;
-    e.dataTransfer?.setData('text/plain', String(index));
+    dragOverTab = tab;
+    e.dataTransfer?.setData('text/plain', tab);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
   }
 
-  function onTabDragOver(index: number, e: DragEvent): void {
+  function onTabDragOver(tab: FeedTab, e: DragEvent): void {
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    if (dragFrom !== null && dragFrom !== index) dragMoved = true;
-    dragOver = index;
+    if (dragFromTab !== null && dragFromTab !== tab) dragMoved = true;
+    dragOverTab = tab;
   }
 
-  function onTabDrop(index: number, e: DragEvent): void {
+  function onTabDrop(tab: FeedTab, e: DragEvent): void {
     e.preventDefault();
-    if (dragFrom !== null && dragFrom !== index) {
-      const fromTab = visibleFeedTabs[dragFrom];
-      const toTab = visibleFeedTabs[index];
-      if (fromTab && toTab) {
-        const full = $feedTabOrder;
-        const from = full.indexOf(fromTab);
-        const to = full.indexOf(toTab);
-        if (from >= 0 && to >= 0) feedTabOrder.reorder(from, to);
-      }
+    const fromTab = dragFromTab;
+    if (fromTab && fromTab !== tab) {
+      // Reorder in the persisted full order so hidden tabs (follows/notifications
+      // when signed out) keep their slots; visible indices would mis-target those.
+      const full = $feedTabOrder;
+      const from = full.indexOf(fromTab);
+      const to = full.indexOf(tab);
+      if (from >= 0 && to >= 0) feedTabOrder.reorder(from, to);
     }
-    dragFrom = null;
-    dragOver = null;
+    dragFromTab = null;
+    dragOverTab = null;
   }
 
   function onTabDragEnd(): void {
-    dragFrom = null;
-    dragOver = null;
+    dragFromTab = null;
+    dragOverTab = null;
   }
 
   function onTabClick(tab: FeedTab): void {
@@ -613,7 +614,7 @@
     if (!(target instanceof Element)) return;
     if (
       target.closest(
-        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge'
+        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge, .directory-explorer'
       )
     ) {
       return;
@@ -637,11 +638,10 @@
     if (target.closest('a, button, input, textarea, video, audio, .userbadge')) return;
     armListRestore(targetId);
     if (warm) warmNavEvent(warm);
-    const q = new URLSearchParams();
-    q.set('thread', feedThreadPointerFromId(targetId));
-    q.set('tab', feedTab);
-    if (feedAuthor) q.set('author', feedAuthor);
-    void replace(`/feed?${q.toString()}`);
+    const path = warm
+      ? feedThreadPath(warm, feedTab, { author: feedAuthor })
+      : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
+    void replace(path);
     queueMicrotask(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
@@ -1029,6 +1029,12 @@
             <ProfileMetadataCard {event} showMenu={false} />
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
+        {:else if event.kind === KIND.DIRECTORY}
+          <article class="card reading-body feed-directory-thread">
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
+            <DirectoryExplorer {event} />
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+          </article>
         {:else}
           <article class="card reading-body">
             <FeedBoosters boosts={threadBoosts} targetId={event.id} />
@@ -1123,21 +1129,21 @@
     </form>
     <div class="feed-tabs-row">
       <div class="feed-tabs" role="tablist" aria-label="Feed view">
-        {#each visibleFeedTabs as tab, index (tab)}
+        {#each visibleFeedTabs as tab (tab)}
           <button
             type="button"
             role="tab"
             class="feed-tab"
             class:active={feedTab === tab}
-            class:feed-tab-dragging={dragFrom === index}
-            class:feed-tab-drop={dragOver === index && dragFrom !== null && dragFrom !== index}
+            class:feed-tab-dragging={dragFromTab === tab}
+            class:feed-tab-drop={dragOverTab === tab && dragFromTab !== null && dragFromTab !== tab}
             aria-selected={feedTab === tab}
             tabindex={pointer ? -1 : 0}
             draggable={!pointer}
             title="Drag to reorder tabs"
-            ondragstart={(e) => onTabDragStart(index, e)}
-            ondragover={(e) => onTabDragOver(index, e)}
-            ondrop={(e) => onTabDrop(index, e)}
+            ondragstart={(e) => onTabDragStart(tab, e)}
+            ondragover={(e) => onTabDragOver(tab, e)}
+            ondrop={(e) => onTabDrop(tab, e)}
             ondragend={onTabDragEnd}
             onclick={() => onTabClick(tab)}
           >
@@ -1226,31 +1232,41 @@
                 }}
               >
                 <FeedBoosters boosts={row.boosts} targetId={item.id} />
-                <div class="thread-head">
-                  <UserBadge pubkey={item.pubkey} />
-                  <a
-                    class="thread-time muted"
-                    href={threadHref}
-                    use:link
-                    title={formatAbsoluteTime(item.created_at)}
-                    onclick={() => openThreadLink(item)}
-                  >{formatRelativeTime(item.created_at)}</a>
-                  {#if !reactionRow}
-                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
-                  {/if}
-                </div>
-                <div class="feed-body">
-                  {#if shown[item.id.toLowerCase()]}
-                    <EventBody event={item} />
-                  {:else}
-                    <p class="feed-preview">{rowText(item)}</p>
-                  {/if}
-                </div>
+                {#if item.kind === KIND.DIRECTORY}
+                  <div class="feed-body feed-body-directory">
+                    <DirectoryExplorer event={item} showMenu={false} />
+                  </div>
+                {:else}
+                  <div class="thread-head">
+                    <UserBadge pubkey={item.pubkey} />
+                    <a
+                      class="thread-time muted"
+                      href={threadHref}
+                      use:link
+                      title={formatAbsoluteTime(item.created_at)}
+                      onclick={() => openThreadLink(item)}
+                    >{formatRelativeTime(item.created_at)}</a>
+                    {#if !reactionRow}
+                      <span class="feed-kind muted">{eventKindDescription(item)}</span>
+                    {/if}
+                  </div>
+                  <div class="feed-body">
+                    {#if shown[item.id.toLowerCase()]}
+                      <EventBody event={item} />
+                    {:else}
+                      <p class="feed-preview">{rowText(item)}</p>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             </li>
           {:else}
             {@const target = boostTargets[row.targetId]}
-            {@const threadHref = `#/feed?thread=${feedThreadPointerFromId(row.targetId)}&tab=${encodeURIComponent(feedTab)}${feedAuthor ? `&author=${feedAuthor}` : ''}`}
+            {@const threadHref = `#${
+              target
+                ? feedThreadPath(target, feedTab, { author: feedAuthor })
+                : feedThreadPathFromId(row.targetId, feedTab, { author: feedAuthor })
+            }`}
             <li
               class="card feed-row feed-row-boost"
               data-feed-row={row.targetId}
@@ -1512,8 +1528,15 @@
     margin-top: 0.25rem;
     cursor: pointer;
   }
-  .feed-body :global(:is(.generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap)) {
+  .feed-body :global(:is(.generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .directory-explorer)) {
     cursor: auto;
+  }
+  .feed-body-directory {
+    max-height: min(28rem, 70vh);
+    overflow: auto;
+  }
+  .feed-row:has(.feed-body-directory) {
+    max-height: none;
   }
   .feed-preview {
     margin: 0;

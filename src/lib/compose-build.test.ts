@@ -78,6 +78,34 @@ describe('buildComposePartial', () => {
     ]);
   });
 
+  it('builds kind-3 follow p tags from the authors field', () => {
+    const pk = 'c'.repeat(64);
+    const partial = buildComposePartial({
+      kind: 3,
+      content: 'ignored',
+      values: { authors: `${pk}|wss://r.example|Ada` },
+    });
+    expect(partial.content).toBe('');
+    expect(partial.tags).toEqual([
+      ['p', pk, 'wss://r.example', 'Ada'],
+      ['client', 'Alexandria'],
+    ]);
+  });
+
+  it('builds kind-10000 mute tags and private JSON content', () => {
+    const pk = 'd'.repeat(64);
+    const partial = buildComposePartial({
+      kind: 10000,
+      content: 'ignored',
+      values: { muted: `p ${pk}\nprivate word spam` },
+    });
+    expect(partial.tags).toEqual([
+      ['p', pk],
+      ['client', 'Alexandria'],
+    ]);
+    expect(JSON.parse(partial.content)).toEqual([['word', 'spam']]);
+  });
+
   it('replaces freeform client tags with ["client", "Alexandria"]', () => {
     const partial = buildComposePartial({
       kind: 1,

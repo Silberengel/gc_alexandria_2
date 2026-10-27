@@ -1031,6 +1031,19 @@ export function feedThreadPath(
   return `/feed?${q.toString()}`;
 }
 
+/** Thread URL from a 64-hex id when the full event is not in hand (same `tab=` rules). */
+export function feedThreadPathFromId(
+  id: string,
+  tab: FeedTab = 'original',
+  opts: FeedListOpts = {}
+): string {
+  const q = new URLSearchParams();
+  q.set('thread', feedThreadPointerFromId(id));
+  appendFeedTab(q, tab, { omitDefault: true });
+  appendFeedAuthor(q, opts.author);
+  return `/feed?${q.toString()}`;
+}
+
 /** List URL for a feed tab (no open thread). Always writes `tab=` — see contract above. */
 export function feedListPath(tab: FeedTab = 'original', opts: FeedListOpts = {}): string {
   const q = new URLSearchParams();

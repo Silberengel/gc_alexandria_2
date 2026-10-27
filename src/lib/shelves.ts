@@ -3,7 +3,11 @@ import { isRenderableCatalogEvent } from './catalog-visibility';
 import { KIND } from './constants';
 import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
-import { publicationTargetsFromDirectory } from './bookshelf';
+import {
+  MY_BOOK_COLLECTION_D_TAG,
+  ROOT_DIRECTORY_D_TAG,
+  publicationTargetsFromDirectory
+} from './bookshelf';
 import { pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { firstTag, eventAddress } from './nostr/verify';
 
@@ -334,7 +338,7 @@ export function nestedShelvesForViewer(
     if (dir.kind !== KIND.DIRECTORY) continue;
     if (dir.pubkey.toLowerCase() !== viewer) continue;
     const d = dir.tags.find((t) => t[0] === 'd')?.[1]?.trim() ?? '';
-    if (!d || d === 'my-book-collection') continue;
+    if (!d || d === MY_BOOK_COLLECTION_D_TAG || d === ROOT_DIRECTORY_D_TAG) continue;
     const { addresses, eventIds } = publicationTargetsFromDirectory(dir);
     const raw: Event[] = [];
     const seen = new Set<string>();

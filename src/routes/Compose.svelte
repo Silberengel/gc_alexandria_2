@@ -17,6 +17,8 @@
   import ComposeSpecKindsEditor from '$lib/components/ComposeSpecKindsEditor.svelte';
   import ComposePaytoEditor from '$lib/components/ComposePaytoEditor.svelte';
   import ComposeRelayListEditor from '$lib/components/ComposeRelayListEditor.svelte';
+  import ComposePeopleListEditor from '$lib/components/ComposePeopleListEditor.svelte';
+  import ComposeMuteListEditor from '$lib/components/ComposeMuteListEditor.svelte';
   import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
   import PrivateRelayListModal from '$lib/components/PrivateRelayListModal.svelte';
   import { emptyKind0TagRows } from '$lib/compose-kind0';
@@ -113,6 +115,14 @@
   import { cacheGetEvent } from '$lib/nostr/cache';
   import { fetchById } from '$lib/nostr/fetch';
   import { KIND } from '$lib/constants';
+  import { buildMuteListPayload, mutedRawFromTags } from '$lib/compose-mute-list';
+  import {
+    applyMuteList,
+    decryptPrivateMuteTags,
+    looksLikeNip04Ciphertext,
+    looksLikeNip44Ciphertext,
+    parseMuteList
+  } from '$lib/mute';
 
   const groups = composePickerGroups();
   const classIds = eventClassIds();
@@ -172,6 +182,11 @@
   let replaceablePreloaded = $state(false);
   /** Fingerprint of the pristine preload; drafts stay off until the form diverges. */
   let preloadBaseline = $state<string | null>(null);
+  /**
+   * When a mute list has ciphertext we could not decrypt, keep it on republish so
+   * private mutes are not wiped by a public-only edit.
+   */
+  let mutePreserveCipher = $state('');
   const documentKindSet = new Set<number>(COMPOSE_DOCUMENT_PRESETS);
   const showSaveToDraft = $derived(
     !shortNoteEditSource && !otherMode && documentKindSet.has(kind)
@@ -829,6 +844,30 @@
     const pre = valuesFromReplaceableEvent(live);
     content = pre.content;
     values = { ...emptyValuesFor(nextKind), ...pre.values };
+
+    if (nextKind === KIND.MUTE) {
+      mutePreserveCipher = '';
+      try {
+        const privateTags = await decryptPrivateMuteTags(live);
+        values = {
+          ...values,
+          muted: mutedRawFromTags(live.tags, privateTags)
+        };
+        const ct = (live.content ?? '').trim();
+        if (
+          ct &&
+          !privateTags.length &&
+          !ct.startsWith('[') &&
+          (looksLikeNip44Ciphertext(ct) || looksLikeNip04Ciphertext(ct))
+        ) {
+          mutePreserveCipher = live.content;
+        }
+      } catch {
+        const ct = (live.content ?? '').trim();
+        if (ct && !ct.startsWith('[')) mutePreserveCipher = live.content;
+      }
+    }
+
     if (pre.existingKind0) existingKind0 = pre.existingKind0;
     if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
     if (pre.hashtags?.length) hashtagRows = [...pre.hashtags];
@@ -856,6 +895,7 @@
     grammarIssues = [];
     activeDraftD = null;
     markReplaceablePreloaded(false);
+    mutePreserveCipher = '';
     content = '';
     values = emptyValuesFor(nextKind);
     hashtagRows = [''];
@@ -1256,11 +1296,49 @@
         return;
       }
       const partial = buildComposePartial(state);
+
+      if (kind === KIND.MUTE) {
+        const mute = buildMuteListPayload(values.muted ?? '');
+        if (mute.privateJson) {
+          const pk = $session.pubkey;
+          const signer = session.getSigner();
+          if (signer?.nip44Encrypt && pk) {
+            try {
+              partial.content = await signer.nip44Encrypt(pk, mute.privateJson);
+            } catch {
+              /* keep plaintext JSON private tags */
+              partial.content = mute.privateJson;
+            }
+          } else {
+            partial.content = mute.privateJson;
+          }
+        } else if (mutePreserveCipher) {
+          // Could not decrypt existing private mutes — leave ciphertext intact.
+          partial.content = mutePreserveCipher;
+        } else {
+          partial.content = '';
+        }
+      }
+
       const signed = await signAndPublish(partial);
       if (!signed) {
         formError = consumeSignFailure() ?? 'Could not sign or publish.';
         showPublishResult(false);
         return;
+      }
+      if (kind === KIND.MUTE) {
+        try {
+          const extra = await decryptPrivateMuteTags(signed);
+          applyMuteList(parseMuteList(signed, extra));
+        } catch {
+          applyMuteList(parseMuteList(signed, []));
+        }
+        mutePreserveCipher =
+          signed.content &&
+          !signed.content.trim().startsWith('[') &&
+          (looksLikeNip44Ciphertext(signed.content) || looksLikeNip04Ciphertext(signed.content))
+            ? signed.content
+            : '';
       }
       deleteComposeDraft($session.pubkey, kind);
       refreshDraftList();
@@ -1715,6 +1793,25 @@
                       help={field.help ?? ''}
                       withMarkers={field.emit === 'relay_list_rw'}
                       placeholder={kind === 10243 ? 'https://…' : 'wss://…'}
+                    />
+                  </div>
+                {:else if field.emit === 'p_list' || field.id === 'authors'}
+                  <div class="compose-field">
+                    <ComposePeopleListEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ?? ''}
+                    />
+                  </div>
+                {:else if field.emit === 'mute_list' || field.id === 'muted'}
+                  <div class="compose-field">
+                    <ComposeMuteListEditor
+                      bind:value={values[field.id]}
+                      label={field.label}
+                      required={!!field.required}
+                      help={field.help ??
+                        'Mute pubkeys, events, words, or hashtags. Mark Priv to keep an entry encrypted in content.'}
                     />
                   </div>
                 {:else if isUnixTimestampField(field, kind)}

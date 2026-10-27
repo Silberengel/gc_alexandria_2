@@ -1,5 +1,6 @@
 <script lang="ts">
   import UserBadge from './UserBadge.svelte';
+  import StringListRows from './StringListRows.svelte';
   import {
     formatSearchPointerQuery,
     searchPointerLabel,
@@ -21,7 +22,7 @@
   let pubkeyText = $state('');
   let dText = $state('');
   let idText = $state('');
-  let relaysText = $state('');
+  let relays = $state<string[]>(['']);
   /** Keep the relays block once the bech32 carried hints (even if cleared). */
   let showRelays = $state(false);
   let seededKey = '';
@@ -43,10 +44,10 @@
     }
     if (pointer.relays?.length) {
       showRelays = true;
-      relaysText = pointer.relays.join('\n');
+      relays = [...pointer.relays];
     } else {
       showRelays = false;
-      relaysText = '';
+      relays = [''];
     }
   });
 
@@ -54,7 +55,9 @@
   const pubkeyCheck = $derived(validatePubkeyHex(pubkeyText));
   const dCheck = $derived(validateDTagInput(dText));
   const idCheck = $derived(validateEventIdHex(idText));
-  const relaysCheck = $derived(validateRelaysInput(relaysText));
+  const relaysCheck = $derived(
+    validateRelaysInput(relays.map((r) => r.trim()).filter(Boolean).join('\n'))
+  );
   /** Live hex from the pubkey field — drives UserBadge as the user edits. */
   const pubkeyHex = $derived(pubkeyCheck.ok ? pubkeyCheck.value : '');
 
@@ -65,7 +68,7 @@
 
   function relaunch(): void {
     if (!canSubmit) return;
-    const relays =
+    const relayHints =
       showRelays && relaysCheck.ok && relaysCheck.value.length ? relaysCheck.value : undefined;
     let next: SearchPointer;
     if (pointer.type === 'coord') {
@@ -75,7 +78,7 @@
         kind: kindCheck.value,
         pubkey: pubkeyCheck.value,
         d: dCheck.value,
-        relays
+        relays: relayHints
       };
     } else {
       if (!idCheck.ok) return;
@@ -83,7 +86,7 @@
         type: 'id',
         id: idCheck.value,
         author: pointer.author,
-        relays
+        relays: relayHints
       };
     }
     const q = formatSearchPointerQuery(next);
@@ -179,24 +182,20 @@
     </div>
   {/if}
   {#if showRelays}
-    <label class="search-pointer-relays">
-      <span class="search-pointer-label">Relay hints</span>
-      <textarea
-        class="search-pointer-input mono search-pointer-relays-input"
-        class:invalid={!relaysCheck.ok}
-        rows="3"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="wss://… (one per line)"
-        bind:value={relaysText}
-        aria-invalid={!relaysCheck.ok}
-      ></textarea>
-      {#if !relaysCheck.ok}
-        <span class="search-pointer-error">{relaysCheck.error}</span>
-      {:else}
-        <span class="search-pointer-hint muted">One ws:// or wss:// URL per line. Clear to drop hints.</span>
-      {/if}
-    </label>
+    <div class="search-pointer-relays" class:invalid={!relaysCheck.ok}>
+      <StringListRows
+        bind:values={relays}
+        label="Relay hints"
+        hint={relaysCheck.ok
+          ? 'One ws:// or wss:// URL per row. Clear all to drop hints.'
+          : relaysCheck.error}
+        placeholder="wss://…"
+        addLabel="Add relay hint"
+        removeLabel="Remove relay hint"
+        inputType="url"
+        mono
+      />
+    </div>
   {/if}
   <button type="button" class="btn search-pointer-go" disabled={!canSubmit} onclick={relaunch}>
     Search again

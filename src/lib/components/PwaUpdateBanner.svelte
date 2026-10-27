@@ -11,6 +11,8 @@
       await applyPwaUpdate();
     } catch (error) {
       console.warn('[pwa] apply update failed', error);
+    } finally {
+      // Reload usually tears the page down; if it does not, allow another try.
       applying = false;
     }
   }

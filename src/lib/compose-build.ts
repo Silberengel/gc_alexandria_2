@@ -5,6 +5,9 @@ import {
   validateCompose,
 } from './kind-compose';
 import { kind0SavePayload } from './compose-kind0';
+import { buildMuteListPayload } from './compose-mute-list';
+import { buildPListTags } from './compose-people-list';
+import { KIND } from './constants';
 import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
 
@@ -51,6 +54,31 @@ export function buildComposePartial(state: ComposeFormState): {
     if (state.freeformTags?.length) {
       for (const row of state.freeformTags) {
         if (row[0]?.trim()) tags.push(row);
+      }
+    }
+  } else if (
+    kind === KIND.CONTACT_LIST ||
+    getKind(kind)?.handler === 'nip51_p_list'
+  ) {
+    // Catalog emit `p_list` is not in alexandria composeEmits yet — build locally.
+    content = '';
+    tags = [...buildPListTags(values.authors ?? '')];
+    if (state.freeformTags?.length) {
+      for (const row of state.freeformTags) {
+        if (row[0]?.trim()) tags.push([...row]);
+      }
+    }
+  } else if (
+    kind === KIND.MUTE ||
+    getKind(kind)?.handler === 'nip51_mute_list'
+  ) {
+    // Catalog emit `mute_list` is not in alexandria composeEmits yet — build locally.
+    const mute = buildMuteListPayload(values.muted ?? '');
+    content = mute.privateJson;
+    tags = [...mute.tags];
+    if (state.freeformTags?.length) {
+      for (const row of state.freeformTags) {
+        if (row[0]?.trim()) tags.push([...row]);
       }
     }
   } else {

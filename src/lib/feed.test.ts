@@ -10,6 +10,7 @@ import {
   feedRelayGroups,
   feedInteractionTargetPointer,
   feedThreadPath,
+  feedThreadPathFromId,
   feedThreadRootPointer,
   isFeedInteractionEvent,
   isFeedReplyRow,
@@ -265,6 +266,11 @@ describe('feed URL contract', () => {
     expect(parseFeedTab(null)).toBe('original');
     expect(feedThreadPath(note, 'follows')).toBe(`/feed?thread=${nevent}&tab=follows`);
     expect(feedThreadPath(note, 'replies')).toBe(`/feed?thread=${nevent}&tab=replies`);
+    expect(feedThreadPathFromId(note.id)).toBe(`/feed?thread=${nip19.neventEncode({ id: note.id })}`);
+    expect(feedThreadPathFromId(note.id)).not.toContain('tab=');
+    expect(feedThreadPathFromId(note.id, 'follows')).toBe(
+      `/feed?thread=${nip19.neventEncode({ id: note.id })}&tab=follows`
+    );
   });
 });
 

@@ -15,6 +15,7 @@
     '/search': wrap({ asyncComponent: () => import('./routes/Search.svelte') }),
     '/settings': wrap({ asyncComponent: () => import('./routes/Settings.svelte') }),
     '/compose': wrap({ asyncComponent: () => import('./routes/Compose.svelte') }),
+    '/directory': wrap({ asyncComponent: () => import('./routes/Directory.svelte') }),
     '/about': wrap({ asyncComponent: () => import('./routes/About.svelte') }),
     '/booklists': wrap({ asyncComponent: () => import('./routes/Booklists.svelte') }),
     '/start': wrap({ asyncComponent: () => import('./routes/StartRedirect.svelte') }),
@@ -30,6 +31,10 @@
     '/publication/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
     '/publication/note/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
     '/publication/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    /** Wiki hub (NostrWiki-style) — must stay above `/wiki/:naddr`. */
+    '/wiki': wrap({ asyncComponent: () => import('./routes/WikiHub.svelte') }),
+    '/wiki/recent': wrap({ asyncComponent: () => import('./routes/WikiRecent.svelte') }),
+    '/wiki/search': wrap({ asyncComponent: () => import('./routes/WikiSearch.svelte') }),
     '/wiki/d/:d/p/:npub': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
     '/wiki/d/:d': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),
     '/wiki/naddr/:naddr': wrap({ asyncComponent: () => import('./routes/Wiki.svelte') }),

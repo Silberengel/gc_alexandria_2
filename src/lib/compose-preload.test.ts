@@ -57,4 +57,34 @@ describe('valuesFromReplaceableEvent', () => {
     );
     expect(pre.values.relays).toBe('wss://fav.example');
   });
+
+  it('maps contact-list p tags into authors', () => {
+    const pk = 'e'.repeat(64);
+    const pre = valuesFromReplaceableEvent(
+      ev({
+        kind: KIND.CONTACT_LIST,
+        tags: [
+          ['p', pk],
+          ['p', 'f'.repeat(64), 'wss://r.example', 'Fay']
+        ]
+      })
+    );
+    expect(pre.values.authors).toContain(pk);
+    expect(pre.values.authors).toContain('wss://r.example');
+    expect(pre.values.authors).toContain('Fay');
+  });
+
+  it('maps mute-list public tags into muted', () => {
+    const pk = '1'.repeat(64);
+    const pre = valuesFromReplaceableEvent(
+      ev({
+        kind: KIND.MUTE,
+        tags: [
+          ['p', pk],
+          ['word', 'spam']
+        ]
+      })
+    );
+    expect(pre.values.muted).toBe(`p ${pk}\nword spam`);
+  });
 });

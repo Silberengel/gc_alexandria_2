@@ -7,6 +7,15 @@ import { parseAddress } from './library-scope';
 /** Android Bookshelf My Books replaceable `d` tag. */
 export const MY_BOOK_COLLECTION_D_TAG = 'my-book-collection';
 
+/** Unix-style home folder for the Directory tab (`/root`). */
+export const ROOT_DIRECTORY_D_TAG = 'root';
+
+/**
+ * Always-present Directory folders: `/root` is the top level;
+ * `my-book-collection` is nested under it.
+ */
+export const DIRECTORY_HOME_D_TAGS = [ROOT_DIRECTORY_D_TAG, MY_BOOK_COLLECTION_D_TAG] as const;
+
 /** Android BookshelfDirectoryRules max `a`/`e` children. */
 export const MAX_BOOKSHELF_DIRECTORY_ITEMS = 500;
 

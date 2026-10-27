@@ -71,4 +71,12 @@ describe('composePickerGroups', () => {
     expect(listed.has(KIND.DRAFT_WRAP)).toBe(false);
     expect(listed.has(KIND.DRAFT_CHECKPOINT)).toBe(false);
   });
+
+  it('offers follow and mute lists under metadata', () => {
+    const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
+    expect(COMPOSE_METADATA_KINDS).toContain(KIND.CONTACT_LIST);
+    expect(COMPOSE_METADATA_KINDS).toContain(KIND.MUTE);
+    expect(listed.has(KIND.CONTACT_LIST)).toBe(true);
+    expect(listed.has(KIND.MUTE)).toBe(true);
+  });
 });

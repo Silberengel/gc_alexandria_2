@@ -8,6 +8,8 @@
   import Pager from '$lib/components/Pager.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import ListingViewToggle from '$lib/components/ListingViewToggle.svelte';
+  import SearchRefineBar from '$lib/components/SearchRefineBar.svelte';
+  import AdvancedSearchPanel from '$lib/components/AdvancedSearchPanel.svelte';
   import { listingDensity } from '$lib/stores/listing-density';
   import { listingPageSize } from '$lib/listing-table';
   import {
@@ -23,12 +25,21 @@
     runKindTagSearch,
     runReadSearch,
     runReadingQueueSearch,
+    runAdvancedSearch,
     npubFromInput
   } from '$lib/search';
+  import { parseAdvancedSearch, type AdvancedSearchRequest } from '$lib/advanced-search';
   import { parseSearchPointer } from '$lib/search-pointer';
   import SearchPointerEditor from '$lib/components/SearchPointerEditor.svelte';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
+  import {
+    dateInputToSince,
+    dateInputToUntil,
+    filterSearchEvents,
+    sortSearchEvents,
+    type SearchSortMode
+  } from '$lib/search-refine';
   import { session } from '$lib/stores/session';
   import type { Event } from 'nostr-tools';
 
@@ -45,6 +56,13 @@
   let searchTerm = $state('');
   let searchKind = $state('');
   let resultScope = $state<ResultScope>('all');
+  let advancedReq = $state<AdvancedSearchRequest | null>(null);
+
+  let refineKind = $state<number | null>(null);
+  let refinePubkey = $state('');
+  let refineSinceDate = $state('');
+  let refineUntilDate = $state('');
+  let refineSort = $state<SearchSortMode>('best');
 
   const signedIn = $derived(Boolean($session.pubkey));
   let follows = $state<Set<string>>(new Set());
@@ -58,17 +76,48 @@
     return new URLSearchParams(qs);
   }
 
+  function resetRefine(): void {
+    refineKind = null;
+    refinePubkey = '';
+    refineSinceDate = '';
+    refineUntilDate = '';
+    refineSort = 'best';
+  }
+
   function searchKey(params: URLSearchParams): string {
     const viewer = session.getPubkey()?.toLowerCase() ?? '';
     return [
       `viewer=${viewer}`,
-      ...['q', 'subject', 'label', 'author', 'title', 'identifier', 'language', 'bookshelf', 'd', 'k', 'npub', 'read', 'queue'].map(
-        (k) => `${k}=${params.get(k) ?? ''}`
-      )
+      ...[
+        'adv',
+        'q',
+        'subject',
+        'label',
+        'author',
+        'title',
+        'identifier',
+        'language',
+        'bookshelf',
+        'd',
+        'k',
+        'npub',
+        'read',
+        'queue'
+      ].map((k) => `${k}=${params.get(k) ?? ''}`)
     ].join('&');
   }
 
   function describeSearch(params: URLSearchParams): { kind: string; term: string } {
+    const adv = parseAdvancedSearch(params);
+    if (adv) {
+      const bits: string[] = [];
+      if (adv.filter?.kinds?.length) bits.push(`kinds ${adv.filter.kinds.join(',')}`);
+      if (adv.filter?.search) bits.push(adv.filter.search);
+      if (adv.mercury?.q) bits.push(adv.mercury.q);
+      if (adv.mercury?.title) bits.push(adv.mercury.title);
+      if (adv.filter?.authors?.length) bits.push(`${adv.filter.authors.length} authors`);
+      return { kind: 'Advanced', term: bits.join(' · ') || 'custom filter' };
+    }
     const keyed: [string, string][] = [
       ['queue', 'Reading now'],
       ['read', 'Read by'],
@@ -98,12 +147,15 @@
     const params = hashParams();
     const key = searchKey(params);
     const described = describeSearch(params);
+    const adv = parseAdvancedSearch(params);
+    advancedReq = adv;
     searchTerm = described.term;
     searchKind = described.kind;
     if (key === lastKey) return;
     lastKey = key;
     const runGen = ++searchGen;
     resultScope = 'all';
+    resetRefine();
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
     const label = params.get('label') ?? '';
@@ -118,15 +170,17 @@
     const read = params.get('read') ?? '';
     const queue = params.get('queue') ?? '';
     const term = described.term;
-    if (!term) {
+    if (!term && !adv) {
       events = [];
       loading = false;
       return;
     }
-    const npub = npubFromInput(term);
-    if (npub && !bookshelf && !read && !queue && !k) {
-      window.location.hash = `#/p/${npub}`;
-      return;
+    if (!adv) {
+      const npub = npubFromInput(term);
+      if (npub && !bookshelf && !read && !queue && !k) {
+        window.location.hash = `#/p/${npub}`;
+        return;
+      }
     }
     page = 1;
     const onUpdate = (r: { events: Event[]; loading: boolean }) => {
@@ -134,7 +188,8 @@
       events = r.events;
       loading = r.loading;
     };
-    if (queue) void runReadingQueueSearch(queue, onUpdate);
+    if (adv) void runAdvancedSearch(adv, onUpdate);
+    else if (queue) void runReadingQueueSearch(queue, onUpdate);
     else if (read) void runReadSearch(read, onUpdate);
     else if (bookshelf) void runBookshelfSearch(bookshelf, onUpdate, shelfNpub || undefined);
     else if (d) void runDTagSearch(d, onUpdate);
@@ -168,8 +223,8 @@
 
   onMount(() => {
     follows = followPubkeysFromMetadata(session.getMetadata());
-    const unsubMeta = session.metadata.subscribe((events) => {
-      follows = followPubkeysFromMetadata(events);
+    const unsubMeta = session.metadata.subscribe((metaEvents) => {
+      follows = followPubkeysFromMetadata(metaEvents);
     });
     let lastViewer = $session.pubkey?.toLowerCase() ?? '';
     const unsubSession = session.subscribe(($s) => {
@@ -192,16 +247,38 @@
     pageFilter;
     $listingDensity;
     resultScope;
+    refineKind;
+    refinePubkey;
+    refineSinceDate;
+    refineUntilDate;
+    refineSort;
     page = 1;
   });
 
   const pageSize = $derived(listingPageSize($listingDensity));
+  const muted = $derived(filterMuted(events, $muteState));
   const visible = $derived(
-    filterByScope(filterPageEvents(filterMuted(events, $muteState), pageFilter), resultScope)
+    filterByScope(
+      filterPageEvents(
+        sortSearchEvents(
+          filterSearchEvents(muted, {
+            kind: refineKind,
+            pubkey: refinePubkey || null,
+            since: refineSinceDate ? dateInputToSince(refineSinceDate) : null,
+            until: refineUntilDate ? dateInputToUntil(refineUntilDate) : null
+          }),
+          refineSort
+        ),
+        pageFilter
+      ),
+      resultScope
+    )
   );
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
   /** Bech32 / coordinate queries → editable kind · pubkey · d (or event id) parts. */
-  const searchPointer = $derived(searchTerm ? parseSearchPointer(searchTerm) : null);
+  const searchPointer = $derived(
+    searchTerm && searchKind !== 'Advanced' ? parseSearchPointer(searchTerm) : null
+  );
 </script>
 
 <TopBar />
@@ -212,7 +289,7 @@
     {#if !searchTerm}
       <p class="page-lede muted">Find publications, wiki pages, authors, and labels across the library.</p>
     {/if}
-    <SearchForm class="page-search-form" initialQuery={searchTerm} />
+    <SearchForm class="page-search-form" initialQuery={searchKind === 'Advanced' ? '' : searchTerm} />
   </header>
   {#if searchTerm}
     {#if searchPointer}
@@ -224,6 +301,7 @@
       </p>
     {/if}
   {/if}
+  <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
   <div class="listing-toolbar">
     <PageFilter bind:value={pageFilter} />
   </div>
@@ -259,6 +337,20 @@
     </div>
     <ListingViewToggle label="Search results" />
   </div>
+  <SearchRefineBar
+    events={muted}
+    kind={refineKind}
+    pubkey={refinePubkey}
+    sinceDate={refineSinceDate}
+    untilDate={refineUntilDate}
+    sort={refineSort}
+    onKind={(v) => (refineKind = v)}
+    onPubkey={(v) => (refinePubkey = v)}
+    onSinceDate={(v) => (refineSinceDate = v)}
+    onUntilDate={(v) => (refineUntilDate = v)}
+    onSort={(v) => (refineSort = v)}
+    onClear={() => resetRefine()}
+  />
   {#if loading}<LoadingHint message={events.length ? 'Updating…' : 'Searching…'} />{/if}
   {#if !loading && visible.length === 0}
     <p class="muted">

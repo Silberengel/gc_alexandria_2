@@ -26,8 +26,14 @@
   const onHome = $derived(path === '/' || path === '');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));
+  const onDirectory = $derived(path.startsWith('/directory'));
+  /** Hub + recent/search only — article routes keep the global search field. */
+  const onWikiHub = $derived(
+    path === '/wiki' || path === '/wiki/recent' || path === '/wiki/search'
+  );
   const onSettings = $derived(path.startsWith('/settings'));
   const onAbout = $derived(path.startsWith('/about'));
+  const signedIn = $derived(Boolean($session.pubkey));
 
   $effect(() => {
     if (!autoHideOnScroll) {
@@ -111,8 +117,13 @@
           />
         </svg>
       </a>
+      <a href="#/search" use:link aria-current={onSearchPage ? 'page' : undefined}>Search</a>
+      <a href="#/wiki" use:link aria-current={onWikiHub ? 'page' : undefined}>Wiki</a>
+      {#if signedIn}
+        <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
+        <a href="#/directory" use:link aria-current={onDirectory ? 'page' : undefined}>Directory</a>
+      {/if}
       <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
-      <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
       <a href="#/about" use:link aria-current={onAbout ? 'page' : undefined}>About</a>
       <a
         href="#/settings"

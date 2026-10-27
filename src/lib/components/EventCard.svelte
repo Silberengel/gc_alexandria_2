@@ -16,6 +16,7 @@
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
   import ProfileMetadataCard from './ProfileMetadataCard.svelte';
+  import DirectoryExplorer from './DirectoryExplorer.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -56,7 +57,10 @@
       ? `#${feedThreadPath(event)}`
       : (eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''))
   );
-  const cardOpens = $derived((embedded || openAsThread) && Boolean(href));
+  /** Directories use an interactive explorer — do not wrap the whole card as a link. */
+  const cardOpens = $derived(
+    event.kind !== KIND.DIRECTORY && (embedded || openAsThread) && Boolean(href)
+  );
 
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
@@ -210,6 +214,8 @@
         <WikiRedirectCard {event} />
       </div>
     </article>
+  {:else if event.kind === KIND.DIRECTORY}
+    <DirectoryExplorer {event} showMenu={showMenu} />
   {:else}
     <GenericCard {event} {embedDepth} {showMenu} />
   {/if}

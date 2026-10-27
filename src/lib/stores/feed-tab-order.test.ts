@@ -49,4 +49,19 @@ describe('feedTabOrder', () => {
     feedTabOrder.remove('follows');
     expect(get(feedTabOrder)).toContain('follows');
   });
+
+  it('reorders by full-order indices so hidden tabs keep their slots', async () => {
+    const { feedTabOrder } = await import('./feed-tab-order');
+    // Signed-out strip only shows original/replies; follows + notifications stay hidden.
+    feedTabOrder.set(['follows', 'original', 'replies', 'notifications']);
+    const full = get(feedTabOrder);
+    const visible = full.filter((t) => t === 'original' || t === 'replies');
+    expect(visible).toEqual(['original', 'replies']);
+    // Dragging visible[0] onto visible[1] must use full indexOf — not 0→1 on the full list
+    // (that would move follows past original).
+    const fromTab = visible[0]!;
+    const toTab = visible[1]!;
+    feedTabOrder.reorder(full.indexOf(fromTab), full.indexOf(toTab));
+    expect(get(feedTabOrder)).toEqual(['follows', 'replies', 'original', 'notifications']);
+  });
 });

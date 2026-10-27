@@ -1,5 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { composerFieldSpecs, isCatalogued } from '@silberengel/kind-compose-catalog';
+import { mutedRawFromTags } from './compose-mute-list';
+import { authorsRawFromTags } from './compose-people-list';
 import { formatAuthors, type AuthorEntry } from './compose-publication-authors';
 import type { ComposeDraftState } from './compose-drafts';
 import { COMPOSE_PICKER_EXCLUDED } from './compose-presets';
@@ -105,6 +107,19 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         const v = publicationSectionsField(event);
         if (v) values[field.id] = v;
         for (const name of field.produces ?? ['a', 'e']) consumed.add(name);
+        continue;
+      }
+      if (field.emit === 'p_list' || field.id === 'authors') {
+        const v = authorsRawFromTags(event.tags);
+        if (v) values[field.id] = v;
+        consumed.add('p');
+        continue;
+      }
+      if (field.emit === 'mute_list' || field.id === 'muted') {
+        // Private mute ciphertext needs an async decrypt — public tags only on copy.
+        const v = mutedRawFromTags(event.tags, []);
+        if (v) values[field.id] = v;
+        for (const name of field.produces ?? ['p', 'e', 'word', 't']) consumed.add(name);
         continue;
       }
       for (const name of field.produces ?? []) consumed.add(name);
