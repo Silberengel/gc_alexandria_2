@@ -19,6 +19,13 @@ import { firstTag } from './nostr/verify';
 import { session } from './stores/session';
 import { trust } from './stores/trust';
 import { trustedAssertions } from './trusted-assertions';
+import {
+  resolveWikiAliasArticles,
+  wikiAliasMatchesQuery
+} from './wiki-redirect';
+
+/** @deprecated Prefer {@link wikiAliasMatchesQuery}. */
+export const wikiHubAliasMatchesQuery = wikiAliasMatchesQuery;
 
 const WIKI_KINDS = [KIND.WIKI, KIND.SPEC] as const;
 
@@ -66,16 +73,23 @@ export function wikiHubMatchesQuery(event: Event, query: string): boolean {
 }
 
 /**
- * Higher = more relevant. Exact d-tag wins, then d prefix/contains, then title.
+ * Higher = more relevant. Exact d-tag wins, then alias hits, then d prefix/contains, then title.
  */
-export function wikiHubRelevanceScore(event: Event, query: string): number {
+export function wikiHubRelevanceScore(
+  event: Event,
+  query: string,
+  opts?: { aliasMatchedIds?: ReadonlySet<string>; exactAliasIds?: ReadonlySet<string> }
+): number {
   const q = query.trim();
   if (!q) return 0;
   const needle = normalizeDTag(q) || q.toLowerCase();
   const raw = q.toLowerCase();
   const { d, title, titleNorm } = wikiHubSearchFields(event);
   if (d && d === needle) return 100;
+  // Exact alias redirect (e.g. query "btc" → article "bitcoin") ranks just under exact d.
+  if (opts?.exactAliasIds?.has(event.id)) return 95;
   if (d && d.startsWith(needle)) return 85;
+  if (opts?.aliasMatchedIds?.has(event.id)) return 80;
   if (d && d.includes(needle)) return 70;
   if (titleNorm && titleNorm === needle) return 60;
   if (titleNorm && titleNorm.startsWith(needle)) return 50;
@@ -90,10 +104,12 @@ export function wikiHubRelevanceScore(event: Event, query: string): number {
 export function sortWikiHubResults(
   events: Event[],
   query: string,
-  grapevine?: GrapevineTrustContext | null
+  grapevine?: GrapevineTrustContext | null,
+  opts?: { aliasMatchedIds?: ReadonlySet<string>; exactAliasIds?: ReadonlySet<string> }
 ): Event[] {
   return [...events].sort((a, b) => {
-    const rel = wikiHubRelevanceScore(b, query) - wikiHubRelevanceScore(a, query);
+    const rel =
+      wikiHubRelevanceScore(b, query, opts) - wikiHubRelevanceScore(a, query, opts);
     if (rel !== 0) return rel;
     if (grapevine) {
       const byRank = compareAuthorsByGrapevine(a.pubkey, b.pubkey, grapevine);
@@ -175,8 +191,9 @@ export async function pickRandomWikiPage(): Promise<Event | null> {
 }
 
 /**
- * Wiki/spec search for the wiki hub page: d-tag and title only (30818 / 30817),
- * ranked by match relevance then grapevine pubkey rank.
+ * Wiki/spec search for the wiki hub page: d-tag and title (30818 / 30817),
+ * plus kind-30819 aliases that resolve to those articles.
+ * Ranked by match relevance then grapevine pubkey rank.
  */
 export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
   const query = q.trim();
@@ -185,9 +202,10 @@ export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
   const slug = normalizeDTag(query);
   const variants = dTagVariants(query);
   const titleSlug = relayTagSlug(query);
+  const dValues = variants.length ? variants.slice(0, 12) : [query];
   const dFilter: Filter = {
     kinds: [...WIKI_KINDS],
-    '#d': variants.length ? variants.slice(0, 12) : [query],
+    '#d': dValues,
     limit
   };
   const titleFilter: Filter | null = titleSlug
@@ -203,22 +221,35 @@ export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
     titleFilter ? mercuryFilter(titleFilter).catch(() => [] as Event[]) : Promise.resolve([] as Event[])
   ]).then((batches) => batches.flat());
 
+  const aliasesP = resolveWikiAliasArticles(query, limit);
+
   // Mercury `/api/wiki/search` requires `q` (min 2). Pass title/d so we do not
   // pull body/content hits — bare `q` alone matches article text.
-  let mercuryBatches: Event[][] = [];
+  let wikiBatches: Event[][] = [];
+  let aliasHit: Awaited<ReturnType<typeof resolveWikiAliasArticles>>;
   if (query.length >= 2) {
-    mercuryBatches = await Promise.all([
+    const [byTitle, byD, relays, aliases] = await Promise.all([
       mercuryWikiSearch({ q: query, title: query, limit }).catch(() => [] as Event[]),
       mercuryWikiSearch({ q: query, d: slug || query, limit }).catch(() => [] as Event[]),
-      relaysP
+      relaysP,
+      aliasesP
     ]);
+    wikiBatches = [byTitle, byD, relays];
+    aliasHit = aliases;
   } else {
-    mercuryBatches = [await relaysP];
+    const [relays, aliases] = await Promise.all([relaysP, aliasesP]);
+    wikiBatches = [relays];
+    aliasHit = aliases;
   }
 
-  const merged = mergeWikiEvents(mercuryBatches).filter((e) => wikiHubMatchesQuery(e, query));
+  const merged = mergeWikiEvents([...wikiBatches, aliasHit.targets]).filter(
+    (e) => wikiHubMatchesQuery(e, query) || aliasHit.aliasMatchedIds.has(e.id)
+  );
   const grapevine = await hydrateWikiGrapevine(merged);
-  return sortWikiHubResults(merged, query, grapevine).slice(0, limit);
+  return sortWikiHubResults(merged, query, grapevine, {
+    aliasMatchedIds: aliasHit.aliasMatchedIds,
+    exactAliasIds: aliasHit.exactAliasIds
+  }).slice(0, limit);
 }
 
 export function wikiHubResultHref(event: Event): string {

@@ -7,6 +7,10 @@ vi.mock('./nostr/mercury', () => ({
   mercuryWikiSearch: vi.fn(async () => [])
 }));
 
+vi.mock('./nostr/fetch', () => ({
+  fetchByAddresses: vi.fn(async () => [])
+}));
+
 vi.mock('./nostr/pool', () => ({
   relayPool: {
     query: vi.fn(async () => [])
@@ -170,5 +174,44 @@ describe('wiki-hub helpers', () => {
     expect(vi.mocked(mercury.mercuryWikiSearch).mock.calls.some((c) => c[0].d && !c[0].title)).toBe(
       true
     );
+  });
+
+  it('searchWikiHub resolves alias redirects into target articles and ranks them highly', async () => {
+    const mercury = await import('./nostr/mercury');
+    const fetch = await import('./nostr/fetch');
+    const pk = 'b'.repeat(64);
+    const bitcoin = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.WIKI,
+      pubkey: pk,
+      created_at: 1,
+      tags: [['d', 'bitcoin'], ['title', 'Bitcoin']]
+    });
+    const titleOnly = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.WIKI,
+      pubkey: 'd'.repeat(64),
+      created_at: 99,
+      tags: [['d', 'other'], ['title', 'BTC notes']]
+    });
+    const redirect = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.WIKI_REDIRECT,
+      pubkey: pk,
+      tags: [['d', 'btc'], ['a', `30818:${pk}:bitcoin`]]
+    });
+    vi.mocked(mercury.mercuryWikiSearch).mockImplementation(async (query) => {
+      if (query.title) return [titleOnly];
+      return [];
+    });
+    vi.mocked(mercury.mercuryFilter).mockImplementation(async (filter) => {
+      if (filter.kinds?.includes(KIND.WIKI_REDIRECT)) return [redirect];
+      return [];
+    });
+    vi.mocked(fetch.fetchByAddresses).mockResolvedValue([bitcoin]);
+    const { searchWikiHub, wikiHubAliasMatchesQuery } = await import('./wiki-hub');
+    expect(wikiHubAliasMatchesQuery('btc', 'btc')).toBe(true);
+    const hits = await searchWikiHub('btc');
+    expect(hits.map((e) => e.id)).toEqual([bitcoin.id, titleOnly.id]);
   });
 });

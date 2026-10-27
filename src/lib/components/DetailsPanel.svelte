@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { replaceableCoord } from '$lib/nostr/replaceable';
+  import { link } from 'svelte-spa-router';
+  import { pruneToLatestReplaceables, replaceableCoord } from '$lib/nostr/replaceable';
   import { eventSources } from '$lib/nostr/event-sources';
   import {
     exportPublicationDownload,
@@ -23,8 +24,22 @@
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
   import AppHandlerIcon from './AppHandlerIcon.svelte';
+  import UserBadge from './UserBadge.svelte';
   import { uniqueAppHandlers } from '$lib/app-handlers';
   import { muteState, filterMuted } from '$lib/mute';
+  import { displayTitle, libraryDocumentPath } from '$lib/metadata';
+  import { mercuryFilter } from '$lib/nostr/mercury';
+  import { relayPool } from '$lib/nostr/pool';
+  import { wikiStack } from '$lib/nostr/selector';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
+  import { rememberEvents } from '$lib/nostr/event-memory';
+  import {
+    getWikiForkTarget,
+    isWikiOrSpecKind,
+    uniqueWikiForks,
+    wikiForkOriginHref
+  } from '$lib/wiki-fork';
 
   type EditRevision = {
     edit: Event;
@@ -50,9 +65,100 @@
   const apps = $derived(uniqueAppHandlers(filterMuted(appHandlers, $muteState)));
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
+  const showWikiForks = $derived(isWikiOrSpecKind(event.kind));
 
   let noteEditState = $state<ShortNoteEditState | null>(null);
   let noteEditTick = $state(0);
+  let forksFrom = $state<Event | null>(null);
+  let forksFromHref = $state<string | null>(null);
+  let forksOf = $state<Event[]>([]);
+  let forksLoading = $state(false);
+  let forkCompareId = $state<string | null>(null);
+
+  $effect(() => {
+    const ev = event;
+    if (!isWikiOrSpecKind(ev.kind)) {
+      forksFrom = null;
+      forksFromHref = null;
+      forksOf = [];
+      forksLoading = false;
+      forkCompareId = null;
+      return;
+    }
+    let cancelled = false;
+    forksLoading = true;
+    forksFrom = null;
+    forksFromHref = null;
+    forksOf = [];
+    forkCompareId = null;
+    void loadWikiForks(ev).then((hit) => {
+      if (cancelled) return;
+      forksFrom = hit.origin;
+      forksFromHref = hit.originHref;
+      forksOf = hit.forks;
+      forksLoading = false;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function loadWikiForks(target: Event): Promise<{
+    origin: Event | null;
+    originHref: string | null;
+    forks: Event[];
+  }> {
+    const addr = eventAddress(target);
+    const dTag = target.tags.find((t) => t[0] === 'd')?.[1];
+    const filters = [
+      { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 40 },
+      { kinds: [KIND.WIKI, KIND.SPEC], '#e': [target.id], limit: 40 },
+      ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 40 }] : [])
+    ];
+    const batches = await Promise.all(
+      filters.map((filter) => mercuryFilter(filter).catch(() => [] as Event[]))
+    );
+    const byId = new Map<string, Event>();
+    for (const batch of batches) for (const e of batch) byId.set(e.id, e);
+    if (byId.size < 2) {
+      const relayHits = await relayPool.query(wikiStack(), filters, 4000).catch(() => [] as Event[]);
+      for (const e of relayHits) byId.set(e.id, e);
+    }
+    const candidates = pruneToLatestReplaceables([...byId.values()]);
+    rememberEvents(candidates);
+    const forks = uniqueWikiForks(candidates, target);
+
+    const ref = getWikiForkTarget(target);
+    let origin: Event | null = null;
+    if (ref?.eventId) {
+      origin = await fetchById(ref.eventId, {
+        hintRelays: ref.relayHint ? [ref.relayHint] : undefined
+      });
+    }
+    if (!origin && ref?.coordinate) {
+      origin = await fetchByAddress(ref.coordinate, {
+        hintRelays: ref.relayHint ? [ref.relayHint] : undefined
+      });
+    }
+    if (origin) rememberEvents([origin]);
+    return {
+      origin,
+      originHref: wikiForkOriginHref(origin, ref ?? undefined),
+      forks
+    };
+  }
+
+  function forkHref(ev: Event): string {
+    return `#${libraryDocumentPath(ev)}`;
+  }
+
+  function forkDiffLines(other: Event): DiffLine[] {
+    return diffLines(event.content ?? '', other.content ?? '');
+  }
+
+  function toggleForkCompare(id: string): void {
+    forkCompareId = forkCompareId === id ? null : id;
+  }
 
   $effect(() => {
     const ev = event;
@@ -268,6 +374,109 @@
               </li>
             {/each}
           </ol>
+        </dd>
+      {/if}
+      {#if showWikiForks}
+        <dt>Forked from</dt>
+        <dd class="details-forks">
+          {#if forksLoading && !forksFrom && !forksFromHref}
+            <span class="muted">Looking up origin…</span>
+          {:else if forksFrom || forksFromHref}
+            <div class="details-fork-row">
+              {#if forksFromHref}
+                <a
+                  class="details-fork-title"
+                  href={forksFromHref.startsWith('#') ? forksFromHref : `#${forksFromHref}`}
+                  use:link
+                  >{forksFrom ? displayTitle(forksFrom) : 'Origin article'}</a
+                >
+              {:else if forksFrom}
+                <a class="details-fork-title" href={forkHref(forksFrom)} use:link
+                  >{displayTitle(forksFrom)}</a
+                >
+              {/if}
+              {#if forksFrom}
+                <span class="muted">by</span>
+                <UserBadge pubkey={forksFrom.pubkey} compact />
+                <button
+                  class="btn details-fork-compare"
+                  type="button"
+                  aria-expanded={forkCompareId === forksFrom.id}
+                  onclick={() => toggleForkCompare(forksFrom!.id)}
+                  >{forkCompareId === forksFrom.id ? 'Hide differences' : 'Show differences'}</button
+                >
+                {#if forkCompareId === forksFrom.id}
+                  {@const lines = forkDiffLines(forksFrom)}
+                  {#if diffHasChanges(lines)}
+                    <pre
+                      class="details-edit-diff details-fork-diff"
+                      aria-label="Diff against origin"
+                    ><code
+                        >{#each lines as line, i (i)}<span
+                            class="diff-line"
+                            class:diff-add={line.type === 'add'}
+                            class:diff-del={line.type === 'del'}
+                            class:diff-same={line.type === 'same'}
+                            >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                      ></pre
+                    >
+                  {:else}
+                    <p class="muted details-edit-empty">No content differences.</p>
+                  {/if}
+                {/if}
+              {/if}
+            </div>
+          {:else}
+            <span class="muted">Not a fork of another page</span>
+          {/if}
+        </dd>
+        <dt>Forks of this page</dt>
+        <dd class="details-forks">
+          {#if forksLoading && !forksOf.length}
+            <span class="muted">Looking up forks…</span>
+          {:else if forksOf.length}
+            <ul class="details-fork-list">
+              {#each forksOf as fork (fork.id)}
+                <li class="details-fork-row">
+                  <a class="details-fork-title" href={forkHref(fork)} use:link
+                    >{displayTitle(fork)}</a
+                  >
+                  <span class="muted">by</span>
+                  <UserBadge pubkey={fork.pubkey} compact />
+                  <button
+                    class="btn details-fork-compare"
+                    type="button"
+                    aria-expanded={forkCompareId === fork.id}
+                    onclick={() => toggleForkCompare(fork.id)}
+                    >{forkCompareId === fork.id ? 'Hide differences' : 'Show differences'}</button
+                  >
+                  {#if forkCompareId === fork.id}
+                    {@const lines = forkDiffLines(fork)}
+                    {#if diffHasChanges(lines)}
+                      <pre
+                        class="details-edit-diff details-fork-diff"
+                        aria-label={`Diff against fork ${displayTitle(fork)}`}
+                      ><code
+                          >{#each lines as line, i (i)}<span
+                              class="diff-line"
+                              class:diff-add={line.type === 'add'}
+                              class:diff-del={line.type === 'del'}
+                              class:diff-same={line.type === 'same'}
+                              >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                        ></pre
+                      >
+                    {:else}
+                      <p class="muted details-edit-empty">No content differences.</p>
+                    {/if}
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <span class="muted">No known forks</span>
+          {/if}
         </dd>
       {/if}
     </dl>

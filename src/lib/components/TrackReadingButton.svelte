@@ -147,15 +147,15 @@
       </div>
     </div>
   </div>
+{:else if !$session.pubkey}
+  <button class="btn" type="button" onclick={() => openLoginDialog()}>
+    Sign in to track reading
+  </button>
 {:else}
   <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
-    {$session.pubkey
-      ? busy && bunker
-        ? 'Waiting for Amber…'
-        : 'Track reading'
-      : 'Sign in to track reading'}
+    {busy && bunker ? 'Waiting for Amber…' : 'Track reading'}
   </button>
-  {#if $session.pubkey && bunker && !busy}
+  {#if bunker && !busy}
     <aside class="reading-track-help" aria-label="Tracking help">
       <p>Amber will ask you to approve publishing your reading queue.</p>
     </aside>

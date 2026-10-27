@@ -20,6 +20,17 @@
   import VerseStylingToggle from './VerseStylingToggle.svelte';
   import type { Snippet } from 'svelte';
   import Stars from './Stars.svelte';
+  import { isWikiOrSpecKind } from '$lib/wiki-fork';
+  import {
+    wikiAliasesFromRedirects,
+    type WikiAliasLink
+  } from '$lib/wiki-redirect';
+  import { mercuryFilter } from '$lib/nostr/mercury';
+  import { relayPool } from '$lib/nostr/pool';
+  import { wikiStack } from '$lib/nostr/selector';
+  import { eventAddress } from '$lib/nostr/verify';
+  import { rememberEvents } from '$lib/nostr/event-memory';
+  import { pruneToLatestReplaceables } from '$lib/nostr/replaceable';
 
   interface Props {
     event: Event;
@@ -35,6 +46,37 @@
   let { event, sections = [], ratingAverage, ratingCount = 0, children }: Props = $props();
   const meta = $derived(editionMetadata(event));
   const isLongForm = $derived(event.kind === KIND.LONG_FORM);
+  const showWikiAliases = $derived(isWikiOrSpecKind(event.kind));
+
+  let wikiAliases = $state<WikiAliasLink[]>([]);
+
+  $effect(() => {
+    const ev = event;
+    if (!isWikiOrSpecKind(ev.kind)) {
+      wikiAliases = [];
+      return;
+    }
+    let cancelled = false;
+    wikiAliases = [];
+    void loadWikiAliases(ev).then((hits) => {
+      if (!cancelled) wikiAliases = hits;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function loadWikiAliases(target: Event): Promise<WikiAliasLink[]> {
+    const addr = eventAddress(target);
+    const filter = { kinds: [KIND.WIKI_REDIRECT], '#a': [addr], limit: 80 };
+    let hits = await mercuryFilter(filter).catch(() => [] as Event[]);
+    if (!hits.length) {
+      hits = await relayPool.query(wikiStack(), [filter], 4000).catch(() => [] as Event[]);
+    }
+    const redirects = pruneToLatestReplaceables(hits.filter((e) => e.kind === KIND.WIKI_REDIRECT));
+    rememberEvents(redirects);
+    return wikiAliasesFromRedirects(redirects, target);
+  }
   const showVerseStyling = $derived(offersVerseStyling(event, sections));
   const showCardRating = $derived(
     typeof ratingAverage === 'number' && Number.isFinite(ratingAverage) && ratingCount > 0
@@ -64,7 +106,7 @@
     if (meta.type) rows.push({ label: 'Type', value: formatPublicationType(meta.type) });
     if (meta.publishedBy) rows.push({ label: 'Imprint', value: meta.publishedBy });
     if (meta.version) rows.push({ label: 'Version', value: `v${meta.version}` });
-    if (meta.sectionCount > 0) {
+    if (event.kind === KIND.PUBLICATION && meta.sectionCount > 0) {
       rows.push({
         label: 'Length',
         value: `${meta.sectionCount} ${meta.sectionCount === 1 ? 'section' : 'sections'}`
@@ -74,6 +116,7 @@
     return rows;
   });
   const hasLangTopics = $derived(Boolean(meta.language || meta.subjects.length));
+  const hasAliases = $derived(showWikiAliases && wikiAliases.length > 0);
   const hasKinds = $derived(meta.affectedKinds.length > 0);
 
   async function onProvenanceClick(chip: ProvenanceChip): Promise<void> {
@@ -87,7 +130,7 @@
 </script>
 
 {#snippet metaTable(includeVerse: boolean)}
-  {#if facts.length || hasKinds || hasLangTopics || meta.provenance.length || (includeVerse && showVerseStyling)}
+  {#if facts.length || hasKinds || hasLangTopics || hasAliases || meta.provenance.length || (includeVerse && showVerseStyling)}
     <dl class="edition-facts">
       {#each facts as fact}
         <div class="edition-fact">
@@ -145,7 +188,7 @@
           </dd>
         </div>
       {/if}
-      {#if hasLangTopics}
+      {#if hasLangTopics || hasAliases}
         <div class="edition-fact edition-fact-lang-topics">
           {#if meta.language}
             <div class="edition-fact">
@@ -175,6 +218,26 @@
                         >{topic}</a>
                       </li>
                     {/if}
+                  {/each}
+                </ul>
+              </dd>
+            </div>
+          {/if}
+          {#if hasAliases}
+            <div class="edition-fact edition-fact-wide">
+              <dt>Aliases</dt>
+              <dd>
+                <ul class="edition-alias-list">
+                  {#each wikiAliases as alias (`${alias.href}:${alias.pubkey}`)}
+                    <li class="edition-alias">
+                      <UserBadge pubkey={alias.pubkey} avatarOnly compact />
+                      <a
+                        class="edition-topic"
+                        href={`#${alias.href}`}
+                        use:link
+                        title={`Alias “${alias.alias}”`}
+                      >{alias.alias}</a>
+                    </li>
                   {/each}
                 </ul>
               </dd>

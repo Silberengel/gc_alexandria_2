@@ -69,6 +69,22 @@ describe('publication metadata', () => {
     expect(meta.language).toBe('de');
   });
 
+  it('does not count wiki fork/defer pointers as publication sections', () => {
+    const wiki = editionMetadata({
+      ...ev(
+        [
+          ['title', 'Bitcoin'],
+          ['d', 'bitcoin'],
+          ['a', `30818:${'b'.repeat(64)}:bitcoin`, '', 'fork'],
+          ['e', 'c'.repeat(64), '', 'fork']
+        ],
+        'body'
+      ),
+      kind: 30818
+    });
+    expect(wiki.sectionCount).toBe(0);
+  });
+
   it('does not use wiki/spec body content as the header summary', () => {
     const wiki = editionMetadata({
       ...ev([['title', 'Encrypted Drive'], ['d', 'encrypted-drive']], '## Motivation\n\nPrivate drive.'),

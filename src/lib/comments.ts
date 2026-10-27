@@ -674,6 +674,8 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.LONG_FORM,
   KIND.WIKI,
   KIND.SPEC,
+  // Aliases live in Details — not Other responses.
+  KIND.WIKI_REDIRECT,
   KIND.DIRECTORY,
   KIND.NIP85_PREFS,
   KIND.NIP85_SCORE,

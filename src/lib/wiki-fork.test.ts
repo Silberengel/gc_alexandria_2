@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
-import { getWikiForkTarget, isWikiFork, wikiForkDraftFrom } from './wiki-fork';
+import {
+  eventIsWikiForkOf,
+  getWikiForkTarget,
+  isWikiFork,
+  uniqueWikiForks,
+  wikiForkDraftFrom,
+  wikiForkOriginHref
+} from './wiki-fork';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey'>): Event {
   return {
@@ -30,6 +37,44 @@ describe('wiki-fork', () => {
     expect(isWikiFork(article)).toBe(true);
     expect(getWikiForkTarget(article)?.coordinate).toBe(`30818:${pk}:bitcoin`);
     expect(getWikiForkTarget(article)?.eventId).toBe('d'.repeat(64));
+  });
+
+  it('detects inbound forks of a target and builds origin hrefs', () => {
+    const originPk = 'b'.repeat(64);
+    const forkPk = 'c'.repeat(64);
+    const origin = ev({
+      kind: KIND.WIKI,
+      pubkey: originPk,
+      id: '1'.repeat(64),
+      tags: [['d', 'bitcoin'], ['title', 'Bitcoin']]
+    });
+    const fork = ev({
+      kind: KIND.WIKI,
+      pubkey: forkPk,
+      id: '2'.repeat(64),
+      created_at: 20,
+      tags: [
+        ['d', 'bitcoin'],
+        ['title', 'Bitcoin fork'],
+        ['a', `30818:${originPk}:bitcoin`, '', 'fork'],
+        ['e', origin.id, '', 'fork']
+      ]
+    });
+    const older = ev({
+      kind: KIND.WIKI,
+      pubkey: forkPk,
+      id: '3'.repeat(64),
+      created_at: 10,
+      tags: [
+        ['d', 'bitcoin'],
+        ['a', `30818:${originPk}:bitcoin`, '', 'fork']
+      ]
+    });
+    expect(eventIsWikiForkOf(fork, origin)).toBe(true);
+    expect(eventIsWikiForkOf(origin, fork)).toBe(false);
+    expect(uniqueWikiForks([fork, older, origin], origin).map((e) => e.id)).toEqual([fork.id]);
+    expect(wikiForkOriginHref(origin)).toContain('/wiki/');
+    expect(wikiForkOriginHref(null, getWikiForkTarget(fork))).toMatch(/\/wiki\/d\/bitcoin\/p\//);
   });
 
   it('builds a compose draft with fork_a/fork_e and strips prior fork/defer tags', () => {

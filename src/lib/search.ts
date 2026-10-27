@@ -49,6 +49,7 @@ import { get } from 'svelte/store';
 import { session } from './stores/session';
 import { trust } from './stores/trust';
 import { trustedAssertions } from './trusted-assertions';
+import { resolveWikiAliasArticles } from './wiki-redirect';
 import { nip19, type Event, type Filter } from 'nostr-tools';
 
 export type SearchResult = {
@@ -428,6 +429,7 @@ async function fanOutSearch(
     ]),
     mercurySectionSearch({ q, limit: 100 }),
     mercuryWikiSearch({ q, limit: 100 }),
+    resolveWikiAliasArticles(q).then((r) => r.targets),
     cacheScanText(q),
     brainstormSearch(q),
     ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
@@ -481,7 +483,7 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
   const key = `author:${normalizeSearchKey(author)}`;
   const slug = relayTagSlug(author);
   await cachedOrLive(key, onUpdate, async () => {
-    const [mercury, wiki, relays, brainstorm] = await Promise.all([
+    const batches = await Promise.all([
       mercuryPublicationSearch({ author, limit: 100 }),
       author.trim().length >= 2
         ? mercuryWikiSearch({ q: author, limit: 100 })
@@ -492,7 +494,7 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
       mercuryFilter({ kinds: [KIND.LONG_FORM], '#N': [slug], limit: 100 }),
       brainstormSearch(author)
     ]);
-    return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
+    return mergeById(batches.flat());
   });
 }
 
@@ -500,18 +502,19 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
   const key = `title:${normalizeSearchKey(title)}`;
   const slug = relayTagSlug(title);
   await cachedOrLive(key, onUpdate, async () => {
-    const [mercury, wiki, relays, brainstorm] = await Promise.all([
+    const batches = await Promise.all([
       mercuryPublicationSearch({ title, limit: 100 }),
       title.trim().length >= 2
         ? mercuryWikiSearch({ q: title, title, limit: 100 })
         : Promise.resolve([] as Event[]),
+      resolveWikiAliasArticles(title).then((r) => r.targets),
       relayPool.query(documentStack(), [
         { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }
       ]),
       mercuryFilter({ kinds: [KIND.LONG_FORM], '#T': [slug], limit: 100 }),
       brainstormSearch(title)
     ]);
-    return mergeById([...mercury, ...wiki, ...relays, ...brainstorm]);
+    return mergeById(batches.flat());
   });
 }
 
@@ -532,6 +535,7 @@ export async function runIdentifierSearch(identifier: string, onUpdate: (r: Sear
           ? mercuryWikiSearch({ q: id, s: id, limit: 100 })
           : Promise.resolve([] as Event[])
       ]),
+      resolveWikiAliasArticles(identifier).then((r) => r.targets),
       brainstormSearch(identifier)
     ]);
     return mergeById(batches.flat());
@@ -552,11 +556,12 @@ export async function runLanguageSearch(language: string, onUpdate: (r: SearchRe
 export async function runSubjectSearch(subject: string, onUpdate: (r: SearchResult) => void): Promise<void> {
   const key = `subject:${normalizeSearchKey(subject)}`;
   await cachedOrLive(key, onUpdate, async () => {
-    const [subjects, brainstorm] = await Promise.all([
+    const [subjects, aliases, brainstorm] = await Promise.all([
       searchBySubject(subject),
+      resolveWikiAliasArticles(subject).then((r) => r.targets),
       brainstormSearch(subject)
     ]);
-    return mergeById([...subjects, ...brainstorm]);
+    return mergeById([...subjects, ...aliases, ...brainstorm]);
   });
 }
 
@@ -718,16 +723,17 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
     key,
     onUpdate,
     async () => {
-      const [mercuryPubs, mercuryWiki, relays, filtered, brainstorm] = await Promise.all([
+      const batches = await Promise.all([
         mercuryPublicationSearch({ d: slug, limit: 100 }),
         slug.length >= 2
           ? mercuryWikiSearch({ q: slug, d: slug, limit: 100 })
           : Promise.resolve([] as Event[]),
+        resolveWikiAliasArticles(slug || d).then((r) => r.targets),
         relayPool.query(documentStack(), [filter]),
         mercuryFilter(filter),
         brainstormSearch(slug)
       ]);
-      return mergeById([...mercuryPubs, ...mercuryWiki, ...relays, ...filtered, ...brainstorm]);
+      return mergeById(batches.flat());
     },
     { exactD: slug }
   );
@@ -901,13 +907,40 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
     if (typed) {
       const target = normalizeMercuryTarget(req.mercury.target);
       if (target === 'sections') batches.push(mercurySectionSearch(typed));
-      else if (target === 'wiki') batches.push(mercuryWikiSearch(typed));
-      else batches.push(mercuryPublicationSearch(typed));
+      else if (target === 'wiki') {
+        batches.push(mercuryWikiSearch(typed));
+        // Alias redirects (30819) for every wiki search field the user filled.
+        const aliasQueries = [
+          req.mercury.q,
+          req.mercury.title,
+          req.mercury.d,
+          req.mercury.T,
+          req.mercury.s,
+          req.mercury.i
+        ]
+          .map((v) => v?.trim())
+          .filter((v): v is string => !!v);
+        for (const aq of [...new Set(aliasQueries)]) {
+          batches.push(resolveWikiAliasArticles(aq, filter.limit).then((r) => r.targets));
+        }
+      } else batches.push(mercuryPublicationSearch(typed));
     }
   }
 
   const qText = filter.search?.trim() || req.mercury?.q?.trim();
-  if (qText) batches.push(cacheScanText(qText, filter.limit));
+  if (qText) {
+    batches.push(cacheScanText(qText, filter.limit));
+    // Relays-mode / free-text search should also resolve wiki aliases.
+    batches.push(resolveWikiAliasArticles(qText, filter.limit).then((r) => r.targets));
+  }
+  const dTags = filter['#d'];
+  if (dTags?.length) {
+    for (const d of dTags.slice(0, 6)) {
+      if (d?.trim()) {
+        batches.push(resolveWikiAliasArticles(d.trim(), filter.limit).then((r) => r.targets));
+      }
+    }
+  }
 
   if (!batches.length) return [];
   const settled = await Promise.all(batches);

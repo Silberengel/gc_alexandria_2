@@ -623,7 +623,7 @@ describe('comments nest', () => {
     expect(parts.thread.map((e) => e.id).sort()).toEqual([comment.id, nestedOnly.id].sort());
   });
 
-  it('does not put ratings or catalog documents in other responses', () => {
+  it('does not put ratings, catalog documents, or wiki redirects in other responses', () => {
     const pk = 'b'.repeat(64);
     const edition = ev({
       id: 'a'.repeat(64),
@@ -657,9 +657,30 @@ describe('comments nest', () => {
       content: 'A proper other response.',
       tags: [['a', `30040:${pk}:book`]]
     });
+    const wiki = ev({
+      id: '4'.repeat(64),
+      kind: KIND.WIKI,
+      pubkey: pk,
+      tags: [['d', 'bitcoin'], ['title', 'Bitcoin']]
+    });
+    const redirect = ev({
+      id: '5'.repeat(64),
+      kind: KIND.WIKI_REDIRECT,
+      pubkey: 'd'.repeat(64),
+      tags: [['d', 'btc'], ['a', `30818:${pk}:bitcoin`]]
+    });
+    const wikiNote = ev({
+      id: '6'.repeat(64),
+      kind: 1244,
+      content: 'A wiki other response.',
+      tags: [['a', `30818:${pk}:bitcoin`]]
+    });
     const parts = partitionWorkResponses([edition, rating, catalogCopy, review], edition);
     expect(parts.other.map((e) => e.id)).toEqual([review.id]);
     expect(parts.thread).toHaveLength(0);
+    const wikiParts = partitionWorkResponses([wiki, redirect, wikiNote], wiki);
+    expect(wikiParts.other.map((e) => e.id)).toEqual([wikiNote.id]);
+    expect(wikiParts.other.some((e) => e.kind === KIND.WIKI_REDIRECT)).toBe(false);
   });
 
   it('lists bookmark, pin, and label authors separately from other responses', () => {

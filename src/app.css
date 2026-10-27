@@ -2530,6 +2530,7 @@ a.listing-row:hover,
   margin: 0;
 }
 .edition-topic-list,
+.edition-alias-list,
 .edition-source-list {
   list-style: none;
   margin: 0;
@@ -2537,6 +2538,12 @@ a.listing-row:hover,
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 0.75rem;
+}
+.edition-alias {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
 }
 .edition-topic {
   color: var(--accent);
@@ -5321,6 +5328,41 @@ a.nostrdown-ref {
   margin: 0 0.45rem;
   opacity: 0.4;
 }
+.details-forks {
+  min-width: 0;
+}
+.details-fork-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+.details-fork-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+.details-fork-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.details-fork-compare {
+  font-size: 0.85rem;
+  padding: 0.15rem 0.55rem;
+}
+.details-fork-diff {
+  flex: 1 1 100%;
+  margin: 0.25rem 0 0;
+}
+@media (min-width: 640px) {
+  .details-list dt:has(+ dd.details-forks) {
+    padding-top: 0.35rem;
+  }
+}
 .found-list {
   list-style: none;
   margin: 0;
@@ -5710,6 +5752,36 @@ a.highlight-source-blurb:focus-visible {
   max-height: 250px;
   padding-bottom: 1.85rem;
   overflow: hidden;
+}
+
+/*
+ * Catalog / search result grids: every tile is the same 250px height as .pub-card
+ * (max alone left short notes shorter than books and media).
+ */
+.card-grid-results > .event-embed-card,
+.card-grid-results > .card,
+.card-grid-results > .result-card-wrap {
+  height: 250px;
+  max-height: 250px;
+  box-sizing: border-box;
+}
+.card-grid-results > .event-embed-card {
+  display: flex;
+  flex-direction: column;
+}
+.card-grid-results > .event-embed-card > .card,
+.card-grid-results > .event-embed-card > .result-card-wrap,
+.card-grid-results > .event-embed-card > .directory-explorer,
+.card-grid-results > .event-embed-card > .directory-explorer-header-only {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  box-sizing: border-box;
+}
+.card-grid-results .profile-meta-frame {
+  height: 250px;
+  max-height: 250px;
 }
 .result-card-wrap:has(.event-more-menu-open) {
   /* Menu is position:fixed — keep the height crop; don't unclamp card media. */

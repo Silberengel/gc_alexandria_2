@@ -2,8 +2,9 @@ import type { Event } from 'nostr-tools';
 import type { ComposeDraftState } from './compose-drafts';
 import { KIND } from './constants';
 import { eventToComposeDraft } from './event-compose-preload';
-import { eventAddress } from './nostr/verify';
-import type { WikiReference } from './wiki-defer';
+import { eventAddress, firstTag } from './nostr/verify';
+import { publicationCoordinateLookupKeys } from './publication-coordinate';
+import { wikiPathFromCoordinate, type WikiReference } from './wiki-defer';
 
 function tagMarker(tag: string[]): string | undefined {
   return tag[3]?.trim() || undefined;
@@ -32,6 +33,40 @@ export function getWikiForkTarget(event: Event): WikiReference | undefined {
 
 export function isWikiFork(event: Event): boolean {
   return !!getWikiForkTarget(event);
+}
+
+/** True when `candidate` is a fork of `target` (NIP-54 fork marker on a/e). */
+export function eventIsWikiForkOf(candidate: Event, target: Event): boolean {
+  if (!isWikiOrSpecKind(candidate.kind)) return false;
+  const ref = getWikiForkTarget(candidate);
+  if (!ref) return false;
+  if (ref.eventId && ref.eventId.toLowerCase() === target.id.toLowerCase()) return true;
+  if (!ref.coordinate) return false;
+  const targetKeys = new Set(publicationCoordinateLookupKeys(eventAddress(target)));
+  return publicationCoordinateLookupKeys(ref.coordinate).some((k) => targetKeys.has(k));
+}
+
+/** Canonical wiki/spec path for a fork origin (resolved event, else a-tag coordinate). */
+export function wikiForkOriginHref(origin: Event | null, ref?: WikiReference): string | null {
+  if (origin) {
+    const d = firstTag(origin, 'd') ?? '';
+    if (d && isWikiOrSpecKind(origin.kind)) {
+      return wikiPathFromCoordinate(`${origin.kind}:${origin.pubkey}:${d}`);
+    }
+  }
+  return wikiPathFromCoordinate(ref?.coordinate);
+}
+
+/** Keep the newest replaceable per author among inbound forks. */
+export function uniqueWikiForks(candidates: readonly Event[], target: Event): Event[] {
+  const byAuthor = new Map<string, Event>();
+  for (const event of candidates) {
+    if (event.id === target.id || !eventIsWikiForkOf(event, target)) continue;
+    const pk = event.pubkey.toLowerCase();
+    const prev = byAuthor.get(pk);
+    if (!prev || event.created_at > prev.created_at) byAuthor.set(pk, event);
+  }
+  return [...byAuthor.values()].sort((a, b) => b.created_at - a.created_at);
 }
 
 const FORK_DEFER_MARKERS = new Set(['fork', 'defer']);

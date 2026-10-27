@@ -331,13 +331,17 @@ export function editionMetadata(event: Event): EditionMetadata {
 
   const zapCooking = zapCookingRecipeUrl(event);
   const source = sourceS || sourceLegacy || zapCooking || undefined;
-  const sectionCount = event.tags.filter((t) => {
-    if (t[0] === 'e' && t[1]) return true;
-    if (t[0] !== 'a' || !t[1]) return false;
-    const parts = t[1].split(':');
-    const kind = Number(parts[0]);
-    return Number.isInteger(kind) && kind !== 30040;
-  }).length;
+  // Sections are a 30040 index concept — never count wiki/spec fork/defer a/e tags.
+  const sectionCount =
+    event.kind === KIND.PUBLICATION
+      ? event.tags.filter((t) => {
+          if (t[0] === 'e' && t[1]) return true;
+          if (t[0] !== 'a' || !t[1]) return false;
+          const parts = t[1].split(':');
+          const kind = Number(parts[0]);
+          return Number.isInteger(kind) && kind !== 30040;
+        }).length
+      : 0;
 
   const affectedKinds = [
     ...new Set(
