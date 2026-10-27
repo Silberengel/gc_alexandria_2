@@ -19,6 +19,11 @@ export type ComposeDraftState = {
    * `publicationManuscriptId` — strip on save so tab autosaves stay small.
    */
   publicationAsciiDoc?: string;
+  /**
+   * AsciiDoc length for draft fingerprints only (not the body). Lets Compose
+   * detect edits without reading an outer reactive `publicationAsciiDoc`.
+   */
+  publicationAsciiDocLen?: number;
   /** IndexedDB manuscript id for split-mode AsciiDoc (durable, multi-MB). */
   publicationManuscriptId?: string;
   /** Finest index heading level for the splitter (`==`…`====`). */

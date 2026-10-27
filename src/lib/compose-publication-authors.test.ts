@@ -58,7 +58,11 @@ describe('compose-publication-authors', () => {
 
   it('maps known roles to the dropdown and unknown to other', () => {
     expect(authorRoleSelectValue('translator')).toBe('translator');
-    expect(authorRoleSelectValue('editor')).toBe(AUTHOR_ROLE_OTHER);
+    expect(authorRoleSelectValue('editor')).toBe('editor');
+    expect(authorRoleSelectValue('annotator')).toBe('annotator');
+    expect(authorRoleSelectValue('preface')).toBe('preface');
+    expect(authorRoleSelectValue('cartographer')).toBe('cartographer');
+    expect(authorRoleSelectValue('narrator')).toBe(AUTHOR_ROLE_OTHER);
     expect(authorRoleSelectValue('')).toBe('author');
   });
 });

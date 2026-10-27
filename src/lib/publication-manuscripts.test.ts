@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  clampManuscriptIndexDepth,
   deleteManuscript,
   deleteManuscriptsForPubkey,
   dropManuscriptBodyForTests,
@@ -124,6 +125,17 @@ describe('publication-manuscripts', () => {
     await deleteManuscript(m.id);
     await new Promise((r) => setTimeout(r, 80));
     expect(await getManuscript(m.id)).toBeNull();
+  });
+
+  it('clampManuscriptIndexDepth matches splitter bounds (high → 4)', () => {
+    expect(clampManuscriptIndexDepth(1)).toBe(2);
+    expect(clampManuscriptIndexDepth(2)).toBe(2);
+    expect(clampManuscriptIndexDepth(3)).toBe(3);
+    expect(clampManuscriptIndexDepth(4)).toBe(4);
+    expect(clampManuscriptIndexDepth(5)).toBe(4);
+    expect(clampManuscriptIndexDepth(99)).toBe(4);
+    expect(clampManuscriptIndexDepth('4')).toBe(4);
+    expect(clampManuscriptIndexDepth(undefined)).toBe(2);
   });
 
   it('notifies persist-error listeners when flush fails', async () => {

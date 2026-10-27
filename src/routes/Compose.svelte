@@ -813,8 +813,9 @@
       kind0Tags: kind0Tags.map((t) => [...t]),
       markup: editorMarkup,
       publicationSectionsMode,
-      // Body lives in IndexedDB; keep only the id on the tab autosave.
+      // Body lives in IndexedDB; keep only the id + length on the tab autosave.
       publicationManuscriptId: publicationManuscriptId ?? undefined,
+      publicationAsciiDocLen: publicationAsciiDoc.length,
       publicationIndexDepth,
       updatedAt: Date.now()
     };
@@ -832,10 +833,19 @@
       markup?: 'djot' | 'asciidoc' | null;
       publicationSectionsMode?: 'link' | 'split';
       publicationAsciiDoc?: string;
+      publicationAsciiDocLen?: number;
       publicationManuscriptId?: string;
       publicationIndexDepth?: 2 | 3 | 4;
     } = snapshotDraft()
   ): string {
+    // Length comes only from `d` — never the live outer `publicationAsciiDoc`,
+    // so stored-draft vs baseline comparisons stay stable over time.
+    const asciiLen =
+      typeof d.publicationAsciiDoc === 'string'
+        ? d.publicationAsciiDoc.length
+        : typeof d.publicationAsciiDocLen === 'number'
+          ? d.publicationAsciiDocLen
+          : 0;
     return JSON.stringify({
       kind: d.kind,
       content: d.content,
@@ -847,8 +857,7 @@
       markup: d.markup,
       publicationSectionsMode: d.publicationSectionsMode,
       publicationManuscriptId: d.publicationManuscriptId,
-      // Include length only so edits still bust the fingerprint without storing MB in session.
-      publicationAsciiDocLen: (d.publicationAsciiDoc ?? publicationAsciiDoc).length,
+      publicationAsciiDocLen: asciiLen,
       publicationIndexDepth: d.publicationIndexDepth
     });
   }

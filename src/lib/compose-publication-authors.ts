@@ -1,9 +1,19 @@
-/** Suggested author roles; free text is also allowed (imwald parity). */
+/** Suggested author roles; free text is also allowed (imwald / catalog parity). */
 export const AUTHOR_ROLE_SUGGESTIONS = [
   'author',
   'translator',
+  'editor',
+  'annotator',
+  'commentator',
+  'preface',
+  'foreword',
+  'introduction',
+  'compiler',
+  'reviser',
+  'contributor',
   'ghostwriter',
-  'illustrator'
+  'illustrator',
+  'cartographer'
 ] as const;
 
 export const AUTHOR_ROLE_OTHER = 'other';

@@ -72,8 +72,12 @@ export function newManuscriptId(): string {
   return `ms-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Match `clampIndexDepth` in publication-asciidoc-split (2…4, high values → 4). */
 export function clampManuscriptIndexDepth(n: unknown): PublicationIndexDepth {
-  return n === 3 || n === 4 ? n : 2;
+  const v = typeof n === 'number' ? n : Number(n);
+  if (!Number.isFinite(v) || v <= 2) return 2;
+  if (v >= 4) return 4;
+  return 3;
 }
 
 function normalizeMeta(raw: Partial<PublicationManuscriptMeta>): PublicationManuscriptMeta {
