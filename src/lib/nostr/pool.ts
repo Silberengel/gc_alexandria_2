@@ -229,6 +229,11 @@ class RelayPool {
         console.warn('[alexandria:pool] shed background query after 15s slot wait');
         return null;
       }
+      // Priority used to wait forever and could leave profile "Loading…" hung.
+      if (priority && waited > RelayPool.SLOT_WAIT_MS * 2) {
+        console.warn('[alexandria:pool] shed priority query after 30s slot wait');
+        return null;
+      }
       if (priority && waited > RelayPool.SLOT_WAIT_MS && !warned) {
         console.warn('[alexandria:pool] priority query still waiting for a slot');
         warned = true;

@@ -150,6 +150,11 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
 /* Publication reader: same page column; prose stays on --max-read inside .reading-content. */
 .shell.reading-page {
   padding-top: 0;
+  padding-bottom: 1rem;
+}
+/* Reading mode: reclaim the footer band for prose / ToC. */
+body:has(main.reading-page) .site-footer {
+  display: none;
 }
 
 /* Legacy modifiers — keep the shared page column so orientation stays stable. */

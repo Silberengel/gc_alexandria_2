@@ -399,7 +399,8 @@
     if (snap.profile) applyProfileMeta(snap.profile);
     produced = omitNested(pruneToLatestReplaceables(snap.produced));
     interacted = pruneToLatestReplaceables(snap.interacted);
-    if (kindFilter == null && (produced.length || interacted.length)) listingsLoading = false;
+    // Cached page (even empty) is enough to drop the spinner; live refresh continues.
+    if (kindFilter == null) listingsLoading = false;
     rememberEvents([
       ...snap.produced,
       ...snap.interacted,
@@ -481,13 +482,21 @@
     resetProfileListings();
     resolving = true;
     listingsLoading = false;
+    let listingsTimer = 0;
+    const clearListingsLoading = () => {
+      if (listingsTimer) {
+        window.clearTimeout(listingsTimer);
+        listingsTimer = 0;
+      }
+      if (!cancelled) listingsLoading = false;
+    };
 
     void (async () => {
       const nextPk = await resolveProfilePubkey(raw);
       if (cancelled) return;
       if (!nextPk || !/^[0-9a-f]{64}$/.test(nextPk)) {
         resolving = false;
-        listingsLoading = false;
+        clearListingsLoading();
         resolveFailed = true;
         return;
       }
@@ -495,6 +504,10 @@
       pubkey = nextPk;
       resolving = false;
       listingsLoading = true;
+      // Hard ceiling — saturated relay slots must not leave this spinning forever.
+      listingsTimer = window.setTimeout(() => {
+        if (!cancelled) listingsLoading = false;
+      }, 8_000);
       try {
         npub = nip19.npubEncode(nextPk);
       } catch {
@@ -644,7 +657,7 @@
       // Kind-filtered views always re-query so arbitrary kinds are not missed.
       // Refresh the pinboard when empty or short of five slips (do not block paint).
       if (profilePageSnapshotFresh(snap) && filterKind == null) {
-        listingsLoading = false;
+        clearListingsLoading();
         const boardShort = (snap?.pinnedNotes?.length ?? 0) < PROFILE_PINBOARD_LIMIT;
         if (boardShort) {
           void loadPinboard((base, filters, timeout, baseMax) =>
@@ -661,22 +674,8 @@
         return;
       }
 
-      const authorOutbox = (await mailboxesP).outbox;
-      if (cancelled) return;
-      if (!fresh && authorOutbox.length) {
-        const fromOutbox = await relayPool.query(
-          authorOutbox,
-          [{ kinds: [KIND.METADATA], authors: [nextPk], limit: 1 }],
-          4000,
-          Math.min(authorOutbox.length, 4),
-          undefined,
-          { priority: true }
-        );
-        if (cancelled) return;
-        const meta = pickLatestReplaceable(fromOutbox, KIND.METADATA, nextPk);
-        if (meta) applyProfileMeta(meta);
-      }
-
+      // Do not block listings on NIP-65 — mailbox lookup can sit behind saturated slots.
+      let authorOutbox: string[] = [];
       const queryAuthored = (
         base: string[],
         filters: Parameters<typeof relayPool.query>[1],
@@ -691,7 +690,7 @@
       let statusEventsAcc: Event[] = snap?.statusEvents ?? [];
       let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
 
-      // 4) Everything else in parallel; paint as each group finishes.
+      // 4) Docs first (no priority — priority slot waits can hang forever under load).
       const docsP =
         filterKind != null
           ? (() => {
@@ -705,27 +704,23 @@
               const relays = (docKinds as number[]).includes(filterKind)
                 ? documentStack()
                 : [...new Set([...socialStack(), ...documentStack()])];
-              return queryAuthored(relays, [authoredFilter], 8000, 5, { priority: true }).then(
-                (authored) => {
-                  if (cancelled) return;
-                  const byId = new Map<string, Event>();
-                  for (const e of untrack(() => produced)) {
-                    if (e.kind === filterKind) byId.set(e.id, e);
-                  }
-                  for (const e of authored) byId.set(e.id, e);
-                  produced = pruneToLatestReplaceables([...byId.values()]);
-                  rememberEvents(produced);
+              return queryAuthored(relays, [authoredFilter], 8000, 5).then((authored) => {
+                if (cancelled) return;
+                const byId = new Map<string, Event>();
+                for (const e of untrack(() => produced)) {
+                  if (e.kind === filterKind) byId.set(e.id, e);
                 }
-              );
+                for (const e of authored) byId.set(e.id, e);
+                produced = pruneToLatestReplaceables([...byId.values()]);
+                rememberEvents(produced);
+              });
             })()
           : Promise.all([
-              queryAuthored(documentStack(), [authoredFilter], 8000, 5, { priority: true }),
+              queryAuthored(documentStack(), [authoredFilter], 8000, 5),
               mercuryFilter(creditedFilter).then(async (m) =>
                 m.length
                   ? m
-                  : relayPool.query(documentStack(), [creditedFilter], 8000, 5, undefined, {
-                      priority: true
-                    })
+                  : relayPool.query(documentStack(), [creditedFilter], 8000, 5)
               )
             ]).then(([authored, credited]) => {
               if (cancelled) return;
@@ -734,6 +729,28 @@
               produced = omitNested(pruneToLatestReplaceables([...byId.values()]));
               rememberEvents(produced);
             });
+
+      void docsP.finally(() => {
+        clearListingsLoading();
+      });
+
+      const authorOutboxP = mailboxesP.then(async (boxes) => {
+        if (cancelled) return;
+        authorOutbox = boxes.outbox;
+        if (!fresh && authorOutbox.length) {
+          const fromOutbox = await relayPool.query(
+            authorOutbox,
+            [{ kinds: [KIND.METADATA], authors: [nextPk], limit: 1 }],
+            4000,
+            Math.min(authorOutbox.length, 4),
+            undefined,
+            { priority: true }
+          );
+          if (cancelled) return;
+          const meta = pickLatestReplaceable(fromOutbox, KIND.METADATA, nextPk);
+          if (meta) applyProfileMeta(meta);
+        }
+      });
 
       const statusP = Promise.all([
         queryAuthored(socialStack(), [statusFilter], 5000, 4),
@@ -872,9 +889,18 @@
         queryAuthored(base, filters, timeout, baseMax)
       );
 
-      await Promise.allSettled([docsP, statusP, payP, readsP, queueP, interactP, pinboardP]);
+      await Promise.allSettled([
+        docsP,
+        authorOutboxP,
+        statusP,
+        payP,
+        readsP,
+        queueP,
+        interactP,
+        pinboardP
+      ]);
       if (cancelled) return;
-      listingsLoading = false;
+      clearListingsLoading();
 
       // Kind-filtered views skip the full-page snapshot write (partial listings).
       if (filterKind != null) return;
@@ -900,6 +926,10 @@
 
     return () => {
       cancelled = true;
+      if (listingsTimer) {
+        window.clearTimeout(listingsTimer);
+        listingsTimer = 0;
+      }
     };
   });
 

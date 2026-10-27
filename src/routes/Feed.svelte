@@ -1252,6 +1252,10 @@
                   <div class="feed-body feed-body-directory">
                     <DirectoryExplorer event={item} showMenu={false} headerOnly />
                   </div>
+                {:else if item.kind === KIND.METADATA}
+                  <div class="feed-body feed-body-profile">
+                    <ProfileMetadataCard event={item} showMenu={false} compact />
+                  </div>
                 {:else}
                   <div class="thread-head">
                     <UserBadge pubkey={item.pubkey} />
@@ -1301,7 +1305,15 @@
                 }}
               >
                 <FeedBoosters boosts={row.boosts} targetId={row.targetId} />
-                {#if target}
+                {#if target && target.kind === KIND.METADATA}
+                  <div class="feed-body feed-body-profile">
+                    <ProfileMetadataCard event={target} showMenu={false} compact />
+                  </div>
+                {:else if target && target.kind === KIND.DIRECTORY}
+                  <div class="feed-body feed-body-directory">
+                    <DirectoryExplorer event={target} showMenu={false} headerOnly />
+                  </div>
+                {:else if target}
                   <div class="thread-head">
                     <UserBadge pubkey={target.pubkey} />
                     <a
@@ -1544,14 +1556,18 @@
     margin-top: 0.25rem;
     cursor: pointer;
   }
-  .feed-body :global(:is(.generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .directory-explorer)) {
+  .feed-body :global(:is(.generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .directory-explorer, .profile-meta-card)) {
     cursor: auto;
   }
   .feed-body-directory {
     max-height: min(28rem, 70vh);
     overflow: auto;
   }
-  .feed-row:has(.feed-body-directory) {
+  .feed-body-profile {
+    margin-top: 0;
+  }
+  .feed-row:has(.feed-body-directory),
+  .feed-row:has(.feed-body-profile) {
     max-height: none;
   }
   .feed-preview {
