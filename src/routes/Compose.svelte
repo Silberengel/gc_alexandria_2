@@ -6,12 +6,39 @@
   import EventBody from '$lib/components/EventBody.svelte';
   import ComposeGrammarTextarea from '$lib/components/ComposeGrammarTextarea.svelte';
   import AdvancedMarkupEditor from '$lib/components/AdvancedMarkupEditor.svelte';
+  import PublicationAsciidocSplitEditor from '$lib/components/PublicationAsciidocSplitEditor.svelte';
   import ComposeHashtagRows from '$lib/components/ComposeHashtagRows.svelte';
   import ComposeEventTagRows from '$lib/components/ComposeEventTagRows.svelte';
   import ComposePublicationAuthorsEditor from '$lib/components/ComposePublicationAuthorsEditor.svelte';
   import ComposePublishedOnField from '$lib/components/ComposePublishedOnField.svelte';
   import ComposeUnixTimestampField from '$lib/components/ComposeUnixTimestampField.svelte';
   import ComposePublicationSectionsEditor from '$lib/components/ComposePublicationSectionsEditor.svelte';
+  import {
+    DEFAULT_INDEX_DEPTH,
+    type PublicationIndexDepth
+  } from '$lib/publication-asciidoc-split';
+  import {
+    publishPublicationSplit,
+    retryPublicationSplitEvents,
+    type SplitPublishProgress
+  } from '$lib/publication-split-publish';
+  import {
+    clearStagedManuscript,
+    deleteManuscript,
+    deleteManuscriptsForPubkey,
+    ensureManuscriptDb,
+    flushStagedManuscript,
+    getManuscriptResult,
+    listManuscriptMetas,
+    newManuscriptId,
+    onManuscriptFlushed,
+    onManuscriptPersistError,
+    putManuscript,
+    scheduleManuscriptPersist,
+    type PublicationManuscript,
+    type PublicationManuscriptMeta
+  } from '$lib/publication-manuscripts';
+  import { libraryDocumentPath } from '$lib/metadata';
   import ComposePublicationIdentifiersEditor from '$lib/components/ComposePublicationIdentifiersEditor.svelte';
   import ComposeSpecKindsEditor from '$lib/components/ComposeSpecKindsEditor.svelte';
   import ComposePaytoEditor from '$lib/components/ComposePaytoEditor.svelte';
@@ -73,7 +100,8 @@
     localDraftMatchesEncrypted,
     stageComposeDraft,
     clearStagedComposeDraft,
-    flushStagedComposeDraft
+    flushStagedComposeDraft,
+    type ComposeDraftState
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
   import {
@@ -179,6 +207,21 @@
   let advancedOpen = $state(false);
   /** Markup for the advanced editor. Follows the kind until the toggle changes it. */
   let editorMarkup = $state<'djot' | 'asciidoc' | null>(null);
+  /** Kind 30040: link existing section pointers vs split one AsciiDoc manuscript. */
+  let publicationSectionsMode = $state<'link' | 'split'>('link');
+  let publicationAsciiDoc = $state('');
+  /** IndexedDB id for the durable AsciiDoc manuscript (split mode). */
+  let publicationManuscriptId = $state<string | null>(null);
+  /** Stable `updatedAt` for the optimistic Drafts book row (avoids sort churn). */
+  let publicationManuscriptListedAt = $state(0);
+  let publicationIndexDepth = $state<PublicationIndexDepth>(DEFAULT_INDEX_DEPTH);
+  let publicationSplitOpen = $state(false);
+  let splitProgress = $state<SplitPublishProgress | null>(null);
+  /** Last split-publish attempt — Retry failed republishes missingEvents. */
+  let splitRetryEvents = $state<NostrEvent[]>([]);
+  let splitMissingDTags = $state<string[]>([]);
+  /** Named manuscript metas from IndexedDB (Drafts list — bodies loaded on open). */
+  let manuscriptDrafts = $state<PublicationManuscriptMeta[]>([]);
   /** Own kind-1 being revised as NIP-41 kind 1010 (null = normal compose / copy). */
   let shortNoteEditSource = $state<NostrEvent | null>(null);
   /** Last `?copy=` / `?edit=` id we applied, so the effect does not loop. */
@@ -223,7 +266,7 @@
     showBody ? composeMarkupFormat(kind, content, previewEvent?.tags) : null
   );
   type DraftListItem = {
-    source: 'local' | 'encrypted';
+    source: 'local' | 'encrypted' | 'manuscript';
     kind: number;
     mode?: string;
     /** Wrap `d`, or local form `values.d` / inner draft d. */
@@ -232,6 +275,7 @@
     label: string;
     updatedAt: number;
     wrap?: DecryptedDraftWrap;
+    manuscriptId?: string;
   };
 
   function draftTitleFromTags(tags: string[][] | undefined): string {
@@ -257,13 +301,45 @@
 
   function draftDisplayName(item: DraftListItem): string {
     if (item.title) return item.title;
-    // Prefer title for the Name column; d-tag has its own column.
-    return item.source === 'encrypted' ? 'Encrypted draft' : 'Tab autosave';
+    if (item.source === 'encrypted') return 'Encrypted draft';
+    if (item.source === 'manuscript') return 'Untitled manuscript';
+    return 'Tab autosave';
   }
 
   const draftItems = $derived.by((): DraftListItem[] => {
     void draftRevision;
     const pk = $session.pubkey;
+    const listedIds = new Set(manuscriptDrafts.map((m) => m.id));
+    const manuscripts: DraftListItem[] = manuscriptDrafts.map((m) => ({
+      source: 'manuscript' as const,
+      kind: KIND.PUBLICATION,
+      d: m.dTag,
+      title: m.title,
+      label: composeKindLabel(KIND.PUBLICATION),
+      updatedAt: m.updatedAt,
+      manuscriptId: m.id
+    }));
+    // Optimistic book row while the first IDB flush is still in flight.
+    const liveMsId = publicationManuscriptId?.trim() ?? '';
+    if (
+      liveMsId &&
+      publicationManuscriptListedAt > 0 &&
+      !listedIds.has(liveMsId) &&
+      publicationAsciiDoc.trim() &&
+      kind === KIND.PUBLICATION &&
+      publicationSectionsMode === 'split'
+    ) {
+      manuscripts.push({
+        source: 'manuscript',
+        kind: KIND.PUBLICATION,
+        d: values.d?.trim() || '',
+        title: values.title?.trim() || 'Untitled manuscript',
+        label: composeKindLabel(KIND.PUBLICATION),
+        updatedAt: publicationManuscriptListedAt,
+        manuscriptId: liveMsId
+      });
+      listedIds.add(liveMsId);
+    }
     const local: DraftListItem[] = pk
       ? listComposeDrafts(pk)
           .flatMap((item) => {
@@ -273,6 +349,9 @@
             if (encryptedDrafts.some((wrap) => localDraftMatchesEncrypted(draft, wrap))) {
               return [];
             }
+            // Hide thin tab shell covered by a book row (IDB list or live optimistic).
+            const mid = String(draft.publicationManuscriptId ?? '').trim();
+            if (mid && listedIds.has(mid)) return [];
             const d = String(draft.values.d ?? '').trim();
             const title = String(draft.values.title ?? draft.values.name ?? '').trim();
             return [
@@ -302,7 +381,7 @@
         wrap
       };
     });
-    return [...encrypted, ...local].sort((a, b) => b.updatedAt - a.updatedAt);
+    return [...manuscripts, ...encrypted, ...local].sort((a, b) => b.updatedAt - a.updatedAt);
   });
 
   const revisionHistory = $derived(
@@ -318,6 +397,21 @@
     draftRevision += 1;
   }
 
+  async function refreshManuscriptDrafts(): Promise<void> {
+    const pk = $session.pubkey;
+    if (!pk) {
+      manuscriptDrafts = [];
+      refreshDraftList();
+      return;
+    }
+    try {
+      manuscriptDrafts = await listManuscriptMetas(pk);
+    } catch {
+      manuscriptDrafts = [];
+    }
+    refreshDraftList();
+  }
+
   async function refreshEncryptedDrafts(): Promise<void> {
     if (!$session.pubkey) {
       encryptedDrafts = [];
@@ -328,7 +422,63 @@
     } catch {
       encryptedDrafts = [];
     }
+    await refreshManuscriptDrafts();
     refreshDraftList();
+  }
+
+  /** Pure snapshot of the live split manuscript (does not mutate reactive state). */
+  function manuscriptSnapshot(): PublicationManuscript | null {
+    const pk = $session.pubkey;
+    if (!pk) return null;
+    if (kind !== KIND.PUBLICATION || publicationSectionsMode !== 'split') return null;
+    if (!publicationAsciiDoc.trim()) return null;
+    return {
+      id: publicationManuscriptId?.trim() || newManuscriptId(),
+      pubkey: pk,
+      title: values.title?.trim() || 'Untitled manuscript',
+      dTag: values.d?.trim() || '',
+      source: publicationAsciiDoc,
+      maxIndexLevel: publicationIndexDepth,
+      updatedAt: Date.now()
+    };
+  }
+
+  function persistManuscript(opts?: { immediate?: boolean }): void {
+    const snap = manuscriptSnapshot();
+    if (!snap) return;
+    // Commit a newly minted id here — not inside the pure snapshot.
+    if (!publicationManuscriptId?.trim()) {
+      publicationManuscriptId = snap.id;
+      publicationManuscriptListedAt = snap.updatedAt;
+    } else if (!publicationManuscriptListedAt) {
+      publicationManuscriptListedAt = snap.updatedAt;
+    }
+    if (opts?.immediate) {
+      clearStagedManuscript();
+      void putAndRefreshManuscript(snap);
+      return;
+    }
+    scheduleManuscriptPersist(snap);
+  }
+
+  /** Drop a listed meta that has no body (corrupt / mid-migrate ghost). */
+  async function purgeOrphanManuscript(id: string): Promise<void> {
+    if (!id.trim()) return;
+    await deleteManuscript(id);
+    await refreshManuscriptDrafts();
+  }
+
+  async function putAndRefreshManuscript(snap: PublicationManuscript): Promise<boolean> {
+    try {
+      await putManuscript(snap);
+      await refreshManuscriptDrafts();
+      return true;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Could not save the AsciiDoc manuscript locally.';
+      showNotice(message);
+      return false;
+    }
   }
 
   async function loadCheckpointsFor(d: string | null): Promise<void> {
@@ -494,7 +644,74 @@
       abandonOpenComposeShell();
     }
     refreshDraftList();
-    draftListOpen = listComposeDrafts(pk).length > 0 || encryptedDrafts.length > 0;
+    draftListOpen =
+      listComposeDrafts(pk).length > 0 ||
+      encryptedDrafts.length > 0 ||
+      manuscriptDrafts.length > 0;
+  }
+
+  async function deleteManuscriptDraftItem(item: DraftListItem): Promise<void> {
+    const pk = $session.pubkey;
+    const id = item.manuscriptId?.trim();
+    if (!pk || item.source !== 'manuscript' || !id) return;
+    // Id only — a shared d-tag must not abandon a different open manuscript.
+    const openMatches = publicationManuscriptId === id;
+    await deleteManuscript(id);
+    if (openMatches) abandonOpenComposeShell();
+    await refreshManuscriptDrafts();
+    draftListOpen =
+      listComposeDrafts(pk).length > 0 ||
+      encryptedDrafts.length > 0 ||
+      manuscriptDrafts.length > 0;
+  }
+
+  async function restoreManuscriptDraft(item: DraftListItem): Promise<void> {
+    const id = item.manuscriptId?.trim();
+    if (!id) return;
+    persistCurrent({ immediateManuscript: true });
+    const got = await getManuscriptResult(id);
+    if (got.status === 'error') {
+      formError = got.error.message || 'Could not read that manuscript from this browser.';
+      return;
+    }
+    if (got.status === 'orphan') {
+      formError = 'That manuscript is damaged and was removed from local storage.';
+      await purgeOrphanManuscript(id);
+      return;
+    }
+    if (got.status === 'missing') {
+      formError = 'That manuscript is no longer stored in this browser.';
+      await refreshManuscriptDrafts();
+      return;
+    }
+    const row = got.manuscript;
+    markReplaceablePreloaded(false);
+    kind = KIND.PUBLICATION;
+    pickerValue = KIND.PUBLICATION;
+    otherMode = false;
+    otherLocked = false;
+    content = '';
+    values = {
+      ...emptyValuesFor(KIND.PUBLICATION),
+      title: row.title === 'Untitled manuscript' ? '' : row.title,
+      d: row.dTag
+    };
+    hashtagRows = [''];
+    imetaTags = [];
+    freeformTags = [['', '']];
+    kind0Tags = emptyKind0TagRows();
+    publicationSectionsMode = 'split';
+    publicationAsciiDoc = row.source;
+    publicationManuscriptId = row.id;
+    publicationManuscriptListedAt = row.updatedAt;
+    publicationIndexDepth = row.maxIndexLevel;
+    editorMarkup = 'asciidoc';
+    activeDraftD = row.dTag || null;
+    draftListOpen = false;
+    formError = '';
+    editorTab = 'edit';
+    bumpPreview();
+    persistCurrent({ refreshList: true });
   }
 
   async function copyPreviewJson(): Promise<void> {
@@ -521,6 +738,7 @@
       await refreshEncryptedDrafts();
       const wraps = [...encryptedDrafts];
       clearComposeDraftsForPubkey(pk);
+      await deleteManuscriptsForPubkey(pk);
       const errors: string[] = [];
       const seen = new Set<string>();
       for (const wrap of wraps) {
@@ -538,8 +756,12 @@
       // Wipe the open form so auto-persist cannot resurrect a local draft.
       clearForm();
       await refreshEncryptedDrafts();
+      await refreshManuscriptDrafts();
       refreshDraftList();
-      draftListOpen = encryptedDrafts.length > 0 || listComposeDrafts(pk).length > 0;
+      draftListOpen =
+        encryptedDrafts.length > 0 ||
+        listComposeDrafts(pk).length > 0 ||
+        manuscriptDrafts.length > 0;
       if (errors.length) {
         formError = `Some encrypted drafts could not be deleted: ${errors[0]}`;
       } else {
@@ -580,7 +802,7 @@
     editorMarkup = composeMarkupFormat(nextKind, nextContent, nextTags);
   }
 
-  function snapshotDraft() {
+  function snapshotDraft(): ComposeDraftState {
     return {
       kind,
       content,
@@ -590,12 +812,29 @@
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       markup: editorMarkup,
+      publicationSectionsMode,
+      // Body lives in IndexedDB; keep only the id on the tab autosave.
+      publicationManuscriptId: publicationManuscriptId ?? undefined,
+      publicationIndexDepth,
       updatedAt: Date.now()
     };
   }
 
   function draftFingerprint(
-    d: ReturnType<typeof snapshotDraft> = snapshotDraft()
+    d: {
+      kind: number;
+      content: string;
+      values: Record<string, string>;
+      hashtags: string[];
+      imetaTags: string[][];
+      freeformTags: string[][];
+      kind0Tags?: string[][];
+      markup?: 'djot' | 'asciidoc' | null;
+      publicationSectionsMode?: 'link' | 'split';
+      publicationAsciiDoc?: string;
+      publicationManuscriptId?: string;
+      publicationIndexDepth?: 2 | 3 | 4;
+    } = snapshotDraft()
   ): string {
     return JSON.stringify({
       kind: d.kind,
@@ -605,7 +844,12 @@
       imetaTags: d.imetaTags,
       freeformTags: d.freeformTags,
       kind0Tags: d.kind0Tags,
-      markup: d.markup
+      markup: d.markup,
+      publicationSectionsMode: d.publicationSectionsMode,
+      publicationManuscriptId: d.publicationManuscriptId,
+      // Include length only so edits still bust the fingerprint without storing MB in session.
+      publicationAsciiDocLen: (d.publicationAsciiDoc ?? publicationAsciiDoc).length,
+      publicationIndexDepth: d.publicationIndexDepth
     });
   }
 
@@ -623,6 +867,11 @@
     freeformTags: string[][];
     kind0Tags?: string[][];
     markup?: 'djot' | 'asciidoc' | null;
+    publicationSectionsMode?: 'link' | 'split';
+    publicationAsciiDoc?: string;
+    publicationManuscriptId?: string;
+    publicationIndexDepth?: 2 | 3 | 4;
+    updatedAt?: number;
   }) {
     kind = d.kind;
     pickerValue = d.kind;
@@ -639,10 +888,112 @@
       d.kind === 0 && d.kind0Tags?.length
         ? d.kind0Tags.map((t) => [...t])
         : emptyKind0TagRows();
+    publicationSectionsMode = d.publicationSectionsMode === 'split' ? 'split' : 'link';
+    publicationAsciiDoc = d.publicationAsciiDoc ?? '';
+    publicationManuscriptId = d.publicationManuscriptId?.trim() || null;
+    publicationManuscriptListedAt = publicationManuscriptId
+      ? publicationManuscriptListedAt || d.updatedAt || Date.now()
+      : 0;
+    publicationIndexDepth =
+      d.publicationIndexDepth === 3 || d.publicationIndexDepth === 4
+        ? d.publicationIndexDepth
+        : DEFAULT_INDEX_DEPTH;
     editorMarkup =
       d.markup === 'djot' || d.markup === 'asciidoc'
         ? d.markup
         : composeMarkupFormat(d.kind, d.content, d.freeformTags);
+  }
+
+  function clearPublicationManuscriptFields(): void {
+    publicationSectionsMode = 'link';
+    publicationAsciiDoc = '';
+    publicationManuscriptId = null;
+    publicationManuscriptListedAt = 0;
+    publicationIndexDepth = DEFAULT_INDEX_DEPTH;
+    publicationSplitOpen = false;
+    splitProgress = null;
+    splitRetryEvents = [];
+    splitMissingDTags = [];
+    clearStagedManuscript();
+  }
+
+  /** Load AsciiDoc from IndexedDB (or migrate a legacy sessionStorage body). */
+  async function hydrateManuscriptForDraft(d: ComposeDraftState): Promise<void> {
+    const mid = d.publicationManuscriptId?.trim();
+    if (mid) {
+      const got = await getManuscriptResult(mid);
+      if (got.status === 'ok') {
+        const row = got.manuscript;
+        publicationManuscriptId = row.id;
+        publicationManuscriptListedAt = row.updatedAt;
+        publicationAsciiDoc = row.source;
+        publicationIndexDepth = row.maxIndexLevel;
+        publicationSectionsMode = 'split';
+        if (row.title && !values.title?.trim()) {
+          values = { ...values, title: row.title };
+        }
+        if (row.dTag && !values.d?.trim()) {
+          values = { ...values, d: row.dTag };
+        }
+        return;
+      }
+      if (got.status === 'error') {
+        // Do not purge — a transient IDB failure must not destroy the manuscript.
+        formError =
+          got.error.message || 'Could not read the local AsciiDoc manuscript. Try again.';
+        return;
+      }
+      // missing or orphan — clear pointer; purge only true orphans (meta, no body).
+      publicationManuscriptId = null;
+      publicationManuscriptListedAt = 0;
+      publicationAsciiDoc = '';
+      if (got.status === 'orphan') {
+        await purgeOrphanManuscript(mid);
+      }
+      if (!d.publicationAsciiDoc?.trim()) {
+        formError =
+          got.status === 'orphan'
+            ? 'That manuscript is damaged and was removed from local storage.'
+            : 'That manuscript is no longer stored in this browser.';
+        if ($session.pubkey) {
+          saveComposeDraft($session.pubkey, {
+            ...d,
+            publicationManuscriptId: undefined,
+            publicationAsciiDoc: undefined
+          });
+        }
+        return;
+      }
+    }
+    const legacy = d.publicationAsciiDoc?.trim();
+    if (legacy && $session.pubkey) {
+      const id = newManuscriptId();
+      const snap: PublicationManuscript = {
+        id,
+        pubkey: $session.pubkey,
+        title: values.title?.trim() || 'Untitled manuscript',
+        dTag: values.d?.trim() || '',
+        source: d.publicationAsciiDoc!,
+        maxIndexLevel:
+          d.publicationIndexDepth === 3 || d.publicationIndexDepth === 4
+            ? d.publicationIndexDepth
+            : DEFAULT_INDEX_DEPTH,
+        updatedAt: Date.now()
+      };
+      await putManuscript(snap);
+      publicationManuscriptId = id;
+      publicationManuscriptListedAt = snap.updatedAt;
+      publicationAsciiDoc = snap.source;
+      publicationSectionsMode = 'split';
+      // Rewrite tab autosave without the body.
+      saveComposeDraft($session.pubkey, {
+        ...d,
+        publicationManuscriptId: id,
+        publicationAsciiDoc: undefined,
+        publicationSectionsMode: 'split'
+      });
+      await refreshManuscriptDrafts();
+    }
   }
 
   /** Drop a tab autosave that is only a mirror of the untouched live replaceable. */
@@ -656,7 +1007,7 @@
     refreshDraftList();
   }
 
-  function persistCurrent(opts?: { refreshList?: boolean }) {
+  function persistCurrent(opts?: { refreshList?: boolean; immediateManuscript?: boolean }) {
     const pk = $session.pubkey;
     if (!pk || otherMode || shortNoteEditSource || draftPersistSuspended) return;
     if (replaceablePreloaded && preloadBaseline) {
@@ -669,6 +1020,7 @@
       replaceablePreloaded = false;
       preloadBaseline = null;
     }
+    persistManuscript({ immediate: opts?.immediateManuscript });
     const draft = snapshotDraft();
     // Empty live shell must not wipe a tab autosave the user has not restored
     // yet (bootstrap / HMR remount starts blank). clearForm() deletes explicitly.
@@ -694,6 +1046,7 @@
     imetaTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
+    clearPublicationManuscriptFields();
     existingKind0 = {};
     formError = '';
     grammarIssues = [];
@@ -711,6 +1064,7 @@
     const pk = $session.pubkey;
     const previousKind = kind;
     clearStagedComposeDraft();
+    clearStagedManuscript();
     if (pk) {
       deleteComposeDraft(pk, previousKind);
       if (previousKind !== 1) deleteComposeDraft(pk, 1);
@@ -729,6 +1083,7 @@
     imetaTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
+    clearPublicationManuscriptFields();
     existingKind0 = {};
     formError = '';
     grammarIssues = [];
@@ -908,7 +1263,7 @@
 
   /** Switch kind with a blank form. Drafts are restored only via the Drafts list. */
   async function loadKind(nextKind: number) {
-    persistCurrent();
+    persistCurrent({ immediateManuscript: true });
     draftPersistSuspended = true;
     clearStagedComposeDraft();
     try {
@@ -929,6 +1284,8 @@
       freeformTags = [['', '']];
       kind0Tags = emptyKind0TagRows();
       existingKind0 = {};
+      // Kind switch starts blank — do not carry split AsciiDoc into the next form.
+      clearPublicationManuscriptFields();
       const preloaded = await applyReplaceablePreload(nextKind);
       resetEditorMarkup(nextKind, content, freeformTags);
       markReplaceablePreloaded(preloaded);
@@ -939,10 +1296,10 @@
     scrubMirroredReplaceableAutosave();
   }
 
-  function restoreLocalDraft(nextKind: number, mode = 'compose'): void {
+  async function restoreLocalDraft(nextKind: number, mode = 'compose'): Promise<void> {
     const pk = $session.pubkey;
     if (!pk) return;
-    persistCurrent();
+    persistCurrent({ immediateManuscript: true });
     const saved = loadComposeDraft(pk, nextKind, mode);
     if (!saved) {
       formError = 'That draft is no longer in this tab.';
@@ -951,6 +1308,7 @@
     }
     markReplaceablePreloaded(false);
     applyDraft(saved);
+    await hydrateManuscriptForDraft(saved);
     activeDraftD = saved.values.d?.trim() || null;
     draftListOpen = false;
     formError = '';
@@ -1076,6 +1434,10 @@
     void content;
     void editorMarkup;
     void shortNoteEditSource;
+    void publicationSectionsMode;
+    void publicationAsciiDoc;
+    void publicationManuscriptId;
+    void publicationIndexDepth;
     // Deep-read proxies: `void values` alone does not re-run on values[id] = … /
     // bind:value={values[id]} (e.g. 30040 title), so drafts never saved.
     void JSON.stringify(values);
@@ -1099,7 +1461,10 @@
   // Belt-and-suspenders with module-level listeners in compose-drafts.ts.
   // Component listeners still help while Compose is mounted (tab switch).
   $effect(() => {
-    const flush = () => persistCurrent();
+    const flush = () => {
+      persistCurrent({ immediateManuscript: true });
+      void flushStagedManuscript();
+    };
     const onHide = () => {
       if (document.visibilityState === 'hidden') flush();
     };
@@ -1343,6 +1708,47 @@
     imetaTags = imetaTags.filter((_, idx) => idx !== i);
   }
 
+  async function retrySplitPublish(): Promise<void> {
+    if (!splitRetryEvents.length || posting) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    formError = '';
+    posting = true;
+    publicationSplitOpen = true;
+    try {
+      const result = await retryPublicationSplitEvents({
+        events: splitRetryEvents,
+        onProgress: (p) => {
+          splitProgress = p;
+        }
+      });
+      if (!result.ok) {
+        formError = result.error;
+        splitRetryEvents = result.missingEvents.length
+          ? result.missingEvents
+          : result.events;
+        splitMissingDTags = result.missingDTags;
+        showPublishResult(false);
+        return;
+      }
+      splitRetryEvents = [];
+      splitMissingDTags = [];
+      splitProgress = null;
+      showNotice(`Verified ${result.events.length} events on relays.`, true);
+      const root =
+        result.events.find((e) => e.kind === KIND.PUBLICATION && e.tags.some((t) => t[0] === 'd')) ??
+        result.events[0];
+      if (root) {
+        warmNavEvent(root);
+        void push(libraryDocumentPath(root));
+      }
+    } finally {
+      posting = false;
+    }
+  }
+
   async function publish() {
     formError = '';
     if (!$session.pubkey) {
@@ -1407,6 +1813,67 @@
       }
 
       const state = formState();
+
+      if (kind === KIND.PUBLICATION && publicationSectionsMode === 'split') {
+        if (!values.title?.trim()) {
+          formError = 'Title is required.';
+          return;
+        }
+        if (!publicationAsciiDoc.trim()) {
+          formError = 'Open the AsciiDoc splitter and paste your manuscript.';
+          return;
+        }
+        // Keep the splitter open so publish/verify progress stays visible.
+        publicationSplitOpen = true;
+        splitProgress = null;
+        splitRetryEvents = [];
+        splitMissingDTags = [];
+        const result = await publishPublicationSplit({
+          source: publicationAsciiDoc,
+          maxIndexLevel: publicationIndexDepth,
+          form: state,
+          onProgress: (p) => {
+            splitProgress = p;
+          }
+        });
+        if (!result.ok) {
+          formError = result.error;
+          splitRetryEvents = result.missingEvents.length
+            ? result.missingEvents
+            : result.events;
+          splitMissingDTags = result.missingDTags ?? [];
+          if (splitMissingDTags.length) {
+            formError += ` Missing: ${splitMissingDTags.slice(0, 8).join(', ')}${
+              splitMissingDTags.length > 8 ? '…' : ''
+            }`;
+          }
+          showPublishResult(false);
+          return;
+        }
+        deleteComposeDraft($session.pubkey, kind);
+        const publishedMsId = publicationManuscriptId;
+        if (publishedMsId) {
+          clearStagedManuscript();
+          await deleteManuscript(publishedMsId);
+          publicationManuscriptId = null;
+          publicationManuscriptListedAt = 0;
+          publicationAsciiDoc = '';
+          await refreshManuscriptDrafts();
+        }
+        refreshDraftList();
+        publicationSplitOpen = false;
+        splitProgress = null;
+        splitRetryEvents = [];
+        splitMissingDTags = [];
+        showNotice(
+          `Publication published (${result.events.length} events verified on relays).`,
+          true
+        );
+        warmNavEvent(result.root);
+        void push(libraryDocumentPath(result.root));
+        return;
+      }
+
       const gate = validateComposeForm(state);
       if (!gate.ok) {
         formError = gate.error;
@@ -1480,6 +1947,7 @@
     const pk = $session.pubkey;
     if (!pk) {
       encryptedDrafts = [];
+      manuscriptDrafts = [];
       encryptedLoadedFor = null;
       return;
     }
@@ -1530,11 +1998,30 @@
         const saved = loadComposeDraft(pk, start);
         if (saved && !isComposeDraftEmpty(saved, emptyValuesFor(start))) {
           applyDraft(saved);
+          await hydrateManuscriptForDraft(saved);
           activeDraftD = saved.values.d?.trim() || null;
           bumpPreview();
         }
       }
     })();
+  });
+
+  // Keep Drafts book rows current after debounced IDB flushes.
+  $effect(() => {
+    return onManuscriptFlushed(() => {
+      void refreshManuscriptDrafts();
+    });
+  });
+
+  $effect(() => {
+    return onManuscriptPersistError((err) => {
+      showNotice(err.message || 'Could not save the AsciiDoc manuscript locally.');
+    });
+  });
+
+  // Run schema migrations early (also after PWA updates claim this client).
+  $effect(() => {
+    void ensureManuscriptDb();
   });
 
   $effect(() => {
@@ -1577,7 +2064,7 @@
   });
 </script>
 
-<div class="compose-screen" inert={advancedOpen}>
+<div class="compose-screen" inert={advancedOpen || publicationSplitOpen}>
 <main class="shell reading-body compose-page">
   <header class="page-header">
     <p class="page-kicker">Publish</p>
@@ -1587,9 +2074,10 @@
         Publishing saves a kind {KIND.SHORT_NOTE_EDIT} revision (NIP-41) for your original note. Your
         pubkey, a fresh timestamp, and the Alexandria client tag are set when you sign.
       {:else}
-        Fields and tags come from the kind catalog. Drafts stay in this browser tab until you publish
-        or sign out. Copying an event preloads its fields as you — id, signature, and client tag are
-        reminted on publish.
+        Fields and tags come from the kind catalog. Tab drafts stay in this browser session; AsciiDoc
+        split manuscripts are stored in this browser (IndexedDB) until you publish or delete them.
+        Copying an event preloads its fields as you — id, signature, and client tag are reminted on
+        publish.
       {/if}
     </p>
   </header>
@@ -1683,6 +2171,23 @@
                           />
                         </svg>
                       </span>
+                    {:else if item.source === 'manuscript'}
+                      <span
+                        class="compose-draft-book"
+                        title="AsciiDoc manuscript"
+                        aria-label="AsciiDoc manuscript"
+                      >
+                        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                          <path
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.75"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5zM4 5.5V21.5"
+                          />
+                        </svg>
+                      </span>
                     {:else}
                       <span
                         class="compose-draft-tab"
@@ -1710,8 +2215,10 @@
                       onclick={() => {
                         if (item.source === 'encrypted' && item.wrap) {
                           restoreEncryptedDraft(item.wrap);
+                        } else if (item.source === 'manuscript') {
+                          void restoreManuscriptDraft(item);
                         } else {
-                          restoreLocalDraft(item.kind, item.mode ?? 'compose');
+                          void restoreLocalDraft(item.kind, item.mode ?? 'compose');
                         }
                       }}
                     >
@@ -1739,6 +2246,12 @@
                         type="button"
                         class="btn"
                         onclick={() => void deleteEncryptedDraft(item.wrap!)}>Delete</button
+                      >
+                    {:else if item.source === 'manuscript'}
+                      <button
+                        type="button"
+                        class="btn"
+                        onclick={() => void deleteManuscriptDraftItem(item)}>Delete</button
                       >
                     {:else}
                       <button
@@ -1866,12 +2379,67 @@
                   />
                 {:else if field.id === 'sections'}
                   <div class="compose-field">
-                    <ComposePublicationSectionsEditor
-                      bind:value={values[field.id]}
-                      label={field.label}
-                      required={!!field.required}
-                      help={field.help ?? ''}
-                    />
+                    {#if kind === KIND.PUBLICATION}
+                      <div class="compose-sections-mode" role="group" aria-label="Sections mode">
+                        <span class="compose-sections-mode-label"
+                          >{field.label}{#if field.required}*{/if}</span
+                        >
+                        <div class="compose-option-group" role="radiogroup" aria-label="Sections mode">
+                          <label class="compose-option">
+                            <input
+                              type="radio"
+                              name="compose-sections-mode"
+                              value="link"
+                              checked={publicationSectionsMode === 'link'}
+                              onchange={() => (publicationSectionsMode = 'link')}
+                            />
+                            <span>Link sections</span>
+                          </label>
+                          <label class="compose-option">
+                            <input
+                              type="radio"
+                              name="compose-sections-mode"
+                              value="split"
+                              checked={publicationSectionsMode === 'split'}
+                              onchange={() => (publicationSectionsMode = 'split')}
+                            />
+                            <span>Split from AsciiDoc</span>
+                          </label>
+                        </div>
+                      </div>
+                      {#if publicationSectionsMode === 'split'}
+                        <p class="muted compose-split-hint">
+                          Paste a manuscript with <code>==</code> chapters (title stays in the Title
+                          field). Ideal split keeps each section under 50 KiB.
+                        </p>
+                        <button
+                          type="button"
+                          class="btn compose-advanced-btn"
+                          onclick={() => (publicationSplitOpen = true)}
+                        >
+                          {publicationAsciiDoc.trim() ? 'Open AsciiDoc splitter' : 'Open AsciiDoc splitter'}
+                        </button>
+                        {#if publicationAsciiDoc.trim()}
+                          <p class="muted compose-split-status">
+                            Manuscript loaded ({Math.round(publicationAsciiDoc.length / 1024)} KB source).
+                          </p>
+                        {/if}
+                      {:else}
+                        <ComposePublicationSectionsEditor
+                          bind:value={values[field.id]}
+                          label=""
+                          required={!!field.required}
+                          help={field.help ?? ''}
+                        />
+                      {/if}
+                    {:else}
+                      <ComposePublicationSectionsEditor
+                        bind:value={values[field.id]}
+                        label={field.label}
+                        required={!!field.required}
+                        help={field.help ?? ''}
+                      />
+                    {/if}
                   </div>
                 {:else if field.id === 'publication_identifiers'}
                   <div class="compose-field">
@@ -2144,8 +2712,27 @@
           </div>
         {/if}
 
+        {#if splitProgress && kind === KIND.PUBLICATION && publicationSectionsMode === 'split'}
+          <p class="compose-split-progress" role="status">
+            {splitProgress.message}
+            {#if splitProgress.total}
+              <span class="muted">({splitProgress.done}/{splitProgress.total})</span>
+            {/if}
+          </p>
+        {/if}
+
         {#if formError}
           <p class="compose-error">{formError}</p>
+          {#if splitMissingDTags.length}
+            <button
+              class="btn"
+              type="button"
+              disabled={posting}
+              onclick={() => void retrySplitPublish()}
+            >
+              Retry failed
+            </button>
+          {/if}
         {/if}
 
         <div class="compose-actions">
@@ -2236,6 +2823,23 @@
     onUploadMedia={uploadBlossomFile}
     {uploading}
     {revisionHistory}
+  />
+{/if}
+
+{#if publicationSplitOpen && kind === KIND.PUBLICATION}
+  <PublicationAsciidocSplitEditor
+    bind:source={publicationAsciiDoc}
+    bind:maxIndexLevel={publicationIndexDepth}
+    rootTitle={values.title || 'Untitled'}
+    rootDTag={values.d || ''}
+    publishing={posting}
+    progress={splitProgress}
+    missingDTags={splitMissingDTags}
+    onRetryFailed={() => void retrySplitPublish()}
+    onClose={() => {
+      publicationSplitOpen = false;
+      persistCurrent({ immediateManuscript: true });
+    }}
   />
 {/if}
 
@@ -2515,7 +3119,8 @@
     align-self: flex-start;
   }
   .compose-draft-lock,
-  .compose-draft-tab {
+  .compose-draft-tab,
+  .compose-draft-book {
     display: inline-flex;
     color: var(--text-muted);
   }
@@ -2567,6 +3172,21 @@
   }
   .compose-advanced-open {
     margin: 0;
+  }
+  .compose-sections-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.45rem;
+  }
+  .compose-sections-mode-label {
+    font-weight: 600;
+  }
+  .compose-split-hint,
+  .compose-split-status,
+  .compose-split-progress {
+    margin: 0.35rem 0;
+    font-size: 0.88rem;
   }
   .compose-grammar-tools {
     display: flex;

@@ -83,6 +83,9 @@ describe('isComposeDraftEmpty', () => {
     expect(
       isComposeDraftEmpty(blank({ values: { title: 'Guide' } }), { title: '' })
     ).toBe(false);
+    expect(
+      isComposeDraftEmpty(blank({ publicationManuscriptId: 'ms-1' }))
+    ).toBe(false);
   });
 });
 
@@ -105,6 +108,22 @@ describe('compose draft persistence', () => {
     stageComposeDraft(PK, blank({ content: '', updatedAt: 2 }));
     flushStagedComposeDraft();
     expect(loadComposeDraft(PK, 1)?.content).toBe('keep me');
+  });
+
+  it('strips AsciiDoc body from sessionStorage when a manuscript id is set', () => {
+    saveComposeDraft(
+      PK,
+      blank({
+        kind: 30040,
+        publicationManuscriptId: 'ms-abc',
+        publicationAsciiDoc: '== Huge\n\n' + 'x'.repeat(1000),
+        publicationSectionsMode: 'split',
+        values: { title: 'Book' }
+      })
+    );
+    const loaded = loadComposeDraft(PK, 30040);
+    expect(loaded?.publicationManuscriptId).toBe('ms-abc');
+    expect(loaded?.publicationAsciiDoc).toBeUndefined();
   });
 });
 

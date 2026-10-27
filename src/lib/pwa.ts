@@ -101,6 +101,13 @@ function startVersionWatch(): void {
  */
 export function registerPwa(): void {
   startVersionWatch();
+  // Open (and migrate) the manuscript IDB on boot so schema bumps apply even
+  // before Compose mounts — same origin DB survives SW updates.
+  void import('./publication-manuscripts')
+    .then(({ ensureManuscriptDb }) => ensureManuscriptDb())
+    .catch((error) => {
+      console.warn('[pwa] manuscript DB open/migrate failed', error);
+    });
   if (import.meta.env.DEV) return;
   if (typeof window === 'undefined' || !window.isSecureContext) return;
   if (!('serviceWorker' in navigator)) return;

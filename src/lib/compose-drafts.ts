@@ -12,6 +12,17 @@ export type ComposeDraftState = {
   kind0Tags?: string[][];
   /** Advanced-editor markup, when the kind has a Djot or AsciiDoc body. */
   markup?: 'djot' | 'asciidoc' | null;
+  /** Kind 30040: link existing sections vs split AsciiDoc into 30040/30041. */
+  publicationSectionsMode?: 'link' | 'split';
+  /**
+   * Legacy: AsciiDoc body in sessionStorage. Prefer IndexedDB via
+   * `publicationManuscriptId` — strip on save so tab autosaves stay small.
+   */
+  publicationAsciiDoc?: string;
+  /** IndexedDB manuscript id for split-mode AsciiDoc (durable, multi-MB). */
+  publicationManuscriptId?: string;
+  /** Finest index heading level for the splitter (`==`…`====`). */
+  publicationIndexDepth?: 2 | 3 | 4;
   updatedAt: number;
 };
 
@@ -74,11 +85,20 @@ export function loadComposeDraft(
 export function isComposeDraftEmpty(
   draft: Pick<
     ComposeDraftState,
-    'content' | 'values' | 'hashtags' | 'imetaTags' | 'freeformTags' | 'kind0Tags'
+    | 'content'
+    | 'values'
+    | 'hashtags'
+    | 'imetaTags'
+    | 'freeformTags'
+    | 'kind0Tags'
+    | 'publicationAsciiDoc'
+    | 'publicationManuscriptId'
   >,
   baselineValues: Record<string, string> = {},
 ): boolean {
   if (draft.content.trim()) return false;
+  if (draft.publicationAsciiDoc?.trim()) return false;
+  if (draft.publicationManuscriptId?.trim()) return false;
   if (draft.hashtags.some((h) => h.trim())) return false;
   if (
     draft.imetaTags.some(
@@ -109,10 +129,15 @@ export function saveComposeDraft(
 ): void {
   const store = storage();
   if (!store) return;
-  store.setItem(
-    draftStorageKey(pubkey, draft.kind, mode),
-    JSON.stringify({ ...draft, updatedAt: draft.updatedAt || Date.now() }),
-  );
+  // Never keep the multi-MB AsciiDoc body in sessionStorage once an IDB id exists.
+  const toStore: ComposeDraftState = {
+    ...draft,
+    updatedAt: draft.updatedAt || Date.now()
+  };
+  if (toStore.publicationManuscriptId?.trim()) {
+    delete toStore.publicationAsciiDoc;
+  }
+  store.setItem(draftStorageKey(pubkey, draft.kind, mode), JSON.stringify(toStore));
 }
 
 export function deleteComposeDraft(
