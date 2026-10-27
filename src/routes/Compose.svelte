@@ -18,10 +18,17 @@
     type PublicationIndexDepth
   } from '$lib/publication-asciidoc-split';
   import {
+    publishPublicationEvent,
     publishPublicationSplit,
-    retryPublicationSplitEvents,
-    type SplitPublishProgress
-  } from '$lib/publication-split-publish';
+    retryPublicationEvents,
+    type PublishProgress
+  } from '$lib/publication-publish';
+  import {
+    publicationPublishContinueEvents,
+    publicationPublishRetryEvents,
+    publicationPublishRootD,
+    publicationPublishRootFromEvents
+  } from '$lib/publication-publish-ui';
   import {
     clearStagedManuscript,
     deleteManuscript,
@@ -218,10 +225,42 @@
   let publicationManuscriptListedAt = $state(0);
   let publicationIndexDepth = $state<PublicationIndexDepth>(DEFAULT_INDEX_DEPTH);
   let publicationSplitOpen = $state(false);
-  let splitProgress = $state<SplitPublishProgress | null>(null);
+  let splitProgress = $state<PublishProgress | null>(null);
   /** Last split-publish attempt — Retry failed republishes missingEvents. */
   let splitRetryEvents = $state<NostrEvent[]>([]);
+  /** Mid-batch sign failure — next Publish resumes with these already-signed events. */
+  let splitContinueEvents = $state<NostrEvent[]>([]);
+  /** Tree inputs when publish-failure state was captured — invalidate on edit. */
+  let splitFailureFingerprint = $state('');
   let splitMissingDTags = $state<string[]>([]);
+  /** Root 30040 from the original publish batch — used after retrying only misses. */
+  let splitPublishNavRoot = $state<NostrEvent | null>(null);
+  /** Full signed-batch size for success notices after a verify-only retry. */
+  let splitPublishEventCount = $state(0);
+
+  function splitPublishResumeFingerprint(): string {
+    return JSON.stringify({
+      source: publicationAsciiDoc,
+      depth: publicationIndexDepth,
+      title: values.title?.trim() || '',
+      d: values.d?.trim() || ''
+    });
+  }
+
+  function clearSplitContinueResume(): void {
+    splitContinueEvents = [];
+  }
+
+  /** Drop retry/continue/nav state when the split tree no longer matches the failed attempt. */
+  function clearSplitPublishFailureState(): void {
+    splitRetryEvents = [];
+    clearSplitContinueResume();
+    splitMissingDTags = [];
+    splitPublishNavRoot = null;
+    splitPublishEventCount = 0;
+    splitFailureFingerprint = '';
+    formError = '';
+  }
   /** Named manuscript metas from IndexedDB (Drafts list — bodies loaded on open). */
   let manuscriptDrafts = $state<PublicationManuscriptMeta[]>([]);
   /** Own kind-1 being revised as NIP-41 kind 1010 (null = normal compose / copy). */
@@ -243,6 +282,11 @@
    * private mutes are not wiped by a public-only edit.
    */
   let mutePreserveCipher = $state('');
+  /**
+   * Contact (and similar) lists: composer only edits public tags. Pass through any
+   * existing `.content` (NIP-51 private ciphertext) so replace does not wipe it.
+   */
+  let contactPreserveContent = $state('');
   const documentKindSet = new Set<number>(COMPOSE_DOCUMENT_PRESETS);
   const showSaveToDraft = $derived(
     !shortNoteEditSource && !otherMode && documentKindSet.has(kind)
@@ -1009,8 +1053,7 @@
     publicationIndexDepth = DEFAULT_INDEX_DEPTH;
     publicationSplitOpen = false;
     splitProgress = null;
-    splitRetryEvents = [];
-    splitMissingDTags = [];
+    clearSplitPublishFailureState();
     clearStagedManuscript();
   }
 
@@ -1369,6 +1412,12 @@
     content = pre.content;
     values = { ...emptyValuesFor(nextKind), ...pre.values };
 
+    contactPreserveContent = '';
+    if (nextKind === KIND.CONTACT_LIST) {
+      // Follow UI is public `p` tags only — keep encrypted private follows intact.
+      contactPreserveContent = live.content ?? '';
+    }
+
     if (nextKind === KIND.MUTE) {
       mutePreserveCipher = '';
       try {
@@ -1423,6 +1472,7 @@
       activeDraftD = null;
       markReplaceablePreloaded(false);
       mutePreserveCipher = '';
+      contactPreserveContent = '';
       content = '';
       values = emptyValuesFor(nextKind);
       hashtagRows = [''];
@@ -1856,6 +1906,51 @@
     imetaTags = imetaTags.filter((_, idx) => idx !== i);
   }
 
+  function rememberPublicationPublishFailure(result: {
+    ok: false;
+    error: string;
+    missingDTags: string[];
+    events: NostrEvent[];
+    missingEvents: NostrEvent[];
+    canContinueSigning?: boolean;
+  }): void {
+    const missing = result.missingDTags;
+    const continueEvents = publicationPublishContinueEvents(result);
+    formError =
+      result.error +
+      (missing.length
+        ? missing.length > 8
+          ? ` Missing: ${missing.slice(0, 8).join(', ')}…`
+          : ` Missing: ${missing.join(', ')}`
+        : '') +
+      (continueEvents.length
+        ? ' Already-signed parts are kept — publish again to continue without duplicates.'
+        : '');
+    // Sign failures leave missingEvents empty — Retry cannot resume signing.
+    splitRetryEvents = publicationPublishRetryEvents(result);
+    splitContinueEvents = continueEvents;
+    splitMissingDTags = missing;
+    if (result.events.length > splitPublishEventCount) {
+      splitPublishEventCount = result.events.length;
+    }
+    const preferredD = publicationPublishRootD(values);
+    const fromBatch = publicationPublishRootFromEvents(result.events, preferredD);
+    // Only update the nav anchor when we positively identified the book root.
+    // Keep any prior anchor when preferredD is absent from a partial/retry batch.
+    if (fromBatch) splitPublishNavRoot = fromBatch;
+    // Invalidate retry/continue if the user later edits the tree inputs.
+    if (
+      splitRetryEvents.length ||
+      splitContinueEvents.length ||
+      splitPublishNavRoot ||
+      splitMissingDTags.length
+    ) {
+      splitFailureFingerprint = splitPublishResumeFingerprint();
+    } else {
+      splitFailureFingerprint = '';
+    }
+  }
+
   async function retrySplitPublish(): Promise<void> {
     if (!splitRetryEvents.length || posting) return;
     if (!$session.pubkey) {
@@ -1864,37 +1959,70 @@
     }
     formError = '';
     posting = true;
-    publicationSplitOpen = true;
+    if (publicationSectionsMode === 'split') publicationSplitOpen = true;
     try {
-      const result = await retryPublicationSplitEvents({
+      const result = await retryPublicationEvents({
         events: splitRetryEvents,
         onProgress: (p) => {
           splitProgress = p;
         }
       });
       if (!result.ok) {
-        formError = result.error;
-        splitRetryEvents = result.missingEvents.length
-          ? result.missingEvents
-          : result.events;
-        splitMissingDTags = result.missingDTags;
+        rememberPublicationPublishFailure(result);
         showPublishResult(false);
         return;
       }
-      splitRetryEvents = [];
-      splitMissingDTags = [];
-      splitProgress = null;
-      showNotice(`Verified ${result.events.length} events on relays.`, true);
+      const preferredD = publicationPublishRootD(values);
       const root =
-        result.events.find((e) => e.kind === KIND.PUBLICATION && e.tags.some((t) => t[0] === 'd')) ??
-        result.events[0];
-      if (root) {
-        warmNavEvent(root);
-        void push(libraryDocumentPath(root));
+        splitPublishNavRoot ??
+        publicationPublishRootFromEvents(result.events, preferredD) ??
+        publicationPublishRootFromEvents(result.events);
+      if (!root) {
+        formError = 'Verified on relays, but could not resolve the publication root.';
+        showPublishResult(false);
+        return;
       }
+      // Same draft/manuscript cleanup as a first-try success.
+      // Use the full signed-batch count when Retry only republished misses.
+      const eventCount = Math.max(result.events.length, splitPublishEventCount);
+      await finishPublicationPublishSuccess({
+        root,
+        events: result.events,
+        eventCount
+      });
     } finally {
       posting = false;
     }
+  }
+
+  async function finishPublicationPublishSuccess(result: {
+    root: NostrEvent;
+    events: NostrEvent[];
+    eventCount?: number;
+  }): Promise<void> {
+    deleteComposeDraft($session.pubkey!, kind);
+    const publishedMsId = publicationManuscriptId;
+    clearStagedManuscript();
+    clearPublicationManuscriptFields();
+    if (publishedMsId) {
+      try {
+        await deleteManuscript(publishedMsId);
+      } catch (err) {
+        showNotice(
+          err instanceof Error
+            ? err.message
+            : 'Published, but the local manuscript could not be removed.'
+        );
+      }
+      await refreshManuscriptDrafts();
+    }
+    refreshDraftList();
+    splitProgress = null;
+    const n = result.eventCount ?? result.events.length;
+    clearSplitPublishFailureState();
+    showNotice(`Publication published (${n} events verified on relays).`, true);
+    warmNavEvent(result.root);
+    void push(libraryDocumentPath(result.root));
   }
 
   async function publish() {
@@ -1973,40 +2101,62 @@
         }
         // Keep the splitter open so publish/verify progress stays visible.
         publicationSplitOpen = true;
+        const resumeOk =
+          splitContinueEvents.length > 0 &&
+          splitFailureFingerprint === splitPublishResumeFingerprint();
+        const resumeSigned = resumeOk ? splitContinueEvents : [];
+        const keptNav = resumeSigned.length ? splitPublishNavRoot : null;
+        const keptCount = resumeSigned.length ? splitPublishEventCount : 0;
         splitProgress = null;
-        splitRetryEvents = [];
-        splitMissingDTags = [];
+        clearSplitPublishFailureState();
+        // Keep nav root / count when resuming an interrupted sign.
+        if (resumeSigned.length) {
+          splitPublishNavRoot = keptNav;
+          splitPublishEventCount = keptCount;
+          splitFailureFingerprint = splitPublishResumeFingerprint();
+        }
         const result = await publishPublicationSplit({
           source: publicationAsciiDoc,
           maxIndexLevel: publicationIndexDepth,
+          form: state,
+          alreadySigned: resumeSigned.length ? resumeSigned : undefined,
+          onProgress: (p) => {
+            splitProgress = p;
+          }
+        });
+        if (!result.ok) {
+          rememberPublicationPublishFailure(result);
+          showPublishResult(false);
+          return;
+        }
+        await finishPublicationPublishSuccess(result);
+        return;
+      }
+
+      // Link-mode 30040 and standalone 30041 share the verify pipeline.
+      if (kind === KIND.PUBLICATION || kind === KIND.SECTION) {
+        splitProgress = null;
+        clearSplitPublishFailureState();
+        const result = await publishPublicationEvent({
           form: state,
           onProgress: (p) => {
             splitProgress = p;
           }
         });
         if (!result.ok) {
-          formError = result.error;
-          splitRetryEvents = result.missingEvents.length
-            ? result.missingEvents
-            : result.events;
-          splitMissingDTags = result.missingDTags ?? [];
-          if (splitMissingDTags.length) {
-            formError += ` Missing: ${splitMissingDTags.slice(0, 8).join(', ')}${
-              splitMissingDTags.length > 8 ? '…' : ''
-            }`;
-          }
+          rememberPublicationPublishFailure(result);
           showPublishResult(false);
           return;
         }
-        deleteComposeDraft($session.pubkey, kind);
-        const publishedMsId = publicationManuscriptId;
-        // Exit split mode before any reactive persist — otherwise meta-only
-        // manuscriptSnapshot() mints a new Drafts book after delete.
+        // Drop any leftover split manuscript so Drafts does not keep a ghost book.
+        const leftoverMs = publicationManuscriptId;
         clearStagedManuscript();
-        clearPublicationManuscriptFields();
-        if (publishedMsId) {
+        publicationManuscriptId = null;
+        publicationManuscriptListedAt = 0;
+        publicationAsciiDoc = '';
+        if (leftoverMs) {
           try {
-            await deleteManuscript(publishedMsId);
+            await deleteManuscript(leftoverMs);
           } catch (err) {
             showNotice(
               err instanceof Error
@@ -2016,14 +2166,23 @@
           }
           await refreshManuscriptDrafts();
         }
+        deleteComposeDraft($session.pubkey, kind);
         refreshDraftList();
         splitProgress = null;
-        splitRetryEvents = [];
-        splitMissingDTags = [];
+        clearSplitPublishFailureState();
         showNotice(
-          `Publication published (${result.events.length} events verified on relays).`,
+          `Published (${result.events.length} event${result.events.length === 1 ? '' : 's'} verified on relays).`,
           true
         );
+        content = showBody ? '' : content;
+        if (!isMetadataComposeKind(kind)) {
+          values = emptyValuesFor(kind);
+          hashtagRows = [''];
+          imetaTags = [];
+          freeformTags = [['', '']];
+          kind0Tags = emptyKind0TagRows();
+        }
+        bumpPreview();
         warmNavEvent(result.root);
         void push(libraryDocumentPath(result.root));
         return;
@@ -2035,6 +2194,11 @@
         return;
       }
       const partial = buildComposePartial(state);
+
+      if (kind === KIND.CONTACT_LIST) {
+        // Public follows only in the form — never blank out NIP-51 private content.
+        partial.content = contactPreserveContent;
+      }
 
       if (kind === KIND.MUTE) {
         const mute = buildMuteListPayload(values.muted ?? '');
@@ -2095,6 +2259,19 @@
       posting = false;
     }
   }
+
+  // Drop retry/continue/nav state if the split tree inputs change after a failure.
+  $effect(() => {
+    const fp = splitPublishResumeFingerprint();
+    const hasFailureState =
+      splitContinueEvents.length > 0 ||
+      splitRetryEvents.length > 0 ||
+      !!splitPublishNavRoot ||
+      splitMissingDTags.length > 0;
+    if (hasFailureState && splitFailureFingerprint && fp !== splitFailureFingerprint) {
+      clearSplitPublishFailureState();
+    }
+  });
 
   let bootstrappedFor = $state<string | null>(null);
   let encryptedLoadedFor = $state<string | null>(null);
@@ -2554,7 +2731,16 @@
                               name="compose-sections-mode"
                               value="link"
                               checked={publicationSectionsMode === 'link'}
-                              onchange={() => (publicationSectionsMode = 'link')}
+                              onchange={() => {
+                                publicationSectionsMode = 'link';
+                                clearSplitPublishFailureState();
+                                splitProgress = null;
+                                // Detach the open form from the split manuscript (Drafts
+                                // book row remains until publish/delete).
+                                publicationManuscriptId = null;
+                                publicationManuscriptListedAt = 0;
+                                clearStagedManuscript();
+                              }}
                             />
                             <span>Link sections</span>
                           </label>
@@ -2564,7 +2750,11 @@
                               name="compose-sections-mode"
                               value="split"
                               checked={publicationSectionsMode === 'split'}
-                              onchange={() => (publicationSectionsMode = 'split')}
+                              onchange={() => {
+                                publicationSectionsMode = 'split';
+                                clearSplitPublishFailureState();
+                                splitProgress = null;
+                              }}
                             />
                             <span>Split from AsciiDoc</span>
                           </label>
@@ -2875,7 +3065,7 @@
           </div>
         {/if}
 
-        {#if splitProgress && kind === KIND.PUBLICATION && publicationSectionsMode === 'split'}
+        {#if splitProgress && (kind === KIND.PUBLICATION || kind === KIND.SECTION)}
           <p class="compose-split-progress" role="status">
             {splitProgress.message}
             {#if splitProgress.total}
@@ -2886,7 +3076,7 @@
 
         {#if formError}
           <p class="compose-error">{formError}</p>
-          {#if splitMissingDTags.length}
+          {#if splitRetryEvents.length}
             <button
               class="btn"
               type="button"
@@ -2998,7 +3188,7 @@
     publishing={posting}
     progress={splitProgress}
     missingDTags={splitMissingDTags}
-    onRetryFailed={() => void retrySplitPublish()}
+    onRetryFailed={splitRetryEvents.length ? () => void retrySplitPublish() : undefined}
     onClose={() => {
       publicationSplitOpen = false;
       persistCurrent({ immediateManuscript: true });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildComposePartial, parseKind0Json } from './compose-build';
+import { buildComposePartial, parseKind0Json, validateComposeForm } from './compose-build';
+import { assertReadyToSign } from './kind-compose';
 
 describe('buildComposePartial', () => {
   it('forces empty content for kind 30040', () => {
@@ -104,6 +105,26 @@ describe('buildComposePartial', () => {
       ['client', 'Alexandria'],
     ]);
     expect(JSON.parse(partial.content)).toEqual([['word', 'spam']]);
+  });
+
+  it('accepts mute drafts with private JSON content (NIP-51 ciphertext slot)', () => {
+    const pk = 'e'.repeat(64);
+    const state = {
+      kind: 10000,
+      content: '',
+      values: { muted: `p ${pk}\nprivate word spam` },
+    };
+    expect(validateComposeForm(state)).toEqual({ ok: true });
+    const partial = buildComposePartial(state);
+    expect(assertReadyToSign(partial).ok).toBe(true);
+    expect(
+      assertReadyToSign({
+        kind: 10000,
+        content:
+          'AhMkvQCvZ6gxhyL1hYAQRG7bkm/0woOt6nV2aOQ8uZwT/EtUErJoydYhQE6Cd9AeCdciCoexgF5z7uVJGS2cJ3lj6/jXvgDtDcl768TyCdLflihc5p0J4OkU',
+        tags: partial.tags,
+      }).ok
+    ).toBe(true);
   });
 
   it('replaces freeform client tags with ["client", "Alexandria"]', () => {

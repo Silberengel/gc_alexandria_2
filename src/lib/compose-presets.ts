@@ -63,15 +63,30 @@ export function isMetadataComposeKind(kind: number): boolean {
   return METADATA_SET.has(kind);
 }
 
+/**
+ * Whether the kind has a content slot on the wire (not encoding empty).
+ * NIP-51 private ciphertext still counts — it is just not shown as a freeform body.
+ */
 export function hasContentField(kind: number): boolean {
   return getKind(kind)?.content?.encoding !== 'empty';
 }
 
-/** Body textarea — hide for empty encoding and kind-0 JSON (fields own the body). */
+/**
+ * Body textarea — hide for empty/json encodings and for kinds whose content is
+ * app-built ciphertext (NIP-51 private tags, NIP-37 draft relays). Those still
+ * publish non-empty content; the composer must not clear it.
+ */
 export function showContentBox(kind: number): boolean {
-  // Kind 10013: ciphertext is built from the relays field on publish.
-  if (kind === 10013) return false;
-  const encoding = getKind(kind)?.content?.encoding;
+  const def = getKind(kind);
+  const handler = def?.handler ?? '';
+  if (
+    kind === 10013 ||
+    handler === 'nip37_private_relay_list' ||
+    handler.startsWith('nip51_')
+  ) {
+    return false;
+  }
+  const encoding = def?.content?.encoding;
   if (!encoding || encoding === 'empty' || encoding === 'json') return false;
   return true;
 }

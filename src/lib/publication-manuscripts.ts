@@ -10,7 +10,9 @@
  * - v3: repair/normalize — move any leftover inline `source`, strip it from meta
  */
 
-export type PublicationIndexDepth = 2 | 3 | 4;
+import type { PublicationIndexDepth } from './publication-asciidoc-split';
+
+export type { PublicationIndexDepth };
 
 export type PublicationManuscriptMeta = {
   id: string;

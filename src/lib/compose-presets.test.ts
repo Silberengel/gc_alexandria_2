@@ -7,6 +7,7 @@ import {
   composeMarkupFormat,
   composePickerGroups,
   isMetadataComposeKind,
+  showContentBox,
 } from './compose-presets';
 
 describe('composePickerGroups', () => {
@@ -78,5 +79,12 @@ describe('composePickerGroups', () => {
     expect(COMPOSE_METADATA_KINDS).toContain(KIND.MUTE);
     expect(listed.has(KIND.CONTACT_LIST)).toBe(true);
     expect(listed.has(KIND.MUTE)).toBe(true);
+  });
+
+  it('hides the body box for NIP-51 lists (private ciphertext is not freeform content)', () => {
+    expect(showContentBox(KIND.MUTE)).toBe(false);
+    expect(showContentBox(KIND.CONTACT_LIST)).toBe(false);
+    expect(showContentBox(10013)).toBe(false);
+    expect(showContentBox(KIND.TEXT_NOTE)).toBe(true);
   });
 });

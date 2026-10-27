@@ -11,7 +11,7 @@
     type PublicationSplitNode,
     type PublicationSplitResult
   } from '$lib/publication-asciidoc-split';
-  import type { SplitPublishProgress } from '$lib/publication-split-publish';
+  import type { PublishProgress } from '$lib/publication-publish';
   import { KIND } from '$lib/constants';
 
   interface Props {
@@ -20,7 +20,7 @@
     rootTitle?: string;
     rootDTag?: string;
     publishing?: boolean;
-    progress?: SplitPublishProgress | null;
+    progress?: PublishProgress | null;
     /** d-tags still missing after publish — show Retry. */
     missingDTags?: string[];
     onRetryFailed?: () => void;
@@ -225,7 +225,7 @@
       >
         Apply ideal split
       </button>
-      {#if missingDTags.length && onRetryFailed}
+      {#if onRetryFailed}
         <button type="button" class="btn" disabled={publishing} onclick={() => onRetryFailed()}>
           Retry failed
         </button>
