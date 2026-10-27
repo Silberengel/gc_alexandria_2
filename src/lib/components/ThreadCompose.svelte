@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
   import { KIND } from '$lib/constants';
   import {
     expandCustomEmojiPlaceholders,
@@ -33,6 +34,18 @@
   let showPreview = $state(false);
   let previewHtml = $state('');
 
+  function onPaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      value = value.slice(0, start) + scrubbed + value.slice(end);
+    });
+  }
+
+  function submit(): void {
+    const scrubbed = scrubTrackingUrlsInText(value);
+    if (scrubbed !== value) value = scrubbed;
+    onSubmit();
+  }
+
   $effect(() => {
     const text = value;
     const kind = asKind1Reply ? KIND.TEXT_NOTE : KIND.COMMENT;
@@ -64,10 +77,10 @@
   class="compose"
   onsubmit={(e) => {
     e.preventDefault();
-    onSubmit();
+    submit();
   }}
 >
-  <textarea bind:value rows="3" {placeholder}></textarea>
+  <textarea bind:value rows="3" {placeholder} onpaste={onPaste}></textarea>
   {#if previewHtml}
     <div class="compose-preview">
       <p class="compose-preview-label muted">Preview</p>

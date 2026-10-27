@@ -22,6 +22,7 @@
     localRoomPresence,
     roomPresenceDraft
   } from '$lib/live-chat';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
   import { consumeSignFailure, isSignInFlight, signAndPublish } from '$lib/sign';
   import { showNotice } from '$lib/stores/toast';
   import {
@@ -399,13 +400,20 @@
     noteDraft = '';
   }
 
+  function onNotePaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      noteDraft = noteDraft.slice(0, start) + scrubbed + noteDraft.slice(end);
+    });
+  }
+
   async function postNote(): Promise<void> {
-    const content = noteDraft.trim();
+    const content = scrubTrackingUrlsInText(noteDraft).trim();
     if (!content || notePosting) return;
     if (!$session.pubkey) {
       openLoginDialog();
       return;
     }
+    noteDraft = content;
     notePosting = true;
     try {
       const signed = await signAndPublish({
@@ -1113,6 +1121,7 @@
         bind:value={noteDraft}
         placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
         disabled={notePosting || !signedIn}
+        onpaste={onNotePaste}
       ></textarea>
       <div class="compose-actions">
         {#if signedIn}

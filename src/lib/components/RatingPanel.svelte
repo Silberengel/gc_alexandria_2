@@ -4,6 +4,7 @@
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
   import { signAndPublish } from '$lib/sign';
   import { ratingDraft } from '$lib/drafts';
   import { eventAddress } from '$lib/nostr/verify';
@@ -147,6 +148,12 @@
     composing = false;
   }
 
+  function onReviewPaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      review = review.slice(0, start) + scrubbed + review.slice(end);
+    });
+  }
+
   async function submit(): Promise<void> {
     if (busy) return;
     if (!$session.pubkey) {
@@ -154,6 +161,7 @@
       return;
     }
     if (mineStars < 1) return;
+    review = scrubTrackingUrlsInText(review);
     busy = true;
     try {
       const signed = await signAndPublish(ratingDraft(publication, mineStars, review));
@@ -302,7 +310,12 @@
       </div>
       <label class="muted">
         Review (optional)
-        <textarea bind:value={review} rows="3" placeholder="Write a short review"></textarea>
+        <textarea
+          bind:value={review}
+          rows="3"
+          placeholder="Write a short review"
+          onpaste={onReviewPaste}
+        ></textarea>
       </label>
       <div class="rating-actions">
         <button class="btn btn-primary" type="button" disabled={mineStars < 1 || busy} onclick={() => void submit()}
@@ -316,7 +329,7 @@
     </div>
   {:else if !hideEntryCta && !$session.pubkey}
     <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in to rate</button>
-  {:else if !hideEntryCta && !minePublished}
+  {:else if !hideEntryCta && $session.pubkey && !minePublished}
     <button class="btn" type="button" onclick={openCompose}>Write a review</button>
   {/if}
 </section>

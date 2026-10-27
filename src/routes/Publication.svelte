@@ -69,6 +69,7 @@
   } from '$lib/index-scope';
   import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
+  import { scrubTrackingUrlsInText } from '$lib/clean-url';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
@@ -3307,7 +3308,7 @@
       return;
     }
     const a = eventAddress(section);
-    const text = (sectionCommentText[a] ?? '').trim();
+    const text = scrubTrackingUrlsInText(sectionCommentText[a] ?? '').trim();
     if (!text) return;
     const published = await publishComment(commentDraft(section, text));
     if (!published) return;

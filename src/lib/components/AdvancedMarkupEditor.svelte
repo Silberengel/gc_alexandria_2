@@ -17,6 +17,12 @@
   import { activeMention, insertMention, type MentionCandidate } from '$lib/mention';
   import { searchMentions } from '$lib/mention-search';
   import { editMarkup, editMedia, type MarkupTool, type MediaFile, type SourceEdit } from '$lib/markup-editor';
+  import { scrubTrackingUrlsInText } from '$lib/clean-url';
+  import {
+    fetchRemoteMediaFile,
+    looksLikeMediaUrl,
+    mediaFilesFromDataTransfer
+  } from '$lib/media-paste';
   import { diffHasChanges, diffLines, type DiffLine } from '$lib/text-diff';
 
   export type DraftRevisionEntry = {
@@ -487,6 +493,77 @@
       uploadError = err instanceof Error ? err.message : 'Upload failed.';
     }
   }
+
+  function rememberCaret() {
+    const el = sourceEl;
+    if (el) caret = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+  }
+
+  async function insertUploadedMedia(file: File) {
+    if (!onUploadMedia) return;
+    uploadError = '';
+    rememberCaret();
+    const { start, end } = caret;
+    try {
+      const uploaded = await onUploadMedia(file);
+      await applyEdit(editMedia(format, content, start, end, uploaded));
+    } catch (err) {
+      uploadError = err instanceof Error ? err.message : 'Upload failed.';
+    }
+  }
+
+  async function insertTextAtCaret(text: string) {
+    const el = sourceEl;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    content = content.slice(0, start) + text + content.slice(end);
+    await tick();
+    el.focus();
+    const at = start + text.length;
+    el.setSelectionRange(at, at);
+  }
+
+  async function onSourcePaste(event: ClipboardEvent) {
+    const data = event.clipboardData;
+    const text = (data?.getData('text/plain') ?? '').trim();
+
+    if (onUploadMedia && !uploading) {
+      const files = mediaFilesFromDataTransfer(data);
+      if (files.length) {
+        event.preventDefault();
+        for (const file of files) await insertUploadedMedia(file);
+        return;
+      }
+      if (text && looksLikeMediaUrl(text)) {
+        event.preventDefault();
+        uploadError = '';
+        try {
+          const file = await fetchRemoteMediaFile(text);
+          await insertUploadedMedia(file);
+        } catch (err) {
+          uploadError = err instanceof Error ? err.message : 'Could not import that media URL.';
+        }
+        return;
+      }
+    }
+
+    if (text && /https?:\/\//i.test(text)) {
+      const scrubbed = scrubTrackingUrlsInText(text);
+      if (scrubbed !== text) {
+        event.preventDefault();
+        await insertTextAtCaret(scrubbed);
+      }
+    }
+  }
+
+  async function onSourceDrop(event: DragEvent) {
+    if (!onUploadMedia || uploading) return;
+    const files = mediaFilesFromDataTransfer(event.dataTransfer);
+    if (!files.length) return;
+    event.preventDefault();
+    for (const file of files) await insertUploadedMedia(file);
+  }
 </script>
 
 <div
@@ -632,7 +709,7 @@
           type="button"
           class="advanced-tool"
           class:is-busy={uploading}
-          title="Upload media"
+          title="Upload media — or paste a file / image URL"
           aria-label="Upload media"
           disabled={uploading || !onUploadMedia}
           onmousedown={(event) => event.preventDefault()}
@@ -695,6 +772,8 @@
           {checkedSource}
           enabled={grammarOn}
           {onApply}
+          onPaste={(event) => void onSourcePaste(event)}
+          onDrop={(event) => void onSourceDrop(event)}
         />
       </div>
       <div class="advanced-grammar">

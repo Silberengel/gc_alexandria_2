@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { link, push, querystring } from 'svelte-spa-router';
+  import { push, querystring } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import WikiListRow from '$lib/components/WikiListRow.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
@@ -69,7 +69,6 @@
 
 <main class="shell wiki-hub wiki-hub-subpage">
   <header class="page-header">
-    <p class="muted"><a href="#/wiki" use:link>← Wiki</a></p>
     <h1>Wiki search</h1>
   </header>
 

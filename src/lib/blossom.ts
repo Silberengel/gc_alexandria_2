@@ -1,3 +1,5 @@
+import { cleanTrackingUrl } from './clean-url';
+
 export const BLOSSOM_PRESET_SERVERS = [
   'https://0x0.oslim.dev',
   'https://blossom.band',
@@ -75,7 +77,8 @@ export function imetaTagFromUpload(opts: {
   height?: number;
   blurhash?: string;
 }): string[] {
-  const parts = ['imeta', `url ${opts.url}`, `x ${opts.sha256}`];
+  const url = cleanTrackingUrl(opts.url) || opts.url.trim();
+  const parts = ['imeta', `url ${url}`, `x ${opts.sha256}`];
   if (opts.mime?.trim()) parts.push(`m ${opts.mime.trim()}`);
   if (opts.width != null && opts.height != null) {
     parts.push(`dim ${opts.width}x${opts.height}`);
@@ -160,11 +163,12 @@ export async function uploadToBlossomServers(opts: {
         errors.push(`${server}: ${response.status} ${body.slice(0, 120)}`);
         continue;
       }
-      const url = parseUploadUrl(body);
-      if (!url) {
+      const rawUrl = parseUploadUrl(body);
+      if (!rawUrl) {
         errors.push(`${server}: missing url in response`);
         continue;
       }
+      const url = cleanTrackingUrl(rawUrl) || rawUrl;
       return {
         url,
         sha256,

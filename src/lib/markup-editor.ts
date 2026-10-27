@@ -1,3 +1,5 @@
+import { cleanTrackingUrl } from './clean-url';
+
 export type MarkupEditorFormat = 'djot' | 'asciidoc';
 
 export type SourceEdit = {
@@ -369,7 +371,8 @@ export function mediaKind(mime: string | undefined, nameOrUrl: string): 'image' 
 
 /** Format-native markup for a Blossom file URL. */
 export function mediaMarkup(format: MarkupEditorFormat, file: MediaFile): string {
-  const url = file.url.replace(/"/g, '%22');
+  const scrubbed = cleanTrackingUrl(file.url) || file.url.trim();
+  const url = scrubbed.replace(/"/g, '%22');
   const alt = mediaAlt(file.name);
   const kind = mediaKind(file.mime, file.name || file.url);
   if (format === 'asciidoc') {

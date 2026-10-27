@@ -7,6 +7,7 @@ import {
 import { kind0SavePayload } from './compose-kind0';
 import { buildMuteListPayload } from './compose-mute-list';
 import { buildPListTags } from './compose-people-list';
+import { scrubTrackingUrlsInText } from './clean-url';
 import { KIND } from './constants';
 import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
@@ -38,18 +39,27 @@ function contentEncodingEmpty(kind: number): boolean {
   return getKind(kind)?.content?.encoding === 'empty';
 }
 
+function scrubComposeValues(values: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(values)) {
+    out[key] = scrubTrackingUrlsInText(String(raw ?? ''));
+  }
+  return out;
+}
+
 export function buildComposePartial(state: ComposeFormState): {
   kind: number;
   content: string;
   tags: string[][];
 } {
-  const { kind, values } = state;
+  const { kind } = state;
+  const values = scrubComposeValues(state.values);
   let content: string;
   let tags: string[][];
 
   if (kind === 0) {
     const payload = kind0SavePayload(state.kind0Tags ?? []);
-    content = payload.contentJson;
+    content = scrubTrackingUrlsInText(payload.contentJson);
     tags = [...payload.orderedTags];
     if (state.freeformTags?.length) {
       for (const row of state.freeformTags) {
@@ -87,6 +97,7 @@ export function buildComposePartial(state: ComposeFormState): {
     } else {
       content = state.content?.trim() ? state.content : String(values.content ?? '');
     }
+    content = scrubTrackingUrlsInText(content);
     tags = buildTagsForKind(kind, values, {
       app: 'alexandria',
       content,

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { scrubClipboardTextPaste } from '$lib/clean-url';
   import type { GrammarIssue } from '$lib/compose-grammar';
 
   interface Props {
@@ -14,6 +15,9 @@
     checkedSource?: string;
     enabled?: boolean;
     onApply?: (issue: GrammarIssue, replacement: string) => void;
+    /** Paste / drop hooks (media upload, tracker scrubbing). */
+    onPaste?: (event: ClipboardEvent) => void;
+    onDrop?: (event: DragEvent) => void;
     element?: HTMLTextAreaElement | null;
   }
 
@@ -27,8 +31,18 @@
     checkedSource = '',
     enabled = true,
     onApply,
+    onPaste,
+    onDrop,
     element = $bindable<HTMLTextAreaElement | null>(null)
   }: Props = $props();
+
+  function handlePaste(event: ClipboardEvent): void {
+    onPaste?.(event);
+    if (event.defaultPrevented) return;
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      value = value.slice(0, start) + scrubbed + value.slice(end);
+    });
+  }
 
   let wrapEl = $state<HTMLDivElement | null>(null);
   let taEl = $state<HTMLTextAreaElement | null>(null);
@@ -222,6 +236,8 @@
     onselect={onSelectOrClick}
     onclick={onSelectOrClick}
     onkeyup={onSelectOrClick}
+    onpaste={handlePaste}
+    ondrop={onDrop}
   ></textarea>
   {#if active && enabled}
     <div class="grammar-popover" style:top="{popTop}px" style:left="{popLeft}px" role="dialog">

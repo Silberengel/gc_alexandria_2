@@ -1,4 +1,5 @@
 import type { Event } from 'nostr-tools';
+import { scrubTrackingInEventPartial } from './clean-url';
 import { ALEXANDRIA_CLIENT } from './constants';
 import { assertReadyToSign } from './kind-compose';
 import { cacheGetEvent } from './nostr/cache';
@@ -118,16 +119,17 @@ export async function signUnsigned(partial: {
       }
     }
 
-    const ready = assertReadyToSign(partial);
+    const scrubbed = scrubTrackingInEventPartial(partial);
+    const ready = assertReadyToSign(scrubbed);
     if (!ready.ok) {
       noteSignFailure(ready.error);
       return null;
     }
 
     const signed = await signer.signEvent({
-      kind: partial.kind,
-      content: partial.content,
-      tags: withClientTag(partial.tags)
+      kind: scrubbed.kind,
+      content: scrubbed.content,
+      tags: withClientTag(scrubbed.tags)
     });
     const event = ingestEvent(signed);
     if (!event) {

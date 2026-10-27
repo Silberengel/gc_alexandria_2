@@ -107,6 +107,12 @@
     uploadToBlossomServers,
     imetaTagFromUpload
   } from '$lib/blossom';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import {
+    fetchRemoteMediaFile,
+    looksLikeMediaUrl,
+    mediaFilesFromDataTransfer
+  } from '$lib/media-paste';
   import { lruGet, lruSet } from '$lib/compose-lru';
   import { relayPool } from '$lib/nostr/pool';
   import { profileStack, writeStack } from '$lib/nostr/selector';
@@ -181,6 +187,12 @@
   let replaceablePreloaded = $state(false);
   /** Fingerprint of the pristine preload; drafts stay off until the form diverges. */
   let preloadBaseline = $state<string | null>(null);
+  /**
+   * While a replaceable preload is in flight the form is non-empty but the
+   * baseline is not sealed yet — suppress autosave so the $effect flush cannot
+   * treat the live event as a new tab draft.
+   */
+  let draftPersistSuspended = $state(false);
   /**
    * When a mute list has ciphertext we could not decrypt, keep it on republish so
    * private mutes are not wiped by a public-only edit.
@@ -633,12 +645,24 @@
         : composeMarkupFormat(d.kind, d.content, d.freeformTags);
   }
 
+  /** Drop a tab autosave that is only a mirror of the untouched live replaceable. */
+  function scrubMirroredReplaceableAutosave(): void {
+    const pk = $session.pubkey;
+    if (!pk || !replaceablePreloaded || !preloadBaseline) return;
+    if (draftFingerprint() !== preloadBaseline) return;
+    const mirrored = loadComposeDraft(pk, kind);
+    if (!mirrored || draftFingerprint(mirrored) !== preloadBaseline) return;
+    deleteComposeDraft(pk, kind);
+    refreshDraftList();
+  }
+
   function persistCurrent(opts?: { refreshList?: boolean }) {
     const pk = $session.pubkey;
-    if (!pk || otherMode || shortNoteEditSource) return;
+    if (!pk || otherMode || shortNoteEditSource || draftPersistSuspended) return;
     if (replaceablePreloaded && preloadBaseline) {
       if (draftFingerprint() === preloadBaseline) {
         // Untouched preload of an existing list/replaceable — not a draft.
+        scrubMirroredReplaceableAutosave();
         return;
       }
       // User edited the preloaded form; start auto-drafting from here.
@@ -885,27 +909,34 @@
   /** Switch kind with a blank form. Drafts are restored only via the Drafts list. */
   async function loadKind(nextKind: number) {
     persistCurrent();
-    kind = nextKind;
-    pickerValue = nextKind;
-    otherMode = false;
-    otherLocked = false;
-    otherError = '';
-    formError = '';
-    grammarIssues = [];
-    activeDraftD = null;
-    markReplaceablePreloaded(false);
-    mutePreserveCipher = '';
-    content = '';
-    values = emptyValuesFor(nextKind);
-    hashtagRows = [''];
-    imetaTags = [];
-    freeformTags = [['', '']];
-    kind0Tags = emptyKind0TagRows();
-    existingKind0 = {};
-    const preloaded = await applyReplaceablePreload(nextKind);
-    resetEditorMarkup(nextKind, content, freeformTags);
-    markReplaceablePreloaded(preloaded);
+    draftPersistSuspended = true;
+    clearStagedComposeDraft();
+    try {
+      kind = nextKind;
+      pickerValue = nextKind;
+      otherMode = false;
+      otherLocked = false;
+      otherError = '';
+      formError = '';
+      grammarIssues = [];
+      activeDraftD = null;
+      markReplaceablePreloaded(false);
+      mutePreserveCipher = '';
+      content = '';
+      values = emptyValuesFor(nextKind);
+      hashtagRows = [''];
+      imetaTags = [];
+      freeformTags = [['', '']];
+      kind0Tags = emptyKind0TagRows();
+      existingKind0 = {};
+      const preloaded = await applyReplaceablePreload(nextKind);
+      resetEditorMarkup(nextKind, content, freeformTags);
+      markReplaceablePreloaded(preloaded);
+    } finally {
+      draftPersistSuspended = false;
+    }
     bumpPreview();
+    scrubMirroredReplaceableAutosave();
   }
 
   function restoreLocalDraft(nextKind: number, mode = 'compose'): void {
@@ -957,35 +988,41 @@
     }
 
     persistCurrent();
+    draftPersistSuspended = true;
+    clearStagedComposeDraft();
+    try {
+      otherLocked = true;
+      otherMode = false;
+      kind = n;
+      pickerValue = OTHER_KIND_SENTINEL;
+      editorTab = 'edit';
+      formError = '';
+      grammarIssues = [];
+      activeDraftD = null;
+      markReplaceablePreloaded(false);
 
-    otherLocked = true;
-    otherMode = false;
-    kind = n;
-    pickerValue = OTHER_KIND_SENTINEL;
-    editorTab = 'edit';
-    formError = '';
-    grammarIssues = [];
-    activeDraftD = null;
-    markReplaceablePreloaded(false);
-
-    content = '';
-    values = emptyValuesFor(n);
-    if (!isCatalogued(n)) {
-      const form = customFormForClass(otherClass);
-      for (const f of form?.fields ?? []) {
-        if (f.composer === false) continue;
-        values[f.id] = f.default != null ? String(f.default) : '';
+      content = '';
+      values = emptyValuesFor(n);
+      if (!isCatalogued(n)) {
+        const form = customFormForClass(otherClass);
+        for (const f of form?.fields ?? []) {
+          if (f.composer === false) continue;
+          values[f.id] = f.default != null ? String(f.default) : '';
+        }
       }
+      hashtagRows = [''];
+      imetaTags = [];
+      freeformTags = [['', '']];
+      kind0Tags = emptyKind0TagRows();
+      existingKind0 = {};
+      const preloaded = await applyReplaceablePreload(n);
+      resetEditorMarkup(n, content, freeformTags);
+      markReplaceablePreloaded(preloaded);
+    } finally {
+      draftPersistSuspended = false;
     }
-    hashtagRows = [''];
-    imetaTags = [];
-    freeformTags = [['', '']];
-    kind0Tags = emptyKind0TagRows();
-    existingKind0 = {};
-    const preloaded = await applyReplaceablePreload(n);
-    resetEditorMarkup(n, content, freeformTags);
-    markReplaceablePreloaded(preloaded);
     bumpPreview();
+    scrubMirroredReplaceableAutosave();
   }
 
   function formState() {
@@ -1196,7 +1233,8 @@
         height
       });
       imetaTags = [...imetaTags, tag];
-      return { url: result.url, mime: file.type || '', name: file.name };
+      const url = result.url;
+      return { url, mime: file.type || '', name: file.name };
     } catch (err) {
       formError = err instanceof Error ? err.message : 'Upload failed.';
       const signFail = consumeSignFailure();
@@ -1218,6 +1256,86 @@
       }
     } catch {
       /* uploadBlossomFile sets formError */
+    }
+  }
+
+  function onFieldPaste(fieldId: string, event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      const cur = values[fieldId] ?? '';
+      values[fieldId] = cur.slice(0, start) + scrubbed + cur.slice(end);
+    });
+  }
+
+  async function onBodyPaste(event: ClipboardEvent) {
+    const data = event.clipboardData;
+    const text = (data?.getData('text/plain') ?? '').trim();
+
+    if (!uploading) {
+      const files = mediaFilesFromDataTransfer(data);
+      if (files.length) {
+        event.preventDefault();
+        for (const file of files) {
+          try {
+            const uploaded = await uploadBlossomFile(file);
+            if (showBody && !content.includes(uploaded.url)) {
+              content = content ? `${content.trimEnd()}\n\n${uploaded.url}` : uploaded.url;
+            }
+          } catch {
+            /* uploadBlossomFile sets formError */
+          }
+        }
+        return;
+      }
+      if (text && looksLikeMediaUrl(text)) {
+        event.preventDefault();
+        try {
+          const file = await fetchRemoteMediaFile(text);
+          const uploaded = await uploadBlossomFile(file);
+          if (showBody && !content.includes(uploaded.url)) {
+            content = content ? `${content.trimEnd()}\n\n${uploaded.url}` : uploaded.url;
+          }
+        } catch (err) {
+          formError = err instanceof Error ? err.message : 'Could not import that media URL.';
+        }
+        return;
+      }
+    }
+
+    if (text && /https?:\/\//i.test(text)) {
+      const scrubbed = scrubTrackingUrlsInText(text);
+      if (scrubbed !== text) {
+        event.preventDefault();
+        const el = event.currentTarget;
+        if (!(el instanceof HTMLTextAreaElement)) {
+          content = content ? `${content}${scrubbed}` : scrubbed;
+          return;
+        }
+        const start = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? start;
+        content = content.slice(0, start) + scrubbed + content.slice(end);
+        queueMicrotask(() => {
+          el.focus();
+          const at = start + scrubbed.length;
+          el.setSelectionRange(at, at);
+        });
+      }
+    }
+  }
+
+  async function onBodyDrop(event: DragEvent) {
+    if (uploading) return;
+    const files = mediaFilesFromDataTransfer(event.dataTransfer);
+    if (!files.length) return;
+    event.preventDefault();
+    for (const file of files) {
+      try {
+        const uploaded = await uploadBlossomFile(file);
+        if (showBody && !content.includes(uploaded.url)) {
+          content = content ? `${content.trimEnd()}\n\n${uploaded.url}` : uploaded.url;
+        }
+      } catch {
+        /* uploadBlossomFile sets formError */
+      }
     }
   }
 
@@ -1825,7 +1943,11 @@
                       >{field.label}{#if field.required}*{/if}</span
                     >
                     {#if field.widget === 'textarea' || field.multiline}
-                      <textarea rows="3" bind:value={values[field.id]}></textarea>
+                      <textarea
+                        rows="3"
+                        bind:value={values[field.id]}
+                        onpaste={(e) => onFieldPaste(field.id, e)}
+                      ></textarea>
                     {:else if field.widget === 'select'}
                       {@const opts = fieldOptions(field)}
                       {#if opts.length > 0 && opts.length <= 4}
@@ -1869,6 +1991,7 @@
                       <input
                         type={field.widget === 'url' ? 'url' : 'text'}
                         bind:value={values[field.id]}
+                        onpaste={(e) => onFieldPaste(field.id, e)}
                       />
                     {/if}
                     {#if field.help}
@@ -1908,6 +2031,8 @@
                     checkedSource={grammarCheckedSource}
                     enabled={showGrammar}
                     onApply={applyGrammarFix}
+                    onPaste={(event) => void onBodyPaste(event)}
+                    onDrop={(event) => void onBodyDrop(event)}
                   />
                 {:else}
                   <textarea
@@ -1915,6 +2040,8 @@
                     rows="10"
                     bind:value={content}
                     placeholder={contentMeta?.placeholder ?? ''}
+                    onpaste={(event) => void onBodyPaste(event)}
+                    ondrop={(event) => void onBodyDrop(event)}
                   ></textarea>
                 {/if}
                 {#if kind !== 9802}

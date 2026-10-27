@@ -11,16 +11,7 @@ import { PUBLICATION_RATING_MARK, ratingTags } from './ratings';
 import { eventAddress } from './nostr/verify';
 import { slugifyPublicationLabel } from './publication-lists';
 import { buildComposePartial } from './compose-build';
-
-const TRACKER_PARAMETERS = new Set([
-  'fbclid',
-  'gclid',
-  'dclid',
-  'mc_cid',
-  'mc_eid',
-  'ref',
-  'ref_'
-]);
+import { cleanTrackingUrl } from './clean-url';
 
 export function publicationLabelDraft(
   publication: Event,
@@ -152,22 +143,5 @@ function chapterSourceUrl(chapter: Event): string | null {
 }
 
 function cleanSourceUrl(raw: string | undefined): string | null {
-  const value = raw?.trim();
-  if (!value) return null;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return null;
-  }
-  if (url.username || url.password) return null;
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-  const kept = [...url.searchParams.entries()].filter(([name]) => {
-    const key = name.toLowerCase();
-    return !TRACKER_PARAMETERS.has(key) && !key.startsWith('utm_');
-  });
-  url.hash = '';
-  url.search = '';
-  for (const [name, param] of kept) url.searchParams.append(name, param);
-  return url.toString();
+  return cleanTrackingUrl(raw);
 }

@@ -1,8 +1,10 @@
 <script lang="ts">
   import YouTubeEmbed from './YouTubeEmbed.svelte';
   import OgLinkPreviewCard from './OgLinkPreviewCard.svelte';
+  import ExpandableUrlEventLink from './ExpandableUrlEventLink.svelte';
   import { parseYouTubeUrl } from '$lib/youtube';
   import { shouldOgPreview } from '$lib/og-preview';
+  import { urlEmbedsNostrEvent } from '$lib/nostr-entity';
 
   interface Props {
     url: string;
@@ -12,11 +14,15 @@
 
   const href = $derived(url.trim());
   const youtube = $derived(parseYouTubeUrl(href));
-  const useOg = $derived(!youtube && shouldOgPreview(href));
+  /** njump / HTTP-wrapped note|nevent|naddr — chevron EventCard, not OG. */
+  const useEventLink = $derived(!youtube && urlEmbedsNostrEvent(href));
+  const useOg = $derived(!youtube && !useEventLink && shouldOgPreview(href));
 </script>
 
 {#if youtube}
   <YouTubeEmbed url={href} />
+{:else if useEventLink}
+  <ExpandableUrlEventLink url={href} />
 {:else if useOg}
   <OgLinkPreviewCard url={href} />
 {:else if href}

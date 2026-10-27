@@ -25,6 +25,13 @@ describe('shouldOgPreview', () => {
     expect(shouldOgPreview('https://cdn.example/pic.jpg')).toBe(false);
     expect(shouldOgPreview('https://cdn.example/clip.mp4')).toBe(false);
   });
+
+  it('rejects njump / HTTP wrappers of note|nevent|naddr (chevron path)', () => {
+    const naddr =
+      'naddr1qqe5s5jx94ej6s2f94nx7u3df9hxg6tkd9j82ctv94fxjemgw3ej6nn9waekcet5w3jhytfjxvkhy6nvdymh2qghwaehxw309aex2mrp0yh8qunfd4skctnwv46z7q3q7xvf49kht23cddxgw92rvfktkd3vqvjgkgsdexh9847wl0927tqsxpqqqp65w9fxthm';
+    expect(shouldOgPreview(`https://njump.to/${naddr}`)).toBe(false);
+    expect(shouldOgPreview(`https://njump.me/${naddr}`)).toBe(false);
+  });
 });
 
 describe('parseOgPreviewHtml', () => {

@@ -5,6 +5,7 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { CONTACT_A_TAG, KIND, REPO_OWNER_HEX } from '$lib/constants';
   import { GITCITADEL_HEX } from '$lib/hex';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
   import { signAndPublish } from '$lib/sign';
   import { nip19 } from 'nostr-tools';
 
@@ -18,12 +19,26 @@
   let issueHref = $state('');
   let sending = $state(false);
 
+  function onBodyPaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      body = body.slice(0, start) + scrubbed + body.slice(end);
+    });
+  }
+
+  function onSubjectPaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      subject = subject.slice(0, start) + scrubbed + subject.slice(end);
+    });
+  }
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     error = '';
     success = '';
     issueHref = '';
     if (!$session.pubkey) return;
+    subject = scrubTrackingUrlsInText(subject);
+    body = scrubTrackingUrlsInText(body);
     if (!subject.trim() || !body.trim()) {
       error = 'Subject and body are required.';
       return;
@@ -74,9 +89,9 @@
 
   {#if $session.pubkey}
     <form class="card contact-form" onsubmit={submit}>
-      <label>Subject<input type="text" bind:value={subject} required /></label>
+      <label>Subject<input type="text" bind:value={subject} required onpaste={onSubjectPaste} /></label>
       <label style="display:block;margin-top:1rem"
-        >Body<textarea rows="8" bind:value={body} required></textarea></label
+        >Body<textarea rows="8" bind:value={body} required onpaste={onBodyPaste}></textarea></label
       >
       {#if sending}<LoadingHint message="Sending…" compact />{/if}
       {#if error}<p class="contact-form-error">{error}</p>{/if}

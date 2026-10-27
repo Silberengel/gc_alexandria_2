@@ -14,6 +14,7 @@
   import { formatAbsoluteTime, formatChatTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
   import { publishComment } from '$lib/sign';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { trust } from '$lib/stores/trust';
@@ -76,15 +77,23 @@
     local = [...local.filter((e) => e.id !== event.id), event];
   }
 
+  function onPaste(event: ClipboardEvent): void {
+    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
+      text = text.slice(0, start) + scrubbed + text.slice(end);
+    });
+  }
+
   async function post(): Promise<void> {
     if (!$session.pubkey) {
       openLoginDialog();
       return;
     }
-    if (!text.trim() || posting) return;
+    const body = scrubTrackingUrlsInText(text).trim();
+    if (!body || posting) return;
+    text = body;
     posting = true;
     try {
-      const published = await publishComment(liveChatDraft(target, text.trim()));
+      const published = await publishComment(liveChatDraft(target, body));
       if (!published) return;
       showPublished(published);
       text = '';
@@ -131,6 +140,7 @@
         autocomplete="off"
         enterkeyhint="send"
         aria-label="Live chat message"
+        onpaste={onPaste}
       />
     </form>
   {/if}

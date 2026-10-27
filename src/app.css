@@ -27,6 +27,8 @@
   /* Book-like measure for prose. The publication reader frame can be wider (--max-read-frame). */
   --max-read: 760px;
   --max-read-frame: 960px;
+  /* Shared page column — every route centers on this so the left edge does not jump. */
+  --max-page: 72rem;
   --radius: 0.65rem;
   /* Paper on paper — faint edge, whisper of lift */
   --border-soft: color-mix(in srgb, #5a4128 18%, transparent);
@@ -129,33 +131,31 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   overflow: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .shell {
-  flex: 1;
+  box-sizing: border-box;
+  flex: 1 0 auto;
   width: 100%;
-  /* Content pages (reader, wiki, profile, about…) share the book measure. */
-  max-width: min(var(--max-read), 100%);
+  /* One centered column for every route (catalog, feed, about, reader…). */
+  max-width: min(var(--max-page), 100%);
   min-width: 0;
-  margin: 0 auto;
+  margin-inline: auto;
   padding: 1.25rem 1rem 2.5rem;
 }
 
-/* Publication reader: wider frame; prose stays on --max-read inside .reading-content. */
+/* Publication reader: same page column; prose stays on --max-read inside .reading-content. */
 .shell.reading-page {
-  width: min(var(--max-read-frame), 100%);
-  max-width: min(var(--max-read-frame), 100%);
-  margin-inline: auto;
   padding-top: 0;
 }
 
-/* Catalog surfaces need room for shelves and multi-column result grids. */
-.shell-wide {
-  max-width: min(72rem, 100%);
-}
-
+/* Legacy modifiers — keep the shared page column so orientation stays stable. */
+.shell-wide,
 .settings-shell {
-  max-width: min(42rem, 100%);
+  max-width: min(var(--max-page), 100%);
 }
 
 .site-footer {
@@ -3068,9 +3068,12 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   font-size: 1.125rem;
   line-height: 1.65;
   width: 100%;
-  max-width: min(var(--max-read), 100%);
   min-width: 0;
   box-sizing: border-box;
+}
+/* Nested reading panes keep the book measure; the page shell uses --max-page. */
+.reading-body:not(main.shell) {
+  max-width: min(var(--max-read), 100%);
 }
 
 /* In-browser publication reader: fill the wider frame; prose is .reading-content. */
@@ -9430,9 +9433,6 @@ button.directory-explorer-link {
   cursor: auto;
 }
 
-.wiki-hub {
-  max-width: 40rem;
-}
 .wiki-hub-hero {
   display: flex;
   flex-direction: column;
@@ -9545,7 +9545,6 @@ button.directory-explorer-link {
 }
 
 .directory-page {
-  max-width: min(56rem, 100%);
   min-width: 0;
 }
 .directory-page .page-header {
