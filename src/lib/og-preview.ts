@@ -17,6 +17,18 @@ const MEDIA_FILE =
 const cache = new Map<string, OgPreview | null>();
 const inflight = new Map<string, Promise<OgPreview | null>>();
 
+/** After proxy/TLS hang-ups, skip the sidecar briefly so Vite is not spammed. */
+const COOLDOWN_MS = 60_000;
+let unavailableUntil = 0;
+
+function ogPreviewSkipped(): boolean {
+  return Date.now() < unavailableUntil;
+}
+
+function markOgPreviewDown(): void {
+  unavailableUntil = Date.now() + COOLDOWN_MS;
+}
+
 /** Strip trailing punctuation often glued onto pasted links. */
 export function tidyLinkUrl(raw: string): string {
   return raw.trim().replace(/[),.;:!?'"\]]+$/g, '');
@@ -117,6 +129,8 @@ export async function fetchOgPreview(
   const existing = inflight.get(url);
   if (existing) return existing;
 
+  if (ogPreviewSkipped()) return null;
+
   const job = (async () => {
     try {
       const res = await fetch(OG_PREVIEW_URL, {
@@ -127,6 +141,11 @@ export async function fetchOgPreview(
       });
       if (res.status === 204) {
         cache.set(url, null);
+        return null;
+      }
+      // 5xx from the Vite proxy (socket hang up / ENOTFOUND) — cool down the sidecar.
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        markOgPreviewDown();
         return null;
       }
       if (!res.ok) {
@@ -140,7 +159,7 @@ export async function fetchOgPreview(
     } catch {
       // Don't cache aborts / network blips as permanent misses.
       if (opts?.signal?.aborted) return null;
-      cache.set(url, null);
+      markOgPreviewDown();
       return null;
     } finally {
       inflight.delete(url);

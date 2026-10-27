@@ -334,7 +334,7 @@ body:has(main.reading-page) .top-bar {
   max-width: 100%;
   overflow: hidden;
 }
-/* Search sits above the menu on every non-search page. */
+/* Search stays in the bar on every page so the tabs do not jump. */
 .top-bar .top-bar-search,
 .top-bar .search-form.top-bar-search {
   grid-column: 1 / -1;
@@ -499,13 +499,6 @@ body:has(main.reading-page) .top-bar {
     width: 100%;
     max-width: 36rem;
     margin-inline: 0 auto;
-  }
-  /* No search field (e.g. /search): brand | tabs */
-  .top-bar:not(.top-bar-with-search) {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .top-bar:not(.top-bar-with-search) nav {
-    grid-column: 2;
   }
 }
 .btn-icon {

@@ -191,14 +191,22 @@ export default defineConfig(({ mode }) => {
         target: ogPreviewTarget,
         changeOrigin: true,
         agent: ipv4Https,
+        timeout: 8_000,
+        proxyTimeout: 8_000,
         rewrite: () => '/og-preview/',
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
             const msg = err instanceof Error ? err.message : String(err);
+            const expected =
+              msg.includes('ENOTFOUND') ||
+              msg.includes('ECONNREFUSED') ||
+              msg.includes('ECONNRESET') ||
+              msg.includes('socket hang up') ||
+              msg.includes('EPIPE');
             if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
               res.writeHead(502, { 'Content-Type': 'text/plain' });
               res.end('og-preview unavailable');
-            } else {
+            } else if (!expected) {
               console.warn('[vite] og-preview proxy error:', msg);
             }
           });

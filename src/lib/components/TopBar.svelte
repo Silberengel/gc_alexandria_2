@@ -9,11 +9,9 @@
 
   const path = $derived(($location ?? '').split('?')[0] || '');
   const onSearchPage = $derived(path === '/search');
-  /** Hub + recent/search only — article routes keep the global search field. */
   const onWikiHub = $derived(
     path === '/wiki' || path === '/wiki/recent' || path === '/wiki/search'
   );
-  const searchVisible = $derived(!onSearchPage && !onWikiHub);
   const onHome = $derived(path === '/' || path === '');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));
@@ -65,7 +63,7 @@
   });
 </script>
 
-<header class="top-bar" class:is-concealed={concealed} class:top-bar-with-search={searchVisible}>
+<header class="top-bar top-bar-with-search" class:is-concealed={concealed}>
   <a class="brand" href="#/" use:link>
     <img src="/favicon.png" width="32" height="32" alt="" />
     <span>Library of Alexandria</span>
@@ -82,7 +80,5 @@
       <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
     </div>
   </nav>
-  {#if searchVisible}
-    <SearchForm class="top-bar-search" />
-  {/if}
+  <SearchForm class="top-bar-search" />
 </header>

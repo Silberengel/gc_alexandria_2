@@ -961,43 +961,45 @@
   {:else}
     {#if isKindFiltered}
       <header class="page-header">
-        <p class="page-kicker">Kind</p>
+        <p class="page-kicker">{isBlogMode ? 'Blog' : 'Kind'}</p>
         <h1>{kindHeading}</h1>
-        <form class="profile-kind-jump" onsubmit={submitKindJump}>
-          <label class="profile-kind-jump-label" for="profile-kind-input">Kind</label>
-          <input
-            id="profile-kind-input"
-            class="profile-kind-jump-input"
-            type="text"
-            inputmode="numeric"
-            autocomplete="off"
-            spellcheck="false"
-            bind:value={kindDraft}
-            aria-label="Kind number"
-          />
-          <button
-            type="submit"
-            class="btn btn-icon profile-kind-jump-go"
-            title="Show this kind"
-            aria-label="Show this kind"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              width="16"
-              height="16"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.75"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+        {#if !isBlogMode}
+          <form class="profile-kind-jump" onsubmit={submitKindJump}>
+            <label class="profile-kind-jump-label" for="profile-kind-input">Kind</label>
+            <input
+              id="profile-kind-input"
+              class="profile-kind-jump-input"
+              type="text"
+              inputmode="numeric"
+              autocomplete="off"
+              spellcheck="false"
+              bind:value={kindDraft}
+              aria-label="Kind number"
+            />
+            <button
+              type="submit"
+              class="btn btn-icon profile-kind-jump-go"
+              title="Show this kind"
+              aria-label="Show this kind"
             >
-              <circle cx="11" cy="11" r="6.5"></circle>
-              <path d="M16.5 16.5 21 21"></path>
-            </svg>
-          </button>
-        </form>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="11" cy="11" r="6.5"></circle>
+                <path d="M16.5 16.5 21 21"></path>
+              </svg>
+            </button>
+          </form>
+        {/if}
       </header>
     {/if}
     {#if isBlogMode}
