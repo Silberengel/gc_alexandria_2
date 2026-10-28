@@ -18,7 +18,7 @@ import { eventPreview, plainCardText } from './event-preview';
 import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
 import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
 import { webBookmarkUrl } from './web-bookmark';
-import { parseYouTubeUrl } from './youtube';
+import { youtubeStillUrl } from './youtube';
 
 const HEX_ID = /^[0-9a-f]{64}$/i;
 const CONTENT_HTTP_URL = /https?:\/\/[^\s<>"')\]]+/gi;
@@ -234,12 +234,7 @@ export function pinboardSlipImage(event: Event): string | null {
   return null;
 }
 
-/** YouTube hqdefault still for a watch URL. */
-export function youtubeStillUrl(raw: string): string | null {
-  const ref = parseYouTubeUrl(raw);
-  if (!ref) return null;
-  return `https://i.ytimg.com/vi/${ref.videoId}/hqdefault.jpg`;
-}
+export { youtubeStillUrl };
 
 function contentHttpUrls(content: string | undefined): string[] {
   return (content?.match(CONTENT_HTTP_URL) ?? []).map(tidyLinkUrl);

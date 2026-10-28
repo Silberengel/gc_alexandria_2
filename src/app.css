@@ -7343,6 +7343,15 @@ a.embed-event-line:focus-visible {
 .details-panel-wrap .accordion {
   margin-top: 0;
 }
+.details-republish {
+  margin: 0 0 0.85rem;
+  max-width: 28rem;
+}
+.details-republish-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
 .details-toolbar {
   position: absolute;
   top: 0.35rem;

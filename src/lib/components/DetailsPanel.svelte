@@ -7,9 +7,14 @@
     exportPublicationDownload,
     type PublicationDownloadFormat
   } from '$lib/publication-export';
+  import {
+    republishPublicationToWriteRelays,
+    type RepublishProgress
+  } from '$lib/publication-republish';
   import { cropRenderedUrlsInText } from '$lib/crop-url';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { showNotice } from '$lib/stores/toast';
   import { opComposeId, registerOpReplyToolbar, toggleOpCompose } from '$lib/stores/op-reply';
   import { KIND } from '$lib/constants';
   import {
@@ -78,6 +83,8 @@
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
   const showWikiForks = $derived(isWikiOrSpecKind(event.kind));
+  /** Signed-in readers can fan out a 30040 tree to their write relays. */
+  const showRepublish = $derived(event.kind === KIND.PUBLICATION && !!$session.pubkey);
 
   let noteEditState = $state<ShortNoteEditState | null>(null);
   let noteEditTick = $state(0);
@@ -257,12 +264,14 @@
 
   let busy = $state<PublicationDownloadFormat | null>(null);
   let error = $state<string | null>(null);
+  let republishing = $state(false);
+  let republishProgress = $state<RepublishProgress | null>(null);
   const formatLabel = $derived(
     busy === 'epub' ? 'EPUB' : busy === 'pdf' ? 'PDF' : busy === 'adoc' ? 'Asciidoc' : null
   );
 
   async function onExport(format: PublicationDownloadFormat): Promise<void> {
-    if (!canExport || busy) return;
+    if (!canExport || busy || republishing) return;
     busy = format;
     error = null;
     try {
@@ -271,6 +280,37 @@
       error = e instanceof Error ? e.message : String(e);
     } finally {
       busy = null;
+    }
+  }
+
+  async function onRepublish(): Promise<void> {
+    if (!showRepublish || busy || republishing) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    republishing = true;
+    error = null;
+    republishProgress = {
+      phase: 'collecting',
+      done: 0,
+      total: 0,
+      message: 'Collecting publication indexes and sections…'
+    };
+    try {
+      const result = await republishPublicationToWriteRelays(event, {
+        seedEvents: getSeedEvents?.() ?? [],
+        onProgress: (p) => {
+          republishProgress = p;
+        }
+      });
+      showNotice(result.error ?? republishProgress?.message ?? 'Done.', result.ok);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      error = message;
+      showNotice(message);
+    } finally {
+      republishing = false;
     }
   }
 </script>
@@ -479,6 +519,21 @@
       </button>
       <CopyPointerButton {event} class="details-more-menu">
         {#snippet after()}
+          {#if showRepublish}
+            <li class="menu-sep" role="separator"></li>
+            <li class="menu-heading" role="presentation">Relays</li>
+            <li role="none">
+              <button
+                class="menu-item"
+                type="button"
+                role="menuitem"
+                disabled={!!busy || republishing}
+                onclick={() => void onRepublish()}
+              >
+                {republishing ? 'Republishing…' : 'Republish entire publication'}
+              </button>
+            </li>
+          {/if}
           {#if canExport}
             <li class="menu-sep" role="separator"></li>
             <li class="menu-heading" role="presentation">Download</li>
@@ -488,7 +543,7 @@
                   class="menu-item"
                   type="button"
                   role="menuitem"
-                  disabled={!!busy}
+                  disabled={!!busy || republishing}
                   onclick={() => void onExport(opt.format)}
                 >
                   {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
@@ -499,11 +554,28 @@
         {/snippet}
       </CopyPointerButton>
     </div>
+    {#if showRepublish}
+      <div class="details-republish">
+        <button
+          class="btn"
+          type="button"
+          disabled={!!busy || republishing}
+          onclick={() => void onRepublish()}
+        >
+          {republishing ? 'Republishing…' : 'Republish entire publication'}
+        </button>
+        <p class="muted details-republish-hint">
+          Writes this index and every linked section to your outboxes in the background.
+        </p>
+      </div>
+    {/if}
     <details class="accordion details-panel">
       <summary>Details</summary>
       {@render detailsList()}
     </details>
-    {#if busy && formatLabel}
+    {#if republishing && republishProgress}
+      <LoadingHint message={republishProgress.message} compact />
+    {:else if busy && formatLabel}
       <LoadingHint message="Exporting {formatLabel}… This can take a minute." compact />
     {:else if error}
       <p class="details-export-error" role="alert">{error}</p>

@@ -39,7 +39,8 @@
   import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
-  import { contentWithoutMediaUrls, uniqueMedia } from '$lib/media';
+  import { isAllowedMediaUrl } from '$lib/markup';
+  import { uniqueMedia } from '$lib/media';
   import { eventKindDescription, kindDescription } from '$lib/kind-label';
   import { eventHref } from '$lib/listing-table';
   import { libraryDocumentPath } from '$lib/metadata';
@@ -552,13 +553,12 @@
   }
 
   /**
-   * Media-only notes (bare image/video URL + imeta) collapse to empty blurb text.
-   * Mount EventBody without waiting on intersection so the feed doesn't show "Note".
+   * Notes with imeta / bare media URLs need EventBody (not the text preview),
+   * including caption+image posts — otherwise the feed shows the blurb and skips
+   * the picture until (or unless) intersection fires.
    */
   function feedNeedsFullBody(item: Event): boolean {
-    const media = uniqueMedia(item);
-    if (!media.length) return false;
-    return !contentWithoutMediaUrls(item.content ?? '', media).trim();
+    return uniqueMedia(item).some((m) => isAllowedMediaUrl(m.url));
   }
 
   function rowText(item: Event): string {
@@ -1613,9 +1613,16 @@
 </main>
 
 <style>
+  /*
+   * Feed uses the full `.shell` column (--max-page), same as catalog/settings —
+   * a nested 40rem strip left wide monitors looking empty.
+   */
+  .page-header {
+    max-width: none;
+  }
   .feed-note-compose {
     margin: 0 0 1rem;
-    max-width: 40rem;
+    max-width: none;
   }
   .feed-note-label {
     font-family: var(--ui-font);
@@ -1641,7 +1648,7 @@
   }
   .feed-new-wrap {
     margin: 0 0 0.65rem;
-    max-width: 40rem;
+    max-width: none;
   }
   .feed-new-events {
     width: 100%;
@@ -1662,7 +1669,7 @@
     align-items: center;
     gap: 0.3rem 0.4rem;
     margin: 0 0 0.45rem;
-    max-width: 40rem;
+    max-width: none;
   }
   .feed-filter-since,
   .feed-filter-kind {
@@ -1772,7 +1779,7 @@
     align-items: flex-end;
     gap: 0.45rem 0.75rem;
     margin: 0 0 1rem;
-    max-width: 40rem;
+    max-width: none;
   }
   .feed-tabs {
     display: flex;
@@ -1955,7 +1962,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    max-width: 40rem;
+    max-width: none;
     overflow-anchor: none;
   }
   .feed-row {

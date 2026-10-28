@@ -5,13 +5,19 @@ import { isKind1Reply } from './comments';
 import { parseAddress } from './library-scope';
 import { hexPubkey } from './metadata';
 import { emptyMuteState, filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
-import { uniqueRelayUrls } from './nostr/mailboxes';
+import { authorOutbox, uniqueRelayUrls, withPreferredRelays } from './nostr/mailboxes';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { cachedEventsByKind, cacheGetEvent } from './nostr/cache';
 import { fetchByAddress } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
-import { forestRelay, getSelectorContext, socialStack } from './nostr/selector';
+import {
+  foreignRelaysAllowed,
+  forestRelay,
+  getSelectorContext,
+  socialSearchStack,
+  socialStack
+} from './nostr/selector';
 import { firstTag } from './nostr/verify';
 import { compareDirectoryListing } from './directory-explorer';
 
@@ -379,16 +385,52 @@ function commentFilters(): Filter[] {
 
 /**
  * Pubkeys whose original notes are added to a signed-in feed.
+ * Always includes the viewer (own posts never rely on the global kind-1 flood).
  * Muted accounts are left out. Capped so one request stays modest.
  */
 export function feedFollowAuthors(metadataEvents: Event[], muted: MuteState): string[] {
   const authors: string[] = [];
+  const seen = new Set<string>();
+  const push = (pubkey: string): void => {
+    const pk = pubkey.trim().toLowerCase();
+    if (!HEX_ID.test(pk) || muted.pubkeys.has(pk) || seen.has(pk)) return;
+    if (authors.length >= FOLLOW_AUTHOR_CAP) return;
+    seen.add(pk);
+    authors.push(pk);
+  };
+  const viewer = getSelectorContext().viewerPubkey.trim().toLowerCase();
+  if (getSelectorContext().signedIn) push(viewer);
   for (const pubkey of followPubkeysFromMetadata(metadataEvents)) {
-    if (muted.pubkeys.has(pubkey)) continue;
-    authors.push(pubkey);
+    push(pubkey);
     if (authors.length >= FOLLOW_AUTHOR_CAP) break;
   }
   return authors;
+}
+
+/** Feed relays plus kind-1 search hosts so follow/author REQs are not stuck on a quiet home relay. */
+function feedAuthorQueryRelays(base: string[]): { relays: string[]; maxRelays: number } {
+  const relays = uniqueRelayUrls([...base, ...socialSearchStack()]);
+  return { relays, maxRelays: Math.min(Math.max(relays.length, 1), 12) };
+}
+
+/** Prefer one author's NIP-65 write relays when looking up their timeline. */
+async function authorFeedQueryScope(authorPubkey: string): Promise<{
+  relays: string[];
+  maxRelays: number;
+}> {
+  const { personal, shipped } = feedRelayGroups();
+  const base = uniqueRelayUrls([...personal, ...shipped]);
+  const baseMax = Math.min(Math.max(base.length, 1), 8);
+  if (!foreignRelaysAllowed()) {
+    return feedAuthorQueryRelays(base);
+  }
+  try {
+    const outbox = await authorOutbox(authorPubkey);
+    const preferred = withPreferredRelays(base, outbox, baseMax, 4);
+    return feedAuthorQueryRelays(preferred.relays);
+  } catch {
+    return feedAuthorQueryRelays(base);
+  }
 }
 
 function followNoteFilters(authors: string[]): Filter[] {
@@ -545,9 +587,9 @@ export async function loadFeed(
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
-  const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = withFeedSince(followNoteFilters(authors), since);
+  const followScope = feedAuthorQueryRelays(uniqueRelayUrls([...personal, ...shipped]));
   // Background list load — not priority. Priority slots are for open threads / wiki.
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
@@ -585,7 +627,14 @@ export async function loadFeed(
     shipped.length ? ask(shipped, 4) : Promise.resolve([]),
     followFilters.length
       ? relayPool
-          .query(relays, followFilters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
+          .query(
+            followScope.relays,
+            followFilters,
+            7000,
+            followScope.maxRelays,
+            absorb,
+            queryOpts
+          )
           .catch(() => [] as Event[])
       : Promise.resolve([] as Event[])
   ]);
@@ -646,8 +695,8 @@ export async function loadFollowsFeed(
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
-  const relays = uniqueRelayUrls([...personal, ...shipped]);
-  if (!relays.length) {
+  const scope = feedAuthorQueryRelays(uniqueRelayUrls([...personal, ...shipped]));
+  if (!scope.relays.length) {
     return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
   }
   const filters = withFeedSince(followOriginalFilters(authors), since);
@@ -669,7 +718,7 @@ export async function loadFollowsFeed(
     if (added) paint();
   };
   const hits = await relayPool
-    .query(relays, filters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
+    .query(scope.relays, filters, 7000, scope.maxRelays, absorb, queryOpts)
     .catch(() => [] as Event[]);
   for (const event of hits) {
     if (
@@ -801,9 +850,9 @@ export async function loadFeedWithReplies(
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
-  const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
   const followFilters = withFeedSince(followReplyFilters(authors), since);
+  const followScope = feedAuthorQueryRelays(uniqueRelayUrls([...personal, ...shipped]));
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
@@ -840,7 +889,14 @@ export async function loadFeedWithReplies(
     shipped.length ? ask(shipped, 4) : Promise.resolve([]),
     followFilters.length
       ? relayPool
-          .query(relays, followFilters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
+          .query(
+            followScope.relays,
+            followFilters,
+            7000,
+            followScope.maxRelays,
+            absorb,
+            queryOpts
+          )
           .catch(() => [] as Event[])
       : Promise.resolve([] as Event[])
   ]);
@@ -885,7 +941,7 @@ export async function recallAuthorFeedPosts(authorPubkey: string): Promise<Event
 
 /**
  * One author's posts and replies (Replies tab scoped to a profile).
- * Uses the same relay groups as the main feed; only `authors` filters.
+ * Prefer that author's NIP-65 outbox, then feed + kind-1 search relays.
  */
 export async function loadAuthorFeedWithReplies(
   authorPubkey: string,
@@ -904,9 +960,8 @@ export async function loadAuthorFeedWithReplies(
     if (isRepliesTimelineEvent(event)) byId.set(event.id, event);
   }
   if (byId.size) paint();
-  const { personal, shipped } = feedRelayGroups();
-  const relays = uniqueRelayUrls([...personal, ...shipped]);
-  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const scope = await authorFeedQueryScope(pk);
+  if (!scope.relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
   const filters = authorNoteFilters(pk);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
@@ -920,20 +975,17 @@ export async function loadAuthorFeedWithReplies(
     }
     if (added) paint();
   };
-  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
-    relayPool.query(urls, filters, 7000, maxRelays, absorb, queryOpts).catch(() => [] as Event[]);
-  const [fromPersonal, fromShipped] = await Promise.all([
-    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
-    shipped.length ? ask(shipped, 4) : Promise.resolve([])
-  ]);
-  for (const event of [...fromPersonal, ...fromShipped]) {
+  const hits = await relayPool
+    .query(scope.relays, filters, 7000, scope.maxRelays, absorb, queryOpts)
+    .catch(() => [] as Event[]);
+  for (const event of hits) {
     if (!isAuthorEvent(event, pk) || !isRepliesTimelineEvent(event)) continue;
     byId.set(event.id, event);
   }
   return filterMuted(sortFeedEvents([...byId.values()]), muted);
 }
 
-/** One author's original posts (Original Posts tab scoped to a profile). */
+/** One author's original posts (Original Posts tab scoped to a profile). Prefers their outbox. */
 export async function loadAuthorFeed(
   authorPubkey: string,
   muted: MuteState = emptyMute,
@@ -951,9 +1003,8 @@ export async function loadAuthorFeed(
     if (isOriginalPost(event)) byId.set(event.id, event);
   }
   if (byId.size) paint();
-  const { personal, shipped } = feedRelayGroups();
-  const relays = uniqueRelayUrls([...personal, ...shipped]);
-  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  const scope = await authorFeedQueryScope(pk);
+  if (!scope.relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
   const filters = authorNoteFilters(pk);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
@@ -965,13 +1016,10 @@ export async function loadAuthorFeed(
     }
     if (added) paint();
   };
-  const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
-    relayPool.query(urls, filters, 7000, maxRelays, absorb, queryOpts).catch(() => [] as Event[]);
-  const [fromPersonal, fromShipped] = await Promise.all([
-    personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
-    shipped.length ? ask(shipped, 4) : Promise.resolve([])
-  ]);
-  for (const event of [...fromPersonal, ...fromShipped]) {
+  const hits = await relayPool
+    .query(scope.relays, filters, 7000, scope.maxRelays, absorb, queryOpts)
+    .catch(() => [] as Event[]);
+  for (const event of hits) {
     if (!isAuthorEvent(event, pk) || !isOriginalPost(event)) continue;
     byId.set(event.id, event);
   }

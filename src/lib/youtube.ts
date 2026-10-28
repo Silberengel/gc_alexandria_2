@@ -2,6 +2,8 @@ export type YouTubeRef = {
   videoId: string;
   listId?: string;
   sourceUrl: string;
+  /** music.youtube.com — Topic / catalog tracks often refuse iframe embeds. */
+  music: boolean;
 };
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
@@ -57,15 +59,42 @@ export function parseYouTubeUrl(raw: string): YouTubeRef | null {
   if (!VIDEO_ID.test(videoId)) return null;
 
   const list = url.searchParams.get('list') ?? undefined;
+  // Drop Mix/Radio lists (RD…) — they swap the video and break embeds.
+  const listId = list && LIST_ID.test(list) && !/^RD/i.test(list) ? list : undefined;
   return {
     videoId,
-    listId: list && LIST_ID.test(list) ? list : undefined,
-    sourceUrl: tidyUrl(raw)
+    listId,
+    sourceUrl: tidyUrl(raw),
+    music: host === 'music.youtube.com'
   };
 }
 
-/** Privacy-enhanced iframe src for a parsed YouTube ref. */
-export function youtubeEmbedSrc(ref: YouTubeRef): string {
+/**
+ * Canonical watch page for opening in a tab.
+ * Music links are rewritten to www.youtube.com so Music does not bounce into a
+ * radio mix (`list=RD…`) on a different video id.
+ */
+export function youtubeOpenUrl(ref: YouTubeRef): string {
+  if (ref.music) return `https://www.youtube.com/watch?v=${ref.videoId}`;
+  if (ref.listId) {
+    return `https://www.youtube.com/watch?v=${ref.videoId}&list=${encodeURIComponent(ref.listId)}`;
+  }
+  return ref.sourceUrl;
+}
+
+/** Poster still for cards / pins (`hqdefault`). */
+export function youtubeStillUrl(ref: YouTubeRef | string): string | null {
+  const parsed = typeof ref === 'string' ? parseYouTubeUrl(ref) : ref;
+  if (!parsed) return null;
+  return `https://i.ytimg.com/vi/${parsed.videoId}/hqdefault.jpg`;
+}
+
+/**
+ * Privacy-enhanced iframe src, or `null` when the host should not be iframed
+ * (YouTube Music catalog tracks usually render “Video unavailable”).
+ */
+export function youtubeEmbedSrc(ref: YouTubeRef): string | null {
+  if (ref.music) return null;
   const src = new URL(`https://www.youtube-nocookie.com/embed/${ref.videoId}`);
   if (ref.listId) src.searchParams.set('list', ref.listId);
   return src.toString();

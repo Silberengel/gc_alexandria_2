@@ -379,6 +379,18 @@ describe('feedAuthorRepliesPath', () => {
 });
 
 describe('feedFollowAuthors', () => {
+  afterEach(() => {
+    setSelectorContext({
+      signedIn: false,
+      viewerPubkey: '',
+      inbox: [],
+      outbox: [],
+      favorites: [],
+      local: [],
+      blocked: []
+    });
+  });
+
   it('includes follow-list pubkeys and drops muted ones', () => {
     const followed = 'd'.repeat(64);
     const muted = 'e'.repeat(64);
@@ -398,6 +410,32 @@ describe('feedFollowAuthors', () => {
         words: new Set()
       })
     ).toEqual([followed]);
+  });
+
+  it('puts the signed-in viewer first so own notes are not left to the global flood', () => {
+    const viewer = 'a'.repeat(64);
+    const followed = 'd'.repeat(64);
+    setSelectorContext({
+      signedIn: true,
+      viewerPubkey: viewer,
+      inbox: [],
+      outbox: [],
+      favorites: [],
+      local: [],
+      blocked: []
+    });
+    const contact = ev({
+      kind: KIND.CONTACT_LIST,
+      tags: [['p', followed], ['p', viewer]]
+    });
+    expect(
+      feedFollowAuthors([contact], {
+        pubkeys: new Set(),
+        eventIds: new Set(),
+        hashtags: new Set(),
+        words: new Set()
+      })
+    ).toEqual([viewer, followed]);
   });
 });
 
