@@ -194,7 +194,12 @@ describe('read marks', () => {
       bookmarks: [],
       highlights: [highlightA, highlightB, highlightDup],
       directories: [],
-      mute: { pubkeys: new Set([mutedPk]), eventIds: new Set() }
+      mute: {
+        pubkeys: new Set([mutedPk]),
+        eventIds: new Set(),
+        hashtags: new Set(),
+        words: new Set()
+      }
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.key).toBe('shelved');

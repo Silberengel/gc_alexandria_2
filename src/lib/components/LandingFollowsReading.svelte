@@ -29,7 +29,12 @@
   $effect(() => {
     const pk = $session.pubkey ?? '';
     const followKey = [...follows].sort().join(',');
-    const muteKey = [...$muteState.pubkeys].sort().join(',');
+    const muteKey = [
+      [...$muteState.pubkeys].sort().join(','),
+      [...$muteState.eventIds].sort().join(','),
+      [...$muteState.hashtags].sort().join(','),
+      [...$muteState.words].sort().join(',')
+    ].join('|');
     const key = `${pk}|${followKey}|${muteKey}|${$readingPrefs.concurrent}`;
     if (!pk || !follows.size) {
       rows = [];

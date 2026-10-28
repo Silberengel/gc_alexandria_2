@@ -4,7 +4,7 @@ import { KIND } from './constants';
 import { isKind1Reply } from './comments';
 import { parseAddress } from './library-scope';
 import { hexPubkey } from './metadata';
-import { filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
+import { emptyMuteState, filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { uniqueRelayUrls } from './nostr/mailboxes';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { cachedEventsByKind, cacheGetEvent } from './nostr/cache';
@@ -310,7 +310,7 @@ function kindFeedFilters(kind: number, authors?: string[]): Filter[] {
   return filters;
 }
 
-const emptyMute: MuteState = { pubkeys: new Set(), eventIds: new Set() };
+const emptyMute: MuteState = emptyMuteState();
 
 /** Keep posts already on screen when a load comes back with nothing. */
 export function keepFeedPosts(shown: Event[], incoming: Event[]): Event[] {

@@ -28,7 +28,7 @@ describe('mercury unavailable cooldown', () => {
     expect(second).toEqual([]);
     expect(fetch).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(30_000);
     await mercuryFilter({ kinds: [30040], limit: 1 });
     expect(fetch).toHaveBeenCalledTimes(2);
   });

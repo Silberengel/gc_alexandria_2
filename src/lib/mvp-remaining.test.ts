@@ -855,7 +855,12 @@ describe('comments nest', () => {
       kind: KIND.COMMENT,
       tags: [['e', parent.id]]
     });
-    const mute = { pubkeys: new Set([parent.pubkey]), eventIds: new Set<string>() };
+    const mute = {
+      pubkeys: new Set([parent.pubkey]),
+      eventIds: new Set<string>(),
+      hashtags: new Set<string>(),
+      words: new Set<string>()
+    };
     const tree = nestComments([parent, reply], mute);
     expect(tree).toHaveLength(1);
     expect(tree[0]?.placeholder).toBe(MUTED_PARENT_PLACEHOLDER);

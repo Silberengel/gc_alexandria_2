@@ -142,7 +142,7 @@ function searchHasQuery(query: Record<string, unknown>): boolean {
 }
 
 /** After DNS/proxy failures, skip Mercury briefly so Vite and relays are not spammed. */
-const COOLDOWN_MS = 60_000;
+const COOLDOWN_MS = 30_000;
 let unavailableUntil = 0;
 
 /** naddrs whose /meta|/toc|/stream returned 404 — do not re-hit for this session. */

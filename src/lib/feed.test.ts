@@ -313,7 +313,12 @@ describe('feedFollowAuthors', () => {
       ]
     });
     expect(
-      feedFollowAuthors([contact], { pubkeys: new Set([muted]), eventIds: new Set() })
+      feedFollowAuthors([contact], {
+        pubkeys: new Set([muted]),
+        eventIds: new Set(),
+        hashtags: new Set(),
+        words: new Set()
+      })
     ).toEqual([followed]);
   });
 });

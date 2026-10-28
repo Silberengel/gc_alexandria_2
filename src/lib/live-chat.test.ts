@@ -12,7 +12,7 @@ import {
   roomPresenceDraft
 } from './live-chat';
 import { assertReadyToSign } from './kind-compose';
-import type { MuteState } from './mute';
+import { emptyMuteState, type MuteState } from './mute';
 
 function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey' | 'tags'>): Event {
   return {
@@ -167,7 +167,7 @@ describe('live chat shield filters', () => {
       content: 'spam',
       tags: []
     });
-    const muted: MuteState = { pubkeys: new Set([mutedPk]), eventIds: new Set() };
+    const muted: MuteState = { ...emptyMuteState(), pubkeys: new Set([mutedPk]) };
     expect(filterLiveChatForShield([ok, mutedEv], muted, null).map((e) => e.id)).toEqual([ok.id]);
   });
 

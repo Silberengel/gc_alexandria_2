@@ -141,7 +141,12 @@
   });
   const muteKey = $derived.by(() => {
     const m = $muteState;
-    return `${[...m.pubkeys].sort().join(',')}|${[...m.eventIds].sort().join(',')}`;
+    return [
+      [...m.pubkeys].sort().join(','),
+      [...m.eventIds].sort().join(','),
+      [...m.hashtags].sort().join(','),
+      [...m.words].sort().join(',')
+    ].join('|');
   });
   const lede = $derived.by(() => {
     void $session.pubkey;
