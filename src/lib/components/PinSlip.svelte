@@ -11,6 +11,7 @@
     pinboardResolveEmbeddedExcerpt,
     pinboardResolveFaceImage,
     pinboardSlipPreview,
+    pinboardSlipVideo,
     pinboardSyncFaceImage
   } from '$lib/profile-pins';
   import { fetchOgPreview, ogHostname, type OgPreview } from '$lib/og-preview';
@@ -24,6 +25,7 @@
 
   const localPreview = $derived(pinboardSlipPreview(event, hero ? 220 : 110));
   const syncFace = $derived(pinboardSyncFaceImage(event));
+  const syncVideo = $derived(pinboardSlipVideo(event));
   const ogUrl = $derived(pinboardFirstOgUrl(event));
   const handText = $derived(pinboardHandText(event));
   const hasEventEmbed = $derived(!!pinboardFirstEventRef(event));
@@ -106,9 +108,18 @@
   );
   const showOgPhoto = $derived(!!og?.image);
   const showOgMeta = $derived(!!og && !showOgPhoto && (!!og.title || !!og.description));
-  const waitingOg = $derived(!!ogUrl && og === undefined && !displayFace && !localPreview);
+  const showVideoFace = $derived(!!syncVideo && !displayFace);
+  const waitingOg = $derived(
+    !!ogUrl && og === undefined && !displayFace && !showVideoFace && !localPreview
+  );
   const waitingEmbed = $derived(
-    hasEventEmbed && !localPreview && !embedExcerpt && !displayFace && !showOgPhoto && !showOgMeta
+    hasEventEmbed &&
+      !localPreview &&
+      !embedExcerpt &&
+      !displayFace &&
+      !showVideoFace &&
+      !showOgPhoto &&
+      !showOgMeta
   );
 </script>
 
@@ -158,10 +169,21 @@
       <span class="pin-slip-media">
         <img src={faceThumb} alt="" loading="lazy" decoding="async" />
       </span>
+    {:else if syncVideo}
+      <span class="pin-slip-media pin-slip-media-video">
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          src={syncVideo.url}
+          poster={syncVideo.poster}
+          muted
+          playsinline
+          preload="metadata"
+        ></video>
+      </span>
     {/if}
     {#if preview}
       <span class="pin-slip-text">{preview}</span>
-    {:else if !displayFace}
+    {:else if !displayFace && !syncVideo}
       <span class="pin-slip-text muted">Untitled note</span>
     {/if}
   {/if}

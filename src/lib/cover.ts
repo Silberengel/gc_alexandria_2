@@ -27,16 +27,36 @@ function gutenbergIdFromText(value: string | undefined): string | null {
   return d?.[1] ?? null;
 }
 
+function imetaField(parts: string[], name: string): string {
+  const prefix = `${name} `;
+  const inline = parts.find((item) => item.startsWith(prefix));
+  if (inline) return inline.slice(prefix.length).trim();
+  const idx = parts.indexOf(name);
+  const next = idx >= 0 ? parts[idx + 1]?.trim() : '';
+  return next && !/^(?:url|m|dim|alt|image|fallback|blurhash|thumbhash|x|size|ox)\b/i.test(next)
+    ? next
+    : '';
+}
+
+function imetaUrlLooksLikeImage(url: string, mime: string): boolean {
+  if (/^image\//i.test(mime)) return true;
+  if (/^(?:video|audio)\//i.test(mime)) return false;
+  if (/\.(?:webm|mp4|m4v|mov|ogv|mp3|ogg|wav|m4a|aac)(?:[?#]|$)/i.test(url)) return false;
+  return /\.(?:png|jpe?g|gif|webp|avif|svg)(?:[?#]|$)/i.test(url) || !mime;
+}
+
+/** Prefer a real still: imeta poster (`image`), else an image-typed `url`. */
 function imetaImageUrl(event: Event): string | undefined {
   for (const tag of event.tags) {
     if (tag[0] !== 'imeta') continue;
-    const joined = tag.slice(1);
-    const urlField = joined.find((item) => item.startsWith('url '));
-    if (urlField) return urlField.slice(4).trim();
-    const urlIdx = joined.indexOf('url');
-    if (urlIdx >= 0 && joined[urlIdx + 1]) return joined[urlIdx + 1];
-    const bare = joined.find((item) => /^https?:\/\//i.test(item));
-    if (bare) return bare;
+    const parts = tag.slice(1);
+    const poster = imetaField(parts, 'image');
+    if (poster && DIRECT_IMAGE.test(poster)) return poster;
+    let url = imetaField(parts, 'url');
+    if (!url) url = parts.find((item) => /^https?:\/\//i.test(item)) ?? '';
+    if (!url || !DIRECT_IMAGE.test(url)) continue;
+    const mime = imetaField(parts, 'm');
+    if (imetaUrlLooksLikeImage(url, mime)) return url;
   }
   return undefined;
 }

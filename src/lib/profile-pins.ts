@@ -234,6 +234,20 @@ export function pinboardSlipImage(event: Event): string | null {
   return null;
 }
 
+/** First allowed video (+ optional imeta poster) for pinboard faces. */
+export function pinboardSlipVideo(
+  event: Event
+): { url: string; poster?: string } | null {
+  for (const item of uniqueMedia(event)) {
+    if (item.type !== 'video') continue;
+    if (!isAllowedMediaUrl(item.url)) continue;
+    const poster =
+      item.poster && isAllowedMediaUrl(item.poster) ? item.poster : undefined;
+    return { url: item.url, poster };
+  }
+  return null;
+}
+
 export { youtubeStillUrl };
 
 function contentHttpUrls(content: string | undefined): string[] {
@@ -253,15 +267,20 @@ function contentNostrTokens(content: string | undefined): string[] {
   return out;
 }
 
+const NON_IMAGE_FILE =
+  /\.(?:webm|mp4|m4v|mov|ogv|mp3|ogg|wav|m4a|aac)(?:[?#]|$)/i;
+
 function acceptImageUrl(url: string | null | undefined): string | null {
   const u = (url ?? '').trim();
   if (!u || !isAllowedMediaUrl(u)) return null;
+  // Cover/imeta helpers sometimes return a video URL — never use that as a photo face.
+  if (NON_IMAGE_FILE.test(u)) return null;
   return u;
 }
 
 /**
  * Immediate face image: tagged media, content images, covers, YouTube stills,
- * cached profile thumbs for embedded npub/nprofile.
+ * video posters, cached profile thumbs for embedded npub/nprofile.
  */
 export function pinboardSyncFaceImage(event: Event): string | null {
   const tagged = pinboardSlipImage(event);
@@ -272,6 +291,10 @@ export function pinboardSyncFaceImage(event: Event): string | null {
 
   const cover = acceptImageUrl(coverImageUrl(event) ?? coverFullImageUrl(event));
   if (cover) return cover;
+
+  // Video notes with an imeta poster can still fill the polaroid as a still.
+  const videoPoster = acceptImageUrl(pinboardSlipVideo(event)?.poster);
+  if (videoPoster) return videoPoster;
 
   for (const url of contentHttpUrls(event.content)) {
     const yt = youtubeStillUrl(url);

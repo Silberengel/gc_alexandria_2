@@ -8,7 +8,9 @@ import {
   pinboardFirstOgUrl,
   pinboardHandText,
   pinboardResolveEmbeddedExcerpt,
+  pinboardSlipImage,
   pinboardSlipPreview,
+  pinboardSlipVideo,
   pinboardSyncFaceImage,
   pinEventIds,
   pickOriginalPostsForPinboard,
@@ -221,6 +223,37 @@ describe('profile pins', () => {
       tags: [['image', pic]]
     });
     expect(pinboardSyncFaceImage(note)).toBe(pic);
+  });
+
+  it('exposes video media for pinboard faces (Amethyst shorts)', () => {
+    const mp4 =
+      'https://24242.io/6aca0e05f76ce92115d9614323e514fc8636531114b5c50f245e916d6889ba9a.mp4';
+    const note = ev({
+      content: `spend some #sats\n${mp4}`,
+      tags: [
+        [
+          'imeta',
+          `url ${mp4}`,
+          'm video/mp4',
+          'dim 1440x1792',
+          'alt Frankie'
+        ]
+      ]
+    });
+    expect(pinboardSlipImage(note)).toBeNull();
+    expect(pinboardSyncFaceImage(note)).toBeNull();
+    expect(pinboardSlipVideo(note)).toEqual({ url: mp4, poster: undefined });
+  });
+
+  it('uses an imeta video poster as the sync face still', () => {
+    const mp4 = 'https://cdn.example.com/clip.mp4';
+    const poster = 'https://cdn.example.com/poster.jpg';
+    const note = ev({
+      content: mp4,
+      tags: [['imeta', `url ${mp4}`, 'm video/mp4', `image ${poster}`]]
+    });
+    expect(pinboardSlipVideo(note)).toEqual({ url: mp4, poster });
+    expect(pinboardSyncFaceImage(note)).toBe(poster);
   });
 
   it('uses a cached profile picture from an embedded npub', () => {
