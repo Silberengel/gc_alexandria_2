@@ -911,16 +911,6 @@
       }}
     />
     <div class="card reading-width" style="margin-top:1rem">
-      {#if wikiInkChips.length}
-        <aside class="ink-margin-strip" aria-label="Ink notes in the margin">
-          {#each wikiInkChips as chip (chip.eventId)}
-            <a class="ink-margin-chip" href={`#/feed?thread=${chip.eventId}`} title={chip.quote}>
-              <img src={chip.gifUrl} alt="" loading="lazy" decoding="async" />
-              <span class="ink-margin-quote muted">{chip.quote}</span>
-            </a>
-          {/each}
-        </aside>
-      {/if}
       <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} loading={socialLoading} />
     </div>
   {:else}

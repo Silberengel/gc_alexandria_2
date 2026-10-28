@@ -13,6 +13,7 @@
     drawFontById,
     encodeDrawingGif,
     encodeDrawingGifForUpload,
+    encodeDrawingPng,
     isShapeTool,
     isTextTool,
     paintDrawing,
@@ -29,7 +30,7 @@
     loadDrawingDraft,
     saveDrawingDraft
   } from '$lib/comment-drafts';
-  import { uploadDrawingGif } from '$lib/drawing/upload';
+  import { uploadDrawingImage } from '$lib/drawing/upload';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
 
@@ -81,6 +82,8 @@
   let step = $state<'draw' | 'preview'>('draw');
   let previewUrl = $state<string | null>(null);
   let previewBlob = $state<Blob | null>(null);
+  /** Static PNG by default; GIF keeps the stroke-replay animation. */
+  let exportFormat = $state<'png' | 'gif'>('png');
   let fullScreen = $state(readFullScreenPref());
   let backgroundImage = $state<DrawBackgroundImage | null>(null);
   let backgroundObjectUrl = $state<string | null>(null);
@@ -399,6 +402,17 @@
     ];
   }
 
+  function onFontSelect(e: Event): void {
+    const v = (e.currentTarget as HTMLSelectElement).value;
+    if (!v) {
+      fontId = null;
+      return;
+    }
+    applyFontToLastLabel(v as DrawFontId);
+  }
+
+  const selectedFont = $derived(fontId ? drawFontById(fontId) : null);
+
   function clearLabel(): void {
     labelText = '';
     fontId = null;
@@ -522,13 +536,21 @@
     busy = true;
     error = '';
     try {
-      const blob = await encodeDrawingGif({
-        strokes,
-        paperId,
-        mirror,
-        backgroundImage,
-        quality: 'preview'
-      });
+      const blob =
+        exportFormat === 'png'
+          ? await encodeDrawingPng({
+              strokes,
+              paperId,
+              mirror,
+              backgroundImage
+            })
+          : await encodeDrawingGif({
+              strokes,
+              paperId,
+              mirror,
+              backgroundImage,
+              quality: 'preview'
+            });
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       previewBlob = blob;
       previewUrl = URL.createObjectURL(blob);
@@ -550,14 +572,22 @@
     busy = true;
     error = '';
     try {
-      // Re-encode at upload quality (and tighten further if still large).
-      const uploadBlob = await encodeDrawingGifForUpload({
-        strokes,
-        paperId,
-        mirror,
-        backgroundImage
-      });
-      const uploaded = await uploadDrawingGif(uploadBlob, pubkey);
+      const uploadBlob =
+        exportFormat === 'png'
+          ? await encodeDrawingPng({
+              strokes,
+              paperId,
+              mirror,
+              backgroundImage
+            })
+          : await encodeDrawingGifForUpload({
+              strokes,
+              paperId,
+              mirror,
+              backgroundImage
+            });
+      const mime = exportFormat === 'png' ? 'image/png' : 'image/gif';
+      const uploaded = await uploadDrawingImage(uploadBlob, pubkey, mime);
       onComplete?.({
         url: uploaded.url,
         imeta: uploaded.imeta,
@@ -613,196 +643,237 @@
 
       <div class="draw-body">
       {#if step === 'draw'}
-        <div class="draw-tools" role="toolbar" aria-label="Drawing tools">
-          <div class="tool-group" aria-label="Freehand">
-            {#each FREEHAND_TOOLS as t}
-              <button
-                type="button"
-                class="tool"
-                class:active={tool === t}
-                onclick={() => selectTool(t)}>{t}</button
-              >
-            {/each}
-          </div>
-          <div class="tool-group" aria-label="Shapes">
-            {#each SHAPE_TOOLS as t}
-              <button
-                type="button"
-                class="tool"
-                class:active={tool === t}
-                onclick={() => selectTool(t)}>{t}</button
-              >
-            {/each}
-          </div>
-          <div class="tool-group" aria-label="Label">
-            {#each LABEL_TOOLS as t}
-              <button
-                type="button"
-                class="tool"
-                class:active={tool === t}
-                onclick={() => selectTool(t)}>{t}</button
-              >
-            {/each}
-          </div>
-          <div class="tool-group inks" aria-label="Ink colors">
-            {#each INK_PALETTE as ink}
-              <button
-                type="button"
-                class="ink"
-                class:active={color === ink}
-                style:background={ink}
-                aria-label={`Ink ${ink}`}
-                onclick={() => (color = ink)}
-              ></button>
-            {/each}
-          </div>
-          <label class="size">
-            {isTextTool(tool) ? 'Font size' : 'Size'}
-            {#if isTextTool(tool)}
-              <input
-                type="range"
-                min="10"
-                max="120"
-                bind:value={width}
-                oninput={onFontSizeInput}
-              />
-              <span class="size-val muted">{Math.round(width)}</span>
-            {:else}
-              <input type="range" min="1" max="28" bind:value={width} />
-            {/if}
-          </label>
-          <label class="mirror">
-            <input type="checkbox" bind:checked={mirror} />
-            Mirror
-          </label>
-        </div>
-
-        {#if isTextTool(tool)}
-          <div class="text-row">
-            <div class="text-label">
-              <span>Label</span>
-              <div class="text-input-row">
-                <input
-                  type="text"
-                  bind:value={labelText}
-                  placeholder="Type text, then drag to place…"
-                  disabled={busy}
-                  aria-label="Label text"
-                />
-                <button
-                  class="btn text-clear"
-                  type="button"
-                  disabled={busy || (!labelText && !fontId)}
-                  onclick={clearLabel}
-                  title="Clear label and font"
-                  aria-label="Clear label and font"
-                  >Clear label</button
-                >
+        <div class="draw-layout">
+          <aside class="draw-chrome">
+            <section class="chrome-section" aria-label="Tools">
+              <h3 class="chrome-heading">Tools</h3>
+              <div class="draw-tools" role="toolbar" aria-label="Drawing tools">
+                <div class="tool-group" aria-label="Freehand">
+                  {#each FREEHAND_TOOLS as t}
+                    <button
+                      type="button"
+                      class="tool"
+                      class:active={tool === t}
+                      onclick={() => selectTool(t)}>{t}</button
+                    >
+                  {/each}
+                </div>
+                <div class="tool-group" aria-label="Shapes">
+                  {#each SHAPE_TOOLS as t}
+                    <button
+                      type="button"
+                      class="tool"
+                      class:active={tool === t}
+                      onclick={() => selectTool(t)}>{t}</button
+                    >
+                  {/each}
+                </div>
+                <div class="tool-group" aria-label="Label tool">
+                  {#each LABEL_TOOLS as t}
+                    <button
+                      type="button"
+                      class="tool"
+                      class:active={tool === t}
+                      onclick={() => selectTool(t)}>{t}</button
+                    >
+                  {/each}
+                </div>
               </div>
-            </div>
-            <div class="font-label">
-              <span>Font</span>
-              <div class="font-picker" role="listbox" aria-label="Label font">
-                {#each DRAW_FONTS as f (f.id)}
+            </section>
+
+            <section class="chrome-section" aria-label="Stroke">
+              <h3 class="chrome-heading">Stroke</h3>
+              <div class="stroke-row">
+                <div class="tool-group inks" role="group" aria-label="Ink colors">
+                  {#each INK_PALETTE as ink}
+                    <button
+                      type="button"
+                      class="ink"
+                      class:active={color === ink}
+                      style:background={ink}
+                      aria-label={`Ink ${ink}`}
+                      onclick={() => (color = ink)}
+                    ></button>
+                  {/each}
+                </div>
+                <label class="size">
+                  {isTextTool(tool) ? 'Font size' : 'Size'}
+                  {#if isTextTool(tool)}
+                    <input
+                      type="range"
+                      min="10"
+                      max="120"
+                      bind:value={width}
+                      oninput={onFontSizeInput}
+                    />
+                    <span class="size-val muted">{Math.round(width)}</span>
+                  {:else}
+                    <input type="range" min="1" max="28" bind:value={width} />
+                  {/if}
+                </label>
+                <label class="mirror">
+                  <input type="checkbox" bind:checked={mirror} />
+                  Mirror
+                </label>
+              </div>
+            </section>
+
+            {#if isTextTool(tool)}
+              <section class="chrome-section text-row" aria-label="Label">
+                <h3 class="chrome-heading">Label</h3>
+                <div class="text-label">
+                  <span class="field-label">Text</span>
+                  <div class="text-input-row">
+                    <input
+                      type="text"
+                      bind:value={labelText}
+                      placeholder="Type text, then drag to place…"
+                      disabled={busy}
+                      aria-label="Label text"
+                    />
+                    <button
+                      class="btn text-clear"
+                      type="button"
+                      disabled={busy || (!labelText && !fontId)}
+                      onclick={clearLabel}
+                      title="Clear label and font"
+                      aria-label="Clear label and font"
+                      >Clear</button
+                    >
+                  </div>
+                </div>
+                <label class="font-label">
+                  <span class="field-label">Font</span>
+                  <select
+                    class="font-select"
+                    disabled={busy}
+                    value={fontId ?? ''}
+                    aria-label="Label font"
+                    style:font-family={selectedFont?.family}
+                    style:font-style={selectedFont?.style ?? 'normal'}
+                    style:font-weight={String(selectedFont?.weight ?? 'normal')}
+                    onchange={onFontSelect}
+                  >
+                    <option value="">Choose font…</option>
+                    {#each DRAW_FONTS as f (f.id)}
+                      <option
+                        value={f.id}
+                        style:font-family={f.family}
+                        style:font-style={f.style ?? 'normal'}
+                        style:font-weight={String(f.weight ?? 'normal')}
+                        >{f.label}</option
+                      >
+                    {/each}
+                  </select>
+                </label>
+                <p class="text-hint muted">
+                  Type a label, pick a font, then drag on the canvas to place and size it.
+                </p>
+              </section>
+            {/if}
+
+            <section class="chrome-section" aria-label="Surface">
+              <h3 class="chrome-heading">Surface</h3>
+              <div class="papers" role="listbox" aria-label="Paper">
+                {#each PAPERS as p}
                   <button
                     type="button"
-                    class="font-choice"
-                    class:active={fontId === f.id}
-                    role="option"
-                    aria-selected={fontId === f.id}
-                    disabled={busy}
-                    style:font-family={f.family}
-                    style:font-style={f.style ?? 'normal'}
-                    style:font-weight={String(f.weight ?? 'normal')}
-                    onclick={() => applyFontToLastLabel(f.id)}
-                    >{f.label}</button
+                    class="paper"
+                    class:active={paperId === p.id && !backgroundImage}
+                    style:background={p.background}
+                    style:color={p.defaultInk}
+                    onclick={() => {
+                      paperId = p.id;
+                      color = p.defaultInk;
+                      clearBackground();
+                    }}>{p.label}</button
                   >
                 {/each}
               </div>
+              <div class="bg-row">
+                <input
+                  bind:this={bgFileInput}
+                  class="bg-file"
+                  type="file"
+                  accept="image/*"
+                  disabled={busy}
+                  onchange={(e) => void onBackgroundFile(e)}
+                />
+                <button
+                  class="btn"
+                  type="button"
+                  disabled={busy}
+                  onclick={() => bgFileInput?.click()}
+                  >{backgroundImage ? 'Change background…' : 'Background image…'}</button
+                >
+                {#if backgroundImage}
+                  <span class="bg-name muted" title={backgroundName}>{backgroundName || 'Image'}</span>
+                  <button class="btn" type="button" disabled={busy} onclick={() => clearBackground()}
+                    >Clear background</button
+                  >
+                {/if}
+              </div>
+            </section>
+          </aside>
+
+          <div class="draw-stage">
+            <div class="canvas-wrap">
+              <canvas
+                bind:this={canvasEl}
+                class="draw-canvas"
+                width={W}
+                height={H}
+                onpointerdown={onPointerDown}
+                onpointermove={onPointerMove}
+                onpointerup={endStroke}
+                onpointercancel={endStroke}
+              ></canvas>
             </div>
-            <p class="text-hint muted">
-              Type a label, pick a font, then drag on the canvas to place and size it.
-            </p>
           </div>
-        {/if}
 
-        <div class="papers" role="listbox" aria-label="Paper">
-          {#each PAPERS as p}
+          <div class="draw-actions">
+            <button class="btn" type="button" onclick={undo} disabled={!strokes.length || busy}
+              >Undo</button
+            >
+            <button class="btn" type="button" onclick={redo} disabled={!redoStack.length || busy}
+              >Redo</button
+            >
+            <button class="btn" type="button" onclick={clearAll} disabled={!strokes.length || busy}
+              >Clear</button
+            >
+            <div class="export-format" role="group" aria-label="Export format">
+              <button
+                type="button"
+                class="tool"
+                class:active={exportFormat === 'png'}
+                disabled={busy}
+                onclick={() => (exportFormat = 'png')}>PNG</button
+              >
+              <button
+                type="button"
+                class="tool"
+                class:active={exportFormat === 'gif'}
+                disabled={busy}
+                onclick={() => (exportFormat = 'gif')}>GIF</button
+              >
+            </div>
             <button
+              class="btn btn-primary"
               type="button"
-              class="paper"
-              class:active={paperId === p.id && !backgroundImage}
-              style:background={p.background}
-              style:color={p.defaultInk}
-              onclick={() => {
-                paperId = p.id;
-                color = p.defaultInk;
-                clearBackground();
-              }}>{p.label}</button
+              onclick={() => void goPreview()}
+              disabled={(!strokes.length && !backgroundImage) || busy}
+              >{busy ? 'Encoding…' : exportFormat === 'png' ? 'Preview PNG' : 'Preview GIF'}</button
             >
-          {/each}
-        </div>
-
-        <div class="bg-row">
-          <input
-            bind:this={bgFileInput}
-            class="bg-file"
-            type="file"
-            accept="image/*"
-            disabled={busy}
-            onchange={(e) => void onBackgroundFile(e)}
-          />
-          <button
-            class="btn"
-            type="button"
-            disabled={busy}
-            onclick={() => bgFileInput?.click()}
-            >{backgroundImage ? 'Change background…' : 'Background image…'}</button
-          >
-          {#if backgroundImage}
-            <span class="bg-name muted" title={backgroundName}>{backgroundName || 'Image'}</span>
-            <button class="btn" type="button" disabled={busy} onclick={() => clearBackground()}
-              >Clear background</button
-            >
-          {/if}
-        </div>
-
-        <div class="canvas-wrap">
-          <canvas
-            bind:this={canvasEl}
-            class="draw-canvas"
-            width={W}
-            height={H}
-            onpointerdown={onPointerDown}
-            onpointermove={onPointerMove}
-            onpointerup={endStroke}
-            onpointercancel={endStroke}
-          ></canvas>
-        </div>
-
-        <div class="draw-actions">
-          <button class="btn" type="button" onclick={undo} disabled={!strokes.length || busy}
-            >Undo</button
-          >
-          <button class="btn" type="button" onclick={redo} disabled={!redoStack.length || busy}
-            >Redo</button
-          >
-          <button class="btn" type="button" onclick={clearAll} disabled={!strokes.length || busy}
-            >Clear</button
-          >
-          <button
-            class="btn btn-primary"
-            type="button"
-            onclick={() => void goPreview()}
-            disabled={(!strokes.length && !backgroundImage) || busy}
-            >{busy ? 'Encoding…' : 'Preview GIF'}</button
-          >
+          </div>
         </div>
       {:else}
         <div class="preview-pane">
           {#if previewUrl}
             <img src={previewUrl} alt="" class="preview-gif" />
           {/if}
+          <p class="export-format-hint muted">
+            {exportFormat === 'png' ? 'Static PNG' : 'Animated GIF'}
+          </p>
           <label class="alt">
             Alt text
             <input type="text" bind:value={altText} placeholder="Hand-drawn sketch" disabled={busy} />
@@ -845,8 +916,8 @@
     place-items: stretch;
   }
   .draw-sheet {
-    width: min(36rem, 100%);
-    max-height: min(96dvh, 56rem);
+    width: min(40rem, 100%);
+    max-height: min(96dvh, 58rem);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -854,7 +925,7 @@
     color: var(--text, var(--ink));
     border: 1px solid var(--border, var(--rule));
     border-radius: 0.55rem;
-    padding: 0.85rem 1rem 1.1rem;
+    padding: 0.65rem 0.75rem 0.75rem;
     box-shadow: var(--shadow-soft, 0 0.6rem 2rem rgb(0 0 0 / 28%));
   }
   .draw-sheet.full {
@@ -865,7 +936,7 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    padding: 0.65rem 0.85rem 0.85rem;
+    padding: 0.4rem 0.5rem 0.4rem;
   }
   .draw-body {
     flex: 1 1 auto;
@@ -874,47 +945,94 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
+  .draw-layout {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    gap: 0.35rem;
+  }
+  .draw-chrome {
+    grid-row: 1;
+    min-width: 0;
+  }
+  .draw-stage {
+    grid-row: 2;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .draw-layout > .draw-actions {
+    grid-row: 3;
+  }
   .draw-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.65rem;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
     flex-shrink: 0;
   }
   .draw-head-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 0.3rem;
     justify-content: flex-end;
   }
   .draw-head h2 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: 1rem;
     color: var(--text, var(--ink));
   }
-  .draw-tools {
+  .draw-sheet.full .draw-head h2 {
+    font-size: 0.95rem;
+  }
+  .chrome-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-bottom: 0.45rem;
+  }
+  .chrome-section:last-child {
+    margin-bottom: 0;
+  }
+  .chrome-heading {
+    margin: 0;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--text, var(--ink)) 62%, transparent);
+  }
+  .draw-tools,
+  .stroke-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.55rem 0.85rem;
+    gap: 0.3rem 0.5rem;
     align-items: center;
-    margin-bottom: 0.55rem;
     flex-shrink: 0;
   }
   .tool-group {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.3rem;
+    gap: 0.2rem;
+  }
+  .field-label {
+    font-size: 0.7rem;
+    color: var(--text, var(--ink));
   }
   .tool {
     border: 1px solid color-mix(in srgb, var(--border, var(--rule)) 80%, var(--accent));
     background: color-mix(in srgb, var(--surface-2, var(--paper-dark)) 40%, var(--surface, var(--paper-light)));
     color: var(--text, var(--ink));
-    border-radius: 0.35rem;
-    padding: 0.25rem 0.55rem;
+    border-radius: 0.3rem;
+    padding: 0.12rem 0.38rem;
     text-transform: capitalize;
     cursor: pointer;
     font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.25;
   }
   .tool:hover {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border, var(--rule)));
@@ -927,8 +1045,8 @@
     font-weight: 600;
   }
   .ink {
-    width: 1.35rem;
-    height: 1.35rem;
+    width: 1.05rem;
+    height: 1.05rem;
     border-radius: 999px;
     border: 2px solid transparent;
     cursor: pointer;
@@ -943,9 +1061,13 @@
   .alt {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.85rem;
+    gap: 0.3rem;
+    font-size: 0.75rem;
     color: var(--text, var(--ink));
+  }
+  .size input[type='range'] {
+    width: 5.5rem;
+    max-width: 100%;
   }
   .alt {
     flex-direction: column;
@@ -963,17 +1085,20 @@
   .papers {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-bottom: 0.45rem;
+    gap: 0.22rem;
     flex-shrink: 0;
   }
   .bg-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.4rem;
-    margin-bottom: 0.55rem;
+    gap: 0.3rem;
     flex-shrink: 0;
+  }
+  .bg-row .btn,
+  .draw-chrome .btn {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.45rem;
   }
   .bg-file {
     position: absolute;
@@ -983,94 +1108,75 @@
     pointer-events: none;
   }
   .bg-name {
-    font-size: 0.8rem;
-    max-width: 12rem;
+    font-size: 0.72rem;
+    max-width: 10rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .size-val {
-    min-width: 1.75rem;
-    font-size: 0.8rem;
+    min-width: 1.5rem;
+    font-size: 0.72rem;
   }
   .text-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0.55rem 0.75rem;
-    margin-bottom: 0.55rem;
     flex-shrink: 0;
   }
   .text-label,
   .font-label {
     display: grid;
-    gap: 0.2rem;
-    font-size: 0.82rem;
+    gap: 0.15rem;
+    font-size: 0.72rem;
     color: var(--text, var(--ink));
   }
   .text-label {
-    flex: 1 1 14rem;
-    min-width: 10rem;
-    max-width: 26rem;
+    min-width: 0;
   }
   .text-input-row {
     display: flex;
     align-items: stretch;
-    gap: 0.35rem;
+    gap: 0.3rem;
   }
   .text-input-row input {
     flex: 1 1 auto;
     min-width: 0;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.4rem;
   }
   .text-clear {
     flex-shrink: 0;
     white-space: nowrap;
   }
   .font-label {
-    flex: 1 1 16rem;
-    min-width: 12rem;
+    min-width: 0;
   }
-  .text-label input {
+  .text-label input,
+  .font-select {
     font: inherit;
     color: var(--text, var(--ink));
     background: var(--surface-2, var(--paper-dark));
     border: 1px solid var(--border, var(--rule));
-    border-radius: 0.35rem;
-    padding: 0.35rem 0.5rem;
+    border-radius: 0.3rem;
+    padding: 0.25rem 0.4rem;
   }
-  .font-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-  .font-choice {
-    border: 1px solid color-mix(in srgb, var(--border, var(--rule)) 80%, var(--accent));
-    background: var(--surface-2, var(--paper-dark));
-    color: var(--text, var(--ink));
-    border-radius: 0.35rem;
-    padding: 0.3rem 0.55rem;
-    font-size: 0.95rem;
-    line-height: 1.2;
+  .font-select {
+    width: 100%;
+    max-width: 16rem;
+    font-size: 0.85rem;
     cursor: pointer;
   }
-  .font-choice:hover:not(:disabled) {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border, var(--rule)));
-  }
-  .font-choice.active {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, var(--surface, var(--paper-light)));
+  .font-select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
   .text-hint {
-    flex: 1 1 100%;
     margin: 0;
-    font-size: 0.78rem;
+    font-size: 0.7rem;
   }
   .paper {
     border: 1px solid color-mix(in srgb, var(--border, var(--rule)) 70%, transparent);
-    border-radius: 0.35rem;
-    padding: 0.3rem 0.55rem;
-    font-size: 0.78rem;
+    border-radius: 0.3rem;
+    padding: 0.15rem 0.38rem;
+    font-size: 0.68rem;
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -1086,13 +1192,15 @@
     place-items: center;
     background: color-mix(in srgb, var(--surface-2, var(--paper-dark)) 70%, transparent);
     border: 1px solid color-mix(in srgb, var(--border, var(--rule)) 55%, transparent);
-    border-radius: 0.4rem;
-    padding: 0.4rem;
+    border-radius: 0.35rem;
+    padding: 0.25rem;
     touch-action: none;
+    min-height: 0;
+    flex: 1 1 auto;
   }
   .draw-canvas {
     /* Cap by width and height so short viewports shrink the board, not clip chrome. */
-    width: min(100%, 22rem, calc(min(52dvh, 36rem) * 540 / 675));
+    width: min(100%, 26rem, calc(min(58dvh, 40rem) * 540 / 675));
     height: auto;
     aspect-ratio: 540 / 675;
     border-radius: 0.25rem;
@@ -1100,22 +1208,28 @@
     touch-action: none;
     box-shadow: 0 0.15rem 0.5rem rgb(0 0 0 / 12%);
   }
-  .draw-sheet.full .draw-canvas {
-    width: min(100%, 36rem, calc(min(58dvh, 42rem) * 540 / 675));
-  }
   .draw-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.7rem;
-    position: sticky;
-    bottom: 0;
-    padding: 0.45rem 0 0.1rem;
-    background: linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--surface, var(--paper-light, var(--paper))) 0%, transparent),
-      var(--surface, var(--paper-light, var(--paper))) 28%
-    );
+    gap: 0.35rem;
+    margin-top: 0;
+    padding: 0.35rem 0 0;
+    flex-shrink: 0;
+    background: var(--surface, var(--paper-light, var(--paper)));
+    align-items: center;
+  }
+  .draw-actions .btn {
+    font-size: 0.78rem;
+    padding: 0.28rem 0.55rem;
+  }
+  .export-format {
+    display: inline-flex;
+    gap: 0.2rem;
+    margin-left: auto;
+  }
+  .export-format-hint {
+    margin: 0;
+    font-size: 0.75rem;
   }
   .preview-pane {
     display: grid;
@@ -1123,27 +1237,92 @@
     justify-items: center;
   }
   .preview-gif {
-    max-width: min(100%, 22rem);
-    max-height: min(52dvh, 36rem);
+    max-width: min(100%, 26rem);
+    max-height: min(58dvh, 40rem);
     border-radius: 0.3rem;
     box-shadow: 0 0.15rem 0.5rem rgb(0 0 0 / 12%);
   }
-  .draw-sheet.full .preview-gif {
-    max-width: min(100%, 36rem);
-    max-height: min(58dvh, 42rem);
+  /* Full-screen: fill remaining height; footer stays at the bottom of the sheet. */
+  .draw-sheet.full .draw-body {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
-  @media (max-width: 520px), (max-height: 700px) {
-    .draw-canvas,
-    .draw-sheet.full .draw-canvas {
-      width: min(100%, 20rem, calc(min(42dvh, 28rem) * 540 / 675));
+  .draw-sheet.full .draw-layout {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+  }
+  .draw-sheet.full .draw-chrome {
+    max-height: min(30dvh, 12rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .draw-sheet.full .canvas-wrap {
+    height: 100%;
+    container-type: size;
+  }
+  .draw-sheet.full .draw-canvas {
+    width: min(100cqw, calc(100cqh * 540 / 675));
+    max-height: 100cqh;
+  }
+  .draw-sheet.full .draw-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding: 0.3rem 0 0.05rem;
+    box-shadow: 0 -0.4rem 0.6rem var(--surface, var(--paper-light, var(--paper)));
+  }
+  .draw-sheet.full .preview-gif {
+    max-width: min(100%, 48rem);
+    max-height: min(82dvh, 56rem);
+  }
+  /* Wide full-screen: compact left rail, paper takes the rest. */
+  @media (min-width: 900px) {
+    .draw-sheet.full .draw-layout {
+      grid-template-columns: minmax(10rem, 12rem) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 0.4rem 0.65rem;
     }
-    .text-label {
+    .draw-sheet.full .draw-chrome {
+      grid-row: 1 / -1;
+      grid-column: 1;
+      max-height: none;
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      padding-right: 0.15rem;
+    }
+    .draw-sheet.full .chrome-section {
+      margin-bottom: 0;
+    }
+    .draw-sheet.full .draw-stage {
+      grid-row: 1;
+      grid-column: 2;
+    }
+    .draw-sheet.full .draw-layout > .draw-actions {
+      grid-row: 2;
+      grid-column: 2;
+      position: static;
+      box-shadow: none;
+    }
+    .draw-sheet.full .draw-tools,
+    .draw-sheet.full .stroke-row {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.3rem;
+    }
+    .draw-sheet.full .size {
+      flex-wrap: wrap;
+    }
+    .draw-sheet.full .size input[type='range'] {
+      flex: 1 1 100%;
+      width: 100%;
+    }
+    .draw-sheet.full .font-select {
       max-width: none;
-      flex: 1 1 100%;
-    }
-    .font-label {
-      flex: 1 1 100%;
-      min-width: 0;
     }
   }
   .draw-error {

@@ -27,6 +27,14 @@ describe('ink-margin', () => {
     expect(chips[0]?.gifUrl).toContain('.gif');
   });
 
+  it('detects quote + static png ink', () => {
+    const ink = ev({
+      content: '> Hello world\n\nhttps://cdn.example.com/sketch.png'
+    });
+    expect(isInkMarginComment(ink)).toBe(true);
+    expect(inkMarginChipsFromEvents([ink])[0]?.gifUrl).toContain('.png');
+  });
+
   it('finds quotes in haystacks', () => {
     expect(findQuoteOffset('aaa Hello world bbb', 'Hello world')).toBe(4);
     expect(findQuoteOffset('aaa', 'zzz')).toBe(-1);

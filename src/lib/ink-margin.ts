@@ -1,18 +1,21 @@
 import type { Event } from 'nostr-tools';
 
-const GIF_URL = /https?:\/\/[^\s<>"']+\.gif(?:\?[^\s<>"']*)?/i;
+/** Drawing image in a comment body (animated GIF or static PNG/JPEG/WebP). */
+const INK_IMAGE_URL =
+  /https?:\/\/[^\s<>"']+\.(?:gif|png|jpe?g|webp)(?:\?[^\s<>"']*)?/i;
 const QUOTE_LINE = /^>\s?(.*)$/gm;
 
-/** True when a comment looks like an ink note (quoted passage + GIF URL). */
+/** True when a comment looks like an ink note (quoted passage + drawing image URL). */
 export function isInkMarginComment(event: Event): boolean {
   const content = event.content ?? '';
-  if (!GIF_URL.test(content)) return false;
+  if (!INK_IMAGE_URL.test(content)) return false;
   return /^>/m.test(content.trim());
 }
 
 export type InkMarginChip = {
   eventId: string;
   quote: string;
+  /** Drawing image URL (GIF, PNG, …). */
   gifUrl: string;
   pubkey: string;
 };
@@ -22,8 +25,8 @@ export function inkMarginChipsFromEvents(events: readonly Event[]): InkMarginChi
   const out: InkMarginChip[] = [];
   for (const event of events) {
     if (!isInkMarginComment(event)) continue;
-    const gif = event.content.match(GIF_URL)?.[0];
-    if (!gif) continue;
+    const image = event.content.match(INK_IMAGE_URL)?.[0];
+    if (!image) continue;
     const quotes: string[] = [];
     QUOTE_LINE.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -35,7 +38,7 @@ export function inkMarginChipsFromEvents(events: readonly Event[]): InkMarginChi
     out.push({
       eventId: event.id,
       quote,
-      gifUrl: gif,
+      gifUrl: image,
       pubkey: event.pubkey
     });
   }

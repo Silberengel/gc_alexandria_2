@@ -9,6 +9,8 @@ export {
   type DrawBackgroundImage
 } from './paint';
 export { encodeDrawingGif, encodeDrawingGifForUpload } from './encode-gif';
+export { encodeDrawingPng } from './encode-static';
+export type { EncodeDrawingPngOpts } from './encode-static';
 export {
   UPLOAD_GIF_MAX_BYTES,
   BACKGROUND_MAX_EDGE,

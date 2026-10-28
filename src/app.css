@@ -3421,6 +3421,117 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   box-shadow: none;
 }
 
+/* Wide reading: notes gutter (rails are absolutely placed — no floats). */
+@media (min-width: 1100px) {
+  :root {
+    --hl-margin: 8rem;
+  }
+  .reader-layout .reading-sheet {
+    max-width: min(calc(var(--max-read) + var(--hl-margin) + 3.5rem), 100%);
+  }
+  .reader-layout .reading-content,
+  .reader-layout .reader-section.reading-content {
+    position: relative;
+    max-width: min(calc(var(--max-read) + var(--hl-margin)), 100%);
+    padding-right: var(--hl-margin);
+    box-sizing: border-box;
+  }
+  article.card.reading-body,
+  .card.reading-width {
+    max-width: min(calc(var(--max-read) + var(--hl-margin)), 100%);
+    box-sizing: border-box;
+  }
+  article.card.reading-body {
+    position: relative;
+    padding-right: var(--hl-margin);
+    overflow: visible;
+  }
+  /* Let absolute rails position against the reading column, not the mark box. */
+  .reading-body mark.text-highlight:has(.text-highlight-margin),
+  .reader-section mark.text-highlight:has(.text-highlight-margin),
+  .reading-content mark.text-highlight:has(.text-highlight-margin) {
+    position: static;
+  }
+  .reading-body .text-highlight-margin.is-margin-placed,
+  .reader-section .text-highlight-margin.is-margin-placed,
+  .reading-content .text-highlight-margin.is-margin-placed {
+    position: absolute;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    width: max-content;
+    max-width: calc(var(--hl-margin) - 0.75rem);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: auto;
+  }
+  .reading-body .text-highlight-margin.is-margin-placed:has(.text-highlight-note),
+  .reader-section .text-highlight-margin.is-margin-placed:has(.text-highlight-note),
+  .reading-content .text-highlight-margin.is-margin-placed:has(.text-highlight-note) {
+    width: calc(var(--hl-margin) - 0.75rem);
+    padding: 0.35rem 0.4rem;
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--surface, var(--paper-light, var(--paper))) 92%, var(--accent));
+    border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 12%, transparent);
+    box-shadow: 0 0.12rem 0.4rem rgb(0 0 0 / 8%);
+    align-items: stretch;
+  }
+  .reading-body .is-margin-placed .text-highlight-note-btn,
+  .reader-section .is-margin-placed .text-highlight-note-btn,
+  .reading-content .is-margin-placed .text-highlight-note-btn {
+    display: none;
+  }
+  .reading-body .is-margin-placed .text-highlight-note-preview,
+  .reader-section .is-margin-placed .text-highlight-note-preview,
+  .reading-content .is-margin-placed .text-highlight-note-preview {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 8;
+    line-clamp: 8;
+    overflow: hidden;
+    width: 100%;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--text, var(--ink));
+    text-wrap: pretty;
+  }
+  .reading-body .is-margin-placed .text-highlight-ink,
+  .reader-section .is-margin-placed .text-highlight-ink,
+  .reading-content .is-margin-placed .text-highlight-ink {
+    position: relative;
+    display: block;
+    width: 6.5rem;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 540 / 675;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    box-shadow: 0 0.12rem 0.4rem rgb(0 0 0 / 16%);
+    overflow: hidden;
+  }
+  .reading-body .is-margin-placed:has(.text-highlight-note) .text-highlight-ink,
+  .reader-section .is-margin-placed:has(.text-highlight-note) .text-highlight-ink,
+  .reading-content .is-margin-placed:has(.text-highlight-note) .text-highlight-ink {
+    width: 100%;
+  }
+  .reading-body .is-margin-placed .text-highlight-ink img,
+  .reader-section .is-margin-placed .text-highlight-ink img,
+  .reading-content .is-margin-placed .text-highlight-ink img {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: center !important;
+  }
+}
+
 /* Phone: drop stacked gutters so the book text can use most of the screen. */
 @media (max-width: 639px) {
   .shell.reading-page {
@@ -7582,38 +7693,6 @@ a.embed-event-line:focus-visible {
   -webkit-user-select: text;
 }
 
-.ink-margin-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin: 0.4rem 0 0.55rem;
-}
-.ink-margin-chip {
-  display: grid;
-  grid-template-columns: 3.2rem 1fr;
-  gap: 0.4rem;
-  align-items: center;
-  max-width: 16rem;
-  padding: 0.3rem;
-  border-radius: 0.35rem;
-  text-decoration: none;
-  color: inherit;
-  background: color-mix(in srgb, var(--paper, #f7f2e8) 85%, #fff3a0);
-  border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 12%, transparent);
-}
-.ink-margin-chip img {
-  width: 3.2rem;
-  height: 3.2rem;
-  object-fit: cover;
-  border-radius: 0.25rem;
-}
-.ink-margin-quote {
-  font-size: 0.75rem;
-  line-height: 1.3;
-  max-height: 3.2em;
-  overflow: hidden;
-}
-
 .reader-sel-host:not(.sheet) {
   position: sticky;
   bottom: 0.75rem;
@@ -7628,9 +7707,7 @@ a.embed-event-line:focus-visible {
 .reader-sel-host:not(.sheet) .sel-tray {
   pointer-events: auto;
 }
-.reader-sel-host.sheet {
-  /* tray is position:fixed inside SelectionActionTray */
-}
+/* .reader-sel-host.sheet: tray is position:fixed inside SelectionActionTray */
 
 .reader-mini-dialog {
   position: fixed;
@@ -8014,12 +8091,31 @@ mark.text-highlight.highlight-flash,
   outline-offset: 1px;
   text-decoration: none;
 }
+.text-highlight-margin {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28em;
+  vertical-align: text-bottom;
+  margin-left: 0.28em;
+  z-index: 2;
+}
 .text-highlight-note {
   position: relative;
   display: inline-flex;
   vertical-align: text-bottom;
-  margin-left: 0.28em;
   z-index: 2;
+}
+.text-highlight-note-preview {
+  display: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 .text-highlight-note-btn {
   display: inline-flex;
@@ -8138,7 +8234,6 @@ mark.text-highlight.highlight-flash,
 .text-highlight-ink {
   display: inline-flex;
   vertical-align: text-bottom;
-  margin-left: 0.3em;
   width: 2.1em;
   height: 2.1em;
   border-radius: 0.3em;
@@ -8154,6 +8249,7 @@ mark.text-highlight.highlight-flash,
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 1px;
 }
+
 .event-body .text-highlight-ink img,
 .reading-body .text-highlight-ink img,
 .reader-section .text-highlight-ink img,
@@ -10031,6 +10127,13 @@ a.user-status-line:hover {
   background: transparent;
   cursor: zoom-in;
   border-radius: 0.35rem;
+}
+/* Keep drawing / media embeds centered in the comment column (match prose img). */
+.thread-body .event-imeta-btn,
+.thread-list .event-imeta-btn,
+.thread-body .picture-gallery-btn,
+.thread-list .picture-gallery-btn {
+  margin-inline: auto;
 }
 .event-imeta-btn:focus-visible,
 .picture-gallery-btn:focus-visible {

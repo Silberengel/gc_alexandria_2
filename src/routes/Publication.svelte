@@ -4262,21 +4262,6 @@
                 </div>
                 {/if}
                 {#if sectionCommentsOpen[sectionKey] && !(event && section.id === event.id)}
-                  {@const inkChips = inkMarginChipsFromEvents(
-                    sectionComments[sectionKey] ??
-                      sectionResponses[sectionKey]?.thread ??
-                      []
-                  )}
-                  {#if inkChips.length}
-                    <aside class="ink-margin-strip" aria-label="Ink notes in the margin">
-                      {#each inkChips as chip (chip.eventId)}
-                        <a class="ink-margin-chip" href={`#/feed?thread=${chip.eventId}`} title={chip.quote}>
-                          <img src={chip.gifUrl} alt="" loading="lazy" decoding="async" />
-                          <span class="ink-margin-quote muted">{chip.quote}</span>
-                        </a>
-                      {/each}
-                    </aside>
-                  {/if}
                   <div class="section-comments">
                     <WorkCommentsPanel
                       target={section}

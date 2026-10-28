@@ -120,6 +120,17 @@ function noteIconSvg(): SVGSVGElement {
   return svg;
 }
 
+/** Shared rail for note + ink chips (inline on narrow, margin on wide reading views). */
+function ensureMarginRail(mark: HTMLElement): HTMLElement {
+  let rail = mark.querySelector<HTMLElement>(':scope > .text-highlight-margin');
+  if (!rail) {
+    rail = document.createElement('span');
+    rail.className = 'text-highlight-margin';
+    mark.appendChild(rail);
+  }
+  return rail;
+}
+
 function attachNoteChip(mark: HTMLElement, cleanups: Array<() => void>): void {
   if (mark.querySelector('.text-highlight-note')) return;
   const note = mark.getAttribute('data-highlight-note')?.trim() ?? '';
@@ -139,6 +150,12 @@ function attachNoteChip(mark: HTMLElement, cleanups: Array<() => void>): void {
   btn.setAttribute('aria-expanded', 'false');
   btn.setAttribute('aria-haspopup', 'dialog');
   btn.appendChild(noteIconSvg());
+
+  const preview = document.createElement('button');
+  preview.type = 'button';
+  preview.className = 'text-highlight-note-preview';
+  preview.setAttribute('aria-label', 'Show highlight note');
+  preview.textContent = note;
 
   const pop = document.createElement('div');
   pop.className = 'text-highlight-note-pop';
@@ -178,9 +195,10 @@ function attachNoteChip(mark: HTMLElement, cleanups: Array<() => void>): void {
   }
 
   chip.appendChild(btn);
+  chip.appendChild(preview);
   // Keep popover in the chip tree for fallback; showPopover still top-layers it.
   chip.appendChild(pop);
-  mark.appendChild(chip);
+  ensureMarginRail(mark).appendChild(chip);
 
   let open = false;
   let mounted = false;
@@ -206,7 +224,11 @@ function attachNoteChip(mark: HTMLElement, cleanups: Array<() => void>): void {
   };
 
   const placePop = () => {
-    const rect = btn.getBoundingClientRect();
+    const anchor =
+      preview.offsetParent !== null && getComputedStyle(preview).display !== 'none'
+        ? preview
+        : btn;
+    const rect = (anchor.offsetParent !== null ? anchor : chip).getBoundingClientRect();
     const margin = 8;
     const maxW = Math.min(352, window.innerWidth - margin * 2);
     pop.style.width = `${maxW}px`;
@@ -282,12 +304,14 @@ function attachNoteChip(mark: HTMLElement, cleanups: Array<() => void>): void {
   };
 
   btn.addEventListener('click', onToggleClick);
+  preview.addEventListener('click', onToggleClick);
   closeBtn.addEventListener('click', onCloseClick);
   pop.addEventListener('keydown', onKeyDown);
   document.addEventListener('pointerdown', onDocPointerDown, true);
 
   cleanups.push(() => {
     btn.removeEventListener('click', onToggleClick);
+    preview.removeEventListener('click', onToggleClick);
     closeBtn.removeEventListener('click', onCloseClick);
     pop.removeEventListener('keydown', onKeyDown);
     document.removeEventListener('pointerdown', onDocPointerDown, true);
@@ -330,7 +354,64 @@ function attachInkThumb(mark: HTMLElement): void {
   });
   img.src = inkUrl;
   thumb.appendChild(img);
-  mark.appendChild(thumb);
+  ensureMarginRail(mark).appendChild(thumb);
+}
+
+/**
+ * Park note/ink rails in the reading gutter without floats (floats blow up
+ * following images). Absolute against the reading column on wide viewports.
+ */
+function placeMarginRails(node: HTMLElement, cleanups: Array<() => void>): void {
+  const root = node.closest(
+    'article.card.reading-body, .reader-layout .reading-content, .reader-section.reading-content'
+  );
+  if (!(root instanceof HTMLElement)) return;
+
+  const mq = window.matchMedia('(min-width: 1100px)');
+  const rails = [...node.querySelectorAll<HTMLElement>('.text-highlight-margin')];
+  if (!rails.length) return;
+
+  const clearRail = (rail: HTMLElement) => {
+    rail.classList.remove('is-margin-placed');
+    rail.style.top = '';
+    rail.style.right = '';
+    rail.style.left = '';
+  };
+
+  const place = () => {
+    if (!mq.matches) {
+      for (const rail of rails) clearRail(rail);
+      return;
+    }
+    const rootRect = root.getBoundingClientRect();
+    for (const rail of rails) {
+      const mark = rail.closest('mark.text-highlight');
+      if (!(mark instanceof HTMLElement)) {
+        clearRail(rail);
+        continue;
+      }
+      const markRect = mark.getBoundingClientRect();
+      rail.classList.add('is-margin-placed');
+      rail.style.top = `${Math.max(0, Math.round(markRect.top - rootRect.top))}px`;
+      rail.style.right = '0.5rem';
+      rail.style.left = 'auto';
+    }
+  };
+
+  place();
+  requestAnimationFrame(place);
+  const onChange = () => place();
+  mq.addEventListener('change', onChange);
+  window.addEventListener('resize', onChange);
+  // Absolute top is vs the reading column; recompute if fonts/images shift layout.
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onChange) : null;
+  ro?.observe(root);
+  cleanups.push(() => {
+    mq.removeEventListener('change', onChange);
+    window.removeEventListener('resize', onChange);
+    ro?.disconnect();
+    for (const rail of rails) clearRail(rail);
+  });
 }
 
 /** After HTML paint, attach tiny highlighter pfps / notes / ink thumbs to marks. */
@@ -344,6 +425,7 @@ export function attachHighlightBadges(node: HTMLElement): () => void {
     attachNoteChip(mark, cleanups);
     attachInkThumb(mark);
   }
+  placeMarginRails(node, cleanups);
 
   void (async () => {
     for (const mark of marks) {
