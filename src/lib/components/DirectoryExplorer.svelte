@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import type { Component } from 'svelte';
   import { link, push } from 'svelte-spa-router';
   import { onMount } from 'svelte';
   import UserBadge from './UserBadge.svelte';
@@ -38,6 +39,15 @@
      */
     headerOnly?: boolean;
   }
+
+  /**
+   * Deferred self-import — a static `import DirectoryExplorer from …` is undefined
+   * during Vite's circular module init (folder expand rendered nothing). Dynamic
+   * import resolves after this module finishes exporting.
+   */
+  const NestedExplorer = import('./DirectoryExplorer.svelte').then(
+    (m) => m.default as Component<Props>
+  );
 
   let {
     event,
@@ -281,13 +291,15 @@
               {:else if atDepthLimit}
                 <p class="muted directory-explorer-empty">Maximum folder depth reached.</p>
               {:else if child && child.kind === KIND.DIRECTORY}
-                <svelte:self
-                  event={child}
-                  depth={depth + 1}
-                  pathCoords={childPath}
-                  showMenu={false}
-                  nested
-                />
+                {#await NestedExplorer then Explorer}
+                  <Explorer
+                    event={child}
+                    depth={depth + 1}
+                    pathCoords={childPath}
+                    showMenu={false}
+                    nested
+                  />
+                {/await}
               {:else if child}
                 <p class="muted directory-explorer-empty">Not a directory.</p>
               {:else if busy}

@@ -56,6 +56,7 @@
     feedEventsWatermark,
     feedFollowAuthors,
     feedListPath,
+    feedLookbackIsWider,
     feedRelayGroups,
     feedTabKind,
     feedTabLabel,
@@ -305,9 +306,32 @@
     if (feedTab === tab) setFeedTab('original');
   }
 
-  let notificationLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
-  let notificationFilter = $state('');
+  /** Client-side list filters on the normal feed (hidden on author-scoped profiles). */
+  let feedLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
+  let feedKindFilter = $state('');
+  let feedTextFilter = $state('');
   let items = $state<Event[]>([]);
+  /** Widest lookback already fetched for the current tab — expand → relay requery. */
+  let fetchedLookback = $state<NotificationLookbackId | null>(null);
+
+  const feedKindNumber = $derived.by(() => {
+    const raw = feedKindFilter.trim();
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  });
+  const feedLookbackSeconds = $derived(notificationLookbackSeconds(feedLookback));
+  const feedSinceUnix = $derived.by(() => {
+    const seconds = feedLookbackSeconds;
+    if (seconds == null) return null;
+    return Math.floor(Date.now() / 1000) - seconds;
+  });
+  const feedListFiltered = $derived(
+    !feedAuthor &&
+      (feedLookback !== 'all' ||
+        feedKindNumber != null ||
+        Boolean(feedTextFilter.trim()))
+  );
 
   function loadingMessageForTab(tab: FeedTab): string {
     if (tab === 'notifications') return 'Loading notifications…';
@@ -318,11 +342,12 @@
   }
 
   function emptyMessageForTab(tab: FeedTab): string {
-    if (tab === 'notifications') {
-      if (notificationFilter.trim() && items.length) {
-        return 'No notifications match this filter.';
-      }
-      return 'No notifications yet.';
+    if (feedListFiltered && items.length) return 'No posts match this filter.';
+    if (tab === 'notifications') return 'No notifications yet.';
+    if (feedAuthor) {
+      return tab === 'replies'
+        ? 'No posts or replies from this reader yet.'
+        : 'No original posts from this reader yet.';
     }
     if (tab === 'follows') {
       return signedIn ? 'No posts from follows yet.' : 'Sign in to see follows.';
@@ -334,7 +359,7 @@
 
   const visibleItems = $derived.by(() => {
     $deletionRevision;
-    const base = filterDeletedEvents(
+    let base = filterDeletedEvents(
       filterMuted(
         feedAuthor
           ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
@@ -342,8 +367,15 @@
         $muteState
       )
     );
-    if (feedTab !== 'notifications' || !notificationFilter.trim()) return base;
-    return filterPageEvents(base, notificationFilter);
+    if (feedAuthor) return base;
+    if (feedSinceUnix != null) {
+      base = base.filter((event) => event.created_at >= feedSinceUnix);
+    }
+    if (feedKindNumber != null) {
+      base = base.filter((event) => event.kind === feedKindNumber);
+    }
+    if (!feedTextFilter.trim()) return base;
+    return filterPageEvents(base, feedTextFilter);
   });
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
@@ -769,17 +801,19 @@
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
-    const lookback = notificationLookback;
-    const listKey =
-      tab === 'notifications'
-        ? `${tab}:${author ?? ''}:${lookback}`
-        : `${tab}:${author ?? ''}`;
+    const lookback = feedLookback;
+    const lookbackSec = notificationLookbackSeconds(lookback);
+    const listKey = `${tab}:${author ?? ''}`;
     const pubkey = $session.pubkey;
     const sessionLoading = $session.loading;
     // Snapshot via untrack — identity churn on these must not re-subscribe the effect.
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
     const threadOpen = !!pointer;
+    const prevFetched = untrack(() => fetchedLookback);
+    const tabChanged = loadedTab !== listKey;
+    // Author feeds ignore the lookback control; everyone else requeries when the window widens.
+    const widerLookback = !author && feedLookbackIsWider(lookback, prevFetched);
     let cancelled = false;
 
     if (threadOpen) {
@@ -790,14 +824,19 @@
 
     listError = '';
 
-    if (loadedTab !== listKey) {
+    if (tabChanged) {
       items = [];
       shown = {};
       boostTargets = {};
       boostFetchQueued = {};
       pendingNew = [];
       feedWatermark = 0;
+      fetchedLookback = null;
       loadedTab = listKey;
+      listLoading = true;
+      listSettled = false;
+    } else if (widerLookback) {
+      // Keep current rows visible while a longer window loads.
       listLoading = true;
       listSettled = false;
     } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
@@ -809,6 +848,7 @@
       pendingNew = [];
       listLoading = false;
       listSettled = true;
+      fetchedLookback = lookback;
       return;
     }
 
@@ -835,8 +875,14 @@
       };
     }
 
-    // Already settled for this tab — quiet polling handles New Events.
-    if (untrack(() => listSettled) && untrack(() => items.length)) {
+    // Already settled for this tab/window — quiet polling handles New Events.
+    // Narrowing the lookback is client-side only (no relay trip).
+    if (
+      !tabChanged &&
+      !widerLookback &&
+      untrack(() => listSettled) &&
+      untrack(() => items.length)
+    ) {
       return () => {
         cancelled = true;
       };
@@ -854,12 +900,7 @@
       onCache: (cached: Event[]) => void
     ): Promise<Event[]> => {
       if (tab === 'notifications') {
-        return loadNotifications(
-          pubkey!,
-          muted,
-          onCache,
-          notificationLookbackSeconds(lookback)
-        );
+        return loadNotifications(pubkey!, muted, onCache, lookbackSec);
       }
       if (author) {
         return tab === 'replies'
@@ -867,16 +908,16 @@
           : loadAuthorFeed(author, muted, onCache);
       }
       if (tab === 'follows') {
-        return loadFollowsFeed(meta, muted, onCache);
+        return loadFollowsFeed(meta, muted, onCache, lookbackSec);
       }
       const kind = feedTabKind(tab);
       if (kind != null) {
-        return loadKindFeed(kind, muted, onCache);
+        return loadKindFeed(kind, muted, onCache, lookbackSec);
       }
       if (tab === 'replies') {
-        return loadFeedWithReplies(meta, muted, onCache);
+        return loadFeedWithReplies(meta, muted, onCache, lookbackSec);
       }
-      return loadFeed(meta, muted, onCache);
+      return loadFeed(meta, muted, onCache, lookbackSec);
     };
 
     const recallForTab = (): Promise<Event[]> => {
@@ -899,6 +940,13 @@
       listLoading = false;
     });
 
+    const markSettled = (): void => {
+      listLoading = false;
+      listSettled = true;
+      fetchedLookback = lookback;
+      feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
+    };
+
     void (async () => {
       for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
         try {
@@ -912,43 +960,31 @@
           const listsMissing =
             tab !== 'notifications' && !!pubkey && !feedRelayGroups().personal.length;
           if (items.length && !listsMissing) {
-            listLoading = false;
-            listSettled = true;
-            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
+            markSettled();
             return;
           }
           if (items.length) listLoading = false;
           if (tab === 'notifications' && items.length) {
-            listLoading = false;
-            listSettled = true;
-            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
+            markSettled();
             return;
           }
         } catch (err: unknown) {
           if (cancelled) return;
           if (items.length) {
-            listLoading = false;
-            listSettled = true;
-            feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
+            markSettled();
             return;
           }
           listError = err instanceof Error ? err.message : 'Could not load the feed.';
-          listLoading = false;
-          listSettled = true;
+          markSettled();
           return;
         }
         if (attempt < 3 && !cancelled) await wait(1200);
       }
       if (cancelled || items.length) {
-        if (!cancelled) {
-          listLoading = false;
-          listSettled = true;
-          feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
-        }
+        if (!cancelled) markSettled();
         return;
       }
-      listLoading = false;
-      listSettled = true;
+      markSettled();
     })();
     return () => {
       cancelled = true;
@@ -964,7 +1000,7 @@
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
-    const lookback = notificationLookback;
+    const lookbackSec = notificationLookbackSeconds(feedLookback);
     const pubkey = $session.pubkey;
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
@@ -975,25 +1011,20 @@
       try {
         let events: Event[] = [];
         if (tab === 'notifications' && pubkey) {
-          events = await loadNotifications(
-            pubkey,
-            muted,
-            undefined,
-            notificationLookbackSeconds(lookback)
-          );
+          events = await loadNotifications(pubkey, muted, undefined, lookbackSec);
         } else if (author) {
           events =
             tab === 'replies'
               ? await loadAuthorFeedWithReplies(author, muted)
               : await loadAuthorFeed(author, muted);
         } else if (tab === 'follows') {
-          events = await loadFollowsFeed(meta, muted);
+          events = await loadFollowsFeed(meta, muted, undefined, lookbackSec);
         } else if (feedTabKind(tab) != null) {
-          events = await loadKindFeed(feedTabKind(tab)!, muted);
+          events = await loadKindFeed(feedTabKind(tab)!, muted, undefined, lookbackSec);
         } else if (tab === 'replies') {
-          events = await loadFeedWithReplies(meta, muted);
+          events = await loadFeedWithReplies(meta, muted, undefined, lookbackSec);
         } else {
-          events = await loadFeed(meta, muted);
+          events = await loadFeed(meta, muted, undefined, lookbackSec);
         }
         if (cancelled) return;
         ingestFeedEvents(events, muted);
@@ -1289,34 +1320,63 @@
             bind:value={kindDraft}
             disabled={!!pointer}
           />
-          <button class="btn feed-kind-add-btn" type="submit" disabled={!!pointer || !kindDraft.trim()}
-            >Add</button
+          <button
+            class="btn feed-kind-add-btn"
+            type="submit"
+            disabled={!!pointer || !kindDraft.trim()}
+            aria-label="Add kind tab"
+            title="Add kind tab"
+          >+</button
           >
         </form>
       {/if}
     </div>
-    {#if feedTab === 'notifications' && signedIn}
-      <div
-        class="feed-notifications-filters"
-        role="group"
-        aria-label="Notification filters"
-      >
-        <label class="feed-notif-lookback">
-          <span class="sr-only">Time range</span>
+    {#if !feedAuthor}
+      <div class="feed-list-filters" role="group" aria-label="Feed filters">
+        <label class="feed-filter-since">
+          <span class="sr-only">Since</span>
           <select
-            id="feed-notif-lookback"
-            bind:value={notificationLookback}
+            id="feed-filter-since"
+            class="page-filter feed-filter-since-select"
+            bind:value={feedLookback}
             disabled={!!pointer}
+            title="Since"
+            aria-label="Since"
           >
             {#each NOTIFICATION_LOOKBACK_OPTIONS as opt (opt.id)}
               <option value={opt.id}>{opt.label}</option>
             {/each}
           </select>
         </label>
+        <label class="feed-filter-kind">
+          <span class="sr-only">Kind</span>
+          <span class="search-form-control page-filter-control feed-filter-kind-control">
+            <input
+              id="feed-filter-kind"
+              class="page-filter"
+              type="search"
+              inputmode="numeric"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Kind"
+              bind:value={feedKindFilter}
+              disabled={!!pointer}
+            />
+            {#if feedKindFilter}
+              <button
+                type="button"
+                class="search-form-clear"
+                aria-label="Clear kind filter"
+                disabled={!!pointer}
+                onclick={() => (feedKindFilter = '')}
+              >×</button>
+            {/if}
+          </span>
+        </label>
         <PageFilter
-          id="feed-notif-filter"
-          bind:value={notificationFilter}
-          placeholder="Filter notifications…"
+          id="feed-filter-text"
+          bind:value={feedTextFilter}
+          placeholder="Filter posts…"
         />
       </div>
     {/if}
@@ -1508,25 +1568,81 @@
     gap: 0.55rem 0.85rem;
     margin: 0.35rem 0 0;
   }
-  .feed-notifications-filters {
+  .feed-list-filters {
+    --feed-filter-h: 1.65rem;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.55rem 0.75rem;
-    margin: 0 0 0.85rem;
+    gap: 0.3rem 0.4rem;
+    margin: 0 0 0.45rem;
     max-width: 40rem;
   }
-  .feed-notif-lookback {
+  .feed-filter-since,
+  .feed-filter-kind {
     flex: 0 0 auto;
   }
-  .feed-notif-lookback select {
-    min-width: 8.5rem;
+  .feed-list-filters :global(.page-filter),
+  .feed-filter-since-select {
+    box-sizing: border-box;
+    margin: 0;
+    height: var(--feed-filter-h);
+    min-height: var(--feed-filter-h);
+    max-height: var(--feed-filter-h);
+    padding: 0 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
+    color: var(--ink-soft);
+    font-size: 0.72rem;
+    line-height: calc(var(--feed-filter-h) - 2px);
+    box-shadow: none;
   }
-  .feed-notifications-filters :global(.page-filter-control),
-  .feed-notifications-filters :global(.page-filter) {
-    flex: 1 1 12rem;
+  .feed-list-filters :global(.page-filter:hover),
+  .feed-filter-since-select:hover {
+    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
+    background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
+    color: var(--ink);
+  }
+  .feed-list-filters :global(.page-filter:focus-visible),
+  .feed-filter-since-select:focus-visible {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--ink-soft) 8%, transparent);
+  }
+  .feed-list-filters :global(.page-filter::placeholder) {
+    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+    font-size: 0.72rem;
+  }
+  .feed-filter-since-select {
+    width: auto;
+    min-width: 6.25rem;
+    padding-right: 1.15rem;
+  }
+  .feed-filter-kind-control {
+    display: block;
+    width: 4.25rem;
+    max-width: 4.25rem;
+    min-width: 0;
+  }
+  .feed-filter-kind-control .page-filter {
+    width: 100%;
+    padding-right: 1.2rem;
+  }
+  .feed-list-filters :global(.page-filter-control) {
     margin-bottom: 0 !important;
+  }
+  .feed-list-filters :global(.page-filter-control:not(.feed-filter-kind-control)) {
+    flex: 1 1 9rem;
     max-width: none !important;
+  }
+  .feed-list-filters :global(.page-filter-control:not(.feed-filter-kind-control) .page-filter) {
+    padding-right: 1.35rem;
+  }
+  .feed-list-filters :global(.search-form-clear) {
+    width: 0.95rem;
+    height: 0.95rem;
+    right: 0.15rem;
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--ink-soft) 75%, transparent);
   }
   .feed-tabs-row {
     display: flex;
@@ -1592,26 +1708,55 @@
     background: color-mix(in srgb, var(--rule) 55%, transparent);
   }
   .feed-kind-add {
+    --feed-filter-h: 1.65rem;
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.15rem;
     margin: 0;
     flex: 0 0 auto;
   }
   .feed-kind-input {
-    width: 4.5rem;
+    box-sizing: border-box;
+    width: 4.25rem;
     margin: 0;
-    padding: 0.3rem 0.45rem;
-    border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
-    border-radius: 0.35rem;
-    background: var(--paper-light, var(--paper));
-    color: inherit;
+    height: var(--feed-filter-h);
+    min-height: var(--feed-filter-h);
+    max-height: var(--feed-filter-h);
+    padding: 0 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
+    color: var(--ink-soft);
     font: inherit;
-    font-size: 0.85rem;
+    font-size: 0.72rem;
+    line-height: calc(var(--feed-filter-h) - 2px);
+    box-shadow: none;
+  }
+  .feed-kind-input::placeholder {
+    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+  }
+  .feed-kind-input:hover {
+    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
+    background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
+    color: var(--ink);
   }
   .feed-kind-add-btn {
-    font-size: 0.82rem;
-    padding: 0.28rem 0.55rem;
+    box-sizing: border-box;
+    height: var(--feed-filter-h);
+    min-height: var(--feed-filter-h);
+    min-width: var(--feed-filter-h);
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    line-height: 1;
+  }
+  .feed-kind-add-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
+    background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
+    color: var(--ink);
   }
   .feed-list {
     list-style: none;

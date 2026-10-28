@@ -1196,6 +1196,8 @@ select:focus-visible,
 }
 .search-form-control input[type='search'],
 .page-filter-control input[type='search'],
+.search-form-control input[type='date'],
+.page-filter-control input[type='date'],
 .search-form-control .page-filter,
 .page-filter-control .page-filter {
   padding-right: 2rem;
@@ -1376,6 +1378,8 @@ select:focus-visible,
 input[type='search'],
 input[type='text'],
 input[type='number'],
+input[type='date'],
+input[type='datetime-local'],
 textarea,
 select {
   font: inherit;
@@ -1396,6 +1400,8 @@ textarea {
 :root.dark input[type='search'],
 :root.dark input[type='text'],
 :root.dark input[type='number'],
+:root.dark input[type='date'],
+:root.dark input[type='datetime-local'],
 :root.dark textarea,
 :root.dark select {
   background: color-mix(in srgb, var(--paper-dark) 55%, var(--paper-light));
@@ -1403,6 +1409,8 @@ textarea {
 input[type='search']:hover,
 input[type='text']:hover,
 input[type='number']:hover,
+input[type='date']:hover,
+input[type='datetime-local']:hover,
 textarea:hover,
 select:hover {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--rule));

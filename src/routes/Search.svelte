@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import SearchForm from '$lib/components/SearchForm.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
@@ -381,7 +381,8 @@
     refineSinceDate;
     refineUntilDate;
     refineSort;
-    page = 1;
+    // untrack: reading `page` here would re-run on every pager click and fight pagination.
+    if (untrack(() => page) !== 1) page = 1;
   });
 
   /** Full-text `q` from the active search — opens library cards with `?quote=`. */

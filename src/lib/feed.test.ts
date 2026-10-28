@@ -176,13 +176,25 @@ describe('replies timeline', () => {
 });
 
 describe('notification lookback', () => {
-  it('parses known ids and defaults unknown to 1 month', () => {
+  it('parses known ids and defaults unknown to 24 hours', () => {
+    expect(DEFAULT_NOTIFICATION_LOOKBACK).toBe('24h');
     expect(parseNotificationLookback('24h')).toBe('24h');
     expect(parseNotificationLookback('all')).toBe('all');
     expect(parseNotificationLookback('nope')).toBe(DEFAULT_NOTIFICATION_LOOKBACK);
     expect(notificationLookbackSeconds('24h')).toBe(24 * 60 * 60);
     expect(notificationLookbackSeconds('1w')).toBe(7 * 24 * 60 * 60);
+    expect(notificationLookbackSeconds('3m')).toBe(90 * 24 * 60 * 60);
     expect(notificationLookbackSeconds('all')).toBeNull();
+  });
+
+  it('detects a wider lookback that needs a relay requery', async () => {
+    const { feedLookbackIsWider } = await import('./feed');
+    expect(feedLookbackIsWider('24h', null)).toBe(true);
+    expect(feedLookbackIsWider('1w', '24h')).toBe(true);
+    expect(feedLookbackIsWider('all', '1m')).toBe(true);
+    expect(feedLookbackIsWider('24h', '1w')).toBe(false);
+    expect(feedLookbackIsWider('1m', 'all')).toBe(false);
+    expect(feedLookbackIsWider('24h', '24h')).toBe(false);
   });
 });
 

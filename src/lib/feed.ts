@@ -27,19 +27,45 @@ function tagThreadMarker(tag: string[]): 'root' | 'reply' | null {
 const FOLLOW_AUTHOR_BATCH = 50;
 const FOLLOW_AUTHOR_CAP = 200;
 
-/** Time windows for the Notifications tab relay query (`null` = no `since`). */
+/** Time windows for feed list filters / notification relay `since` (`null` = unlimited). */
 export const NOTIFICATION_LOOKBACK_OPTIONS = [
   { id: '24h', label: '24 hours', seconds: 24 * 60 * 60 },
   { id: '48h', label: '48 hours', seconds: 48 * 60 * 60 },
   { id: '1w', label: '1 week', seconds: 7 * 24 * 60 * 60 },
   { id: '1m', label: '1 month', seconds: 30 * 24 * 60 * 60 },
-  { id: '1y', label: '1 year', seconds: 365 * 24 * 60 * 60 },
-  { id: 'all', label: 'Unlimited', seconds: null }
+  { id: '3m', label: '3 months', seconds: 90 * 24 * 60 * 60 },
+  { id: 'all', label: 'unlimited', seconds: null }
 ] as const;
 
 export type NotificationLookbackId = (typeof NOTIFICATION_LOOKBACK_OPTIONS)[number]['id'];
 
-export const DEFAULT_NOTIFICATION_LOOKBACK: NotificationLookbackId = '1m';
+export const DEFAULT_NOTIFICATION_LOOKBACK: NotificationLookbackId = '24h';
+
+/** Unix `since` for a lookback window, or `null` when unlimited. */
+export function feedSinceFromLookback(
+  lookbackSeconds: number | null | undefined
+): number | null {
+  if (lookbackSeconds == null) return null;
+  return Math.floor(Date.now() / 1000) - lookbackSeconds;
+}
+
+function withFeedSince(filters: Filter[], since: number | null): Filter[] {
+  if (since == null) return filters;
+  return filters.map((filter) => ({ ...filter, since }));
+}
+
+/** True when `next` covers a wider time window than `prev` (needs a fresh relay query). */
+export function feedLookbackIsWider(
+  next: NotificationLookbackId,
+  prev: NotificationLookbackId | null | undefined
+): boolean {
+  if (prev == null) return true;
+  const n = notificationLookbackSeconds(next);
+  const p = notificationLookbackSeconds(prev);
+  if (n == null) return p != null;
+  if (p == null) return false;
+  return n > p;
+}
 
 const NOTIFICATION_LOOKBACK_IDS = new Set<string>(
   NOTIFICATION_LOOKBACK_OPTIONS.map((o) => o.id)
@@ -432,28 +458,36 @@ function sortFeedEvents(events: Event[]): Event[] {
 export async function loadFeed(
   metadataEvents: Event[] = [],
   muted: MuteState = emptyMute,
-  onCache?: (events: Event[]) => void
+  onCache?: (events: Event[]) => void,
+  lookbackSeconds: number | null = null
 ): Promise<Event[]> {
+  const since = feedSinceFromLookback(lookbackSeconds);
+  const inWindow = (event: Event): boolean =>
+    since == null || event.created_at >= since;
   const cached = filterMuted(await recallFeedPosts(), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
-    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    const posts = filterMuted(
+      sortFeedEvents([...byId.values()].filter(inWindow)),
+      muted
+    );
     if (posts.length) onCache?.(posts);
   };
   for (const event of cached) {
-    if (isOriginalPost(event)) byId.set(event.id, event);
+    if (!isOriginalPost(event) || !inWindow(event)) continue;
+    byId.set(event.id, event);
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
-  const followFilters = followNoteFilters(authors);
+  const followFilters = withFeedSince(followNoteFilters(authors), since);
   // Background list load — not priority. Priority slots are for open threads / wiki.
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (!isOriginalPost(event) || byId.has(event.id)) continue;
+      if (!isOriginalPost(event) || !inWindow(event) || byId.has(event.id)) continue;
       byId.set(event.id, event);
       added = true;
     }
@@ -461,10 +495,24 @@ export async function loadFeed(
   };
   const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
     Promise.all([
-      relayPool.query(urls, noteFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, commentFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, repostFilters(), 7000, maxRelays, absorb, queryOpts)
+      relayPool.query(urls, withFeedSince(noteFilters(), since), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(urls, withFeedSince(postFilters(), since), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(
+        urls,
+        withFeedSince(commentFilters(), since),
+        7000,
+        maxRelays,
+        absorb,
+        queryOpts
+      ),
+      relayPool.query(
+        urls,
+        withFeedSince(repostFilters(), since),
+        7000,
+        maxRelays,
+        absorb,
+        queryOpts
+      )
     ]).then((batches) => batches.flat());
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
     personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
@@ -476,10 +524,10 @@ export async function loadFeed(
       : Promise.resolve([] as Event[])
   ]);
   for (const event of [...fromPersonal, ...fromShipped, ...fromFollows]) {
-    if (!isOriginalPost(event)) continue;
+    if (!isOriginalPost(event) || !inWindow(event)) continue;
     byId.set(event.id, event);
   }
-  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
 /** Cached original posts from accounts the viewer follows. */
@@ -501,28 +549,42 @@ export async function recallFollowsFeed(
 export async function loadFollowsFeed(
   metadataEvents: Event[] = [],
   muted: MuteState = emptyMute,
-  onCache?: (events: Event[]) => void
+  onCache?: (events: Event[]) => void,
+  lookbackSeconds: number | null = null
 ): Promise<Event[]> {
   if (!getSelectorContext().signedIn) return [];
   const authors = feedFollowAuthors(metadataEvents, muted);
   if (!authors.length) return [];
+  const since = feedSinceFromLookback(lookbackSeconds);
+  const inWindow = (event: Event): boolean =>
+    since == null || event.created_at >= since;
   const authorSet = new Set(authors);
   const cached = filterMuted(await recallFollowsFeed(metadataEvents, muted), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
-    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    const posts = filterMuted(
+      sortFeedEvents([...byId.values()].filter(inWindow)),
+      muted
+    );
     if (posts.length) onCache?.(posts);
   };
   for (const event of cached) {
-    if (isOriginalPost(event) && authorSet.has(event.pubkey.toLowerCase())) {
-      byId.set(event.id, event);
+    if (
+      !isOriginalPost(event) ||
+      !authorSet.has(event.pubkey.toLowerCase()) ||
+      !inWindow(event)
+    ) {
+      continue;
     }
+    byId.set(event.id, event);
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
-  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
-  const filters = followOriginalFilters(authors);
+  if (!relays.length) {
+    return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
+  }
+  const filters = withFeedSince(followOriginalFilters(authors), since);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
@@ -530,6 +592,7 @@ export async function loadFollowsFeed(
       if (
         !isOriginalPost(event) ||
         !authorSet.has(event.pubkey.toLowerCase()) ||
+        !inWindow(event) ||
         byId.has(event.id)
       ) {
         continue;
@@ -543,10 +606,16 @@ export async function loadFollowsFeed(
     .query(relays, filters, 7000, Math.min(relays.length, 8), absorb, queryOpts)
     .catch(() => [] as Event[]);
   for (const event of hits) {
-    if (!isOriginalPost(event) || !authorSet.has(event.pubkey.toLowerCase())) continue;
+    if (
+      !isOriginalPost(event) ||
+      !authorSet.has(event.pubkey.toLowerCase()) ||
+      !inWindow(event)
+    ) {
+      continue;
+    }
     byId.set(event.id, event);
   }
-  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
 /** Cached events of one kind (newest first). */
@@ -559,28 +628,38 @@ export async function recallKindFeed(kind: number): Promise<Event[]> {
 export async function loadKindFeed(
   kind: number,
   muted: MuteState = emptyMute,
-  onCache?: (events: Event[]) => void
+  onCache?: (events: Event[]) => void,
+  lookbackSeconds: number | null = null
 ): Promise<Event[]> {
   if (!Number.isInteger(kind) || kind < 0) return [];
+  const since = feedSinceFromLookback(lookbackSeconds);
+  const inWindow = (event: Event): boolean =>
+    since == null || event.created_at >= since;
   const cached = filterMuted(await recallKindFeed(kind), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
-    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    const posts = filterMuted(
+      sortFeedEvents([...byId.values()].filter(inWindow)),
+      muted
+    );
     if (posts.length) onCache?.(posts);
   };
   for (const event of cached) {
-    if (event.kind === kind) byId.set(event.id, event);
+    if (event.kind !== kind || !inWindow(event)) continue;
+    byId.set(event.id, event);
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
-  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
-  const filters = kindFeedFilters(kind);
+  if (!relays.length) {
+    return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
+  }
+  const filters = withFeedSince(kindFeedFilters(kind), since);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (event.kind !== kind || byId.has(event.id)) continue;
+      if (event.kind !== kind || !inWindow(event) || byId.has(event.id)) continue;
       byId.set(event.id, event);
       added = true;
     }
@@ -593,10 +672,10 @@ export async function loadKindFeed(
     shipped.length ? ask(shipped, 4) : Promise.resolve([])
   ]);
   for (const event of [...fromPersonal, ...fromShipped]) {
-    if (event.kind !== kind) continue;
+    if (event.kind !== kind || !inWindow(event)) continue;
     byId.set(event.id, event);
   }
-  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
 function followReplyFilters(authors: string[]): Filter[] {
@@ -627,27 +706,35 @@ export async function recallFeedWithReplies(): Promise<Event[]> {
 export async function loadFeedWithReplies(
   metadataEvents: Event[] = [],
   muted: MuteState = emptyMute,
-  onCache?: (events: Event[]) => void
+  onCache?: (events: Event[]) => void,
+  lookbackSeconds: number | null = null
 ): Promise<Event[]> {
+  const since = feedSinceFromLookback(lookbackSeconds);
+  const inWindow = (event: Event): boolean =>
+    since == null || event.created_at >= since;
   const cached = filterMuted(await recallFeedWithReplies(), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
-    const posts = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    const posts = filterMuted(
+      sortFeedEvents([...byId.values()].filter(inWindow)),
+      muted
+    );
     if (posts.length) onCache?.(posts);
   };
   for (const event of cached) {
-    if (isRepliesTimelineEvent(event)) byId.set(event.id, event);
+    if (!isRepliesTimelineEvent(event) || !inWindow(event)) continue;
+    byId.set(event.id, event);
   }
   if (byId.size) paint();
   const { personal, shipped } = feedRelayGroups();
   const relays = uniqueRelayUrls([...personal, ...shipped]);
   const authors = getSelectorContext().signedIn ? feedFollowAuthors(metadataEvents, muted) : [];
-  const followFilters = followReplyFilters(authors);
+  const followFilters = withFeedSince(followReplyFilters(authors), since);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (!isRepliesTimelineEvent(event) || byId.has(event.id)) continue;
+      if (!isRepliesTimelineEvent(event) || !inWindow(event) || byId.has(event.id)) continue;
       byId.set(event.id, event);
       added = true;
     }
@@ -655,10 +742,24 @@ export async function loadFeedWithReplies(
   };
   const ask = (urls: string[], maxRelays: number): Promise<Event[]> =>
     Promise.all([
-      relayPool.query(urls, noteFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, commentFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, postFilters(), 7000, maxRelays, absorb, queryOpts),
-      relayPool.query(urls, repostFilters(), 7000, maxRelays, absorb, queryOpts)
+      relayPool.query(urls, withFeedSince(noteFilters(), since), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(
+        urls,
+        withFeedSince(commentFilters(), since),
+        7000,
+        maxRelays,
+        absorb,
+        queryOpts
+      ),
+      relayPool.query(urls, withFeedSince(postFilters(), since), 7000, maxRelays, absorb, queryOpts),
+      relayPool.query(
+        urls,
+        withFeedSince(repostFilters(), since),
+        7000,
+        maxRelays,
+        absorb,
+        queryOpts
+      )
     ]).then((batches) => batches.flat());
   const [fromPersonal, fromShipped, fromFollows] = await Promise.all([
     personal.length ? ask(personal, Math.min(personal.length, 8)) : Promise.resolve([]),
@@ -670,10 +771,10 @@ export async function loadFeedWithReplies(
       : Promise.resolve([] as Event[])
   ]);
   for (const event of [...fromPersonal, ...fromShipped, ...fromFollows]) {
-    if (!isRepliesTimelineEvent(event)) continue;
+    if (!isRepliesTimelineEvent(event) || !inWindow(event)) continue;
     byId.set(event.id, event);
   }
-  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
 function authorNoteFilters(author: string): Filter[] {

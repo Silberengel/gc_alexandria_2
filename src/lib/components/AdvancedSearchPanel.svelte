@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import type { Filter } from 'nostr-tools';
   import {
@@ -221,16 +222,22 @@
     relaysDirty = true;
   }
 
-  // Open from props only — never force-close (kinds keystrokes used to collapse this).
+  // Open + hydrate from URL props. Never force-close (that collapsed the accordion on kinds edits).
+  // Read props outside untrack (identity deps only); write/hydrate inside so mercuryDrafts can't loop.
   $effect(() => {
-    const shouldOpen = open || Boolean(initial);
-    if (shouldOpen) detailsOpen = true;
-    if (initial) hydrate(initial);
+    const req = initial;
+    const isOpen = open;
+    untrack(() => {
+      if (isOpen || req) detailsOpen = true;
+      if (req) hydrate(req);
+    });
   });
 
   $effect(() => {
     void kinds;
-    if (mode === 'relays' && !relaysDirty) syncDefaultRelays();
+    untrack(() => {
+      if (mode === 'relays' && !relaysDirty) syncDefaultRelays();
+    });
   });
 
   function setMode(next: AdvancedSearchMode): void {
