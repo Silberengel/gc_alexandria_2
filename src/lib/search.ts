@@ -36,7 +36,11 @@ import { followPubkeysFromMetadata, muteState } from './mute';
 import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-follows';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { isTopLevel30040, eventAddress } from './nostr/verify';
-import { publicationTargetsFromDirectory } from './bookshelf';
+import {
+  MY_BOOK_COLLECTION_D_TAG,
+  publicationTargetsFromDirectory,
+  publicationsNotInDirectory
+} from './bookshelf';
 import { fetchByAddress, fetchByAddresses, fetchByIds } from './nostr/fetch';
 import {
   fetchFollowReadingQueues,
@@ -843,41 +847,108 @@ async function resolvePublicationsFromLabelEvents(events: Event[]): Promise<Even
   return pruneToLatestReplaceables([...results.values()]);
 }
 
-/** Explicit 30045 bookshelf lookup — no fan-out. Optional `npub` scopes to one author. */
-export async function searchByBookshelf(d: string, npubOrHex?: string): Promise<Event[]> {
-  const slug = normalizeDTag(d) || d.trim();
-  if (!slug) return [];
-  const authors: string[] = [];
+function bookshelfDirectoryAuthors(npubOrHex?: string): string[] {
   if (npubOrHex) {
     const hex = hexPubkey(npubOrHex);
-    if (hex) authors.push(hex);
-  } else {
-    const me = session.getPubkey();
-    if (me) authors.push(me);
+    return hex ? [hex] : [];
   }
+  const me = session.getPubkey();
+  return me ? [me] : [];
+}
+
+/** Newest matching kind-30045 for a bookshelf slug (optional author scope). */
+export async function fetchBookshelfDirectory(
+  d: string,
+  npubOrHex?: string
+): Promise<Event | null> {
+  const slug = normalizeDTag(d) || d.trim();
+  if (!slug) return null;
+  const authors = bookshelfDirectoryAuthors(npubOrHex);
   const filter: Filter = {
     kinds: [KIND.DIRECTORY],
     '#d': [slug],
     limit: authors.length ? 5 : 20,
     ...(authors.length ? { authors } : {})
   };
-  const dirs = mergeById(await relayPool.query(documentStack(), [filter]));
-  if (!dirs.length) return [];
-  const addresses = new Set<string>();
-  const eventIds = new Set<string>();
-  for (const dir of dirs) {
-    const t = publicationTargetsFromDirectory(dir);
-    for (const a of t.addresses) addresses.add(a);
-    for (const id of t.eventIds) eventIds.add(id);
+  const dirs = pruneToLatestReplaceables(
+    mergeById(await relayPool.query(documentStack(), [filter]))
+  ).filter((e) => e.kind === KIND.DIRECTORY);
+  if (!dirs.length) return null;
+  if (authors.length) {
+    const want = authors[0]!.toLowerCase();
+    return dirs.find((e) => e.pubkey.toLowerCase() === want) ?? dirs[0] ?? null;
   }
-  const byAddr = await fetchByAddresses([...addresses].slice(0, 80));
-  const byId = await fetchByIds([...eventIds].slice(0, 40));
+  return dirs[0] ?? null;
+}
+
+/** Resolve shelf members from an already-fetched 30045. */
+export async function publicationsFromBookshelfDirectory(
+  dir: Event | null | undefined
+): Promise<Event[]> {
+  if (!dir) return [];
+  const t = publicationTargetsFromDirectory(dir);
+  const byAddr = await fetchByAddresses([...t.addresses].slice(0, 80));
+  const byId = await fetchByIds([...t.eventIds].slice(0, 40));
   return preferTopLevelPublications(
     mergeById([
       ...byAddr.filter((e) => e.kind === KIND.PUBLICATION),
       ...byId.filter((e) => e.kind === KIND.PUBLICATION)
     ])
   );
+}
+
+/**
+ * One directory fetch for both the catalog grid and Edit — avoids a second
+ * lookup returning null while members already painted.
+ */
+export async function loadBookshelfCatalog(
+  d: string,
+  npubOrHex?: string
+): Promise<{ directory: Event | null; events: Event[] }> {
+  const directory = await fetchBookshelfDirectory(d, npubOrHex);
+  const events = await publicationsFromBookshelfDirectory(directory);
+  return { directory, events };
+}
+
+/** Explicit 30045 bookshelf lookup — no fan-out. Optional `npub` scopes to one author. */
+export async function searchByBookshelf(d: string, npubOrHex?: string): Promise<Event[]> {
+  const { events } = await loadBookshelfCatalog(d, npubOrHex);
+  return events;
+}
+
+/** Own kind-30040 editions for the viewer (top-level only). */
+export async function fetchAuthorPublications(pubkey: string): Promise<Event[]> {
+  const hex = hexPubkey(pubkey)?.toLowerCase();
+  if (!hex) return [];
+  const batches = await Promise.all([
+    relayPool.query(documentStack(), [
+      { kinds: [KIND.PUBLICATION], authors: [hex], limit: 100 }
+    ]),
+    mercuryFilter({ kinds: [KIND.PUBLICATION], authors: [hex], limit: 100 }).catch(
+      () => [] as Event[]
+    )
+  ]);
+  return preferTopLevelPublications(
+    mergeById(batches.flat()).filter(
+      (e) => e.kind === KIND.PUBLICATION && e.pubkey.toLowerCase() === hex
+    )
+  );
+}
+
+/**
+ * Own `my-book-collection` catalog: publications the curator authored that are not
+ * already listed on that bookshelf.
+ */
+export async function fetchOwnPublishedNotOnBookshelf(
+  directory: Event | null | undefined,
+  authorPubkey: string
+): Promise<Event[]> {
+  const pubs = await fetchAuthorPublications(authorPubkey);
+  return publicationsNotInDirectory(pubs, directory);
+}
+
+export function isOwnMyBookCollectionBookshelf(d: string): boolean {
+  return normalizeDTag(d) === MY_BOOK_COLLECTION_D_TAG;
 }
 
 export async function runBookshelfSearch(

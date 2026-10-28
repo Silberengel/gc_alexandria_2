@@ -67,7 +67,12 @@
     scopedProgressForIndex,
     warmIndexTree
   } from '$lib/index-scope';
-  import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
+  import {
+    emptyWorkResponses,
+    fetchWorkResponses,
+    highlightsForEvent,
+    type WorkResponses
+  } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
   import { scrubTrackingUrlsInText } from '$lib/clean-url';
   import { commentDraft, highlightDraft } from '$lib/drafts';
@@ -2255,22 +2260,23 @@
     void comments;
     const id = focusFromUrl().comment;
     if (!id || id === commentFocusApplied) return;
-    let attempts = 20;
+    let attempts = 40;
     let timer = 0;
     const tryScroll = () => {
       if (reading) return;
       const el = document.getElementById(`comment-${id}`);
       if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const top = Math.max(0, appOffsetTop(el) - Math.round(appClientHeight() / 3));
+        appScrollTo({ top, left: 0, behavior: 'smooth' });
         commentFocusApplied = id;
         return;
       }
       if (attempts-- <= 0) return;
       timer = window.setTimeout(tryScroll, 100);
     };
-    const tick = requestAnimationFrame(tryScroll);
+    const tick = window.setTimeout(() => requestAnimationFrame(tryScroll), 50);
     return () => {
-      cancelAnimationFrame(tick);
+      clearTimeout(tick);
       clearTimeout(timer);
     };
   });
@@ -3387,13 +3393,7 @@
   }
 
   function quotesFor(section: Event): TextHighlight[] {
-    const a = eventAddress(section);
-    const keys = new Set(publicationCoordinateLookupKeys(a));
-    const forSection = mutedHighlights.filter(
-      (h) =>
-        h.tags.some((t) => t[0] === 'a' && t[1] && keys.has(t[1])) ||
-        h.tags.some((t) => t[0] === 'e' && t[1]?.toLowerCase() === section.id.toLowerCase())
-    );
+    const forSection = highlightsForEvent(mutedHighlights, section);
     const fromEvents = textHighlightsFromEvents(forSection);
     // Deep-link ?quote= from landing: mark even before the kind-9802 event is fetched.
     if (

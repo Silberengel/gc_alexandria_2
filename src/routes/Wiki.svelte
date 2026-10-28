@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { appScrollTo } from '$lib/app-scroll';
+  import { appClientHeight, appOffsetTop, appScrollTo } from '$lib/app-scroll';
   import { replace, querystring } from 'svelte-spa-router';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
@@ -28,7 +28,12 @@
   import { skipNextNavTrack } from '$lib/nav-history';
   import { muteState, filterMuted } from '$lib/mute';
   import { createPageFindController, filterPageEvents } from '$lib/page-filter';
-  import { emptyWorkResponses, fetchWorkResponses, type WorkResponses } from '$lib/comments';
+  import {
+    emptyWorkResponses,
+    fetchWorkResponses,
+    highlightsForEvent,
+    type WorkResponses
+  } from '$lib/comments';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
@@ -73,7 +78,11 @@
     return kind === KIND.WIKI || kind === KIND.SPEC || kind === KIND.LONG_FORM;
   }
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
-  const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
+  const bodyHighlights = $derived(
+    event
+      ? textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event))
+      : []
+  );
   const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
   const panelResponses = $derived.by((): WorkResponses => {
     const q = pageFilter.trim().toLowerCase();
@@ -205,21 +214,22 @@
     }
     void responses;
     if (id === commentFocusApplied) return;
-    let attempts = 20;
+    let attempts = 40;
     let timer = 0;
     const tryScroll = () => {
       const el = document.getElementById(`comment-${id}`);
       if (el) {
-        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        const top = Math.max(0, appOffsetTop(el) - Math.round(appClientHeight() / 3));
+        appScrollTo({ top, left: 0, behavior: 'smooth' });
         commentFocusApplied = id;
         return;
       }
       if (attempts-- <= 0) return;
       timer = window.setTimeout(tryScroll, 100);
     };
-    const tick = requestAnimationFrame(tryScroll);
+    const tick = window.setTimeout(() => requestAnimationFrame(tryScroll), 50);
     return () => {
-      cancelAnimationFrame(tick);
+      clearTimeout(tick);
       clearTimeout(timer);
     };
   });

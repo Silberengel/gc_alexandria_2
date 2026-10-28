@@ -54,9 +54,15 @@
   import ComposeRelayListEditor from '$lib/components/ComposeRelayListEditor.svelte';
   import ComposePeopleListEditor from '$lib/components/ComposePeopleListEditor.svelte';
   import ComposeMuteListEditor from '$lib/components/ComposeMuteListEditor.svelte';
+  import ComposeDirectoryMembersEditor from '$lib/components/ComposeDirectoryMembersEditor.svelte';
   import ComposeTextUserBadges from '$lib/components/ComposeTextUserBadges.svelte';
   import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
   import { fieldHoldsPubkeys } from '$lib/compose-field-pubkeys';
+  import {
+    isComposePointerTagName,
+    normalizeComposeTagRow,
+    normalizeComposeTagValue
+  } from '$lib/compose-tag-normalize';
   import PrivateRelayListModal from '$lib/components/PrivateRelayListModal.svelte';
   import { emptyKind0TagRows } from '$lib/compose-kind0';
   import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
@@ -907,6 +913,8 @@
       if (f.default != null) out[f.id] = String(f.default);
       else out[f.id] = '';
     }
+    // Catalog hides members (`widget: custom`); still keep a bindable slot.
+    if (nextKind === KIND.DIRECTORY && out.members == null) out.members = '';
     return out;
   }
 
@@ -916,13 +924,15 @@
 
   function cleanedFreeformTags(rows: string[][]): string[][] {
     return rows
-      .map((row) => row.map((c) => c.trim()).filter((c, i) => i === 0 || c.length > 0))
+      .map((row) =>
+        normalizeComposeTagRow(row.map((c) => c.trim()).filter((c, i) => i === 0 || c.length > 0))
+      )
       .filter((row) => row.length >= 1 && row[0]!.length > 0)
       .map((row) => {
         // Drop trailing empty parts but keep intentional empty middle slots? Keep non-empty only after name.
         const name = row[0]!;
         const rest = row.slice(1).filter(Boolean);
-        return [name, ...rest];
+        return normalizeComposeTagRow([name, ...rest]);
       });
   }
 
@@ -1829,6 +1839,15 @@
       const cur = values[fieldId] ?? '';
       values[fieldId] = cur.slice(0, start) + scrubbed + cur.slice(end);
     });
+  }
+
+  function normalizePointerCatalogField(field: { id: string; tag?: string }): void {
+    const tag = (field.tag ?? '').trim();
+    if (!isComposePointerTagName(tag)) return;
+    const raw = values[field.id] ?? '';
+    if (!raw.trim()) return;
+    const next = normalizeComposeTagValue(tag, raw);
+    if (next !== raw) values[field.id] = next;
   }
 
   async function onBodyPaste(event: ClipboardEvent) {
@@ -2919,6 +2938,8 @@
                         type={field.widget === 'url' ? 'url' : 'text'}
                         bind:value={values[field.id]}
                         onpaste={(e) => onFieldPaste(field.id, e)}
+                        onblur={() => normalizePointerCatalogField(field)}
+                        onchange={() => normalizePointerCatalogField(field)}
                       />
                     {/if}
                     {#if fieldHoldsPubkeys(field)}
@@ -2930,6 +2951,15 @@
                   </label>
                 {/if}
               {/each}
+              {#if kind === KIND.DIRECTORY}
+                <div class="compose-field">
+                  <ComposeDirectoryMembersEditor
+                    bind:value={values.members}
+                    label="Members"
+                    help="Publications on this bookshelf. Event id, naddr, nevent, or kind:pubkey:d; title and author resolve underneath."
+                  />
+                </div>
+              {/if}
             {/if}
 
             {#if showBody}

@@ -366,6 +366,15 @@ export function listBookshelfShelfOptions(
   return out;
 }
 
+/** Author publications that are not already members of this directory. */
+export function publicationsNotInDirectory(
+  publications: readonly Event[],
+  directory: Pick<Event, 'tags'> | null | undefined
+): Event[] {
+  if (!directory) return [...publications];
+  return publications.filter((p) => !directoryContainsPublication(directory, p));
+}
+
 /** Publication coordinates targeted by a 30045 directory (non-folder `a` tags + `e`). */
 export function publicationTargetsFromDirectory(event: Event): {
   addresses: string[];

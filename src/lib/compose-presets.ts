@@ -5,13 +5,13 @@ import {
 } from '@silberengel/kind-compose-catalog';
 import { resolveMarkup } from './markup';
 
-export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041] as const;
+export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041, 30045] as const;
 export const COMPOSE_METADATA_KINDS = [
   0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10243
 ] as const;
 /** Action / context kinds composed elsewhere — not offered in the picker. */
 export const COMPOSE_PICKER_EXCLUDED = [
-  5, 7, 819, 1621, 1985, 16374, 30045, 34259,
+  5, 7, 819, 1621, 1985, 16374, 34259,
   /** NIP-53 live chat / presence — composed from the live room UI. */
   1311, 10312,
   /** NIP-37 wraps/checkpoints — Save to Draft, not the picker. */

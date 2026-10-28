@@ -5,12 +5,16 @@ import {
   validateCompose,
 } from './kind-compose';
 import { kind0SavePayload } from './compose-kind0';
+import { buildDirectoryMemberTags } from './compose-directory-members';
 import { buildMuteListPayload } from './compose-mute-list';
 import { buildPListTags } from './compose-people-list';
 import { scrubTrackingUrlsInText } from './clean-url';
 import { KIND } from './constants';
 import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
+import { isComposePointerTagName, normalizeComposeTagRow } from './compose-tag-normalize';
+import { composerFieldSpecs } from './kind-compose';
+import { isCatalogued } from '@silberengel/kind-compose-catalog';
 
 export type ComposeFormState = {
   kind: number;
@@ -47,13 +51,37 @@ function scrubComposeValues(values: Record<string, string>): Record<string, stri
   return out;
 }
 
+/** Expand naddr/nevent/npub in catalog fields that emit a/e/p/q (and uppercase). */
+function normalizePointerFieldValues(
+  kind: number,
+  values: Record<string, string>
+): Record<string, string> {
+  if (!isCatalogued(kind)) return values;
+  const out = { ...values };
+  for (const field of composerFieldSpecs(kind)) {
+    const tag = (field.tag ?? '').trim();
+    if (!isComposePointerTagName(tag)) continue;
+    const raw = out[field.id];
+    if (raw == null || !String(raw).trim()) continue;
+    const normalized = normalizeComposeTagRow([tag, String(raw)])[1];
+    if (normalized != null) out[field.id] = normalized;
+  }
+  return out;
+}
+
+function normalizeFreeformTagRows(rows: string[][] | undefined): string[][] | undefined {
+  if (!rows?.length) return rows;
+  return rows.map((row) => normalizeComposeTagRow(row));
+}
+
 export function buildComposePartial(state: ComposeFormState): {
   kind: number;
   content: string;
   tags: string[][];
 } {
   const { kind } = state;
-  const values = scrubComposeValues(state.values);
+  const values = normalizePointerFieldValues(kind, scrubComposeValues(state.values));
+  const freeformTags = normalizeFreeformTagRows(state.freeformTags);
   let content: string;
   let tags: string[][];
 
@@ -61,8 +89,8 @@ export function buildComposePartial(state: ComposeFormState): {
     const payload = kind0SavePayload(state.kind0Tags ?? []);
     content = scrubTrackingUrlsInText(payload.contentJson);
     tags = [...payload.orderedTags];
-    if (state.freeformTags?.length) {
-      for (const row of state.freeformTags) {
+    if (freeformTags?.length) {
+      for (const row of freeformTags) {
         if (row[0]?.trim()) tags.push(row);
       }
     }
@@ -73,8 +101,8 @@ export function buildComposePartial(state: ComposeFormState): {
     // Catalog emit `p_list` is not in alexandria composeEmits yet — build locally.
     content = '';
     tags = [...buildPListTags(values.authors ?? '')];
-    if (state.freeformTags?.length) {
-      for (const row of state.freeformTags) {
+    if (freeformTags?.length) {
+      for (const row of freeformTags) {
         if (row[0]?.trim()) tags.push([...row]);
       }
     }
@@ -86,9 +114,29 @@ export function buildComposePartial(state: ComposeFormState): {
     const mute = buildMuteListPayload(values.muted ?? '');
     content = mute.privateJson;
     tags = [...mute.tags];
-    if (state.freeformTags?.length) {
-      for (const row of state.freeformTags) {
+    if (freeformTags?.length) {
+      for (const row of freeformTags) {
         if (row[0]?.trim()) tags.push([...row]);
+      }
+    }
+  } else if (
+    kind === KIND.DIRECTORY ||
+    getKind(kind)?.handler === 'nkbip04_directory'
+  ) {
+    // Catalog emit `directory_members` is not in alexandria composeEmits yet.
+    content = '';
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content: '',
+      hashtags: state.hashtags
+    });
+    tags = tags.filter((t) => t[0] !== 'a' && t[0] !== 'e');
+    tags.push(...buildDirectoryMemberTags(values.members ?? ''));
+    if (freeformTags?.length) {
+      for (const row of freeformTags) {
+        const name = row[0]?.trim();
+        if (!name || name === 'a' || name === 'e') continue;
+        tags.push([...row]);
       }
     }
   } else {
@@ -102,7 +150,7 @@ export function buildComposePartial(state: ComposeFormState): {
       app: 'alexandria',
       content,
       hashtags: state.hashtags,
-      freeformTags: state.freeformTags,
+      freeformTags,
     });
   }
 

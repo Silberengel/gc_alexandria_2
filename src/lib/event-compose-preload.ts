@@ -1,10 +1,12 @@
 import type { Event } from 'nostr-tools';
 import { composerFieldSpecs, isCatalogued } from '@silberengel/kind-compose-catalog';
+import { directoryMembersRawFromTags } from './compose-directory-members';
 import { mutedRawFromTags } from './compose-mute-list';
 import { authorsRawFromTags } from './compose-people-list';
 import { formatAuthors, type AuthorEntry } from './compose-publication-authors';
 import type { ComposeDraftState } from './compose-drafts';
 import { COMPOSE_PICKER_EXCLUDED } from './compose-presets';
+import { KIND } from './constants';
 
 const ALWAYS_SKIP = new Set([
   'client',
@@ -124,6 +126,14 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
       }
       for (const name of field.produces ?? []) consumed.add(name);
     }
+  }
+
+  // members is catalog `widget: custom` (hidden from composerFieldSpecs) — still preload it.
+  if (event.kind === KIND.DIRECTORY) {
+    const v = directoryMembersRawFromTags(event.tags);
+    if (v) values.members = v;
+    consumed.add('a');
+    consumed.add('e');
   }
 
   if (event.kind === 1) {

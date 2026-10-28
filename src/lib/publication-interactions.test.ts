@@ -8,6 +8,7 @@ import {
   createEmptyBookshelfDirectoryDraft,
   createBookshelfDirectoryDraft,
   directoryContainsPublication,
+  publicationsNotInDirectory,
   isProtectedDirectoryDTag,
   listBookshelfShelfOptions,
   membershipTargetFromRef,
@@ -224,6 +225,15 @@ describe('bookshelf 30045', () => {
     if (!toggled.ok) return;
     expect(toggled.added).toBe(true);
     expect(directoryContainsPublication({ tags: toggled.tags }, pub)).toBe(true);
+    const other = {
+      ...pub,
+      id: 'c'.repeat(64),
+      tags: [['d', 'other-book'], ['title', 'Other']]
+    };
+    expect(publicationsNotInDirectory([pub, other], { tags: toggled.tags }).map((e) => e.id)).toEqual([
+      other.id
+    ]);
+    expect(publicationsNotInDirectory([pub], null)).toEqual([pub]);
 
     const removed = togglePublicationInDirectoryTags({ tags: toggled.tags }, MY_BOOK_COLLECTION_D_TAG, pub);
     expect(removed.ok && !removed.added).toBe(true);

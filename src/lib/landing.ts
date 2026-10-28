@@ -43,6 +43,7 @@ import { warmAddress, warmNavEvent } from './nav-warm';
 import { eventAddress, isTopLevel30040 } from './nostr/verify';
 import { assignShelves, isViewerBoundShelfId, membershipsFromEvents, nestedShelvesForViewer, dedupeLandingShelfEvents, SHELF_TITLES, topLevelShelfEvents, type Membership, type Shelf } from './shelves';
 import { MY_BOOK_COLLECTION_D_TAG } from './bookshelf';
+import { highlightFocusQuote, highlightFocusSectionAddress } from './highlight-open';
 import { session } from './stores/session';
 
 export type LandingView = LandingSnapshot & {
@@ -431,10 +432,11 @@ export function focusHrefForRef(event: Event, referenced: Event[]): string | nul
   } else if (event.kind === KIND.RATING) {
     params.set('rating', event.id.toLowerCase());
   } else if (event.kind === KIND.HIGHLIGHT) {
-    const section = referencedSectionAddress(event);
+    const section = highlightFocusSectionAddress(event);
     if (section) params.set('section', section);
-    const q = event.content.replace(/\s+/g, ' ').trim().slice(0, 160);
+    const q = highlightFocusQuote(event);
     if (q) params.set('quote', q);
+    params.set('read', '1');
   }
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;

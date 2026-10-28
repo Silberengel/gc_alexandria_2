@@ -13,7 +13,7 @@
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import FeedBoosters from '$lib/components/FeedBoosters.svelte';
-  import { appScrollTo, appScrollY } from '$lib/app-scroll';
+  import { appClientHeight, appOffsetTop, appScrollTo, appScrollY } from '$lib/app-scroll';
   import { KIND } from '$lib/constants';
   import { isNip53Kind, NIP53_KIND, parseLiveStream } from '$lib/nip53';
   import {
@@ -29,6 +29,7 @@
     emptyWorkResponses,
     eventsPointingAtId,
     fetchWorkResponses,
+    highlightsForEvent,
     type WorkResponses
   } from '$lib/comments';
   import { cropRenderedUrlsInText } from '$lib/crop-url';
@@ -51,6 +52,7 @@
   import { collapseFeedReposts, peekRepostTarget } from '$lib/repost';
   import {
     collectNewFeedEvents,
+    DEFAULT_NOTIFICATION_LOOKBACK,
     feedEventsWatermark,
     feedFollowAuthors,
     feedListPath,
@@ -71,6 +73,8 @@
     loadFollowsFeed,
     loadKindFeed,
     loadNotifications,
+    NOTIFICATION_LOOKBACK_OPTIONS,
+    notificationLookbackSeconds,
     parseFeedAuthorParam,
     parseFeedTab,
     parseFeedThreadParam,
@@ -82,8 +86,11 @@
     recallFollowsFeed,
     recallKindFeed,
     recallNotifications,
-    type FeedTab
+    type FeedTab,
+    type NotificationLookbackId
   } from '$lib/feed';
+  import PageFilter from '$lib/components/PageFilter.svelte';
+  import { filterPageEvents } from '$lib/page-filter';
   import { feedTabOrder } from '$lib/stores/feed-tab-order';
   import { skipNextNavTrack } from '$lib/nav-history';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
@@ -170,7 +177,7 @@
     }
     if (feedTab === 'notifications') {
       return signedIn
-        ? 'Replies, comments, reactions, boosts, highlights, quotes, and zaps aimed at you.'
+        ? 'Replies, comments, reactions, boosts, highlights, quotes, and zaps that #p-tag you.'
         : 'Sign in to see responses to your posts.';
     }
     if (feedTab === 'replies') {
@@ -298,6 +305,10 @@
     if (feedTab === tab) setFeedTab('original');
   }
 
+  let notificationLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
+  let notificationFilter = $state('');
+  let items = $state<Event[]>([]);
+
   function loadingMessageForTab(tab: FeedTab): string {
     if (tab === 'notifications') return 'Loading notifications…';
     if (tab === 'follows') return 'Loading follows…';
@@ -307,7 +318,12 @@
   }
 
   function emptyMessageForTab(tab: FeedTab): string {
-    if (tab === 'notifications') return 'No notifications yet.';
+    if (tab === 'notifications') {
+      if (notificationFilter.trim() && items.length) {
+        return 'No notifications match this filter.';
+      }
+      return 'No notifications yet.';
+    }
     if (tab === 'follows') {
       return signedIn ? 'No posts from follows yet.' : 'Sign in to see follows.';
     }
@@ -316,10 +332,9 @@
     return 'No original posts here yet.';
   }
 
-  let items = $state<Event[]>([]);
   const visibleItems = $derived.by(() => {
     $deletionRevision;
-    return filterDeletedEvents(
+    const base = filterDeletedEvents(
       filterMuted(
         feedAuthor
           ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
@@ -327,6 +342,8 @@
         $muteState
       )
     );
+    if (feedTab !== 'notifications' || !notificationFilter.trim()) return base;
+    return filterPageEvents(base, notificationFilter);
   });
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
@@ -534,7 +551,11 @@
   );
   const fullPage = $derived(event && libraryKind ? libraryDocumentPath(event) : '');
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
-  const bodyHighlights = $derived(textHighlightsFromEvents(mutedHighlights));
+  const bodyHighlights = $derived(
+    event
+      ? textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event))
+      : []
+  );
   /**
    * Kind 6 / 16 for the open thread OP.
    * Prefer list-row boosts for an instant strip, then merge relay responses.
@@ -592,6 +613,41 @@
   const focusComment = $derived(
     (new URLSearchParams($querystring ?? '').get('comment') ?? '').trim().toLowerCase()
   );
+  /** Last `?comment=` id we scrolled to in the open thread. */
+  let commentFocusApplied = $state('');
+
+  $effect(() => {
+    if (!pointer || !event) return;
+    const id = focusComment;
+    if (!id) {
+      commentFocusApplied = '';
+      return;
+    }
+    // Wait for social responses so `comment-${id}` can mount.
+    void responses;
+    void socialLoading;
+    void threadLoading;
+    if (id === commentFocusApplied) return;
+    let attempts = 40;
+    let timer = 0;
+    const tryScroll = () => {
+      const el = document.getElementById(`comment-${id}`);
+      if (el) {
+        const top = Math.max(0, appOffsetTop(el) - Math.round(appClientHeight() / 3));
+        appScrollTo({ top, left: 0, behavior: 'smooth' });
+        commentFocusApplied = id;
+        return;
+      }
+      if (attempts-- <= 0) return;
+      timer = window.setTimeout(tryScroll, 100);
+    };
+    // After openThread's scroll-to-top microtask, then retry until the node exists.
+    const start = window.setTimeout(() => requestAnimationFrame(tryScroll), 50);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(timer);
+    };
+  });
 
   function armListRestore(focusId: string): void {
     pendingFocusId = focusId.toLowerCase();
@@ -661,8 +717,12 @@
     } else {
       warmNavEvent(item);
     }
-    void push(feedOpenPath(item));
-    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    const path = feedOpenPath(item);
+    void push(path);
+    // Reply deep-links (`?comment=`) scroll to the focused node; bare threads go to top.
+    if (!path.includes('comment=')) {
+      queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    }
   }
 
   function openThreadForTargetId(targetId: string, e: MouseEvent, warm?: Event | null): void {
@@ -675,7 +735,9 @@
       ? feedThreadPath(warm, feedTab, { author: feedAuthor })
       : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
     void push(path);
-    queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    if (!path.includes('comment=')) {
+      queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
+    }
   }
 
   function openThreadLink(item: Event, restoreId = item.id): void {
@@ -707,7 +769,11 @@
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
-    const listKey = `${tab}:${author ?? ''}`;
+    const lookback = notificationLookback;
+    const listKey =
+      tab === 'notifications'
+        ? `${tab}:${author ?? ''}:${lookback}`
+        : `${tab}:${author ?? ''}`;
     const pubkey = $session.pubkey;
     const sessionLoading = $session.loading;
     // Snapshot via untrack — identity churn on these must not re-subscribe the effect.
@@ -788,7 +854,12 @@
       onCache: (cached: Event[]) => void
     ): Promise<Event[]> => {
       if (tab === 'notifications') {
-        return loadNotifications(pubkey!, muted, onCache);
+        return loadNotifications(
+          pubkey!,
+          muted,
+          onCache,
+          notificationLookbackSeconds(lookback)
+        );
       }
       if (author) {
         return tab === 'replies'
@@ -893,6 +964,7 @@
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
+    const lookback = notificationLookback;
     const pubkey = $session.pubkey;
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
@@ -903,7 +975,12 @@
       try {
         let events: Event[] = [];
         if (tab === 'notifications' && pubkey) {
-          events = await loadNotifications(pubkey, muted);
+          events = await loadNotifications(
+            pubkey,
+            muted,
+            undefined,
+            notificationLookbackSeconds(lookback)
+          );
         } else if (author) {
           events =
             tab === 'replies'
@@ -1218,6 +1295,31 @@
         </form>
       {/if}
     </div>
+    {#if feedTab === 'notifications' && signedIn}
+      <div
+        class="feed-notifications-filters"
+        role="group"
+        aria-label="Notification filters"
+      >
+        <label class="feed-notif-lookback">
+          <span class="sr-only">Time range</span>
+          <select
+            id="feed-notif-lookback"
+            bind:value={notificationLookback}
+            disabled={!!pointer}
+          >
+            {#each NOTIFICATION_LOOKBACK_OPTIONS as opt (opt.id)}
+              <option value={opt.id}>{opt.label}</option>
+            {/each}
+          </select>
+        </label>
+        <PageFilter
+          id="feed-notif-filter"
+          bind:value={notificationFilter}
+          placeholder="Filter notifications…"
+        />
+      </div>
+    {/if}
     {#if !visibleItems.length && listError}
       <p class="muted">{listError}</p>
     {:else if !visibleItems.length && !listSettled}
@@ -1405,6 +1507,25 @@
     align-items: center;
     gap: 0.55rem 0.85rem;
     margin: 0.35rem 0 0;
+  }
+  .feed-notifications-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem 0.75rem;
+    margin: 0 0 0.85rem;
+    max-width: 40rem;
+  }
+  .feed-notif-lookback {
+    flex: 0 0 auto;
+  }
+  .feed-notif-lookback select {
+    min-width: 8.5rem;
+  }
+  .feed-notifications-filters :global(.page-filter) {
+    flex: 1 1 12rem;
+    margin-bottom: 0 !important;
+    max-width: none !important;
   }
   .feed-tabs-row {
     display: flex;

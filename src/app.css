@@ -129,6 +129,8 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   min-height: 0;
   min-width: 0;
   overflow: auto;
+  /* Avoid scrollbar show/hide width thrash with auto-sized card grids. */
+  scrollbar-gutter: stable;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   display: flex;
@@ -1664,6 +1666,62 @@ select:hover {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+}
+.search-term-bookshelf {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+.search-term-bookshelf-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.55rem;
+  margin: 0;
+}
+.search-bookshelf-curator {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.3;
+  color: var(--ink-soft);
+}
+.search-bookshelf-curator-label {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--ink-soft) 70%, var(--accent));
+}
+.search-bookshelf-edit {
+  font-family: var(--ui-font);
+  font-size: 0.85rem;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+.search-bookshelf-on-shelf-label {
+  margin-left: 0.35rem;
+  font-size: 0.92em;
+  opacity: 0.85;
+}
+.search-bookshelf-published {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+.search-bookshelf-published-title {
+  margin: 0 0 0.25rem;
+  font-family: var(--display-font);
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.search-bookshelf-published-lede {
+  margin: 0 0 1rem;
 }
 
 .search-pointer {
@@ -8593,19 +8651,24 @@ a.user-status-line:hover {
   word-break: break-all;
 }
 @media (min-width: 900px) {
-  /* Catalog shells only — reading/wiki/profile stay single-column on the 760px measure. */
+  /* Catalog shells only — reading/wiki/profile stay single-column on the 760px measure.
+     auto-fill keeps empty tracks (unlike auto-fit) so sparse rows do not stretch one
+     leftover card full-bleed; scrollbar-gutter:stable avoids column thrash. */
   .shell-wide .card-grid-results {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  }
+  /* One hit: use the full measure (same as <900px single column), not a skinny tile. */
+  .shell-wide .card-grid-results > .event-embed-card:only-child,
+  .shell-wide .card-grid-results > .card:only-child,
+  .shell-wide .card-grid-results > .result-card-wrap:only-child {
+    grid-column: 1 / -1;
   }
   .shell-wide .landing-feeds {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
     gap: 2rem;
-  }
-}
-@media (min-width: 1200px) {
-  .shell-wide .card-grid-results {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

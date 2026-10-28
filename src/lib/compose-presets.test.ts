@@ -81,6 +81,13 @@ describe('composePickerGroups', () => {
     expect(listed.has(KIND.MUTE)).toBe(true);
   });
 
+  it('offers directories under documents', () => {
+    const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
+    expect(COMPOSE_DOCUMENT_PRESETS).toContain(KIND.DIRECTORY);
+    expect(listed.has(KIND.DIRECTORY)).toBe(true);
+    expect(COMPOSE_PICKER_EXCLUDED).not.toContain(KIND.DIRECTORY);
+  });
+
   it('hides the body box for NIP-51 lists (private ciphertext is not freeform content)', () => {
     expect(showContentBox(KIND.MUTE)).toBe(false);
     expect(showContentBox(KIND.CONTACT_LIST)).toBe(false);

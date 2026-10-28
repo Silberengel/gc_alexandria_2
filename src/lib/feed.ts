@@ -26,8 +26,43 @@ function tagThreadMarker(tag: string[]): 'root' | 'reply' | null {
 
 const FOLLOW_AUTHOR_BATCH = 50;
 const FOLLOW_AUTHOR_CAP = 200;
-/** How far back the Notifications tab looks on relays. */
-const NOTIFICATION_LOOKBACK_SEC = 7 * 24 * 60 * 60;
+
+/** Time windows for the Notifications tab relay query (`null` = no `since`). */
+export const NOTIFICATION_LOOKBACK_OPTIONS = [
+  { id: '24h', label: '24 hours', seconds: 24 * 60 * 60 },
+  { id: '48h', label: '48 hours', seconds: 48 * 60 * 60 },
+  { id: '1w', label: '1 week', seconds: 7 * 24 * 60 * 60 },
+  { id: '1m', label: '1 month', seconds: 30 * 24 * 60 * 60 },
+  { id: '1y', label: '1 year', seconds: 365 * 24 * 60 * 60 },
+  { id: 'all', label: 'Unlimited', seconds: null }
+] as const;
+
+export type NotificationLookbackId = (typeof NOTIFICATION_LOOKBACK_OPTIONS)[number]['id'];
+
+export const DEFAULT_NOTIFICATION_LOOKBACK: NotificationLookbackId = '1m';
+
+const NOTIFICATION_LOOKBACK_IDS = new Set<string>(
+  NOTIFICATION_LOOKBACK_OPTIONS.map((o) => o.id)
+);
+
+export function isNotificationLookbackId(raw: string): raw is NotificationLookbackId {
+  return NOTIFICATION_LOOKBACK_IDS.has(raw);
+}
+
+export function parseNotificationLookback(
+  raw: string | null | undefined
+): NotificationLookbackId {
+  const t = (raw ?? '').trim().toLowerCase();
+  return isNotificationLookbackId(t) ? t : DEFAULT_NOTIFICATION_LOOKBACK;
+}
+
+/** Seconds before now for `#p` queries, or `null` when unlimited. */
+export function notificationLookbackSeconds(
+  id: NotificationLookbackId = DEFAULT_NOTIFICATION_LOOKBACK
+): number | null {
+  const opt = NOTIFICATION_LOOKBACK_OPTIONS.find((o) => o.id === id);
+  return opt ? opt.seconds : 30 * 24 * 60 * 60;
+}
 
 /**
  * Library / media / bookmark posts for the Original Posts tab (plus kind 1 notes).
@@ -788,38 +823,50 @@ export async function recallNotifications(viewerPubkey: string): Promise<Event[]
 /**
  * Responses aimed at the signed-in viewer: replies, comments, reactions, highlights,
  * quotes/reposts, zap receipts, and ratings that `#p`-tag them.
+ * @param lookbackSeconds seconds before now for relay `since`, or `null` for unlimited
  */
 export async function loadNotifications(
   viewerPubkey: string,
   muted: MuteState = emptyMute,
-  onCache?: (events: Event[]) => void
+  onCache?: (events: Event[]) => void,
+  lookbackSeconds: number | null = notificationLookbackSeconds()
 ): Promise<Event[]> {
   const pk = viewerPubkey.trim().toLowerCase();
   if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return [];
+  const since =
+    lookbackSeconds == null ? null : Math.floor(Date.now() / 1000) - lookbackSeconds;
+  const inWindow = (event: Event): boolean =>
+    since == null || event.created_at >= since;
   const cached = filterMuted(await recallNotifications(pk), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
-    const rows = filterMuted(sortFeedEvents([...byId.values()]), muted);
+    const rows = filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
     if (rows.length) onCache?.(rows);
   };
-  for (const event of cached) byId.set(event.id, event);
+  for (const event of cached) {
+    if (!inWindow(event)) continue;
+    byId.set(event.id, event);
+  }
   if (byId.size) paint();
   const relays = notificationRelays();
-  if (!relays.length) return filterMuted(sortFeedEvents([...byId.values()]), muted);
-  const since = Math.floor(Date.now() / 1000) - NOTIFICATION_LOOKBACK_SEC;
+  if (!relays.length) {
+    return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
+  }
   const filters: Filter[] = [
     {
       kinds: [...NOTIFICATION_KINDS],
       '#p': [pk],
-      since,
-      limit: 120
+      ...(since != null ? { since } : {}),
+      limit: since == null ? 200 : 120
     }
   ];
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (!isNotificationForViewer(event, pk) || byId.has(event.id)) continue;
+      if (!isNotificationForViewer(event, pk) || !inWindow(event) || byId.has(event.id)) {
+        continue;
+      }
       byId.set(event.id, event);
       rememberEvents([event]);
       added = true;
@@ -830,11 +877,11 @@ export async function loadNotifications(
     .query(relays, filters, 8000, Math.min(relays.length, 10), absorb, queryOpts)
     .catch(() => [] as Event[]);
   for (const event of hits) {
-    if (!isNotificationForViewer(event, pk)) continue;
+    if (!isNotificationForViewer(event, pk) || !inWindow(event)) continue;
     byId.set(event.id, event);
     rememberEvents([event]);
   }
-  return filterMuted(sortFeedEvents([...byId.values()]), muted);
+  return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
 /** Load one event for a feed thread, from memory and then the same relay groups. */

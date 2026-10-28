@@ -204,7 +204,13 @@
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
   const isHighlightEvent = $derived(sourceKind === KIND.HIGHLIGHT);
-  const usePlaintextRich = $derived(markupFormat === 'plaintext' && !isHighlightEvent);
+  /**
+   * Plain notes normally use NostrRichText — but when this body has highlight quotes,
+   * take the HTML mark path so kind-9802 ranges paint on the opened event.
+   */
+  const usePlaintextRich = $derived(
+    markupFormat === 'plaintext' && !isHighlightEvent && quotes.length === 0
+  );
   const showReferenceBlurb = $derived(
     !!displayEvent && !isHighlightEvent && !!noteReferenceSpec(displayEvent)
   );
@@ -217,6 +223,7 @@
    */
   const wholeDocument = $derived(
     sourceKind === KIND.SECTION ||
+      sourceKind === KIND.PUBLICATION ||
       sourceKind === KIND.WIKI ||
       sourceKind === KIND.SPEC ||
       sourceKind === KIND.LONG_FORM ||

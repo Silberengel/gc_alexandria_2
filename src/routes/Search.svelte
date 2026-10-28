@@ -11,6 +11,7 @@
   import AdvancedSearchPanel from '$lib/components/AdvancedSearchPanel.svelte';
   import { listingDensity } from '$lib/stores/listing-density';
   import { listingPageSize } from '$lib/listing-table';
+  import { link } from 'svelte-spa-router';
   import {
     runLabelSearch,
     runSearch,
@@ -19,17 +20,21 @@
     runTitleSearch,
     runIdentifierSearch,
     runLanguageSearch,
-    runBookshelfSearch,
+    loadBookshelfCatalog,
+    fetchOwnPublishedNotOnBookshelf,
+    isOwnMyBookCollectionBookshelf,
     runDTagSearch,
     runKindTagSearch,
     runReadSearch,
     runReadingQueueSearch,
     runAdvancedSearch,
+    hexPubkey,
     npubFromInput
   } from '$lib/search';
   import { parseAdvancedSearch, type AdvancedSearchRequest } from '$lib/advanced-search';
   import { parseSearchPointer } from '$lib/search-pointer';
   import SearchPointerEditor from '$lib/components/SearchPointerEditor.svelte';
+  import UserBadge from '$lib/components/UserBadge.svelte';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import {
@@ -44,6 +49,9 @@
     filterEventsByAuthorScope,
     type AuthorResultScope
   } from '$lib/result-scope';
+  import { directoryDTag } from '$lib/bookshelf';
+  import { KIND } from '$lib/constants';
+  import { normalizeDTag } from '$lib/dtag';
   import { readerFocusQuote } from '$lib/reader-share-url';
   import { session } from '$lib/stores/session';
   import { trust } from '$lib/stores/trust';
@@ -60,6 +68,13 @@
   /** Active query shown under the Search heading (empty when no params). */
   let searchTerm = $state('');
   let searchKind = $state('');
+  /** Bookshelf search: author npub/hex from `?npub=` and resolved 30045. */
+  let bookshelfAuthorHex = $state('');
+  let bookshelfDirectory = $state<Event | null>(null);
+  /** Own my-book-collection: authored pubs missing from the directory. */
+  let publishedOffShelf = $state<Event[]>([]);
+  let publishedOffShelfLoading = $state(false);
+  let bookshelfSlug = $state('');
   let resultScope = $state<AuthorResultScope>(DEFAULT_AUTHOR_RESULT_SCOPE);
   let scoresReady = $state(0);
   let advancedReq = $state<AdvancedSearchRequest | null>(null);
@@ -177,6 +192,19 @@
     const read = params.get('read') ?? '';
     const queue = params.get('queue') ?? '';
     const term = described.term;
+    const nextAuthorHex = bookshelf ? hexPubkey(shelfNpub) ?? '' : '';
+    bookshelfSlug = bookshelf;
+    // Keep prior directory until the new fetch lands so Edit does not flicker away.
+    if (!bookshelf) {
+      bookshelfAuthorHex = '';
+      bookshelfDirectory = null;
+      publishedOffShelf = [];
+      publishedOffShelfLoading = false;
+    } else {
+      bookshelfAuthorHex = nextAuthorHex;
+      publishedOffShelf = [];
+      publishedOffShelfLoading = false;
+    }
     if (!term && !adv) {
       events = [];
       loading = false;
@@ -201,7 +229,45 @@
     if (adv) void runAdvancedSearch(adv, onUpdate);
     else if (queue) void runReadingQueueSearch(queue, onUpdate);
     else if (read) void runReadSearch(read, onUpdate);
-    else if (bookshelf) void runBookshelfSearch(bookshelf, onUpdate, shelfNpub || undefined);
+    else if (bookshelf) {
+      void loadBookshelfCatalog(bookshelf, shelfNpub || undefined)
+        .then(({ directory, events: shelfEvents }) => {
+          if (runGen !== searchGen) return;
+          if (directory) {
+            bookshelfDirectory = directory;
+          } else {
+            // Keep a prior hit for the same slug so Edit does not vanish on a flaky refetch.
+            const priorD = bookshelfDirectory ? normalizeDTag(directoryDTag(bookshelfDirectory)) : '';
+            const wantD = normalizeDTag(bookshelf);
+            const priorAuthor = bookshelfDirectory?.pubkey.toLowerCase() ?? '';
+            const wantAuthor = (nextAuthorHex || priorAuthor).toLowerCase();
+            if (!bookshelfDirectory || priorD !== wantD || (wantAuthor && priorAuthor !== wantAuthor)) {
+              bookshelfDirectory = null;
+            }
+          }
+          const dir = bookshelfDirectory;
+          if (dir && !bookshelfAuthorHex) bookshelfAuthorHex = dir.pubkey.toLowerCase();
+          const me = session.getPubkey()?.toLowerCase() ?? '';
+          const author = (nextAuthorHex || dir?.pubkey || me).toLowerCase();
+          if (!bookshelfAuthorHex && author) bookshelfAuthorHex = author;
+          onUpdate({ events: shelfEvents, loading: false });
+          if (me && author === me && isOwnMyBookCollectionBookshelf(bookshelf)) {
+            publishedOffShelfLoading = true;
+            void fetchOwnPublishedNotOnBookshelf(dir, me)
+              .then((pubs) => {
+                if (runGen !== searchGen) return;
+                publishedOffShelf = pubs;
+              })
+              .finally(() => {
+                if (runGen === searchGen) publishedOffShelfLoading = false;
+              });
+          }
+        })
+        .catch(() => {
+          if (runGen !== searchGen) return;
+          onUpdate({ events: [], loading: false });
+        });
+    }
     else if (d) void runDTagSearch(d, onUpdate);
     else if (k) void runKindTagSearch(k, onUpdate);
     else if (subject) void runSubjectSearch(subject, onUpdate);
@@ -320,7 +386,45 @@
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
   /** Bech32 / coordinate queries → editable kind · pubkey · d (or event id) parts. */
   const searchPointer = $derived(
-    searchTerm && searchKind !== 'Advanced' ? parseSearchPointer(searchTerm) : null
+    searchTerm && searchKind !== 'Advanced' && searchKind !== 'Bookshelf'
+      ? parseSearchPointer(searchTerm)
+      : null
+  );
+  const isOwnBookshelf = $derived(
+    Boolean(
+      bookshelfAuthorHex &&
+        $session.pubkey &&
+        bookshelfAuthorHex === $session.pubkey.toLowerCase()
+    )
+  );
+  const bookshelfEditHref = $derived(
+    bookshelfDirectory
+      ? `#/compose?copy=${bookshelfDirectory.id.toLowerCase()}`
+      : `#/compose?kind=${KIND.DIRECTORY}`
+  );
+  const showPublishedOffShelfSection = $derived(
+    searchKind === 'Bookshelf' &&
+      isOwnBookshelf &&
+      isOwnMyBookCollectionBookshelf(bookshelfSlug)
+  );
+  const publishedOffShelfVisible = $derived(
+    (() => {
+      if (!showPublishedOffShelfSection) return [] as Event[];
+      // Drop anything already painted in the on-shelf grid (id or replaceable addr).
+      const listedIds = new Set(events.map((e) => e.id.toLowerCase()));
+      const listedAddrs = new Set(
+        events.map((e) => `${e.kind}:${e.pubkey.toLowerCase()}:${e.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`)
+      );
+      const mutedOff = filterMuted(
+        publishedOffShelf.filter((e) => {
+          if (listedIds.has(e.id.toLowerCase())) return false;
+          const addr = `${e.kind}:${e.pubkey.toLowerCase()}:${e.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`;
+          return !listedAddrs.has(addr);
+        }),
+        $muteState
+      );
+      return filterPageEvents(mutedOff, pageFilter);
+    })()
   );
 </script>
 
@@ -331,11 +435,30 @@
     {#if !searchTerm}
       <p class="page-lede muted">Find publications, wiki pages, authors, and labels across the library.</p>
     {/if}
-    <SearchForm class="page-search-form" initialQuery={searchKind === 'Advanced' ? '' : searchTerm} />
+    <SearchForm
+      class="page-search-form"
+      initialQuery={searchKind === 'Advanced' || searchKind === 'Bookshelf' ? '' : searchTerm}
+    />
   </header>
   {#if searchTerm}
     {#if searchPointer}
       <SearchPointerEditor pointer={searchPointer} />
+    {:else if searchKind === 'Bookshelf'}
+      <div class="search-term search-term-bookshelf">
+        <p class="search-term-bookshelf-label">
+          <span class="muted">Bookshelf</span>
+          <span>{searchTerm}</span>
+        </p>
+        {#if bookshelfAuthorHex}
+          <p class="search-bookshelf-curator">
+            <span class="search-bookshelf-curator-label">Curator:</span>
+            <UserBadge pubkey={bookshelfAuthorHex} compact />
+          </p>
+        {/if}
+        {#if isOwnBookshelf}
+          <a class="btn search-bookshelf-edit" href={bookshelfEditHref} use:link>Edit the list</a>
+        {/if}
+      </div>
     {:else}
       <p class="search-term">
         {#if searchKind}<span class="muted">{searchKind}</span>{/if}
@@ -379,11 +502,16 @@
     {#if events.length > 0 || visible.length > 0}
       <p class="muted wiki-search-count">
         {visible.length} {visible.length === 1 ? 'card' : 'cards'}
+        {#if showPublishedOffShelfSection}
+          <span class="search-bookshelf-on-shelf-label">on this shelf</span>
+        {/if}
       </p>
     {/if}
     {#if !loading && visible.length === 0}
       <p class="muted">
-        {#if resultScope === 'mine'}
+        {#if showPublishedOffShelfSection && (publishedOffShelfVisible.length > 0 || publishedOffShelfLoading)}
+          Nothing on this shelf yet.
+        {:else if resultScope === 'mine'}
           Nothing here from you.
         {:else if resultScope === 'follows'}
           Nothing here from your follows.
@@ -405,6 +533,25 @@
         {/each}
       </div>
       <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+    {/if}
+    {#if showPublishedOffShelfSection}
+      <section class="search-bookshelf-published" aria-label="Books I published">
+        <h2 class="search-bookshelf-published-title">Books I published</h2>
+        <p class="muted search-bookshelf-published-lede">Not on this shelf yet.</p>
+        {#if publishedOffShelfLoading && !publishedOffShelfVisible.length}
+          <LoadingHint message="Loading your publications…" />
+        {:else if publishedOffShelfVisible.length === 0}
+          <p class="muted">No other publications of yours outside this shelf.</p>
+        {:else if $listingDensity === 'table'}
+          <EventsTable events={publishedOffShelfVisible} focusQuote={searchFocusQuote} />
+        {:else}
+          <div class="card-grid card-grid-results">
+            {#each publishedOffShelfVisible as event (event.id)}
+              <EventCard {event} asCard openAsThread focusQuote={searchFocusQuote} />
+            {/each}
+          </div>
+        {/if}
+      </section>
     {/if}
   {/if}
 </main>

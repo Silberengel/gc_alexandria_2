@@ -61,6 +61,28 @@ describe('eventToComposeDraft', () => {
     expect(draft.values.d).toBe('my-book');
     expect(draft.values.publication_author).toContain('Alice|translator');
   });
+
+  it('maps directory members from a/e tags', () => {
+    const pk = 'f'.repeat(64);
+    const coord = `30040:${pk}:aesop`;
+    const id = 'b'.repeat(64);
+    const dir = ev({
+      kind: KIND.DIRECTORY,
+      pubkey: pk,
+      content: '',
+      tags: [
+        ['d', 'ancient-classics'],
+        ['title', 'Ancient classics'],
+        ['a', coord, '', id]
+      ]
+    });
+    const draft = eventToComposeDraft(dir);
+    expect(draft.values.d).toBe('ancient-classics');
+    expect(draft.values.title).toBe('Ancient classics');
+    expect(draft.values.members).toContain(coord);
+    expect(draft.values.members).toContain(id);
+    expect(draft.freeformTags.some((t) => t[0] === 'a')).toBe(false);
+  });
 });
 
 describe('canCopy / canEdit / canFork gates', () => {

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import {
+    isComposePointerTagName,
+    normalizeComposeTagRow
+  } from '$lib/compose-tag-normalize';
   import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
 
   interface Props {
@@ -50,7 +54,12 @@
     const cells = next[row] ?? blankRow();
     while (cells.length <= part) cells.push('');
     cells[part] = trimParts ? value.trim() : value;
-    next[row] = cells;
+    // naddr→a, nevent→e, npub→p (and A/E/P/Q / q) once the bech32 decodes.
+    const name = (cells[0] ?? '').trim();
+    next[row] =
+      (part === 0 || part === 1) && isComposePointerTagName(name)
+        ? normalizeComposeTagRow(cells)
+        : cells;
     tags = next;
   }
 
@@ -108,6 +117,8 @@
   {#if showDefaultHint}
     <p class="tag-rows-hint muted">
       One row per tag. Add parts for multi-value tags (e.g. <code>e</code> id relay pubkey marker).
+      Paste <code>naddr</code>/<code>nevent</code>/<code>npub</code> into <code>a</code>/<code>e</code>/<code>p</code>
+      (or <code>q</code> / uppercase) — they expand to wire values.
     </p>
   {:else if hint}
     <p class="tag-rows-hint muted">{hint}</p>

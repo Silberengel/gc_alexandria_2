@@ -268,6 +268,7 @@ describe('referenced work titles', () => {
     const params = new URLSearchParams(href.slice(q + 1));
     expect(params.get('section')).toBe(secAddr);
     expect(params.get('quote')).toBe('It was a cold winter morning on the moor.');
+    expect(params.get('read')).toBe('1');
   });
 
   it('hides interactions whose library target was never resolved', () => {

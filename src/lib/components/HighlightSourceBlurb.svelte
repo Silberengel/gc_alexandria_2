@@ -3,9 +3,10 @@
   import type { Event } from 'nostr-tools';
   import { link } from 'svelte-spa-router';
   import { highlightSourceLabelFallback, highlightSourceRef } from '$lib/highlight-source';
+  import { highlightReaderLocation } from '$lib/highlight-open';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
-  import { addressPath } from '$lib/library-scope';
+  import { addressPath, isLibraryHighlight } from '$lib/library-scope';
   import { eventHref, cropText } from '$lib/listing-table';
   import { displayTitle } from '$lib/metadata';
   import { feedThreadPointerFromId } from '$lib/feed';
@@ -29,6 +30,10 @@
 
   const source = $derived(highlightSourceRef(event));
   const fallback = $derived(highlightSourceLabelFallback(event));
+  /** Library highlights open the edition reader on the quoted section. */
+  const readerHref = $derived(
+    isLibraryHighlight(event) ? highlightReaderLocation(event) : null
+  );
 
   let resolved = $state<Event | null>(null);
   let loading = $state(false);
@@ -89,8 +94,11 @@
 
   const httpHref = $derived(source?.type === 'http' ? source.url : null);
 
-  /** Href from the tag (stable) — never rewrite after resolve. */
+  /** Prefer reader deep-link; else stable tag href (never rewrite after resolve). */
   const eventHrefResolved = $derived.by(() => {
+    if (readerHref) {
+      return readerHref.startsWith('#') ? readerHref : `#${readerHref}`;
+    }
     if (!source || source.type === 'http') return null;
     if (source.type === 'event') {
       return `#/feed?thread=${feedThreadPointerFromId(source.eventId)}`;

@@ -3,6 +3,7 @@ import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import {
   collectNewFeedEvents,
+  DEFAULT_NOTIFICATION_LOOKBACK,
   feedEventsWatermark,
   feedFollowAuthors,
   feedAuthorRepliesPath,
@@ -20,9 +21,11 @@ import {
   isRepliesTimelineEvent,
   isTopLevelWebComment,
   keepFeedPosts,
+  notificationLookbackSeconds,
   parseFeedAuthorParam,
   parseFeedTab,
-  parseFeedThreadParam
+  parseFeedThreadParam,
+  parseNotificationLookback
 } from './feed';
 import { nip19 } from 'nostr-tools';
 import { memoryEventsByKind, memoryEventsReferencing, rememberEvents } from './nostr/event-memory';
@@ -169,6 +172,17 @@ describe('replies timeline', () => {
     ).toBe(true);
     expect(isRepliesTimelineEvent(ev({ kind: KIND.COMMENT }))).toBe(true);
     expect(isRepliesTimelineEvent(ev({ kind: KIND.REACTION, content: '+' }))).toBe(false);
+  });
+});
+
+describe('notification lookback', () => {
+  it('parses known ids and defaults unknown to 1 month', () => {
+    expect(parseNotificationLookback('24h')).toBe('24h');
+    expect(parseNotificationLookback('all')).toBe('all');
+    expect(parseNotificationLookback('nope')).toBe(DEFAULT_NOTIFICATION_LOOKBACK);
+    expect(notificationLookbackSeconds('24h')).toBe(24 * 60 * 60);
+    expect(notificationLookbackSeconds('1w')).toBe(7 * 24 * 60 * 60);
+    expect(notificationLookbackSeconds('all')).toBeNull();
   });
 });
 
