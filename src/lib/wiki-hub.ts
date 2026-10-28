@@ -200,8 +200,10 @@ export function wikiHubListingHref(
   const q = new URLSearchParams();
   const kind = opts.kind ?? 'all';
   if (kind !== 'all') q.set('kind', kind);
+  // Default audience is trusted — only persist non-default `from` values.
   const from = (opts.from ?? '').trim().toLowerCase();
-  if (from && from !== 'all') q.set('from', from);
+  if (from === 'all' || from === 'mine' || from === 'follows') q.set('from', from);
+  else if (from && from !== 'trusted') q.set('from', from);
   const qs = q.toString();
   return qs ? `#${base}?${qs}` : `#${base}`;
 }

@@ -117,7 +117,11 @@
     type VerseRange
   } from '$lib/douay-passage';
   import { douayBookBySlug, douayBookByCode } from '$lib/douay-canon';
-  import { readerShareLocation, readerShareUrl } from '$lib/reader-share-url';
+  import {
+    readerShareLocation,
+    readerShareUrl,
+    withReaderQuote
+  } from '$lib/reader-share-url';
   import { verseStyling } from '$lib/stores/verse-styling';
   import { isAllowedMediaUrl } from '$lib/markup';
   import {
@@ -140,6 +144,7 @@
     parseToc,
     placeholderIndexEvent,
     placeholderSectionEvent,
+    publicationStreamTreeClosed,
     sectionHeading,
     tocEntryKey,
     type TocEntry
@@ -925,7 +930,14 @@
       return mergePublicationSections(have, fetched);
     }
 
+    /** Persist only when every nested a/e child is present — never sticky-complete a partial stream. */
+    function rememberStream(corpus: Event[]): void {
+      const closed = publicationStreamTreeClosed(corpus);
+      void cachePutPublicationStream(editionAddr, corpus, { complete: closed });
+    }
+
     // Instant reopen: we already streamed this book into Cache Storage earlier.
+    let cachedBase: Event[] = [];
     try {
       const snap = await cacheGetPublicationStreamSnapshot(editionAddr);
       if (signal?.aborted) return [];
@@ -934,37 +946,20 @@
       if (hasLeaves) {
         rememberEvents(cached);
         onBatch?.(cached);
-        // Full snapshot with real leaves → paint from cache (still fill root intros).
-        if (snap.complete) return withRootLeaves(cached);
-        if (!isMercuryUnavailable() && !isMercuryPublicationMissing(naddr)) {
-          try {
-            const fresh = await mercuryPublicationStream(
-              naddr,
-              undefined,
-              signal,
-              (page) => {
-                if (signal?.aborted) return;
-                onBatch?.(page);
-              },
-              { maxEvents: 50_000 }
-            );
-            if (signal?.aborted) return withRootLeaves(mergePublicationSections(cached, fresh));
-            if (fresh.length) {
-              const merged = await withRootLeaves(mergePublicationSections(cached, fresh));
-              void cachePutPublicationStream(editionAddr, merged, { complete: true });
-              return merged;
-            }
-          } catch {
-            /* keep cached paint */
-          }
+        const closed = publicationStreamTreeClosed(cached);
+        // Full closed snapshot → paint from cache (still fill root intros).
+        if (snap.complete && closed) return withRootLeaves(cached);
+        // Heal sticky false-complete from an earlier truncated Mercury page.
+        if (snap.complete && !closed) {
+          void cachePutPublicationStream(editionAddr, cached, { complete: false });
         }
-        return withRootLeaves(cached);
-      }
-      // Indexes-only or empty snapshot: discard sticky complete and re-walk.
-      if (cached.length) {
+        cachedBase = cached;
+      } else if (cached.length) {
+        // Indexes-only or empty snapshot: discard sticky complete and re-walk.
         rememberEvents(cached);
         onBatch?.(cached);
         void cacheClearPublicationStream(editionAddr);
+        cachedBase = cached;
       }
     } catch {
       /* ignore cache errors — fall through to live load */
@@ -985,7 +980,7 @@
 
     // Citadel-only trees 404 on Mercury — probe /meta first so we walk relays
     // immediately instead of waiting on /stream body timeouts.
-    let streamed: Event[] = [];
+    let streamed: Event[] = cachedBase;
     let mercuryHosted = !isMercuryUnavailable() && !isMercuryPublicationMissing(naddr);
     if (mercuryHosted) {
       try {
@@ -998,7 +993,7 @@
     }
     if (mercuryHosted) {
       try {
-        streamed = await mercuryPublicationStream(
+        const fresh = await mercuryPublicationStream(
           naddr,
           undefined,
           signal,
@@ -1008,27 +1003,29 @@
           // Soft cap so a broken stream cannot grow without bound; Bible is ~30k.
           { maxEvents: 50_000 }
         );
+        if (fresh.length) streamed = mergePublicationSections(cachedBase, fresh);
       } catch {
-        streamed = [];
+        /* keep cachedBase */
       }
     }
     if (signal?.aborted) return streamed;
-    if (streamed.some((e) => e.kind !== KIND.PUBLICATION)) {
-      // Stream has leaves but may still omit edition-level intro sections.
-      const merged = await withRootLeaves(streamed);
-      void cachePutPublicationStream(editionAddr, merged, { complete: true });
+
+    let merged = streamed.length ? await withRootLeaves(streamed) : [];
+    if (publicationStreamTreeClosed(merged)) {
+      rememberStream(merged);
       return merged;
     }
-    // Structure-only Mercury (e.g. Intro/OT/NT), empty stream, or citadel-only: walk a-tags.
+
+    // Structure-only Mercury, truncated stream, or citadel-only: walk a-tags to fill gaps.
     const walked = await fallbackSections(edition, {
       signal,
       relaysOnly: !mercuryHosted || isMercuryPublicationMissing(naddr),
       onHit: (hit) => onBatch?.([hit])
     });
-    if (signal?.aborted) return streamed;
-    const merged = await withRootLeaves(mergePublicationSections(streamed, walked));
+    if (signal?.aborted) return merged.length ? merged : streamed;
+    merged = await withRootLeaves(mergePublicationSections(merged, walked));
     if (merged.some((e) => e.kind !== KIND.PUBLICATION)) {
-      void cachePutPublicationStream(editionAddr, merged, { complete: true });
+      rememberStream(merged);
     }
     return merged;
   }
@@ -1344,10 +1341,14 @@
       return;
     }
     const cached = await cacheGetCompletePublication(eventAddress(edition));
-    if (cached) {
+    if (cached && publicationStreamTreeClosed(cached.events)) {
       rememberEvents(cached.events);
       toc = tocFromCachedEvents(edition, cached.events);
       return;
+    }
+    if (cached) {
+      rememberEvents(cached.events);
+      void cachePutPublicationStream(eventAddress(edition), cached.events, { complete: false });
     }
     try {
       const rawToc = await mercuryPublicationToc(naddrFor(edition));
@@ -2292,7 +2293,9 @@
     const edition = await fetchContainingPublication(eventAddress(section));
     if (!edition) return false;
     rememberEvents([edition, section]);
-    replace(readerShareLocation(edition, section));
+    // Keep inbound ?quote= from full-text search / deep links across the promote.
+    const quote = (new URLSearchParams($querystring ?? '').get('quote') ?? '').trim();
+    replace(withReaderQuote(readerShareLocation(edition, section), quote));
     return true;
   }
 
@@ -3046,9 +3049,16 @@
       let streamed: Event[] = [];
       const naddr = naddrFor(edition);
       const cachedTree = await cacheGetCompletePublication(eventAddress(edition));
-      if (cachedTree) {
+      // Only trust Cache Storage when the nested a/e tree is closed — a sticky
+      // false-complete from a truncated stream would skip refill forever.
+      if (cachedTree && publicationStreamTreeClosed(cachedTree.events)) {
         rememberEvents(cachedTree.events);
         streamed = cachedTree.events;
+      } else if (cachedTree) {
+        rememberEvents(cachedTree.events);
+        void cachePutPublicationStream(eventAddress(edition), cachedTree.events, {
+          complete: false
+        });
       }
       const skipMercury =
         streamed.length > 0 ||

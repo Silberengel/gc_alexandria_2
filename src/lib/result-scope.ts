@@ -12,12 +12,17 @@ export type AuthorScopeContext = {
   getScore?: (pubkey: string) => TrustedAssertionScore | null | undefined;
 };
 
+/** Default audience filter for search / wiki listings. */
+export const DEFAULT_AUTHOR_RESULT_SCOPE: AuthorResultScope = 'trusted';
+
 export function parseAuthorResultScope(raw: string | null | undefined): AuthorResultScope {
   const v = (raw ?? '').trim().toLowerCase();
+  if (!v) return DEFAULT_AUTHOR_RESULT_SCOPE;
+  if (v === 'all' || v === 'anyone') return 'all';
   if (v === 'mine' || v === 'me') return 'mine';
   if (v === 'follows' || v === 'follow') return 'follows';
   if (v === 'trusted' || v === 'trust') return 'trusted';
-  return 'all';
+  return DEFAULT_AUTHOR_RESULT_SCOPE;
 }
 
 /** True when Brainstorm/GrapeRank is known and ≥ the configured minimum. */

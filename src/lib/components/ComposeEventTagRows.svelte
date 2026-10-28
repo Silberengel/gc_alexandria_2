@@ -77,12 +77,31 @@
     const next = tags.filter((_, idx) => idx !== i);
     tags = next.length ? next : [blankRow()];
   }
+
+  function clearAll(): void {
+    tags = [blankRow()];
+  }
+
+  const canClear = $derived(
+    tags.length > 1 || tags.some((row) => row.some((c) => c.trim()))
+  );
 </script>
 
 <div class="tag-rows">
   <div class="tag-rows-head">
     <span>{label}</span>
-    <button type="button" class="tag-rows-icon" onclick={addRow} aria-label={addRowLabel}>+</button>
+    <div class="tag-rows-actions">
+      {#if canClear}
+        <button
+          type="button"
+          class="tag-rows-clear"
+          onclick={clearAll}
+          aria-label={`Clear ${label}`}
+          title="Clear"
+        >×</button>
+      {/if}
+      <button type="button" class="tag-rows-icon" onclick={addRow} aria-label={addRowLabel}>+</button>
+    </div>
   </div>
   {#if showDefaultHint}
     <p class="tag-rows-hint muted">
@@ -145,6 +164,33 @@
     justify-content: space-between;
     gap: 0.5rem;
     font-size: 0.95rem;
+  }
+  .tag-rows-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .tag-rows-clear {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 0.3rem;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+    color: inherit;
+    font: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tag-rows-clear:hover {
+    border-color: color-mix(in srgb, var(--accent, currentColor) 40%, transparent);
   }
   .tag-rows-hint {
     margin: 0;

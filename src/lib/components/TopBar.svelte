@@ -8,12 +8,12 @@
   let concealed = $state(false);
 
   const path = $derived(($location ?? '').split('?')[0] || '');
-  const onSearchPage = $derived(path === '/search');
-  const onWikiHub = $derived(path === '/wiki' || path === '/wiki/search');
   const onHome = $derived(path === '/' || path === '');
+  const onPublications = $derived(path === '/publications' || path === '/publications/search');
+  const onArticles = $derived(path === '/articles' || path === '/articles/search');
+  const onWikiHub = $derived(path === '/wiki' || path === '/wiki/search');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));
-  const onDirectory = $derived(path.startsWith('/directory'));
   const signedIn = $derived(Boolean($session.pubkey));
   const autoHideOnScroll = $derived($topBarAutoHide);
 
@@ -69,12 +69,14 @@
   <nav>
     <div class="top-bar-nav-tabs">
       <a href="#/" use:link aria-current={onHome ? 'page' : undefined}>Home</a>
-      <a href="#/search" use:link aria-current={onSearchPage ? 'page' : undefined}>Search</a>
+      <a href="#/publications" use:link aria-current={onPublications ? 'page' : undefined}
+        >Publications</a
+      >
+      <a href="#/articles" use:link aria-current={onArticles ? 'page' : undefined}>Articles</a>
       <a href="#/wiki" use:link aria-current={onWikiHub ? 'page' : undefined}>Wiki</a>
       {#if signedIn}
         <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
       {/if}
-      <a href="#/directory" use:link aria-current={onDirectory ? 'page' : undefined}>Directory</a>
       <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
     </div>
   </nav>

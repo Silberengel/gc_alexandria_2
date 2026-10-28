@@ -503,6 +503,78 @@ export function missingRootLeafAddresses(edition: Event, have: readonly Event[])
   });
 }
 
+/**
+ * a/e children listed on any 30040 in `have` that are not yet present.
+ * Used to decide whether a streamed corpus is closed enough to sticky-cache as complete —
+ * a partial Mercury page must not freeze nested mansions/chapters as missing forever.
+ */
+export function missingPublicationChildRefs(have: readonly Event[]): string[] {
+  if (!have.length) return [];
+
+  const byId = new Map<string, Event>();
+  const byAddr = new Map<string, Event>();
+  for (const event of have) {
+    byId.set(event.id.toLowerCase(), event);
+    for (const key of publicationCoordinateLookupKeys(eventAddress(event))) {
+      const addrKey = key.toLowerCase();
+      const prev = byAddr.get(addrKey);
+      byAddr.set(addrKey, prev ? preferWalkableIndex(prev, event) : event);
+    }
+  }
+
+  const indexes = new Map<string, Event>();
+  for (const event of have) {
+    if (event.kind !== KIND.PUBLICATION || isPlaceholderSection(event)) continue;
+    const addr = eventAddress(event).toLowerCase();
+    const prev = indexes.get(addr);
+    indexes.set(addr, prev ? preferWalkableIndex(prev, event) : event);
+  }
+
+  const gaps: string[] = [];
+  const seenGap = new Set<string>();
+  for (const index of indexes.values()) {
+    for (const tag of index.tags) {
+      const name = tag[0];
+      if ((name === 'a' || name === 'A') && tag[1]) {
+        const coord = tag[1];
+        let found = false;
+        for (const key of publicationCoordinateLookupKeys(coord)) {
+          if (byAddr.has(key.toLowerCase())) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          const gapKey = `a:${coord.toLowerCase()}`;
+          if (!seenGap.has(gapKey)) {
+            seenGap.add(gapKey);
+            gaps.push(coord);
+          }
+        }
+      } else if ((name === 'e' || name === 'E') && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
+        const id = tag[1].toLowerCase();
+        if (!byId.has(id)) {
+          const gapKey = `e:${id}`;
+          if (!seenGap.has(gapKey)) {
+            seenGap.add(gapKey);
+            gaps.push(id);
+          }
+        }
+      }
+    }
+  }
+  return gaps;
+}
+
+/**
+ * True when the corpus has at least one section leaf and every a/e child of every
+ * loaded 30040 is also present. Partial streams must stay `complete: false`.
+ */
+export function publicationStreamTreeClosed(have: readonly Event[]): boolean {
+  if (!have.some((e) => e.kind !== KIND.PUBLICATION && !isPlaceholderSection(e))) return false;
+  return missingPublicationChildRefs(have).length === 0;
+}
+
 export function parseToc(raw: unknown[] | null, publication: Event): TocEntry[] {
   if (raw?.length) {
     const childAddrs = new Map<string, string[]>();
@@ -667,13 +739,36 @@ export function mergePublicationSections(...lists: Event[][]): Event[] {
   const byId = new Map<string, Event>();
   for (const list of lists) {
     for (const event of list) {
-      const cur = byId.get(event.id);
-      if (!cur || (isPlaceholderSection(cur) && !isPlaceholderSection(event))) {
-        byId.set(event.id, event);
+      const id = event.id.toLowerCase();
+      const cur = byId.get(id);
+      if (!cur) {
+        byId.set(id, event);
+        continue;
+      }
+      if (isPlaceholderSection(cur) && !isPlaceholderSection(event)) {
+        byId.set(id, event);
+        continue;
+      }
+      if (!isPlaceholderSection(cur) && isPlaceholderSection(event)) continue;
+      if (cur.kind === KIND.PUBLICATION && event.kind === KIND.PUBLICATION) {
+        byId.set(id, preferWalkableIndex(cur, event));
       }
     }
   }
-  return pruneToLatestReplaceables(dropSupersededPlaceholders([...byId.values()]));
+  // Collapse same-address 30040s to the walkable tree *before* created_at prune —
+  // otherwise a newer thin catalog card orphans nested mansions/chapters.
+  const byAddr = new Map<string, Event>();
+  const rest: Event[] = [];
+  for (const event of byId.values()) {
+    if (event.kind !== KIND.PUBLICATION || isPlaceholderSection(event)) {
+      rest.push(event);
+      continue;
+    }
+    const addr = eventAddress(event).toLowerCase();
+    const prev = byAddr.get(addr);
+    byAddr.set(addr, prev ? preferWalkableIndex(prev, event) : event);
+  }
+  return pruneToLatestReplaceables(dropSupersededPlaceholders([...rest, ...byAddr.values()]));
 }
 
 /** Stable secondary key for bible leaves missing from the a-tag walk. */

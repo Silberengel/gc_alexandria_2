@@ -889,12 +889,19 @@ export async function runBookshelfSearch(
   await cachedOrLive(key, onUpdate, () => searchByBookshelf(d, npubOrHex));
 }
 
+function mercuryResultKinds(target: ReturnType<typeof normalizeMercuryTarget>): number[] {
+  if (target === 'sections') return [KIND.SECTION];
+  if (target === 'wiki') return [KIND.WIKI];
+  return [KIND.PUBLICATION];
+}
+
 async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> {
   const filter = normalizeAdvancedFilter(req.filter);
   filter.limit = clampAdvancedLimit(filter.limit ?? 100);
   const hasFilter = filterHasQueryKeys(filter);
   const hasMercury = mercuryHasQuery(req.mercury);
   const mercuryOk = gitcitadelReadsAllowed();
+  const mercuryOnly = hasMercury && !hasFilter;
 
   const batches: Promise<Event[]>[] = [];
 
@@ -906,12 +913,13 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
   }
 
   // Mercury mode: one typed endpoint (publications / sections / wiki), not a relay REQ.
+  let mercuryTarget: ReturnType<typeof normalizeMercuryTarget> | null = null;
   if (mercuryOk && hasMercury && req.mercury) {
     const typed = buildMercurySearchBody(req.mercury, filter.limit);
     if (typed) {
-      const target = normalizeMercuryTarget(req.mercury.target);
-      if (target === 'sections') batches.push(mercurySectionSearch(typed));
-      else if (target === 'wiki') {
+      mercuryTarget = normalizeMercuryTarget(req.mercury.target);
+      if (mercuryTarget === 'sections') batches.push(mercurySectionSearch(typed));
+      else if (mercuryTarget === 'wiki') {
         batches.push(mercuryWikiSearch(typed));
         // Alias redirects (30819) for every wiki search field the user filled.
         const aliasQueries = [
@@ -931,24 +939,32 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
     }
   }
 
-  const qText = filter.search?.trim() || req.mercury?.q?.trim();
-  if (qText) {
-    batches.push(cacheScanText(qText, filter.limit));
-    // Relays-mode / free-text search should also resolve wiki aliases.
-    batches.push(resolveWikiAliasArticles(qText, filter.limit).then((r) => r.targets));
-  }
-  const dTags = filter['#d'];
-  if (dTags?.length) {
-    for (const d of dTags.slice(0, 6)) {
-      if (d?.trim()) {
-        batches.push(resolveWikiAliasArticles(d.trim(), filter.limit).then((r) => r.targets));
+  // Cache scan + generic wiki-alias fan-out are for relays / free-text only.
+  // Mixing them into Mercury typed searches leaks prior section/pub hits across endpoints.
+  if (!mercuryOnly) {
+    const qText = filter.search?.trim() || (!hasMercury ? req.mercury?.q?.trim() : '');
+    if (qText) {
+      batches.push(cacheScanText(qText, filter.limit));
+      batches.push(resolveWikiAliasArticles(qText, filter.limit).then((r) => r.targets));
+    }
+    const dTags = filter['#d'];
+    if (dTags?.length) {
+      for (const d of dTags.slice(0, 6)) {
+        if (d?.trim()) {
+          batches.push(resolveWikiAliasArticles(d.trim(), filter.limit).then((r) => r.targets));
+        }
       }
     }
   }
 
   if (!batches.length) return [];
   const settled = await Promise.all(batches);
-  return mergeById(settled.flat());
+  let hits = mergeById(settled.flat());
+  if (mercuryOnly && mercuryTarget) {
+    const kinds = new Set(mercuryResultKinds(mercuryTarget));
+    hits = hits.filter((e) => kinds.has(e.kind));
+  }
+  return hits;
 }
 
 /** NIP-01 (+ Mercury typed) advanced search from a shareable `adv=` payload. */

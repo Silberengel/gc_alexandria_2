@@ -193,9 +193,10 @@ body:has(main.reading-page) .site-footer {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
   margin: 0;
-  padding: 0.4rem 0.7rem;
+  padding: 0.45rem;
+  width: 2.35rem;
+  height: 2.35rem;
   min-width: 2.35rem;
   min-height: 2.35rem;
   border: 1px solid transparent;
@@ -203,9 +204,6 @@ body:has(main.reading-page) .site-footer {
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-weight: 550;
-  font-size: 0.88rem;
-  letter-spacing: 0.01em;
   line-height: 1;
   text-decoration: none;
   cursor: pointer;
@@ -219,9 +217,9 @@ body:has(main.reading-page) .site-footer {
 .site-footer-btn svg {
   flex: 0 0 auto;
   display: block;
-  width: 1.1rem;
-  height: 1.1rem;
-  opacity: 0.9;
+  width: 1.15rem;
+  height: 1.15rem;
+  opacity: 0.92;
 }
 a.site-footer-btn:hover,
 button.site-footer-btn:hover:not(:disabled),
@@ -241,17 +239,18 @@ button.site-footer-btn:hover:not(:disabled),
 }
 .site-footer-profile {
   /* Match other footer controls; host the profile badge inside. */
-  padding-inline: 0.45rem;
-  min-width: 0;
-  max-width: 10rem;
+  padding: 0.45rem;
+  width: 2.35rem;
+  height: 2.35rem;
+  min-width: 2.35rem;
+  max-width: 2.35rem;
   cursor: default;
 }
 .site-footer-profile .userbadge {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
   min-width: 0;
-  max-width: 100%;
   color: inherit;
   text-decoration: none;
 }
@@ -267,11 +266,6 @@ button.site-footer-btn:hover:not(:disabled),
 }
 .site-footer-profile .userbadge span {
   display: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.88rem;
-  font-weight: 550;
 }
 @media (min-width: 720px) {
   .site-footer {
@@ -282,17 +276,6 @@ button.site-footer-btn:hover:not(:disabled),
   }
   .site-footer-sep {
     margin-inline: 0.45rem;
-  }
-  .site-footer-btn {
-    padding: 0.42rem 0.8rem;
-    font-size: 0.9rem;
-  }
-  .site-footer-profile {
-    padding-inline: 0.55rem 0.7rem;
-    max-width: 14rem;
-  }
-  .site-footer-profile .userbadge span {
-    display: inline;
   }
 }
 
@@ -1994,12 +1977,45 @@ select:hover {
   text-transform: uppercase;
   color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
 }
-.advanced-search-fieldset label {
+.advanced-search-fieldset label,
+.advanced-search-field {
   display: grid;
   gap: 0.2rem;
   font-family: var(--ui-font);
   font-size: 0.88rem;
   min-width: 0;
+}
+.advanced-search-field-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.advanced-search-field-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  z-index: 1;
+  transform: translateY(-50%);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--ui-font);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.advanced-search-field-clear:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink-soft) 12%, transparent);
 }
 .advanced-search-fieldset input[type='text'],
 .advanced-search-fieldset input[type='number'],
@@ -2015,9 +2031,18 @@ select:hover {
   color: var(--ink);
   font: inherit;
 }
+.advanced-search-field-control:has(.advanced-search-field-clear) input {
+  padding-right: 1.85rem;
+}
 .advanced-search-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.advanced-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.55rem;
 }
 .advanced-search-tag-lists {
@@ -2287,17 +2312,17 @@ a.listing-row:hover,
   width: 100%;
 }
 .edition-doc-kind {
-  margin: 0;
+  margin: 0 0 0.25rem;
   font-family: var(--ui-font);
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.12em;
+  font-size: var(--text-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+  color: var(--accent-strong);
 }
 .edition-header-wiki .edition-doc-kind,
 .edition-header-spec .edition-doc-kind {
-  margin-bottom: 0.15rem;
+  margin-bottom: 0.3rem;
 }
 .edition-cover .cover-frame {
   display: block;
@@ -7932,6 +7957,10 @@ mark.text-highlight.highlight-flash,
   font-weight: 600;
   color: #f3ece1;
 }
+.reader-edition-hero-meta .edition-doc-kind {
+  color: #f3ece1;
+  text-shadow: 0 1px 2px color-mix(in srgb, #0d100e 55%, transparent);
+}
 .reader-edition-hero-meta .edition-reader-publisher,
 .reader-edition-hero-meta .muted {
   font-family: var(--ui-font);
@@ -9833,14 +9862,17 @@ button.directory-explorer-link {
   margin: 0 0 0.55rem;
 }
 .wiki-hub-recent .author-scope {
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.35rem;
 }
 .wiki-hub-subpage .wiki-hub-search {
   margin: 0 0 1rem;
 }
 .wiki-search-count {
-  margin: 0 0 0.55rem;
+  margin: 0 0 0.75rem;
   font-size: 0.88rem;
+}
+.wiki-hub-recent .wiki-search-count {
+  margin-top: 0.15rem;
 }
 .wiki-list {
   list-style: none;

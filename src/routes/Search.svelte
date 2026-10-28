@@ -40,9 +40,11 @@
     type SearchSortMode
   } from '$lib/search-refine';
   import {
+    DEFAULT_AUTHOR_RESULT_SCOPE,
     filterEventsByAuthorScope,
     type AuthorResultScope
   } from '$lib/result-scope';
+  import { readerFocusQuote } from '$lib/reader-share-url';
   import { session } from '$lib/stores/session';
   import { trust } from '$lib/stores/trust';
   import { trustedAssertions } from '$lib/trusted-assertions';
@@ -58,7 +60,7 @@
   /** Active query shown under the Search heading (empty when no params). */
   let searchTerm = $state('');
   let searchKind = $state('');
-  let resultScope = $state<AuthorResultScope>('all');
+  let resultScope = $state<AuthorResultScope>(DEFAULT_AUTHOR_RESULT_SCOPE);
   let scoresReady = $state(0);
   let advancedReq = $state<AdvancedSearchRequest | null>(null);
 
@@ -159,7 +161,7 @@
     if (key === lastKey) return;
     lastKey = key;
     const runGen = ++searchGen;
-    resultScope = 'all';
+    resultScope = DEFAULT_AUTHOR_RESULT_SCOPE;
     resetRefine();
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
@@ -188,6 +190,9 @@
       }
     }
     page = 1;
+    // Drop prior hits immediately so a new query never shows stale cards.
+    events = [];
+    loading = true;
     const onUpdate = (r: { events: Event[]; loading: boolean }) => {
       if (runGen !== searchGen) return;
       events = r.events;
@@ -214,8 +219,10 @@
   }
 
   $effect(() => {
-    if (resultScope === 'mine' && !showMineScope) resultScope = 'all';
-    else if (resultScope === 'follows' && !showFollowsScope) resultScope = 'all';
+    if (resultScope === 'mine' && !showMineScope) resultScope = DEFAULT_AUTHOR_RESULT_SCOPE;
+    else if (resultScope === 'follows' && !showFollowsScope) {
+      resultScope = DEFAULT_AUTHOR_RESULT_SCOPE;
+    }
   });
 
   $effect(() => {
@@ -268,6 +275,17 @@
     refineUntilDate;
     refineSort;
     page = 1;
+  });
+
+  /** Full-text `q` from the active search — opens library cards with `?quote=`. */
+  const searchFocusQuote = $derived.by(() => {
+    const mercuryQ = advancedReq?.mercury?.q?.trim();
+    if (mercuryQ) return readerFocusQuote(mercuryQ);
+    const filterSearch = advancedReq?.filter?.search?.trim();
+    if (filterSearch) return readerFocusQuote(filterSearch);
+    const q = hashParams().get('q')?.trim();
+    if (q) return readerFocusQuote(q);
+    return '';
   });
 
   const pageSize = $derived(listingPageSize($listingDensity));
@@ -349,33 +367,44 @@
     onResultScope={(v) => setResultScope(v)}
     onClear={() => {
       resetRefine();
-      setResultScope('all');
+      setResultScope(DEFAULT_AUTHOR_RESULT_SCOPE);
     }}
   />
-  {#if loading}<LoadingHint message={events.length ? 'Updating…' : 'Searching…'} />{/if}
-  {#if !loading && visible.length === 0}
-    <p class="muted">
-      {#if resultScope === 'mine'}
-        Nothing here from you.
-      {:else if resultScope === 'follows'}
-        Nothing here from your follows.
-      {:else if resultScope === 'trusted'}
-        Nothing here from trusted npubs (rank ≥ {$trust.rankMin}).
-      {:else if refinePubkey}
-        Nothing from that publisher.
-      {:else}
-        Nothing matched.
-      {/if}
-    </p>
-  {/if}
-  {#if $listingDensity === 'table'}
-    <EventsTable events={visible} />
+  {#if loading && !events.length}
+    <LoadingHint message="Searching…" />
   {:else}
-    <div class="card-grid card-grid-results">
-      {#each paged as event (event.id)}
-        <EventCard {event} asCard openAsThread />
-      {/each}
-    </div>
-    <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+    {#if loading}
+      <LoadingHint message="Updating…" />
+    {/if}
+    {#if events.length > 0 || visible.length > 0}
+      <p class="muted wiki-search-count">
+        {visible.length} {visible.length === 1 ? 'card' : 'cards'}
+      </p>
+    {/if}
+    {#if !loading && visible.length === 0}
+      <p class="muted">
+        {#if resultScope === 'mine'}
+          Nothing here from you.
+        {:else if resultScope === 'follows'}
+          Nothing here from your follows.
+        {:else if resultScope === 'trusted'}
+          Nothing here from trusted npubs (rank ≥ {$trust.rankMin}).
+        {:else if refinePubkey}
+          Nothing from that publisher.
+        {:else}
+          Nothing matched.
+        {/if}
+      </p>
+    {/if}
+    {#if $listingDensity === 'table'}
+      <EventsTable events={visible} focusQuote={searchFocusQuote} />
+    {:else}
+      <div class="card-grid card-grid-results">
+        {#each paged as event (event.id)}
+          <EventCard {event} asCard openAsThread focusQuote={searchFocusQuote} />
+        {/each}
+      </div>
+      <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+    {/if}
   {/if}
 </main>

@@ -22,6 +22,7 @@
   import { eventHref } from '$lib/listing-table';
   import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
+  import { withReaderQuote } from '$lib/reader-share-url';
   import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from '$lib/relative-time';
   import type { LivePresencePerson } from '$lib/live-chat';
 
@@ -31,10 +32,13 @@
     /** Citation inside a post: listing card, not the compact note. */
     asCard?: boolean;
     /**
-     * Search (and similar) grids: whole card opens the feed thread.
+     * Search (and similar) grids: whole card is clickable.
+     * Library docs open the reader; other kinds open the feed thread.
      * No ⋯ menu; cover enlarge is off so the hit reaches the card.
      */
     openAsThread?: boolean;
+    /** Full-text search snippet → `?quote=` when opening a library card. */
+    focusQuote?: string;
     /** Kind 10312 listeners for live event cards. */
     presence?: LivePresencePerson[];
   }
@@ -44,6 +48,7 @@
     embedDepth = 0,
     asCard = false,
     openAsThread = false,
+    focusQuote = '',
     presence = []
   }: Props = $props();
 
@@ -51,18 +56,6 @@
   const embedded = $derived(embedDepth > 0);
   /** Search listing cards also omit the ⋯ menu (whole card opens the thread). */
   const showMenu = $derived(!embedded && !openAsThread);
-  /** Thread path when listing; library/event href for embeds. */
-  const href = $derived(
-    openAsThread && event.id
-      ? `#${feedThreadPath(event)}`
-      : (eventHref(event) ?? (event.id ? `#${feedThreadPath(event)}` : ''))
-  );
-  /**
-   * Search listings: whole card opens the thread (directories are header-only indicators).
-   * Embedded / feed cards that need an interactive explorer keep cardOpens off.
-   */
-  const cardOpens = $derived((embedded || openAsThread) && Boolean(href));
-
   const isPubLike = $derived(
     event.kind === KIND.PUBLICATION ||
       event.kind === KIND.SECTION ||
@@ -70,6 +63,23 @@
       event.kind === KIND.SPEC ||
       event.kind === KIND.LONG_FORM
   );
+  /** Thread path when listing; library/event href for embeds / search docs. */
+  const href = $derived.by(() => {
+    if (openAsThread && isPubLike) {
+      const lib = eventHref(event);
+      if (lib) return withReaderQuote(lib, focusQuote);
+    }
+    if (openAsThread && event.id) return `#${feedThreadPath(event)}`;
+    const lib = eventHref(event);
+    if (lib) return withReaderQuote(lib, focusQuote);
+    return event.id ? `#${feedThreadPath(event)}` : '';
+  });
+  /**
+   * Search listings: whole card opens the thread (directories are header-only indicators).
+   * Embedded / feed cards that need an interactive explorer keep cardOpens off.
+   */
+  const cardOpens = $derived((embedded || openAsThread) && Boolean(href));
+
   /** Compact note. Quotes use the one-line embed; other citations use a card. */
   const isThreadNote = $derived(
     !asCard && (event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE)
@@ -109,6 +119,7 @@
       {event}
       {showMenu}
       enlargeOnClick={!openAsThread && !embedded}
+      {focusQuote}
     />
   {:else if event.kind === KIND.PICTURE}
     <div class="result-card-wrap">

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
-import { readerShareLocation, readerShareUrl } from './reader-share-url';
+import {
+  readerFocusQuote,
+  readerShareLocation,
+  readerShareUrl,
+  withReaderQuote
+} from './reader-share-url';
 
 const PK = '3e1ad0f3a5d3c12245db7788546c43ade3d97c6e046c594f6017cd6cd4164690';
 
@@ -68,5 +73,21 @@ describe('readerShareUrl', () => {
     expect(loc.startsWith('/publication/d/bible-the-bible-douay-rheims-version/')).toBe(true);
     expect(loc).toContain('read=1');
     expect(loc).toContain('section=30041%3Anpub1');
+  });
+
+  it('withReaderQuote appends a trimmed search snippet', () => {
+    expect(readerFocusQuote('  hello   world  ')).toBe('hello world');
+    const loc = withReaderQuote('/publication/d/x/p/npub1abc?read=1&section=a', 'found text');
+    expect(loc).toContain('quote=found+text');
+    expect(loc).toContain('read=1');
+    const section = ev({
+      tags: [
+        ['d', 'chapter-iii'],
+        ['title', 'III: A Disappointment']
+      ]
+    });
+    expect(
+      readerShareLocation(edition, section, { quote: 'on the whole, sublime' })
+    ).toContain('quote=on+the+whole%2C+sublime');
   });
 });

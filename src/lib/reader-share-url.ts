@@ -21,22 +21,45 @@ function douayBookFromTags(event: Event) {
   return null;
 }
 
+/** Normalize a search/highlight snippet for `?quote=` (matches Publication focus). */
+export function readerFocusQuote(raw: string | null | undefined): string {
+  return (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+/** Append or replace `quote` on a SPA location (`/path` or `/path?a=1`). */
+export function withReaderQuote(location: string, quote: string | null | undefined): string {
+  const q = readerFocusQuote(quote);
+  if (!q || !location) return location;
+  const hash = location.startsWith('#');
+  const raw = hash ? location.slice(1) : location;
+  const qi = raw.indexOf('?');
+  const path = qi >= 0 ? raw.slice(0, qi) : raw;
+  const params = new URLSearchParams(qi >= 0 ? raw.slice(qi + 1) : '');
+  params.set('quote', q);
+  const next = `${path}?${params}`;
+  return hash ? `#${next}` : next;
+}
+
 /**
  * SPA location (path + query) that opens `target` inside `edition`'s reader.
  * Douay verses/chapters → `/luke/9?verse=…`; else `/publication/…?read=1&section=…`.
  * Section coords use `kind:npub:d` for readable share URLs.
  */
-export function readerShareLocation(edition: Event, target: Event): string {
+export function readerShareLocation(
+  edition: Event,
+  target: Event,
+  opts?: { quote?: string | null }
+): string {
   const c = (firstTag(target, 'c') ?? '').trim();
   const s = (firstTag(target, 's') ?? '').trim();
   const book = douayBookFromTags(target);
 
   if (book && c && /^\d+$/.test(c)) {
     if (/^\d+$/.test(s)) {
-      return `/${book.slug}/${c}?verse=${s}`;
+      return withReaderQuote(`/${book.slug}/${c}?verse=${s}`, opts?.quote);
     }
     if (target.kind === 30040 && !s) {
-      return `/${book.slug}/${c}`;
+      return withReaderQuote(`/${book.slug}/${c}`, opts?.quote);
     }
   }
 
@@ -49,7 +72,7 @@ export function readerShareLocation(edition: Event, target: Event): string {
     q.set('book', book.slug);
     q.set('chapter', c);
   }
-  return `${path}?${q}`;
+  return withReaderQuote(`${path}?${q}`, opts?.quote);
 }
 
 /**
@@ -57,9 +80,13 @@ export function readerShareLocation(edition: Event, target: Event): string {
  * Douay chapters/verses use `/luke/9` / `/luke/9?verse=46`; everything else uses
  * `#/publication/...?read=1&section=…`.
  */
-export function readerShareUrl(edition: Event, target: Event): string {
+export function readerShareUrl(
+  edition: Event,
+  target: Event,
+  opts?: { quote?: string | null }
+): string {
   const origin = originBase();
-  const loc = readerShareLocation(edition, target);
+  const loc = readerShareLocation(edition, target, opts);
   if (loc.startsWith('/publication/') || loc.startsWith('/wiki/') || loc.startsWith('/spec/')) {
     return `${origin}/#${loc}`;
   }

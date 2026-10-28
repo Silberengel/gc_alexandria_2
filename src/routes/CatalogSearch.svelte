@@ -1,0 +1,124 @@
+<script lang="ts">
+  import { push, querystring } from 'svelte-spa-router';
+  import type { Event } from 'nostr-tools';
+  import CatalogListRow from '$lib/components/CatalogListRow.svelte';
+  import LoadingHint from '$lib/components/LoadingHint.svelte';
+  import {
+    catalogHubSearchPath,
+    catalogHubSearchPlaceholder,
+    catalogHubTitle,
+    searchCatalogHub,
+    type CatalogHubKind
+  } from '$lib/catalog-hub';
+  import { suggestTitles, isNsec } from '$lib/search';
+
+  interface Props {
+    kind: CatalogHubKind;
+  }
+
+  let { kind }: Props = $props();
+
+  let draft = $state('');
+  let suggestions = $state<string[]>([]);
+  let suggestTimer: ReturnType<typeof setTimeout> | null = null;
+  let results = $state<Event[]>([]);
+  let loading = $state(false);
+  let message = $state('');
+  let lastKey = '';
+
+  const title = $derived(catalogHubTitle(kind));
+  const placeholder = $derived(catalogHubSearchPlaceholder(kind));
+  const q = $derived((new URLSearchParams($querystring ?? '').get('q') ?? '').trim());
+
+  $effect(() => {
+    const key = `${kind}:${q}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    draft = q;
+    suggestions = [];
+    if (!q) {
+      results = [];
+      loading = false;
+      message = '';
+      return;
+    }
+    let cancelled = false;
+    loading = true;
+    message = '';
+    void searchCatalogHub(kind, q).then((hits) => {
+      if (cancelled) return;
+      results = hits;
+      loading = false;
+      message = hits.length ? '' : 'Nothing matched.';
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  function onInput(): void {
+    suggestions = [];
+    if (suggestTimer) clearTimeout(suggestTimer);
+    const next = draft.trim();
+    if (next.length < 2 || isNsec(next)) return;
+    suggestTimer = setTimeout(() => {
+      void suggestTitles(next).then((hits) => {
+        suggestions = hits.slice(0, 8);
+      });
+    }, 200);
+  }
+
+  function goSearch(query: string): void {
+    const trimmed = query.trim();
+    if (!trimmed || isNsec(trimmed)) return;
+    suggestions = [];
+    void push(`${catalogHubSearchPath(kind)}?q=${encodeURIComponent(trimmed)}`);
+  }
+
+  function onSubmit(e: SubmitEvent): void {
+    e.preventDefault();
+    goSearch(draft);
+  }
+</script>
+
+<main class="shell wiki-hub wiki-hub-subpage">
+  <header class="page-header">
+    <h1>{title} search</h1>
+  </header>
+
+  <form class="wiki-hub-search search-form" onsubmit={onSubmit}>
+    <input
+      type="search"
+      {placeholder}
+      bind:value={draft}
+      oninput={onInput}
+      autocomplete="off"
+    />
+    {#if suggestions.length}
+      <ul class="suggest-list">
+        {#each suggestions as hit}
+          <li>
+            <button type="button" onclick={() => goSearch(hit)}>{hit}</button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </form>
+
+  {#if !q}
+    <p class="muted">Type a topic and press Enter.</p>
+  {:else if loading}
+    <LoadingHint message={`Searching for “${q}”…`} />
+  {:else if message}
+    <p class="muted">{message}</p>
+  {:else}
+    <p class="muted wiki-search-count">
+      {results.length} {results.length === 1 ? 'result' : 'results'}
+    </p>
+    <ul class="wiki-list">
+      {#each results as event (event.id)}
+        <CatalogListRow {event} />
+      {/each}
+    </ul>
+  {/if}
+</main>

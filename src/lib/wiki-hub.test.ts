@@ -192,10 +192,9 @@ describe('wiki-hub helpers', () => {
     expect(wikiRecentKindHref('all')).toBe('#/wiki');
     expect(wikiRecentKindHref('wiki')).toBe('#/wiki?kind=wiki');
     expect(wikiRecentKindHref('spec')).toBe('#/wiki?kind=spec');
-    expect(wikiHubListingHref({ kind: 'wiki', from: 'trusted' })).toBe(
-      '#/wiki?kind=wiki&from=trusted'
-    );
+    expect(wikiHubListingHref({ kind: 'wiki', from: 'trusted' })).toBe('#/wiki?kind=wiki');
     expect(wikiHubListingHref({ from: 'follows' })).toBe('#/wiki?from=follows');
+    expect(wikiHubListingHref({ from: 'all' })).toBe('#/wiki?from=all');
   });
 
   it('loadWikiRecent filters by wiki or spec kind', async () => {

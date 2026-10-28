@@ -30,8 +30,10 @@ describe('result-scope', () => {
     [follow]: { rank: 50 }
   };
 
-  it('parseAuthorResultScope accepts aliases', () => {
-    expect(parseAuthorResultScope(null)).toBe('all');
+  it('parseAuthorResultScope accepts aliases and defaults to trusted', () => {
+    expect(parseAuthorResultScope(null)).toBe('trusted');
+    expect(parseAuthorResultScope('')).toBe('trusted');
+    expect(parseAuthorResultScope('all')).toBe('all');
     expect(parseAuthorResultScope('me')).toBe('mine');
     expect(parseAuthorResultScope('follows')).toBe('follows');
     expect(parseAuthorResultScope('trusted')).toBe('trusted');

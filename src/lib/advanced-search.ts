@@ -416,7 +416,8 @@ export function advancedSearchCacheKey(req: AdvancedSearchRequest): string {
     mercury: normalizeMercury(req.mercury)
   };
   if (normalized.filter) normalized.filter.limit = clampAdvancedLimit(normalized.filter.limit);
-  return `adv:${JSON.stringify(normalized)}`;
+  // v2: Mercury typed searches no longer mix cache-scan hits across endpoints.
+  return `adv2:${JSON.stringify(normalized)}`;
 }
 
 export function datetimeLocalToUnix(value: string): number | null {

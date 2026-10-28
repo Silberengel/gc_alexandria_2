@@ -11,11 +11,13 @@ import {
   isPlaceholderIndex,
   isPlaceholderSection,
   mergePublicationSections,
+  missingPublicationChildRefs,
   missingRootLeafAddresses,
   orderPublicationSections,
   parseToc,
   placeholderIndexEvent,
   placeholderSectionEvent,
+  publicationStreamTreeClosed,
   sectionHeading,
   buildTocTree,
   activeTocEntry,
@@ -640,6 +642,86 @@ describe('orderPublicationSections', () => {
       tags: [['d', 'a-nostr-magazine'], ['title', 'A Nostr magazine']]
     });
     expect(missingRootLeafAddresses(root, [root, politics, intro])).toEqual([]);
+  });
+
+  it('detects nested chapter gaps so truncated streams are not tree-closed', () => {
+    const pk = 'c'.repeat(64);
+    const mansionAddr = `30040:${pk}:first-mansions`;
+    const chapterAddr = `30041:${pk}:first-mansions-ch1`;
+    const root = ev({
+      id: '1'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'interior-castle'],
+        ['title', 'Interior Castle'],
+        ['a', mansionAddr]
+      ]
+    });
+    const mansion = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'first-mansions'],
+        ['title', 'The First Mansions'],
+        ['a', chapterAddr]
+      ]
+    });
+    const chapter = ev({
+      id: '3'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      created_at: 1,
+      tags: [
+        ['d', 'first-mansions-ch1'],
+        ['title', 'Chapter I']
+      ],
+      content: 'Chapter body'
+    });
+    // Stream got the mansion index but not the chapter leaf.
+    expect(missingPublicationChildRefs([root, mansion])).toEqual([chapterAddr]);
+    expect(publicationStreamTreeClosed([root, mansion])).toBe(false);
+    expect(publicationStreamTreeClosed([root, mansion, chapter])).toBe(true);
+  });
+
+  it('prefers a walkable 30040 over a newer thin replaceable when merging', () => {
+    const pk = 'd'.repeat(64);
+    const addr = `30040:${pk}:first-mansions`;
+    const thin = ev({
+      id: 'a'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      created_at: 200,
+      tags: [
+        ['d', 'first-mansions'],
+        ['title', 'The First Mansions']
+      ]
+    });
+    const rich = ev({
+      id: 'b'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      created_at: 100,
+      tags: [
+        ['d', 'first-mansions'],
+        ['title', 'The First Mansions'],
+        ['a', `30041:${pk}:ch1`]
+      ]
+    });
+    const leaf = ev({
+      id: 'c'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      created_at: 1,
+      tags: [['d', 'ch1'], ['title', 'Chapter I']],
+      content: 'body'
+    });
+    const merged = mergePublicationSections([thin, leaf], [rich]);
+    const mansion = merged.find((e) => e.kind === 30040);
+    expect(mansion?.id).toBe(rich.id);
+    expect(missingPublicationChildRefs(merged)).toEqual([]);
+    expect(addr).toContain('first-mansions');
   });
 
   it('uses the a-tag-rich root and ToC ranks so intro stays before nested indexes', () => {

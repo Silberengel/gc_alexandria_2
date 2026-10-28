@@ -1,6 +1,9 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import type { AuthorResultScope } from '$lib/result-scope';
+  import {
+    DEFAULT_AUTHOR_RESULT_SCOPE,
+    type AuthorResultScope
+  } from '$lib/result-scope';
   import {
     kindOptionLabel,
     pubkeyOptionLabel,
@@ -38,7 +41,7 @@
     sinceDate,
     untilDate,
     sort,
-    resultScope = 'all',
+    resultScope = DEFAULT_AUTHOR_RESULT_SCOPE,
     showMineScope = false,
     showFollowsScope = false,
     showTrustedScope = true,
@@ -51,7 +54,12 @@
     onClear
   }: Props = $props();
 
-  const kinds = $derived(uniqueKinds(events));
+  const kinds = $derived.by(() => {
+    const list = uniqueKinds(events);
+    // Keep the active kind visible even if it dropped out of the current hit set.
+    if (kind != null && !list.includes(kind)) return [...list, kind].sort((a, b) => a - b);
+    return list;
+  });
   const pubkeys = $derived(uniquePubkeys(events));
   const publisherValue = $derived(
     resultScope !== 'all' ? `${SCOPE_PREFIX}${resultScope}` : pubkey
@@ -62,7 +70,7 @@
       !!sinceDate ||
       !!untilDate ||
       sort !== 'best' ||
-      resultScope !== 'all'
+      resultScope !== DEFAULT_AUTHOR_RESULT_SCOPE
   );
 
   let detailsOpen = $state(false);
@@ -113,7 +121,7 @@
         >
           <option value="">All kinds</option>
           {#each kinds as k (k)}
-            <option value={k}>{kindOptionLabel(k)}</option>
+            <option value={String(k)}>{kindOptionLabel(k)}</option>
           {/each}
         </select>
       </label>

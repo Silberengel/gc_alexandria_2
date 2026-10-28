@@ -7,7 +7,11 @@
   import { rememberEvents } from '$lib/nostr/event-memory';
   import { eventAddress } from '$lib/nostr/verify';
   import { fetchContainingPublication } from '$lib/landing';
-  import { readerShareLocation, readerShareUrl } from '$lib/reader-share-url';
+  import {
+    readerShareLocation,
+    readerShareUrl,
+    withReaderQuote
+  } from '$lib/reader-share-url';
   import { warmWikiDeferTarget } from '$lib/wiki-defer';
   import Cover from './Cover.svelte';
   import CardMeta from './CardMeta.svelte';
@@ -28,6 +32,8 @@
     showMenu?: boolean;
     /** When false, cover is not a lightbox button (parent card owns the click). */
     enlargeOnClick?: boolean;
+    /** Full-text search snippet to open with `?quote=` highlighting. */
+    focusQuote?: string;
   }
 
   let {
@@ -37,7 +43,8 @@
     ratingAverage: ratingAverageProp,
     ratingCount: ratingCountProp,
     showMenu = true,
-    enlargeOnClick = true
+    enlargeOnClick = true,
+    focusQuote = ''
   }: Props = $props();
 
   /** Resolved top edition when [event] is a 30041 section. */
@@ -110,11 +117,13 @@
   /** Fallback: section d-path — Publication route promotes it to the parent reader. */
   const href = $derived(
     isSection && sectionEdition
-      ? readerShareLocation(sectionEdition, event)
-      : libraryDocumentPath(event)
+      ? readerShareLocation(sectionEdition, event, { quote: focusQuote })
+      : withReaderQuote(libraryDocumentPath(event), focusQuote)
   );
   const shareUrl = $derived(
-    isSection && sectionEdition ? readerShareUrl(sectionEdition, event) : ''
+    isSection && sectionEdition
+      ? readerShareUrl(sectionEdition, event, { quote: focusQuote })
+      : ''
   );
   const kindLabel = $derived(
     event.kind === KIND.SPEC
@@ -167,7 +176,7 @@
     if (!isSection || !sectionEdition) return;
     e.preventDefault();
     warmSelf();
-    replace(readerShareLocation(sectionEdition, event));
+    replace(readerShareLocation(sectionEdition, event, { quote: focusQuote }));
   }
 </script>
 

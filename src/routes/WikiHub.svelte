@@ -14,6 +14,7 @@
     type WikiRecentKindFilter as KindFilter
   } from '$lib/wiki-hub';
   import {
+    DEFAULT_AUTHOR_RESULT_SCOPE,
     filterEventsByAuthorScope,
     parseAuthorResultScope,
     type AuthorResultScope
@@ -31,7 +32,7 @@
   let recentPool = $state<Event[]>([]);
   let recentLoading = $state(true);
   let recentKind = $state<KindFilter>('all');
-  let authorScope = $state<AuthorResultScope>('all');
+  let authorScope = $state<AuthorResultScope>(DEFAULT_AUTHOR_RESULT_SCOPE);
   let recentSeq = 0;
   let scoresReady = $state(0);
   let randomBusy = $state(false);
@@ -55,9 +56,9 @@
 
   $effect(() => {
     if (authorScope === 'mine' && !showMineScope) {
-      setListing({ from: 'all' });
+      setListing({ from: DEFAULT_AUTHOR_RESULT_SCOPE });
     } else if (authorScope === 'follows' && !showFollowsScope) {
-      setListing({ from: 'all' });
+      setListing({ from: DEFAULT_AUTHOR_RESULT_SCOPE });
     }
   });
 
@@ -212,6 +213,11 @@
       showTrusted={true}
       onchange={setAuthorScope}
     />
+    {#if !recentLoading}
+      <p class="muted wiki-search-count">
+        {recent.length} {recent.length === 1 ? 'card' : 'cards'}
+      </p>
+    {/if}
     {#if recentLoading}
       <LoadingHint message="Loading recent wiki pages…" />
     {:else if !recent.length}

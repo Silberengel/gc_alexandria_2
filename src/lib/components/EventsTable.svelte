@@ -11,12 +11,15 @@
     type ListingTableColumn
   } from '$lib/listing-table';
   import { warmNavEvent } from '$lib/nav-warm';
+  import { withReaderQuote } from '$lib/reader-share-url';
 
   interface Props {
     events: Event[];
+    /** Full-text search snippet → `?quote=` on library row links. */
+    focusQuote?: string;
   }
 
-  let { events }: Props = $props();
+  let { events, focusQuote = '' }: Props = $props();
 
   let sortColumn = $state<ListingTableColumn>('title');
   let sortDir = $state<'asc' | 'desc'>('asc');
@@ -102,7 +105,11 @@
             </td>
             <td title={row.titleFull !== row.title ? row.titleFull : undefined}>
               {#if row.href}
-                <a href={row.href} use:link onpointerdown={() => warmRow(row.id)}>{row.title}</a>
+                <a
+                  href={withReaderQuote(row.href, focusQuote)}
+                  use:link
+                  onpointerdown={() => warmRow(row.id)}>{row.title}</a
+                >
               {:else}
                 {row.title}
               {/if}

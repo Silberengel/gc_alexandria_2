@@ -49,6 +49,30 @@
   let tagTT = $state<string[]>(['']);
   let tagK = $state<string[]>(['']);
   let extraTags = $state<string[][]>([['', '']]);
+  type MercuryDraft = {
+    q: string;
+    title: string;
+    author: string;
+    d: string;
+    T: string;
+    s: string;
+    i: string;
+    limit: number;
+  };
+
+  function blankMercuryDraft(): MercuryDraft {
+    return {
+      q: '',
+      title: '',
+      author: '',
+      d: '',
+      T: '',
+      s: '',
+      i: '',
+      limit: ADVANCED_SEARCH_MAX_LIMIT
+    };
+  }
+
   let mercuryTarget = $state<MercurySearchTarget>('publications');
   let mercuryQ = $state('');
   let mercuryTitle = $state('');
@@ -58,6 +82,12 @@
   let mercuryS = $state('');
   let mercuryI = $state('');
   let mercuryLimit = $state(ADVANCED_SEARCH_MAX_LIMIT);
+  /** Per-endpoint drafts so Publications / Sections / Wiki fields stay exclusive. */
+  let mercuryDrafts = $state<Record<MercurySearchTarget, MercuryDraft>>({
+    publications: blankMercuryDraft(),
+    sections: blankMercuryDraft(),
+    wiki: blankMercuryDraft()
+  });
   let relays = $state<string[]>(['']);
   let relaysDirty = $state(false);
   let error = $state('');
@@ -67,6 +97,34 @@
   const showMercuryS = $derived(mercuryTarget === 'publications' || mercuryTarget === 'wiki');
   const showMercuryI = $derived(mercuryTarget === 'publications' || mercuryTarget === 'wiki');
   const mercuryQRequired = $derived(mercuryQMin > 0);
+
+  function snapshotMercuryDraft(): MercuryDraft {
+    return {
+      q: mercuryQ,
+      title: mercuryTitle,
+      author: mercuryAuthor,
+      d: mercuryD,
+      T: mercuryT,
+      s: mercuryS,
+      i: mercuryI,
+      limit: mercuryLimit
+    };
+  }
+
+  function applyMercuryDraft(draft: MercuryDraft): void {
+    mercuryQ = draft.q;
+    mercuryTitle = draft.title;
+    mercuryAuthor = draft.author;
+    mercuryD = draft.d;
+    mercuryT = draft.T;
+    mercuryS = draft.s;
+    mercuryI = draft.i;
+    mercuryLimit = draft.limit;
+  }
+
+  function persistMercuryDraft(target: MercurySearchTarget = mercuryTarget): void {
+    mercuryDrafts = { ...mercuryDrafts, [target]: snapshotMercuryDraft() };
+  }
 
   function asRows(values: string[] | undefined): string[] {
     return values?.length ? [...values] : [''];
@@ -102,19 +160,22 @@
   }
 
   function resetMercuryFields(): void {
+    mercuryDrafts = {
+      publications: blankMercuryDraft(),
+      sections: blankMercuryDraft(),
+      wiki: blankMercuryDraft()
+    };
     mercuryTarget = 'publications';
-    mercuryQ = mercuryTitle = mercuryAuthor = '';
-    mercuryD = mercuryT = mercuryS = mercuryI = '';
-    mercuryLimit = ADVANCED_SEARCH_MAX_LIMIT;
+    applyMercuryDraft(blankMercuryDraft());
   }
 
-  function hydrate(req: AdvancedSearchRequest | null): void {
-    if (!req) {
-      mode = 'relays';
-      resetRelayFields();
-      resetMercuryFields();
-      return;
-    }
+  function clearCurrentMercuryDraft(): void {
+    const blank = blankMercuryDraft();
+    mercuryDrafts = { ...mercuryDrafts, [mercuryTarget]: blank };
+    applyMercuryDraft(blank);
+  }
+
+  function hydrate(req: AdvancedSearchRequest): void {
     mode = inferAdvancedSearchMode(req);
     const f = req.filter ?? {};
     kinds = asRows((f.kinds ?? []).map(String));
@@ -124,7 +185,6 @@
     sinceLocal = unixToDatetimeLocal(f.since);
     untilLocal = unixToDatetimeLocal(f.until);
     limit = clampAdvancedLimit(f.limit ?? ADVANCED_SEARCH_MAX_LIMIT);
-    mercuryLimit = clampAdvancedLimit(f.limit ?? ADVANCED_SEARCH_MAX_LIMIT);
     const tags = f as Record<string, string[] | undefined>;
     tagE = asRows(tags['#e']);
     tagP = asRows(tags['#p']);
@@ -143,14 +203,20 @@
     }
     extraTags = extras.length ? extras : [['', '']];
     const m = req.mercury ?? {};
-    mercuryTarget = normalizeMercuryTarget(m.target);
-    mercuryQ = m.q ?? '';
-    mercuryTitle = m.title ?? '';
-    mercuryAuthor = m.author ?? '';
-    mercuryD = m.d ?? '';
-    mercuryT = m.T ?? '';
-    mercuryS = m.s ?? '';
-    mercuryI = m.i ?? m.identifier ?? '';
+    const target = normalizeMercuryTarget(m.target);
+    const draft: MercuryDraft = {
+      q: m.q ?? '',
+      title: m.title ?? '',
+      author: m.author ?? '',
+      d: m.d ?? '',
+      T: m.T ?? '',
+      s: m.s ?? '',
+      i: m.i ?? m.identifier ?? '',
+      limit: clampAdvancedLimit(f.limit ?? ADVANCED_SEARCH_MAX_LIMIT)
+    };
+    mercuryTarget = target;
+    mercuryDrafts = { ...mercuryDrafts, [target]: draft };
+    applyMercuryDraft(draft);
     relays = asRows(req.relays?.length ? req.relays : defaultAdvancedSearchRelays(f));
     relaysDirty = true;
   }
@@ -160,7 +226,7 @@
     void initial;
     detailsOpen = open || Boolean(initial);
     if (initial) hydrate(initial);
-    else if (!relaysDirty) syncDefaultRelays();
+    else if (mode === 'relays' && !relaysDirty) syncDefaultRelays();
   });
 
   $effect(() => {
@@ -172,6 +238,27 @@
     mode = next;
     error = '';
     if (next === 'relays' && !relaysDirty) syncDefaultRelays();
+  }
+
+  function setMercuryTarget(next: MercurySearchTarget): void {
+    if (next === mercuryTarget) return;
+    error = '';
+    persistMercuryDraft(mercuryTarget);
+    mercuryTarget = next;
+    applyMercuryDraft(mercuryDrafts[next] ?? blankMercuryDraft());
+    // Drop results from another Mercury endpoint so cards stay exclusive to the active API.
+    const liveTarget = initial?.mercury
+      ? normalizeMercuryTarget(initial.mercury.target)
+      : null;
+    if (liveTarget && liveTarget !== next) {
+      void push('/search');
+    }
+  }
+
+  function clearActiveMode(): void {
+    error = '';
+    if (mode === 'mercury') clearCurrentMercuryDraft();
+    else resetRelayFields();
   }
 
   function buildRelayRequest(): AdvancedSearchRequest | null {
@@ -252,6 +339,7 @@
   }
 
   function buildMercuryRequest(): AdvancedSearchRequest | null {
+    persistMercuryDraft();
     const mercury: MercurySearchFields = { target: mercuryTarget };
     if (mercuryQ.trim()) mercury.q = mercuryQ.trim();
     if (mercuryTitle.trim()) mercury.title = mercuryTitle.trim();
@@ -350,27 +438,67 @@
           removeLabel="Remove id"
           mono
         />
-        <label>
+        <label class="advanced-search-field">
           <span>NIP-50 search</span>
-          <input
-            type="text"
-            bind:value={search}
-            placeholder="relay must support search"
-            autocomplete="off"
-          />
+          <span class="advanced-search-field-control">
+            <input
+              type="text"
+              bind:value={search}
+              placeholder="relay must support search"
+              autocomplete="off"
+            />
+            {#if search}
+              <button
+                type="button"
+                class="advanced-search-field-clear"
+                aria-label="Clear NIP-50 search"
+                onclick={() => (search = '')}
+              >×</button>
+            {/if}
+          </span>
         </label>
         <div class="advanced-search-row">
-          <label>
+          <label class="advanced-search-field">
             <span>Since</span>
-            <input type="datetime-local" bind:value={sinceLocal} />
+            <span class="advanced-search-field-control">
+              <input type="datetime-local" bind:value={sinceLocal} />
+              {#if sinceLocal}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear since"
+                  onclick={() => (sinceLocal = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
-          <label>
+          <label class="advanced-search-field">
             <span>Until</span>
-            <input type="datetime-local" bind:value={untilLocal} />
+            <span class="advanced-search-field-control">
+              <input type="datetime-local" bind:value={untilLocal} />
+              {#if untilLocal}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear until"
+                  onclick={() => (untilLocal = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
-          <label>
+          <label class="advanced-search-field">
             <span>Limit</span>
-            <input type="number" min="1" max={ADVANCED_SEARCH_MAX_LIMIT} bind:value={limit} />
+            <span class="advanced-search-field-control">
+              <input type="number" min="1" max={ADVANCED_SEARCH_MAX_LIMIT} bind:value={limit} />
+              {#if limit !== ADVANCED_SEARCH_MAX_LIMIT}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Reset limit"
+                  onclick={() => (limit = ADVANCED_SEARCH_MAX_LIMIT)}
+                >×</button>
+              {/if}
+            </span>
           </label>
         </div>
         <p class="muted advanced-search-hint">Cap is {ADVANCED_SEARCH_MAX_LIMIT} events per request.</p>
@@ -422,7 +550,7 @@
           class="advanced-search-mode"
           class:active={mercuryTarget === 'publications'}
           aria-selected={mercuryTarget === 'publications'}
-          onclick={() => (mercuryTarget = 'publications')}
+          onclick={() => setMercuryTarget('publications')}
         >
           Publications
         </button>
@@ -432,7 +560,7 @@
           class="advanced-search-mode"
           class:active={mercuryTarget === 'sections'}
           aria-selected={mercuryTarget === 'sections'}
-          onclick={() => (mercuryTarget = 'sections')}
+          onclick={() => setMercuryTarget('sections')}
         >
           Sections
         </button>
@@ -442,7 +570,7 @@
           class="advanced-search-mode"
           class:active={mercuryTarget === 'wiki'}
           aria-selected={mercuryTarget === 'wiki'}
-          onclick={() => (mercuryTarget = 'wiki')}
+          onclick={() => setMercuryTarget('wiki')}
         >
           Wiki
         </button>
@@ -471,59 +599,139 @@
           {/if}
         </p>
         <div class="advanced-search-row">
-          <label>
+          <label class="advanced-search-field">
             <span>q{#if mercuryQRequired}*{/if}</span>
-            <input
-              type="text"
-              bind:value={mercuryQ}
-              placeholder={mercuryTarget === 'sections'
-                ? 'body text (min 4)'
-                : mercuryTarget === 'wiki'
-                  ? 'content (min 2)'
-                  : 'optional full-text'}
-              minlength={mercuryQMin || undefined}
-              required={mercuryQRequired}
-              autocomplete="off"
-            />
+            <span class="advanced-search-field-control">
+              <input
+                type="text"
+                bind:value={mercuryQ}
+                placeholder={mercuryTarget === 'sections'
+                  ? 'body text (min 4)'
+                  : mercuryTarget === 'wiki'
+                    ? 'content (min 2)'
+                    : 'optional full-text'}
+                minlength={mercuryQMin || undefined}
+                required={mercuryQRequired}
+                autocomplete="off"
+              />
+              {#if mercuryQ}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear q"
+                  onclick={() => (mercuryQ = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
-          <label>
+          <label class="advanced-search-field">
             <span>title</span>
-            <input type="text" bind:value={mercuryTitle} autocomplete="off" />
+            <span class="advanced-search-field-control">
+              <input type="text" bind:value={mercuryTitle} autocomplete="off" />
+              {#if mercuryTitle}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear title"
+                  onclick={() => (mercuryTitle = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
           {#if showMercuryAuthor}
-            <label>
+            <label class="advanced-search-field">
               <span>author</span>
-              <input type="text" bind:value={mercuryAuthor} placeholder="name" autocomplete="off" />
+              <span class="advanced-search-field-control">
+                <input type="text" bind:value={mercuryAuthor} placeholder="name" autocomplete="off" />
+                {#if mercuryAuthor}
+                  <button
+                    type="button"
+                    class="advanced-search-field-clear"
+                    aria-label="Clear author"
+                    onclick={() => (mercuryAuthor = '')}
+                  >×</button>
+                {/if}
+              </span>
             </label>
           {/if}
-          <label>
+          <label class="advanced-search-field">
             <span>d</span>
-            <input type="text" bind:value={mercuryD} placeholder="d-tag" autocomplete="off" />
+            <span class="advanced-search-field-control">
+              <input type="text" bind:value={mercuryD} placeholder="d-tag" autocomplete="off" />
+              {#if mercuryD}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear d"
+                  onclick={() => (mercuryD = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
-          <label>
+          <label class="advanced-search-field">
             <span>T</span>
-            <input type="text" bind:value={mercuryT} placeholder="#T type" autocomplete="off" />
+            <span class="advanced-search-field-control">
+              <input type="text" bind:value={mercuryT} placeholder="#T type" autocomplete="off" />
+              {#if mercuryT}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Clear T"
+                  onclick={() => (mercuryT = '')}
+                >×</button>
+              {/if}
+            </span>
           </label>
           {#if showMercuryS}
-            <label>
+            <label class="advanced-search-field">
               <span>s</span>
-              <input type="text" bind:value={mercuryS} placeholder="#s source URL" autocomplete="off" />
+              <span class="advanced-search-field-control">
+                <input type="text" bind:value={mercuryS} placeholder="#s source URL" autocomplete="off" />
+                {#if mercuryS}
+                  <button
+                    type="button"
+                    class="advanced-search-field-clear"
+                    aria-label="Clear s"
+                    onclick={() => (mercuryS = '')}
+                  >×</button>
+                {/if}
+              </span>
             </label>
           {/if}
           {#if showMercuryI}
-            <label>
+            <label class="advanced-search-field">
               <span>i</span>
-              <input
-                type="text"
-                bind:value={mercuryI}
-                placeholder="#i id (e.g. gutenberg:1184)"
-                autocomplete="off"
-              />
+              <span class="advanced-search-field-control">
+                <input
+                  type="text"
+                  bind:value={mercuryI}
+                  placeholder="#i id (e.g. gutenberg:1184)"
+                  autocomplete="off"
+                />
+                {#if mercuryI}
+                  <button
+                    type="button"
+                    class="advanced-search-field-clear"
+                    aria-label="Clear i"
+                    onclick={() => (mercuryI = '')}
+                  >×</button>
+                {/if}
+              </span>
             </label>
           {/if}
-          <label>
+          <label class="advanced-search-field">
             <span>Limit</span>
-            <input type="number" min="1" max={ADVANCED_SEARCH_MAX_LIMIT} bind:value={mercuryLimit} />
+            <span class="advanced-search-field-control">
+              <input type="number" min="1" max={ADVANCED_SEARCH_MAX_LIMIT} bind:value={mercuryLimit} />
+              {#if mercuryLimit !== ADVANCED_SEARCH_MAX_LIMIT}
+                <button
+                  type="button"
+                  class="advanced-search-field-clear"
+                  aria-label="Reset limit"
+                  onclick={() => (mercuryLimit = ADVANCED_SEARCH_MAX_LIMIT)}
+                >×</button>
+              {/if}
+            </span>
           </label>
         </div>
       </fieldset>
@@ -532,8 +740,11 @@
     {#if error}
       <p class="advanced-search-error" role="alert">{error}</p>
     {/if}
-    <button type="submit" class="btn btn-primary">
-      {mode === 'mercury' ? 'Search Mercury' : 'Search relays'}
-    </button>
+    <div class="advanced-search-actions">
+      <button type="button" class="btn btn-ghost" onclick={clearActiveMode}>Clear</button>
+      <button type="submit" class="btn btn-primary">
+        {mode === 'mercury' ? 'Search Mercury' : 'Search relays'}
+      </button>
+    </div>
   </form>
 </details>

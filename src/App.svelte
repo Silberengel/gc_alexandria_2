@@ -46,6 +46,13 @@
     '/publication/nevent/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
     '/publication/note/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
     '/publication/:naddr': wrap({ asyncComponent: () => import('./routes/Publication.svelte') }),
+    /** Publication / article catalog hubs (plural paths; distinct from `/publication/…` / `/article/…`). */
+    '/publications': wrap({ asyncComponent: () => import('./routes/PublicationsHub.svelte') }),
+    '/publications/search': wrap({
+      asyncComponent: () => import('./routes/PublicationsSearch.svelte')
+    }),
+    '/articles': wrap({ asyncComponent: () => import('./routes/ArticlesHub.svelte') }),
+    '/articles/search': wrap({ asyncComponent: () => import('./routes/ArticlesSearch.svelte') }),
     /** Wiki hub (NostrWiki-style) — must stay above `/wiki/:naddr`. */
     '/wiki': wrap({ asyncComponent: () => import('./routes/WikiHub.svelte') }),
     '/wiki/recent': wrap({ asyncComponent: () => import('./routes/WikiRecent.svelte') }),
