@@ -8,6 +8,8 @@
     removeLabel?: string;
     inputType?: string;
     mono?: boolean;
+    /** Cap on rows; omit or ≤0 for unlimited. */
+    maxRows?: number;
     /** Fired after any add/edit/remove (for dirty tracking). */
     onChange?: () => void;
   }
@@ -21,11 +23,20 @@
     removeLabel = 'Remove row',
     inputType = 'text',
     mono = false,
+    maxRows = 0,
     onChange
   }: Props = $props();
 
+  const capped = $derived(maxRows > 0);
+  const atMax = $derived(capped && values.length >= maxRows);
+  const canAdd = $derived(!atMax);
+
   function ensureRows(): void {
-    if (!values.length) values = [''];
+    if (!values.length) {
+      values = [''];
+      return;
+    }
+    if (capped && values.length > maxRows) values = values.slice(0, maxRows);
   }
 
   $effect(() => {
@@ -40,6 +51,7 @@
   }
 
   function addRow(): void {
+    if (!canAdd) return;
     values = [...values, ''];
     onChange?.();
   }
@@ -71,7 +83,14 @@
           title="Clear"
         >×</button>
       {/if}
-      <button type="button" class="tag-rows-icon" onclick={addRow} aria-label={addLabel}>+</button>
+      <button
+        type="button"
+        class="tag-rows-icon"
+        onclick={addRow}
+        aria-label={addLabel}
+        disabled={!canAdd}
+        title={atMax ? `At most ${maxRows}` : addLabel}
+      >+</button>
     </div>
   </div>
   {#if hint}

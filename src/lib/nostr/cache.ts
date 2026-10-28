@@ -342,6 +342,8 @@ export function searchSnapshotFresh(
   viewerPubkey?: string | null
 ): boolean {
   if (!searchSnapshotMatchesViewer(snap, viewerPubkey)) return false;
+  // Empty hits are never "fresh" — a flaky relay round must not block retries for 20m.
+  if (!snap!.events.length) return false;
   const ttl = ttlMs ?? SEARCH_SNAPSHOT_TTL_MS;
   return Date.now() - snap!.savedAt < ttl;
 }

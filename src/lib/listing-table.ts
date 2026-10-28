@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { cardMeta, displayTitle, publicationPath, libraryDocumentPath } from './metadata';
+import { firstTag } from './nostr/verify';
 import { publicationRatingPagePath } from './ratings';
 import type { ListingDensity } from './stores/listing-density';
 
@@ -10,6 +11,8 @@ export const LISTING_PAGE_SIZE_FULL = 48;
 export const LISTING_PAGE_SIZE_TABLE = 240;
 export const LISTING_PAGE_SIZE_DEFAULT = LISTING_PAGE_SIZE_FULL;
 export const LISTING_TABLE_CELL_MAX = 100;
+/** ~3 lines of cleaned Content-column text before hard crop. */
+export const LISTING_TABLE_CONTENT_MAX = 280;
 
 export function listingPageSize(density: ListingDensity): number {
   if (density === 'table') return LISTING_PAGE_SIZE_TABLE;
@@ -31,17 +34,33 @@ export function cropListingCell(value: string, max = LISTING_TABLE_CELL_MAX): st
   return `${s.slice(0, Math.max(0, max - 1))}…`;
 }
 
-export type ListingTableColumn = 'title' | 'author' | 'pubkey';
+export type ListingTableColumn = 'title' | 'author' | 'content' | 'pubkey';
 
 export type ListingTableRow = {
   id: string;
   title: string;
   author: string;
+  content: string;
   pubkey: string;
   titleFull: string;
   authorFull: string;
+  contentFull: string;
   href: string;
 };
+
+/** Collapse runs of whitespace for table Content cells. */
+export function cleanListingContent(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+/** Table Content cell: `summary` tag → event content → `alt` tag (whitespace cleaned). */
+export function listingContentText(event: Event): string {
+  const summary = cleanListingContent(firstTag(event, 'summary') ?? '');
+  if (summary) return summary;
+  const body = cleanListingContent(event.content ?? '');
+  if (body) return body;
+  return cleanListingContent(firstTag(event, 'alt') ?? '');
+}
 
 export function eventHref(event: Event): string | null {
   if (
@@ -63,14 +82,17 @@ export function listingTableRow(event: Event): ListingTableRow {
   const meta = cardMeta(event);
   const titleFull = displayTitle(event);
   const authorFull = meta.authors.join(', ');
+  const contentFull = listingContentText(event);
   const pubkey = event.pubkey.toLowerCase();
   return {
     id: event.id,
     title: cropListingCell(titleFull),
     author: cropListingCell(authorFull),
+    content: cropText(contentFull, LISTING_TABLE_CONTENT_MAX),
     pubkey,
     titleFull,
     authorFull,
+    contentFull,
     href: eventHref(event) ?? ''
   };
 }

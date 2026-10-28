@@ -94,8 +94,9 @@ export function notificationLookbackSeconds(
  * Library / media / bookmark posts for the Original Posts tab (plus kind 1 notes).
  * Top-level web comments (kind 1111 on a URL) are handled separately via
  * {@link isTopLevelWebComment}.
- * Publications (30040) and wikis (30818) stay out — mass Gutenberg / Wikipedia
- * imports would flood Follows and Original Posts.
+ * Publication indexes (30040), sections (30041), specs (30817), and wikis (30818)
+ * stay out — they have hub/search pages, and mass imports would flood Follows /
+ * Original Posts.
  */
 const FEED_POST_KINDS = [
   KIND.DJOT,
@@ -105,7 +106,6 @@ const FEED_POST_KINDS = [
   KIND.VOICE,
   KIND.HIGHLIGHT,
   KIND.LONG_FORM,
-  KIND.SPEC,
   KIND.RATING,
   KIND.MUSIC,
   KIND.WEB_BOOKMARK,

@@ -35,9 +35,14 @@ describe('exactEventQuery', () => {
 describe('search snapshot viewer binding', () => {
   const a = 'a'.repeat(64);
   const b = 'b'.repeat(64);
-  const snap = (viewer: string | null | undefined, ageMs = 0): SearchSnapshot => ({
+  const hit = { id: 'c'.repeat(64), pubkey: a, kind: 1, created_at: 1, content: '', tags: [], sig: 'd'.repeat(128) };
+  const snap = (
+    viewer: string | null | undefined,
+    ageMs = 0,
+    events: SearchSnapshot['events'] = [hit as SearchSnapshot['events'][number]]
+  ): SearchSnapshot => ({
     savedAt: Date.now() - ageMs,
-    events: [],
+    events,
     viewerPubkey: viewer
   });
 
@@ -51,6 +56,8 @@ describe('search snapshot viewer binding', () => {
     // Explicit undefined must not skip the default TTL (callers pass viewer as 3rd arg).
     expect(searchSnapshotFresh(snap(a, 0), undefined, a)).toBe(true);
     expect(searchSnapshotFresh(snap(a, 21 * 60 * 1000), undefined, a)).toBe(false);
+    // Empty hits must re-query — do not treat a blank miss as a warm cache.
+    expect(searchSnapshotFresh(snap(a, 0, []), 60_000, a)).toBe(false);
   });
 });
 describe('identifierHints', () => {

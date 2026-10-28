@@ -4,6 +4,7 @@
   import type { Filter } from 'nostr-tools';
   import {
     ADVANCED_SEARCH_MAX_LIMIT,
+    ADVANCED_SEARCH_MAX_RELAYS,
     clampAdvancedLimit,
     datetimeLocalToUnix,
     defaultAdvancedSearchRelays,
@@ -532,12 +533,13 @@
         <StringListRows
           bind:values={relays}
           label="Relays"
-          hint="These relays will be queried; edit freely."
+          hint={`These relays will be queried; edit freely. Cap is ${ADVANCED_SEARCH_MAX_RELAYS}.`}
           placeholder="wss://…"
           addLabel="Add relay"
           removeLabel="Remove relay"
           inputType="url"
           mono
+          maxRows={ADVANCED_SEARCH_MAX_RELAYS}
           onChange={() => {
             relaysDirty = true;
           }}

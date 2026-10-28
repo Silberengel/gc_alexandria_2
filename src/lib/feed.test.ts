@@ -119,9 +119,15 @@ describe('isOriginalPost', () => {
     ).toBe(true);
   });
 
-  it('excludes publications and wikis so mass imports do not flood the feed', () => {
+  it('excludes publication indexes, sections, specs, and wikis (own hub pages)', () => {
     expect(
       isOriginalPost(ev({ kind: KIND.PUBLICATION, tags: [['d', 'book'], ['title', 'Book']] }))
+    ).toBe(false);
+    expect(
+      isOriginalPost(ev({ kind: KIND.SECTION, tags: [['d', 'ch-1'], ['title', 'Chapter 1']] }))
+    ).toBe(false);
+    expect(
+      isOriginalPost(ev({ kind: KIND.SPEC, tags: [['d', 'nkbip-01'], ['title', 'NKBIP-01']] }))
     ).toBe(false);
     expect(isOriginalPost(ev({ kind: KIND.WIKI, tags: [['d', 'topic'], ['title', 'Topic']] }))).toBe(
       false
@@ -129,6 +135,11 @@ describe('isOriginalPost', () => {
     expect(
       isRepliesTimelineEvent(
         ev({ kind: KIND.PUBLICATION, tags: [['d', 'book'], ['title', 'Book']] })
+      )
+    ).toBe(false);
+    expect(
+      isRepliesTimelineEvent(
+        ev({ kind: KIND.SPEC, tags: [['d', 'nkbip-01'], ['title', 'NKBIP-01']] })
       )
     ).toBe(false);
   });

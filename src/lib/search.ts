@@ -14,6 +14,7 @@ import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
 import { documentStack, gitcitadelReadsAllowed, socialStack } from './nostr/selector';
 import {
+  ADVANCED_SEARCH_MAX_RELAYS,
   advancedSearchCacheKey,
   buildMercurySearchBody,
   clampAdvancedLimit,
@@ -966,6 +967,39 @@ function mercuryResultKinds(target: ReturnType<typeof normalizeMercuryTarget>): 
   return [KIND.PUBLICATION];
 }
 
+/**
+ * Advanced `adv=` results are a raw NIP-01/Mercury dump — keep notes, highlights,
+ * and other non-catalog kinds. Catalog search still uses {@link finishWithGrapevine}.
+ */
+async function finishAdvancedSearch(
+  key: string,
+  live: Event[],
+  cached: Event[],
+  onUpdate: (r: SearchResult) => void
+): Promise<Event[]> {
+  const merged = preferLive(live, cached);
+  try {
+    await refreshDeletionsFor(merged);
+  } catch {
+    /* deletions optional */
+  }
+  let events = pruneToLatestReplaceables(filterDeletedEvents(merged));
+  events = [...events].sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id));
+  events = events.slice(0, 100);
+  const authors = [...new Set(events.map((e) => e.pubkey))];
+  try {
+    await trustedAssertions.resolveProvider(session.getPubkey());
+    await trustedAssertions.requestScoresAndWait(authors);
+  } catch {
+    /* scores optional — Search resultScope still works once hydrated */
+  }
+  rememberEvents(events);
+  void cachePutSearchSnapshot(key, events, session.getPubkey());
+  void cachePutMany(events);
+  onUpdate({ events, loading: false, done: true });
+  return events;
+}
+
 async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> {
   const filter = normalizeAdvancedFilter(req.filter);
   filter.limit = clampAdvancedLimit(filter.limit ?? 100);
@@ -976,11 +1010,20 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
 
   const batches: Promise<Event[]>[] = [];
 
-  // Relays mode: NIP-01 REQ against the chosen relay list.
+  // Relays mode: NIP-01 REQ against the chosen relay list (honour every URL the form listed).
   if (hasFilter) {
     let relays = normalizeRelayList(req.relays);
     if (!relays.length) relays = defaultAdvancedSearchRelays(filter);
-    batches.push(relayPool.query(relays, [filter]));
+    batches.push(
+      relayPool.query(
+        relays,
+        [filter],
+        12_000,
+        Math.min(Math.max(relays.length, 1), ADVANCED_SEARCH_MAX_RELAYS),
+        undefined,
+        { bypassConstrain: true, priority: true, includeCooling: true }
+      )
+    );
   }
 
   // Mercury mode: one typed endpoint (publications / sections / wiki), not a relay REQ.
@@ -1054,7 +1097,22 @@ export async function runAdvancedSearch(
     relays
   };
   const key = advancedSearchCacheKey(normalized);
-  await cachedOrLive(key, onUpdate, () => liveAdvancedSearch(normalized));
+  // Do not use paintCached/composeSearchResults — that drops non-catalog kinds
+  // (highlights, notes, …) then treats the raw snapshot as "fresh" and skips REQ.
+  const viewer = session.getPubkey()?.toLowerCase() ?? null;
+  const snap = await cacheGetSearchSnapshot(key);
+  let cached: Event[] = [];
+  if (searchSnapshotMatchesViewer(snap, viewer)) {
+    cached = pruneToLatestReplaceables(filterDeletedEvents(snap?.events ?? []));
+    const fresh = searchSnapshotFresh(snap, undefined, viewer);
+    rememberEvents(cached);
+    onUpdate({ events: cached, loading: !fresh, done: fresh });
+    if (fresh) return;
+  } else {
+    onUpdate({ events: [], loading: true, done: false });
+  }
+  void trustedAssertions.resolveProvider(session.getPubkey());
+  await finishAdvancedSearch(key, await liveAdvancedSearch(normalized), cached, onUpdate);
 }
 
 export { hexPubkey, npubFromInput };

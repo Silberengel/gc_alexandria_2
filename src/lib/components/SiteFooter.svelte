@@ -1,6 +1,8 @@
 <script lang="ts">
   import { link, location } from 'svelte-spa-router';
+  import { appScrollTo } from '$lib/app-scroll';
   import { navigateReturn } from '$lib/nav-history';
+  import { appearance } from '$lib/stores/appearance';
   import { session } from '$lib/stores/session';
   import { loginDialogOpen, openLoginDialog, closeLoginDialog } from '$lib/stores/login-ui';
   import UserBadge from './UserBadge.svelte';
@@ -14,6 +16,15 @@
   const onContact = $derived(path.startsWith('/contact'));
   const onSettings = $derived(path.startsWith('/settings'));
   const onProfile = $derived(path.startsWith('/p/'));
+  const dark = $derived($appearance.dark);
+
+  function goToTop(): void {
+    appScrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function toggleTheme(): void {
+    appearance.setDark(!dark);
+  }
 </script>
 
 <footer class="site-footer" aria-label="App">
@@ -112,6 +123,35 @@
         />
       </svg>
     </a>
+    <button
+      type="button"
+      class="site-footer-btn"
+      title={dark ? 'Light theme' : 'Dark theme'}
+      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      aria-pressed={dark}
+      onclick={toggleTheme}
+    >
+      {#if dark}
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.25" stroke="currentColor" stroke-width="1.75" />
+          <path
+            d="M12 3.5v2.2M12 18.3v2.2M4.9 6.5l1.6 1.6M17.5 15.9l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.9 17.5l1.6-1.6M17.5 8.1l1.6-1.6"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+          />
+        </svg>
+      {:else}
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+          <path
+            d="M19.5 13.2A7.25 7.25 0 0 1 10.8 4.5 7.5 7.5 0 1 0 19.5 13.2Z"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linejoin="round"
+          />
+        </svg>
+      {/if}
+    </button>
     <a
       href="#/settings"
       use:link
@@ -123,10 +163,10 @@
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
         <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.75" />
         <path
-          d="M12 3.5v2.2M12 18.3v2.2M4.9 6.5l1.6 1.6M17.5 15.9l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.9 17.5l1.6-1.6M17.5 8.1l1.6-1.6"
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
           stroke="currentColor"
           stroke-width="1.75"
-          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       </svg>
     </a>
@@ -177,6 +217,23 @@
       </button>
     {/if}
   </nav>
+  <button
+    type="button"
+    class="site-footer-btn site-footer-top"
+    title="Go to top"
+    aria-label="Go to top"
+    onclick={goToTop}
+  >
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path
+        d="M12 19V5M6 11l6-6 6 6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </button>
 </footer>
 
 <LoginDialog open={$loginDialogOpen} onClose={closeLoginDialog} />

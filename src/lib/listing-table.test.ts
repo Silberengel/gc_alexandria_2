@@ -4,6 +4,7 @@ import {
   cropListingCell,
   cropText,
   eventHref,
+  listingContentText,
   listingPageSize,
   listingTableRow,
   sortListingRows
@@ -71,6 +72,61 @@ describe('listing table rows', () => {
     expect(row.author).toBe('Plato');
     expect(row.pubkey).toBe('aa'.repeat(32));
     expect(row.href).toContain('/publication/');
+  });
+
+  it('Content prefers summary, then content, then alt, and cleans whitespace', () => {
+    expect(
+      listingContentText(
+        ev({
+          kind: 9802,
+          pubkey: 'aa'.repeat(32),
+          content: 'body quote',
+          tags: [
+            ['summary', 'from summary'],
+            ['alt', 'Highlight']
+          ]
+        })
+      )
+    ).toBe('from summary');
+    expect(
+      listingContentText(
+        ev({
+          kind: 9802,
+          pubkey: 'aa'.repeat(32),
+          content: 'body quote',
+          tags: [['alt', 'Highlight']]
+        })
+      )
+    ).toBe('body quote');
+    expect(
+      listingContentText(
+        ev({
+          kind: 9802,
+          pubkey: 'aa'.repeat(32),
+          content: '  ',
+          tags: [['alt', 'Highlight']]
+        })
+      )
+    ).toBe('Highlight');
+    expect(
+      listingContentText(
+        ev({
+          kind: 9802,
+          pubkey: 'aa'.repeat(32),
+          content: 'Three different\n\n  event kinds.\tPick your poison.',
+          tags: [['alt', 'Highlight']]
+        })
+      )
+    ).toBe('Three different event kinds. Pick your poison.');
+    const row = listingTableRow(
+      ev({
+        kind: 9802,
+        pubkey: 'aa'.repeat(32),
+        content: 'Three different event kinds. Pick your poison.',
+        tags: [['alt', 'Highlight']]
+      })
+    );
+    expect(row.content).toBe('Three different event kinds. Pick your poison.');
   });
 
   it('links publication ratings to the edition info page', () => {

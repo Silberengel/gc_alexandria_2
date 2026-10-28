@@ -82,7 +82,7 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { shelfWheel } from '$lib/shelf-wheel';
+  import ShelfTrack from '$lib/components/ShelfTrack.svelte';
 
   interface Props {
     params?: { id?: string; kind?: string };
@@ -1261,7 +1261,7 @@
           <p class="page-kicker profile-desk-kicker">Currently reading</p>
           <h2 class="section-title profile-desk-title">On the reading desk</h2>
         </div>
-        <div class="shelf-track" use:shelfWheel>
+        <ShelfTrack>
           <div class="shelf-bar">
             {#each deskItems as item (item.pub.id)}
               {@const tipTitle = coverTitle(item.pub)}
@@ -1291,7 +1291,7 @@
               </a>
             {/each}
           </div>
-        </div>
+        </ShelfTrack>
       </section>
     {/if}
     {#if !isKindFiltered && pinboardSlips.length}

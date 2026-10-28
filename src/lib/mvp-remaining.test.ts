@@ -1408,6 +1408,28 @@ describe('kind 0 fields', () => {
     expect(rows.find((r) => r.type === 'monero')?.label).toBe(xmr);
   });
 
+  it('does not invent a blank monero row when monero_address is empty', () => {
+    const xmr =
+      '467NQj2pchUdA4S3TrB5aA6KJZ2Q5NAMt7tFqwwB2Vofgbo24Hbntg8evTN3E9V2rj8AM4LShL8PQCcuZSZwgR8uAAxFmir';
+    const profile = ev({
+      kind: 0,
+      content: JSON.stringify({ name: 'verbiricha', lud16: 'verbiricha@rizful.com' }),
+      tags: [['lud16', 'verbiricha@rizful.com']]
+    });
+    const payment = ev({
+      kind: 10133,
+      tags: [
+        ['payto', 'lightning', 'verbiricha@rizful.com'],
+        ['payto', 'monero', xmr]
+      ],
+      content: ''
+    });
+    const rows = paymentRows(parseKind0(profile), [payment], profile);
+    expect(rows.filter((r) => r.type === 'monero')).toHaveLength(1);
+    expect(rows.find((r) => r.type === 'monero')?.label).toBe(xmr);
+    expect(rows.some((r) => !r.label.trim())).toBe(false);
+  });
+
   it('hides client tags and published_at and linkifies about URLs and hashtags', async () => {
     const { aboutHtml, cropPaymentAddress } = await import('./profile-fields');
     const fields = parseKind0(

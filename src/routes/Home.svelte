@@ -21,7 +21,7 @@
     type LandingView
   } from '$lib/landing';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { shelfWheel } from '$lib/shelf-wheel';
+  import ShelfTrack from '$lib/components/ShelfTrack.svelte';
   import { publicationPath } from '$lib/metadata';
   import { session } from '$lib/stores/session';
   import { listingDensity } from '$lib/stores/listing-density';
@@ -695,7 +695,7 @@
                 {/if}
               </h2>
             </div>
-            <div class="shelf-track shelf-track-reading" use:shelfWheel>
+            <ShelfTrack class="shelf-track-reading">
                 <div class="shelf-bar">
                   {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
                     {@const tipTitle = coverTitle(pub)}
@@ -741,7 +741,7 @@
                     </div>
                   {/each}
                 </div>
-              </div>
+              </ShelfTrack>
           </section>
           <LandingFollowsReading />
         </div>
@@ -758,7 +758,7 @@
             {/if}
           </h2>
         </div>
-          <div class="shelf-track" use:shelfWheel>
+          <ShelfTrack>
             <div class="shelf-bar">
               {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
                 {@const tipTitle = coverTitle(pub)}
@@ -777,7 +777,7 @@
                 </a>
               {/each}
             </div>
-          </div>
+          </ShelfTrack>
       </section>
       {/if}
     {/each}

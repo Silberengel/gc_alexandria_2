@@ -54,15 +54,16 @@ export type AdvancedSearchRequest = {
 
 const MERCURY_TARGETS = new Set<MercurySearchTarget>(['publications', 'sections', 'wiki']);
 
+/** String body fields (excludes `target`) each Mercury search endpoint accepts. */
+export type MercurySearchFieldKey = Exclude<keyof MercurySearchFields, 'target'>;
+
 /** Fields each Mercury search endpoint documents / accepts. */
-export const MERCURY_TARGET_FIELDS: Record<
-  MercurySearchTarget,
-  readonly (keyof MercurySearchFields)[]
-> = {
-  publications: ['q', 'title', 'author', 'd', 'T', 'N', 's', 'i'],
-  sections: ['q', 'title', 'd', 'T'],
-  wiki: ['q', 'title', 'd', 'T', 's', 'i']
-};
+export const MERCURY_TARGET_FIELDS: Record<MercurySearchTarget, readonly MercurySearchFieldKey[]> =
+  {
+    publications: ['q', 'title', 'author', 'd', 'T', 'N', 's', 'i'],
+    sections: ['q', 'title', 'd', 'T'],
+    wiki: ['q', 'title', 'd', 'T', 's', 'i']
+  };
 
 /** Minimum `q` length enforced by Mercury (sections is stricter). */
 export function mercuryMinQLength(target: MercurySearchTarget): number {
@@ -226,7 +227,6 @@ export function buildMercurySearchBody(
     limit: clampAdvancedLimit(limit)
   };
   for (const key of MERCURY_TARGET_FIELDS[target]) {
-    if (key === 'target') continue;
     const v = mercury[key]?.trim();
     if (v) body[key] = v;
   }
@@ -416,8 +416,8 @@ export function advancedSearchCacheKey(req: AdvancedSearchRequest): string {
     mercury: normalizeMercury(req.mercury)
   };
   if (normalized.filter) normalized.filter.limit = clampAdvancedLimit(normalized.filter.limit);
-  // v2: Mercury typed searches no longer mix cache-scan hits across endpoints.
-  return `adv2:${JSON.stringify(normalized)}`;
+  // v4: empty snapshots are never treated as fresh (see searchSnapshotFresh).
+  return `adv4:${JSON.stringify(normalized)}`;
 }
 
 export function datetimeLocalToUnix(value: string): number | null {

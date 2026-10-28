@@ -214,10 +214,13 @@
     advancedReq = adv;
     searchTerm = described.term;
     searchKind = described.kind;
-    if (key === lastKey) return;
+    // Same URL with an empty miss must retry — a cooled relay / flaky round
+    // used to stick on "Nothing matched" until the hash changed.
+    if (key === lastKey && (events.length > 0 || loading)) return;
     lastKey = key;
     const runGen = ++searchGen;
-    resultScope = DEFAULT_AUTHOR_RESULT_SCOPE;
+    // Advanced relay dumps are raw NIP-01 hits — don't hide them behind trusted-by-default.
+    resultScope = adv ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE;
     resetRefine();
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
@@ -523,6 +526,16 @@
   {/key}
   <div class="listing-toolbar search-result-filters" role="group" aria-label="Result filters">
     <PageFilter bind:value={pageFilter} />
+    {#if resultScope === 'trusted' && (events.length > 0 || Boolean(searchTerm) || Boolean(advancedReq))}
+      <button
+        type="button"
+        class="btn btn-ghost search-reveal-untrusted"
+        title="Show results from authors below the trust rank minimum"
+        onclick={() => setResultScope('all')}
+      >
+        Reveal events from untrusted npubs
+      </button>
+    {/if}
     <ListingViewToggle label="Search results" />
   </div>
   <SearchRefineBar
@@ -561,7 +574,7 @@
         {/if}
       </p>
     {/if}
-    {#if !loading && visible.length === 0}
+    {#if !loading && visible.length === 0 && (Boolean(searchTerm) || Boolean(advancedReq) || showPublishedOffShelfSection)}
       <p class="muted">
         {#if showPublishedOffShelfSection && (publishedOffShelfVisible.length > 0 || publishedOffShelfLoading)}
           Nothing on this shelf yet.
@@ -569,6 +582,11 @@
           Nothing here from you.
         {:else if resultScope === 'follows'}
           Nothing here from your follows.
+        {:else if resultScope === 'trusted' && events.length > 0}
+          Nothing here from trusted npubs (rank ≥ {$trust.rankMin}).
+          {events.length}
+          {events.length === 1 ? 'hit is' : 'hits are'}
+          hidden.
         {:else if resultScope === 'trusted'}
           Nothing here from trusted npubs (rank ≥ {$trust.rankMin}).
         {:else if refinePubkey}
@@ -578,15 +596,17 @@
         {/if}
       </p>
     {/if}
-    {#if $listingDensity === 'table'}
-      <EventsTable events={visible} focusQuote={searchFocusQuote} />
-    {:else}
-      <div class="card-grid card-grid-results">
-        {#each paged as event (event.id)}
-          <EventCard {event} asCard openAsThread focusQuote={searchFocusQuote} />
-        {/each}
-      </div>
-      <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+    {#if visible.length > 0}
+      {#if $listingDensity === 'table'}
+        <EventsTable events={visible} focusQuote={searchFocusQuote} />
+      {:else}
+        <div class="card-grid card-grid-results">
+          {#each paged as event (event.id)}
+            <EventCard {event} asCard openAsThread focusQuote={searchFocusQuote} />
+          {/each}
+        </div>
+        <Pager {page} total={visible.length} {pageSize} onPage={(p) => (page = p)} />
+      {/if}
     {/if}
     {#if showPublishedOffShelfSection}
       <section class="search-bookshelf-published" aria-label="Books I published">

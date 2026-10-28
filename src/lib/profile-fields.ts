@@ -271,14 +271,17 @@ function addPaymentRow(
   value: string,
   label?: string
 ): void {
-  const href = paymentHref(type, value);
+  const raw = String(value ?? '').trim();
+  if (!raw) return;
+  const href = paymentHref(type, raw);
   if (!href) return;
   const normType = type === 'lightning' ? 'lud16' : type;
-  const authority = authorityOf(normType, value);
+  const authority = authorityOf(normType, raw);
   const key = `${normType}:${authority}`;
   if (seen.has(key)) return;
   seen.add(key);
-  const address = paymentAddressOnly(label ?? value, normType);
+  const address = paymentAddressOnly(label ?? raw, normType);
+  if (!address) return;
   rows.push({ type: normType, authority, href, label: address });
 }
 

@@ -85,6 +85,11 @@
               Author{#if sortColumn === 'author'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
             </button>
           </th>
+          <th scope="col" aria-sort={ariaSort('content')}>
+            <button type="button" class="listing-table-sort" onclick={() => toggleSort('content')}>
+              Content{#if sortColumn === 'content'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
+            </button>
+          </th>
           <th scope="col" aria-sort={ariaSort('pubkey')}>
             <button type="button" class="listing-table-sort" onclick={() => toggleSort('pubkey')}>
               Publisher{#if sortColumn === 'pubkey'}{sortDir === 'asc' ? ' ↑' : ' ↓'}{/if}
@@ -116,6 +121,11 @@
             </td>
             <td title={row.authorFull !== row.author ? row.authorFull : undefined}>
               {row.author || '—'}
+            </td>
+            <td title={row.contentFull !== row.content ? row.contentFull : undefined}>
+              <span class="listing-table-content-col">
+                {row.content || '—'}
+              </span>
             </td>
             <td class="listing-table-publisher-col" title={row.pubkey}>
               <UserBadge pubkey={row.pubkey} />

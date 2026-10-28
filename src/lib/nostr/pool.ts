@@ -162,10 +162,18 @@ class RelayPool {
    * One WebSocket REQ (all filters) per relay. CLOSE the sub when done so the
    * next query cannot stack REQ ids (sovbit/wine "too many concurrent REQs").
    * Do not close the WebSocket itself — that is what Firefox logs as interrupted.
+   * @param ignoreCooling Retry even when the host is in a soft-fail cooldown
+   *   (advanced search / feed paths that already opted into includeCooling).
    */
-  private queryRelay(url: string, filters: Filter[], maxWait: number): Promise<Event[]> {
+  private queryRelay(
+    url: string,
+    filters: Filter[],
+    maxWait: number,
+    ignoreCooling = false
+  ): Promise<Event[]> {
     return this.withRelayTurn(url, () => {
-      if (this.relayCoolingDown(url)) return Promise.resolve([] as Event[]);
+      if (!ignoreCooling && this.relayCoolingDown(url)) return Promise.resolve([] as Event[]);
+      if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
       return new Promise((resolve) => {
         const events: Event[] = [];
         let settled = false;
@@ -298,13 +306,14 @@ class RelayPool {
         if (pending) return pending.then((events) => [...events]);
       }
 
+      const ignoreCooling = opts?.includeCooling === true;
       const job = this.withQuerySlot(async () => {
         const byId = new Map<string, Event>();
         const attemptMs = Math.min(timeoutMs, RelayPool.RELAY_ATTEMPT_MS);
         await Promise.all(
           wssRelays.map(async (url) => {
             try {
-              const batch = await this.queryRelay(url, cleanFilters, attemptMs);
+              const batch = await this.queryRelay(url, cleanFilters, attemptMs, ignoreCooling);
               for (const event of batch) {
                 const v = ingestEvent(event);
                 if (!v) continue;
