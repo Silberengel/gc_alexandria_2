@@ -21,6 +21,10 @@
       onEnter?.();
     }
   }
+
+  function clear(): void {
+    value = '';
+  }
 </script>
 
 {#if variant === 'reader'}
@@ -41,6 +45,28 @@
         <path d="M16.5 16.5 21 21"></path>
       </svg>
     </span>
+    <span class="search-form-control publication-search-control">
+      <input
+        class="page-filter"
+        type="search"
+        {id}
+        {placeholder}
+        aria-label={placeholder}
+        bind:value={value}
+        onkeydown={onKeydown}
+      />
+      {#if value}
+        <button
+          type="button"
+          class="search-form-clear"
+          aria-label="Clear filter"
+          onclick={clear}
+        >×</button>
+      {/if}
+    </span>
+  </div>
+{:else}
+  <span class="search-form-control page-filter-control" style="max-width:20rem;margin-bottom:1rem">
     <input
       class="page-filter"
       type="search"
@@ -50,15 +76,13 @@
       bind:value={value}
       onkeydown={onKeydown}
     />
-  </div>
-{:else}
-  <input
-    class="page-filter"
-    type="search"
-    {id}
-    {placeholder}
-    bind:value={value}
-    style="max-width:20rem;margin-bottom:1rem"
-    onkeydown={onKeydown}
-  />
+    {#if value}
+      <button
+        type="button"
+        class="search-form-clear"
+        aria-label="Clear filter"
+        onclick={clear}
+      >×</button>
+    {/if}
+  </span>
 {/if}

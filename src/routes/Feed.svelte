@@ -1522,6 +1522,7 @@
   .feed-notif-lookback select {
     min-width: 8.5rem;
   }
+  .feed-notifications-filters :global(.page-filter-control),
   .feed-notifications-filters :global(.page-filter) {
     flex: 1 1 12rem;
     margin-bottom: 0 !important;

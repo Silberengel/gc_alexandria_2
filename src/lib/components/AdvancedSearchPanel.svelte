@@ -221,12 +221,11 @@
     relaysDirty = true;
   }
 
+  // Open from props only — never force-close (kinds keystrokes used to collapse this).
   $effect(() => {
-    void open;
-    void initial;
-    detailsOpen = open || Boolean(initial);
+    const shouldOpen = open || Boolean(initial);
+    if (shouldOpen) detailsOpen = true;
     if (initial) hydrate(initial);
-    else if (mode === 'relays' && !relaysDirty) syncDefaultRelays();
   });
 
   $effect(() => {

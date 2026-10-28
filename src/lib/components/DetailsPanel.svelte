@@ -59,9 +59,21 @@
     canExport?: boolean;
     /** NIP-89 kind-31990 handlers that advertise this work / kind (not social responses). */
     appHandlers?: Event[];
+    /**
+     * Metadata list only — nest inside another Details accordion (e.g. reader profile).
+     * Skips toolbar, heart/reply, and the outer Details summary.
+     */
+    embedded?: boolean;
   }
 
-  let { event, found, getSeedEvents, canExport = false, appHandlers = [] }: Props = $props();
+  let {
+    event,
+    found,
+    getSeedEvents,
+    canExport = false,
+    appHandlers = [],
+    embedded = false
+  }: Props = $props();
   const apps = $derived(uniqueAppHandlers(filterMuted(appHandlers, $muteState)));
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
@@ -216,7 +228,10 @@
       editRevisions.length > 0
   );
 
-  $effect(() => registerOpReplyToolbar(event.id));
+  $effect(() => {
+    if (embedded) return;
+    return registerOpReplyToolbar(event.id);
+  });
 
   function onReplyClick(): void {
     if (!canReply) {
@@ -260,83 +275,42 @@
   }
 </script>
 
-<div class="details-panel-wrap">
-  <div class="details-toolbar">
-    <HeartButton {event} />
-    <button
-      class="btn btn-icon icon-action-btn thread-reply"
-      type="button"
-      aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-      title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-      aria-expanded={replyOpen}
-      onclick={onReplyClick}
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
-        />
-      </svg>
-    </button>
-    <CopyPointerButton {event} class="details-more-menu">
-      {#snippet after()}
-        {#if canExport}
-          <li class="menu-sep" role="separator"></li>
-          <li class="menu-heading" role="presentation">Download</li>
-          {#each formats as opt (opt.format)}
-            <li role="none">
-              <button
-                class="menu-item"
-                type="button"
-                role="menuitem"
-                disabled={!!busy}
-                onclick={() => void onExport(opt.format)}
-              >
-                {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
-              </button>
-            </li>
+{#snippet detailsList()}
+  <dl class="details-list">
+    <dt>Event id</dt>
+    <dd><code>{event.id}</code></dd>
+    {#if coord}
+      <dt>Coordinate</dt>
+      <dd><code>{coord}</code></dd>
+    {/if}
+    <dt>Where it was found</dt>
+    <dd>
+      {#if sources.length}
+        <ul class="found-list">
+          {#each sources as source}
+            <li><code title={source}>{cropRenderedUrlsInText(source)}</code></li>
           {/each}
-        {/if}
-      {/snippet}
-    </CopyPointerButton>
-  </div>
-  <details class="accordion details-panel">
-    <summary>Details</summary>
-    <dl class="details-list">
-      <dt>Event id</dt>
-      <dd><code>{event.id}</code></dd>
-      {#if coord}
-        <dt>Coordinate</dt>
-        <dd><code>{coord}</code></dd>
+        </ul>
+      {:else}
+        <span class="muted">Not yet observed on a relay</span>
       {/if}
-      <dt>Where it was found</dt>
+    </dd>
+    {#if apps.length}
+      <dt>Apps</dt>
       <dd>
-        {#if sources.length}
-          <ul class="found-list">
-            {#each sources as source}
-              <li><code title={source}>{cropRenderedUrlsInText(source)}</code></li>
-            {/each}
-          </ul>
-        {:else}
-          <span class="muted">Not yet observed on a relay</span>
-        {/if}
+        <p class="details-apps">
+          {#each apps.slice(0, 24) as app, i (app.event.id)}
+            {#if i > 0}<span class="details-apps-sep" aria-hidden="true">·</span>{/if}
+            <AppHandlerIcon {app} />
+          {/each}
+          {#if apps.length > 24}
+            <span class="details-apps-sep" aria-hidden="true">·</span>
+            <span class="muted">+{apps.length - 24}</span>
+          {/if}
+        </p>
       </dd>
-      {#if apps.length}
-        <dt>Apps</dt>
-        <dd>
-          <p class="details-apps">
-            {#each apps.slice(0, 24) as app, i (app.event.id)}
-              {#if i > 0}<span class="details-apps-sep" aria-hidden="true">·</span>{/if}
-              <AppHandlerIcon {app} />
-            {/each}
-            {#if apps.length > 24}
-              <span class="details-apps-sep" aria-hidden="true">·</span>
-              <span class="muted">+{apps.length - 24}</span>
-            {/if}
-          </p>
-        </dd>
-      {/if}
-      {#if showEditDiffs}
+    {/if}
+    {#if showEditDiffs}
         <dt>Edits</dt>
         <dd class="details-edits">
           <ol class="details-edit-list">
@@ -479,11 +453,60 @@
           {/if}
         </dd>
       {/if}
-    </dl>
-  </details>
-  {#if busy && formatLabel}
-    <LoadingHint message="Exporting {formatLabel}… This can take a minute." compact />
-  {:else if error}
-    <p class="details-export-error" role="alert">{error}</p>
-  {/if}
-</div>
+  </dl>
+{/snippet}
+
+{#if embedded}
+  {@render detailsList()}
+{:else}
+  <div class="details-panel-wrap">
+    <div class="details-toolbar">
+      <HeartButton {event} />
+      <button
+        class="btn btn-icon icon-action-btn thread-reply"
+        type="button"
+        aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+        title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+        aria-expanded={replyOpen}
+        onclick={onReplyClick}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+          />
+        </svg>
+      </button>
+      <CopyPointerButton {event} class="details-more-menu">
+        {#snippet after()}
+          {#if canExport}
+            <li class="menu-sep" role="separator"></li>
+            <li class="menu-heading" role="presentation">Download</li>
+            {#each formats as opt (opt.format)}
+              <li role="none">
+                <button
+                  class="menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={!!busy}
+                  onclick={() => void onExport(opt.format)}
+                >
+                  {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
+                </button>
+              </li>
+            {/each}
+          {/if}
+        {/snippet}
+      </CopyPointerButton>
+    </div>
+    <details class="accordion details-panel">
+      <summary>Details</summary>
+      {@render detailsList()}
+    </details>
+    {#if busy && formatLabel}
+      <LoadingHint message="Exporting {formatLabel}… This can take a minute." compact />
+    {:else if error}
+      <p class="details-export-error" role="alert">{error}</p>
+    {/if}
+  </div>
+{/if}

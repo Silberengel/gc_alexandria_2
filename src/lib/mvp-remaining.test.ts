@@ -1384,6 +1384,30 @@ describe('kind 0 fields', () => {
     expect(rows.some((r) => r.type === 'lud16' && r.label === 'zap@example.com')).toBe(true);
   });
 
+  it('folds deprecated monero_address into payment targets and drops it from extras', () => {
+    const xmr =
+      '45meWoaPdsEbqEzR5VexxH3J3WfRp44s2a9XwxkMzrTqZv2b3SqhG9jLk5CoaBmoq8PNo1BhGT8QqW2U6cedSkDaEgZGk7g';
+    const profile = ev({
+      kind: 0,
+      content: JSON.stringify({
+        name: 'Matt',
+        lud16: 'mattyb@plume.website',
+        monero_address: xmr
+      }),
+      tags: [
+        ['name', 'Matt'],
+        ['lud16', 'mattyb@plume.website'],
+        ['payto', 'monero', xmr]
+      ]
+    });
+    const fields = parseKind0(profile);
+    expect(fields.extra.monero_address).toBeUndefined();
+    expect(fields.moneroAddress).toBe(xmr);
+    const rows = paymentRows(fields, [], profile);
+    expect(rows.filter((r) => r.type === 'monero')).toHaveLength(1);
+    expect(rows.find((r) => r.type === 'monero')?.label).toBe(xmr);
+  });
+
   it('hides client tags and published_at and linkifies about URLs and hashtags', async () => {
     const { aboutHtml, cropPaymentAddress } = await import('./profile-fields');
     const fields = parseKind0(

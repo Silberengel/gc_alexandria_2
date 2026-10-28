@@ -1186,10 +1186,88 @@ select:focus-visible,
   min-width: min(12rem, 100%);
   max-width: min(28rem, 100%);
 }
+.search-form-control,
+.page-filter-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.search-form-control input[type='search'],
+.page-filter-control input[type='search'],
+.search-form-control .page-filter,
+.page-filter-control .page-filter {
+  padding-right: 2rem;
+}
+/* Prefer our clear control — native cancel is missing in Firefox and can double up in WebKit. */
+.search-form-control input[type='search']::-webkit-search-decoration,
+.search-form-control input[type='search']::-webkit-search-cancel-button,
+.search-form-control input[type='search']::-webkit-search-results-button,
+.page-filter-control input[type='search']::-webkit-search-decoration,
+.page-filter-control input[type='search']::-webkit-search-cancel-button,
+.page-filter-control input[type='search']::-webkit-search-results-button {
+  -webkit-appearance: none;
+}
+.search-form-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  z-index: 1;
+  transform: translateY(-50%);
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--ui-font);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.search-form-clear:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink-soft) 12%, transparent);
+}
+.publication-search-control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.publication-search .search-form-clear {
+  right: 0;
+}
+.publication-search .search-form-clear:hover {
+  background: transparent;
+  color: var(--accent);
+}
 .page-search-form {
-  margin-top: 0.85rem;
+  margin-top: 0;
   max-width: min(36rem, 100%);
   width: 100%;
+  flex: 1 1 16rem;
+}
+.search-page-query {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  margin-top: 0.85rem;
+  max-width: min(42rem, 100%);
+}
+.search-page-clear-all {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.search-page-clear-all:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .suggest-list {
@@ -1906,14 +1984,16 @@ select:hover {
   margin-top: 0.35rem;
   margin-bottom: 0.35rem;
 }
-.listing-toolbar .page-filter {
+.listing-toolbar .page-filter,
+.listing-toolbar .page-filter-control {
   margin-bottom: 0 !important;
 }
 .profile-listings-toolbar {
   margin-top: 0.85rem;
   margin-bottom: 0.85rem;
 }
-.profile-listings-toolbar .page-filter {
+.profile-listings-toolbar .page-filter,
+.profile-listings-toolbar .page-filter-control {
   flex: 1 1 12rem;
   max-width: 20rem;
 }
@@ -1925,7 +2005,8 @@ select:hover {
   flex-wrap: nowrap;
   margin-bottom: 1rem;
 }
-.search-result-filters .page-filter {
+.search-result-filters .page-filter,
+.search-result-filters .page-filter-control {
   flex: 1 1 12rem;
   min-width: 0;
   max-width: 20rem;
@@ -8530,9 +8611,52 @@ a.user-status-line:hover {
   text-underline-offset: 2px;
   word-break: break-word;
 }
+.profile-detail-rich {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.profile-detail-key {
+  font-weight: 600;
+}
 .profile-about-nostr {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.92em;
+}
+.profile-pointer-line {
+  margin: 0.55rem 0 0;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.profile-pointer {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--ink);
+  background: transparent;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.profile-pointer-copy {
+  display: inline-flex;
+  vertical-align: text-bottom;
+  width: 1.55rem;
+  height: 1.55rem;
+  margin: 0 0 0 0.15rem;
+  padding: 0;
+  color: var(--ink-soft);
+}
+.profile-pointer-copy:hover,
+.profile-pointer-copy:focus-visible {
+  color: var(--ink);
 }
 .profile-tag-list {
   list-style: none;
@@ -8555,7 +8679,13 @@ a.user-status-line:hover {
   word-break: break-word;
 }
 .profile-nip05-list {
-  margin-top: 1.35rem;
+  margin-top: 0.65rem;
+}
+.profile-website-list {
+  margin-top: 0.35rem;
+}
+.profile-details > h3 + .profile-tag-list {
+  margin-top: 0.35rem;
 }
 .profile-card > p.muted {
   margin: 1rem 0 0;
@@ -8577,12 +8707,22 @@ a.user-status-line:hover {
 }
 .profile-details {
   margin-top: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
 }
 .profile-details > .profile-tag-list:first-of-type {
   margin-top: 0.35rem;
 }
 .profile-details > p.muted {
   margin: 1rem 0 0;
+}
+.profile-details > .details-list {
+  margin-top: 1.35rem;
+  padding-top: 1rem;
+  border-top: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  min-width: 0;
+  max-width: 100%;
 }
 .nip05 {
   display: inline-flex;
@@ -8620,10 +8760,17 @@ a.user-status-line:hover {
   white-space: nowrap;
   border: 0;
 }
+.profile-payments-wrap {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
 .profile-payments {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
   margin: 0.15rem 0 0.25rem;
   font-size: 0.95rem;
 }
@@ -8633,10 +8780,11 @@ a.user-status-line:hover {
   padding: 0.55rem 0.85rem 0.55rem 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   vertical-align: top;
+  min-width: 0;
 }
 .profile-payments th:first-child,
 .profile-payments td:first-child {
-  width: 1%;
+  width: 6.5rem;
   white-space: nowrap;
   padding-right: 1.25rem;
   font-weight: 600;
@@ -8648,6 +8796,13 @@ a.user-status-line:hover {
 .profile-payments td:last-child {
   font-family: ui-monospace, monospace;
   font-size: 0.88rem;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.profile-payments td:last-child a {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   word-break: break-all;
 }
 @media (min-width: 900px) {
@@ -9241,7 +9396,8 @@ a.user-status-line:hover {
   gap: 0.65rem 1rem;
   margin: 0 0 1rem;
 }
-.profile-filter-row .page-filter {
+.profile-filter-row .page-filter,
+.profile-filter-row .page-filter-control {
   flex: 1 1 12rem;
   max-width: 20rem;
   margin-bottom: 0 !important;

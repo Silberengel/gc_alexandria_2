@@ -79,6 +79,7 @@
   import PinSlip from '$lib/components/PinSlip.svelte';
   import Cover from '$lib/components/Cover.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
+  import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { warmNavEvent } from '$lib/nav-warm';
   import { shelfWheel } from '$lib/shelf-wheel';
@@ -140,7 +141,6 @@
   const payments = $derived(paymentRows(fields, paymentEvents, profile));
   const hasProfileDetails = $derived(
     fields.websites.length > 0 ||
-      fields.nip05List.length > 0 ||
       Object.keys(fields.extra).length > 0 ||
       fields.extraTags.length > 0 ||
       payments.length > 0
@@ -935,6 +935,20 @@
 
   let shareCopied = $state(false);
   let shareTimer = 0;
+  let pointerCopied = $state<'npub' | 'nprofile' | null>(null);
+  let pointerCopyTimer = 0;
+  const displayNpub = $derived(
+    npub || (pubkey && /^[0-9a-f]{64}$/i.test(pubkey) ? nip19.npubEncode(pubkey) : '')
+  );
+  const displayNprofile = $derived.by(() => {
+    const pk = pubkey.trim().toLowerCase();
+    if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return '';
+    try {
+      return nip19.nprofileEncode({ pubkey: pk });
+    } catch {
+      return '';
+    }
+  });
 
   async function copyKindLink(): Promise<void> {
     if (kindFilter == null) return;
@@ -951,7 +965,57 @@
       /* ignore */
     }
   }
+
+  async function copyPointer(kind: 'npub' | 'nprofile', text: string): Promise<void> {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      pointerCopied = kind;
+      clearTimeout(pointerCopyTimer);
+      pointerCopyTimer = window.setTimeout(() => {
+        pointerCopied = null;
+      }, 1600);
+    } catch {
+      /* ignore */
+    }
+  }
 </script>
+
+{#snippet pointerCopyIcon(copied: boolean)}
+  {#if copied}
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M5 13l4 4L19 7"
+      />
+    </svg>
+  {:else}
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <rect
+        x="9"
+        y="9"
+        width="11"
+        height="11"
+        rx="1.5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M6.5 15H6a1.5 1.5 0 0 1-1.5-1.5V6A1.5 1.5 0 0 1 6 4.5h7.5A1.5 1.5 0 0 1 15 6v.5"
+      />
+    </svg>
+  {/if}
+{/snippet}
 
 <main class="shell profile-page" class:profile-page-compact={!showReadingDesk && !isKindFiltered}>
   {#if kindInvalid}
@@ -1104,9 +1168,41 @@
           {#if pubkey}
             <GrapevineProfileStats {pubkey} />
           {/if}
+          {#if displayNpub}
+            <p class="profile-pointer-line">
+              <code class="profile-pointer" title={displayNpub}>{displayNpub}</code><button
+                type="button"
+                class="btn btn-icon profile-pointer-copy"
+                aria-label={pointerCopied === 'npub' ? 'Copied' : 'Copy npub'}
+                title={pointerCopied === 'npub' ? 'Copied' : 'Copy npub'}
+                onclick={() => void copyPointer('npub', displayNpub)}
+                >{@render pointerCopyIcon(pointerCopied === 'npub')}</button
+              >
+            </p>
+          {/if}
+          {#if displayNprofile}
+            <p class="profile-pointer-line">
+              <code class="profile-pointer" title={displayNprofile}>{displayNprofile}</code><button
+                type="button"
+                class="btn btn-icon profile-pointer-copy"
+                aria-label={pointerCopied === 'nprofile' ? 'Copied' : 'Copy nprofile'}
+                title={pointerCopied === 'nprofile' ? 'Copied' : 'Copy nprofile'}
+                onclick={() => void copyPointer('nprofile', displayNprofile)}
+                >{@render pointerCopyIcon(pointerCopied === 'nprofile')}</button
+              >
+            </p>
+          {/if}
+          {#if fields.nip05List.length}
+            <ul class="profile-tag-list profile-nip05-list">
+              {#each fields.nip05List as n}
+                <li><Nip05Badge nip05={n} {pubkey} /></li>
+              {/each}
+            </ul>
+          {/if}
           {#if hasProfileDetails}
             {#if fields.websites.length}
-              <ul class="profile-tag-list">
+              <h3>Website</h3>
+              <ul class="profile-tag-list profile-website-list">
                 {#each fields.websites as url}
                   {#if isAllowedHref(url)}
                     <li><a href={url} rel="noopener noreferrer" title={url}>{cropRenderedUrl(url)}</a></li>
@@ -1114,49 +1210,47 @@
                 {/each}
               </ul>
             {/if}
-            {#if fields.nip05List.length}
-              <ul class="profile-tag-list profile-nip05-list">
-                {#each fields.nip05List as n}
-                  <li><Nip05Badge nip05={n} {pubkey} /></li>
-                {/each}
-              </ul>
-            {/if}
             {#each Object.entries(fields.extra) as [key, value]}
-              <p class="muted profile-detail-rich">{key}: {@html aboutHtml(value)}</p>
+              <p class="muted profile-detail-rich"><span class="profile-detail-key">{key}:</span> {@html aboutHtml(value)}</p>
             {/each}
             {#each fields.extraTags as tag}
-              <p class="muted profile-detail-rich">{tag.name}: {@html aboutHtml(tag.value)}</p>
+              <p class="muted profile-detail-rich"><span class="profile-detail-key">{tag.name}:</span> {@html aboutHtml(tag.value)}</p>
             {/each}
             {#if payments.length}
               <h3>Payment targets</h3>
-              <table class="profile-payments">
-                <thead>
-                  <tr>
-                    <th scope="col">Type</th>
-                    <th scope="col">Address</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each payments as row}
+              <div class="profile-payments-wrap">
+                <table class="profile-payments">
+                  <thead>
                     <tr>
-                      <td>{paymentTypeLabel(row.type)}</td>
-                      <td>
-                        <a href={row.href} rel="noopener noreferrer" title={row.label}>
-                          {row.label.startsWith('http://') ||
-                          row.label.startsWith('https://') ||
-                          row.label.startsWith('ws://') ||
-                          row.label.startsWith('wss://')
-                            ? cropRenderedUrl(row.label)
-                            : cropPaymentAddress(row.label)}
-                        </a>
-                      </td>
+                      <th scope="col">Type</th>
+                      <th scope="col">Address</th>
                     </tr>
-                  {/each}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {#each payments as row}
+                      <tr>
+                        <td>{paymentTypeLabel(row.type)}</td>
+                        <td>
+                          <a href={row.href} rel="noopener noreferrer" title={row.label}>
+                            {row.label.startsWith('http://') ||
+                            row.label.startsWith('https://') ||
+                            row.label.startsWith('ws://') ||
+                            row.label.startsWith('wss://')
+                              ? cropRenderedUrl(row.label)
+                              : cropPaymentAddress(row.label)}
+                          </a>
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
             {/if}
-          {:else}
+          {:else if !profile}
             <p class="muted">No websites, NIP-05, or payment targets listed.</p>
+          {/if}
+          {#if profile}
+            <DetailsPanel event={profile} embedded />
           {/if}
         </details>
       </div>

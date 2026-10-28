@@ -21,6 +21,11 @@ export type ProfileFields = {
   extraTags: Array<{ name: string; value: string }>;
   lud16: string;
   lud06: string;
+  /**
+   * Deprecated kind-0 JSON/tag wallet field — shown only under Payment targets.
+   * Prefer `payto` / `w` / kind 10133 going forward.
+   */
+  moneroAddress: string;
   payto: string[];
   w: string[];
 };
@@ -41,7 +46,10 @@ const KNOWN_JSON = new Set([
   'w',
   'bot',
   'client',
-  'published_at'
+  'published_at',
+  // Deprecated wallet aliases — folded into payment rows, not freeform extras.
+  'monero_address',
+  'monero'
 ]);
 
 const KNOWN_TAG_NAMES = new Set([
@@ -59,7 +67,9 @@ const KNOWN_TAG_NAMES = new Set([
   'bot',
   'imeta',
   'client',
-  'published_at'
+  'published_at',
+  'monero_address',
+  'monero'
 ]);
 
 function jsonObject(content: string): Record<string, unknown> {
@@ -113,6 +123,7 @@ export function parseKind0(event: Event | null): ProfileFields {
     extraTags: [],
     lud16: '',
     lud06: '',
+    moneroAddress: '',
     payto: [],
     w: []
   };
@@ -145,6 +156,12 @@ export function parseKind0(event: Event | null): ProfileFields {
 
   const lud16 = firstNonEmpty(tagValues(event, 'lud16')[0] ?? '', str(json.lud16));
   const lud06 = firstNonEmpty(tagValues(event, 'lud06')[0] ?? '', str(json.lud06));
+  const moneroAddress = firstNonEmpty(
+    tagValues(event, 'monero_address')[0] ?? '',
+    tagValues(event, 'monero')[0] ?? '',
+    str(json.monero_address),
+    str(json.monero)
+  );
 
   const payto = [
     ...event.tags
@@ -194,6 +211,7 @@ export function parseKind0(event: Event | null): ProfileFields {
     extraTags,
     lud16,
     lud06,
+    moneroAddress,
     payto: [...new Set(payto)],
     w
   };
@@ -324,6 +342,8 @@ export function paymentRows(kind0: ProfileFields, paymentEvents: Event[], profil
 
   addPaymentRow(rows, seen, 'lightning', kind0.lud16);
   addPaymentRow(rows, seen, 'lud06', kind0.lud06);
+  // Deprecated JSON/tag alias — same address may also arrive via payto / 10133.
+  addPaymentRow(rows, seen, 'monero', kind0.moneroAddress);
   for (const p of kind0.payto) addPaymentRow(rows, seen, 'payto', p);
   for (const w of kind0.w) addPaymentRow(rows, seen, 'w', w);
 

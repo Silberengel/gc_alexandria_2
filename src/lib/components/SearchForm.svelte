@@ -51,6 +51,13 @@
     }, 200);
   }
 
+  function clearQuery(): void {
+    if (timer) clearTimeout(timer);
+    query = '';
+    suggestions = [];
+    seeded = '';
+  }
+
   function pick(hit: string): void {
     query = hit;
     suggestions = [];
@@ -59,13 +66,23 @@
 </script>
 
 <form class={`search-form ${className}`.trim()} onsubmit={submitSearch}>
-  <input
-    type="search"
-    placeholder="Search books, wiki, events…"
-    bind:value={query}
-    oninput={onInput}
-    autocomplete="off"
-  />
+  <span class="search-form-control">
+    <input
+      type="search"
+      placeholder="Search books, wiki, events…"
+      bind:value={query}
+      oninput={onInput}
+      autocomplete="off"
+    />
+    {#if query}
+      <button
+        type="button"
+        class="search-form-clear"
+        aria-label="Clear search"
+        onclick={clearQuery}
+      >×</button>
+    {/if}
+  </span>
   {#if suggestions.length}
     <ul class="suggest-list">
       {#each suggestions as hit}

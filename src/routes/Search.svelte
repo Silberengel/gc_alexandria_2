@@ -106,6 +106,47 @@
     refineSort = 'best';
   }
 
+  /** Remount SearchForm + AdvancedSearchPanel so drafts wipe even without a hashchange. */
+  let formResetKey = $state(0);
+
+  const hasSearchState = $derived(
+    Boolean(searchTerm) ||
+      Boolean(advancedReq) ||
+      Boolean(pageFilter.trim()) ||
+      refineKind != null ||
+      Boolean(refinePubkey) ||
+      Boolean(refineSinceDate) ||
+      Boolean(refineUntilDate) ||
+      refineSort !== 'best' ||
+      resultScope !== DEFAULT_AUTHOR_RESULT_SCOPE ||
+      events.length > 0 ||
+      loading
+  );
+
+  function clearSearchEverything(): void {
+    pageFilter = '';
+    resetRefine();
+    resultScope = DEFAULT_AUTHOR_RESULT_SCOPE;
+    page = 1;
+    events = [];
+    loading = false;
+    searchTerm = '';
+    searchKind = '';
+    advancedReq = null;
+    bookshelfAuthorHex = '';
+    bookshelfDirectory = null;
+    bookshelfSlug = '';
+    publishedOffShelf = [];
+    publishedOffShelfLoading = false;
+    lastKey = '';
+    searchGen += 1;
+    formResetKey += 1;
+    const hash = window.location.hash || '#/search';
+    if (hash.includes('?')) {
+      window.location.hash = '#/search';
+    }
+  }
+
   function searchKey(params: URLSearchParams): string {
     const viewer = session.getPubkey()?.toLowerCase() ?? '';
     return [
@@ -435,10 +476,20 @@
     {#if !searchTerm}
       <p class="page-lede muted">Find publications, wiki pages, authors, and labels across the library.</p>
     {/if}
-    <SearchForm
-      class="page-search-form"
-      initialQuery={searchKind === 'Advanced' || searchKind === 'Bookshelf' ? '' : searchTerm}
-    />
+    <div class="search-page-query">
+      {#key formResetKey}
+        <SearchForm
+          class="page-search-form"
+          initialQuery={searchKind === 'Advanced' || searchKind === 'Bookshelf' ? '' : searchTerm}
+        />
+      {/key}
+      <button
+        type="button"
+        class="btn search-page-clear-all"
+        disabled={!hasSearchState}
+        onclick={clearSearchEverything}
+      >Clear all</button>
+    </div>
   </header>
   {#if searchTerm}
     {#if searchPointer}
@@ -466,7 +517,9 @@
       </p>
     {/if}
   {/if}
-  <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
+  {#key formResetKey}
+    <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
+  {/key}
   <div class="listing-toolbar search-result-filters" role="group" aria-label="Result filters">
     <PageFilter bind:value={pageFilter} />
     <ListingViewToggle label="Search results" />

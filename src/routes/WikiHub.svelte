@@ -177,13 +177,26 @@
       page.
     </p>
     <form class="wiki-hub-search search-form" onsubmit={onSubmit}>
-      <input
-        type="search"
-        placeholder="Search wiki and specs…"
-        bind:value={q}
-        oninput={onInput}
-        autocomplete="off"
-      />
+      <span class="search-form-control">
+        <input
+          type="search"
+          placeholder="Search wiki and specs…"
+          bind:value={q}
+          oninput={onInput}
+          autocomplete="off"
+        />
+        {#if q}
+          <button
+            type="button"
+            class="search-form-clear"
+            aria-label="Clear search"
+            onclick={() => {
+              q = '';
+              suggestions = [];
+            }}
+          >×</button>
+        {/if}
+      </span>
       {#if suggestions.length}
         <ul class="suggest-list">
           {#each suggestions as hit}

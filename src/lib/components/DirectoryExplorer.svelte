@@ -2,7 +2,6 @@
   import type { Event } from 'nostr-tools';
   import { link, push } from 'svelte-spa-router';
   import { onMount } from 'svelte';
-  import DirectoryExplorer from './DirectoryExplorer.svelte';
   import UserBadge from './UserBadge.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
@@ -282,7 +281,7 @@
               {:else if atDepthLimit}
                 <p class="muted directory-explorer-empty">Maximum folder depth reached.</p>
               {:else if child && child.kind === KIND.DIRECTORY}
-                <DirectoryExplorer
+                <svelte:self
                   event={child}
                   depth={depth + 1}
                   pathCoords={childPath}
