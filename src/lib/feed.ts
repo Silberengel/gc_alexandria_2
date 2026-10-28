@@ -177,6 +177,22 @@ export const NOTIFICATION_KINDS = [
 
 const NOTIFICATION_KIND_SET = new Set<number>(NOTIFICATION_KINDS);
 
+/**
+ * Distinct kinds that can appear in Follows / Original Posts / Replies /
+ * Notifications (for the feed list kind filter). Sorted ascending.
+ */
+export const FEED_FILTER_KINDS: readonly number[] = Object.freeze(
+  [
+    ...new Set<number>([
+      KIND.TEXT_NOTE,
+      ...FEED_POST_KINDS,
+      KIND.COMMENT,
+      ...FEED_REPOST_KINDS,
+      ...NOTIFICATION_KINDS
+    ])
+  ].sort((a, b) => a - b)
+);
+
 /** Fixed feed views (always present in the tab strip). */
 export const BUILTIN_FEED_TABS = ['follows', 'original', 'replies', 'notifications'] as const;
 export type BuiltinFeedTab = (typeof BUILTIN_FEED_TABS)[number];

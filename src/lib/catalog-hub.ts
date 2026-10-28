@@ -219,3 +219,13 @@ export function catalogHubSearchPlaceholder(kind: CatalogHubKind): string {
 export function catalogHubSingular(kind: CatalogHubKind): string {
   return kind === KIND.LONG_FORM ? 'article' : 'publication';
 }
+
+/** Compose deep-link for a new document of this hub kind. */
+export function catalogHubComposeHref(kind: CatalogHubKind): string {
+  return `#/compose?kind=${kind}`;
+}
+
+/** Button label: Create New Publication / Create New Article. */
+export function catalogHubCreateLabel(kind: CatalogHubKind): string {
+  return kind === KIND.LONG_FORM ? 'Create New Article' : 'Create New Publication';
+}

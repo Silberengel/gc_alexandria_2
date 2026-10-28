@@ -4,6 +4,7 @@ import { KIND } from './constants';
 import {
   collectNewFeedEvents,
   DEFAULT_NOTIFICATION_LOOKBACK,
+  FEED_FILTER_KINDS,
   feedEventsWatermark,
   feedFollowAuthors,
   feedAuthorRepliesPath,
@@ -183,6 +184,21 @@ describe('replies timeline', () => {
     ).toBe(true);
     expect(isRepliesTimelineEvent(ev({ kind: KIND.COMMENT }))).toBe(true);
     expect(isRepliesTimelineEvent(ev({ kind: KIND.REACTION, content: '+' }))).toBe(false);
+  });
+});
+
+describe('feed kind filter options', () => {
+  it('lists feed kinds ascending without library catalog kinds', () => {
+    expect(FEED_FILTER_KINDS).toEqual([...FEED_FILTER_KINDS].sort((a, b) => a - b));
+    expect(FEED_FILTER_KINDS).toContain(KIND.TEXT_NOTE);
+    expect(FEED_FILTER_KINDS).toContain(KIND.COMMENT);
+    expect(FEED_FILTER_KINDS).toContain(KIND.LONG_FORM);
+    expect(FEED_FILTER_KINDS).toContain(KIND.REACTION);
+    expect(FEED_FILTER_KINDS).toContain(KIND.REPOST);
+    expect(FEED_FILTER_KINDS).not.toContain(KIND.PUBLICATION);
+    expect(FEED_FILTER_KINDS).not.toContain(KIND.SECTION);
+    expect(FEED_FILTER_KINDS).not.toContain(KIND.WIKI);
+    expect(FEED_FILTER_KINDS).not.toContain(KIND.SPEC);
   });
 });
 

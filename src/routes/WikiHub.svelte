@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { push, querystring, replace } from 'svelte-spa-router';
+  import { link, push, querystring, replace } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import AuthorScopeFilter from '$lib/components/AuthorScopeFilter.svelte';
   import WikiListRow from '$lib/components/WikiListRow.svelte';
   import WikiRecentKindFilter from '$lib/components/WikiRecentKindFilter.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
+  import { KIND } from '$lib/constants';
   import {
     loadWikiRecent,
     parseWikiRecentKind,
@@ -208,8 +209,10 @@
       {/if}
     </form>
     <nav class="wiki-hub-actions" aria-label="Wiki">
+      <a class="btn btn-primary" href={`#/compose?kind=${KIND.WIKI}`} use:link>Create New Wiki</a>
+      <a class="btn btn-primary" href={`#/compose?kind=${KIND.SPEC}`} use:link>Create New Spec</a>
       <button class="btn" type="button" disabled={randomBusy} onclick={() => void onRandom()}>
-        {randomBusy ? 'Picking…' : 'Random page'}
+        {randomBusy ? 'Picking…' : 'Read random page'}
       </button>
     </nav>
   </div>

@@ -39,7 +39,7 @@
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
   import { contentWithoutMediaUrls, uniqueMedia } from '$lib/media';
-  import { eventKindDescription } from '$lib/kind-label';
+  import { eventKindDescription, kindDescription } from '$lib/kind-label';
   import { eventHref } from '$lib/listing-table';
   import { libraryDocumentPath } from '$lib/metadata';
   import { fetchById } from '$lib/nostr/fetch';
@@ -308,6 +308,7 @@
 
   /** Client-side list filters on the normal feed (hidden on author-scoped profiles). */
   let feedLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
+  /** Empty string = all kinds; otherwise a kind number as decimal text. */
   let feedKindFilter = $state('');
   let feedTextFilter = $state('');
   let items = $state<Event[]>([]);
@@ -357,7 +358,8 @@
     return 'No original posts here yet.';
   }
 
-  const visibleItems = $derived.by(() => {
+  /** Unmuted / undeleted / in-window rows — kind filter options come from these. */
+  const feedScopeItems = $derived.by(() => {
     $deletionRevision;
     let base = filterDeletedEvents(
       filterMuted(
@@ -371,6 +373,25 @@
     if (feedSinceUnix != null) {
       base = base.filter((event) => event.created_at >= feedSinceUnix);
     }
+    return base;
+  });
+
+  const feedKindOptions = $derived.by(() => {
+    const present = new Set<number>();
+    for (const event of feedScopeItems) present.add(event.kind);
+    // Keep the active selection listed even if the window momentarily has none.
+    if (feedKindNumber != null) present.add(feedKindNumber);
+    return [...present]
+      .sort((a, b) => a - b)
+      .map((kind) => ({
+        kind,
+        label: `${kind} · ${kindDescription(kind)}`
+      }));
+  });
+
+  const visibleItems = $derived.by(() => {
+    let base = feedScopeItems;
+    if (feedAuthor) return base;
     if (feedKindNumber != null) {
       base = base.filter((event) => event.kind === feedKindNumber);
     }
@@ -1350,28 +1371,19 @@
         </label>
         <label class="feed-filter-kind">
           <span class="sr-only">Kind</span>
-          <span class="search-form-control page-filter-control feed-filter-kind-control">
-            <input
-              id="feed-filter-kind"
-              class="page-filter"
-              type="search"
-              inputmode="numeric"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Kind"
-              bind:value={feedKindFilter}
-              disabled={!!pointer}
-            />
-            {#if feedKindFilter}
-              <button
-                type="button"
-                class="search-form-clear"
-                aria-label="Clear kind filter"
-                disabled={!!pointer}
-                onclick={() => (feedKindFilter = '')}
-              >×</button>
-            {/if}
-          </span>
+          <select
+            id="feed-filter-kind"
+            class="page-filter feed-filter-kind-select"
+            bind:value={feedKindFilter}
+            disabled={!!pointer}
+            title="Kind"
+            aria-label="Kind"
+          >
+            <option value="">All kinds</option>
+            {#each feedKindOptions as opt (opt.kind)}
+              <option value={String(opt.kind)}>{opt.label}</option>
+            {/each}
+          </select>
         </label>
         <PageFilter
           id="feed-filter-text"
@@ -1581,8 +1593,7 @@
   .feed-filter-kind {
     flex: 0 0 auto;
   }
-  .feed-list-filters :global(.page-filter),
-  .feed-filter-since-select {
+  .feed-list-filters :global(.page-filter) {
     box-sizing: border-box;
     margin: 0;
     height: var(--feed-filter-h);
@@ -1597,16 +1608,58 @@
     line-height: calc(var(--feed-filter-h) - 2px);
     box-shadow: none;
   }
-  .feed-list-filters :global(.page-filter:hover),
-  .feed-filter-since-select:hover {
+  /*
+   * Native <option> popups often keep a light system surface while inheriting
+   * the control’s text color — ink-soft on dark theme became white-on-white.
+   * Force color-scheme + explicit option colors so the list stays readable.
+   */
+  .feed-filter-since-select,
+  .feed-filter-kind-select {
+    box-sizing: border-box;
+    margin: 0;
+    height: var(--feed-filter-h);
+    min-height: var(--feed-filter-h);
+    max-height: var(--feed-filter-h);
+    padding: 0 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
+    border-radius: 0.25rem;
+    background: var(--paper-light);
+    color: var(--ink);
+    font-size: 0.72rem;
+    line-height: calc(var(--feed-filter-h) - 2px);
+    box-shadow: none;
+    color-scheme: light;
+  }
+  .feed-filter-since-select option,
+  .feed-filter-kind-select option {
+    background-color: #fff;
+    color: #1a1a1a;
+  }
+  :global(:root.dark) .feed-filter-since-select,
+  :global(:root.dark) .feed-filter-kind-select {
+    color-scheme: dark;
+  }
+  :global(:root.dark) .feed-filter-since-select option,
+  :global(:root.dark) .feed-filter-kind-select option {
+    background-color: #1c1c1c;
+    color: #f2f2f2;
+  }
+  .feed-list-filters :global(.page-filter:hover) {
     border-color: color-mix(in srgb, var(--rule) 65%, transparent);
     background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
     color: var(--ink);
   }
-  .feed-list-filters :global(.page-filter:focus-visible),
-  .feed-filter-since-select:focus-visible {
+  .feed-filter-since-select:hover,
+  .feed-filter-kind-select:hover {
+    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
+    background: var(--paper-light);
     color: var(--ink);
-    background: color-mix(in srgb, var(--ink-soft) 8%, transparent);
+  }
+  .feed-list-filters :global(.page-filter:focus-visible),
+  .feed-filter-since-select:focus-visible,
+  .feed-filter-kind-select:focus-visible {
+    color: var(--ink);
+    background: var(--paper-light);
   }
   .feed-list-filters :global(.page-filter::placeholder) {
     color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
@@ -1617,24 +1670,18 @@
     min-width: 6.25rem;
     padding-right: 1.15rem;
   }
-  .feed-filter-kind-control {
-    display: block;
-    width: 4.25rem;
-    max-width: 4.25rem;
-    min-width: 0;
-  }
-  .feed-filter-kind-control .page-filter {
-    width: 100%;
-    padding-right: 1.2rem;
+  .feed-filter-kind-select {
+    width: auto;
+    min-width: 9.5rem;
+    max-width: 14rem;
+    padding-right: 1.15rem;
   }
   .feed-list-filters :global(.page-filter-control) {
     margin-bottom: 0 !important;
-  }
-  .feed-list-filters :global(.page-filter-control:not(.feed-filter-kind-control)) {
     flex: 1 1 9rem;
     max-width: none !important;
   }
-  .feed-list-filters :global(.page-filter-control:not(.feed-filter-kind-control) .page-filter) {
+  .feed-list-filters :global(.page-filter-control .page-filter) {
     padding-right: 1.35rem;
   }
   .feed-list-filters :global(.search-form-clear) {

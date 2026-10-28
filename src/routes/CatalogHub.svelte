@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { push, querystring, replace } from 'svelte-spa-router';
+  import { link, push, querystring, replace } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
   import AuthorScopeFilter from '$lib/components/AuthorScopeFilter.svelte';
   import CatalogListRow from '$lib/components/CatalogListRow.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import {
+    catalogHubComposeHref,
+    catalogHubCreateLabel,
     catalogHubListingHref,
     catalogHubResultHref,
     catalogHubSearchPath,
@@ -53,6 +55,8 @@
   const tagline = $derived(catalogHubTagline(kind));
   const placeholder = $derived(catalogHubSearchPlaceholder(kind));
   const singular = $derived(catalogHubSingular(kind));
+  const createHref = $derived(catalogHubComposeHref(kind));
+  const createLabel = $derived(catalogHubCreateLabel(kind));
 
   const params = $derived(new URLSearchParams($querystring ?? ''));
   const fromFromQuery = $derived(parseAuthorResultScope(params.get('from')));
@@ -210,8 +214,9 @@
       {/if}
     </form>
     <nav class="wiki-hub-actions" aria-label={title}>
+      <a class="btn btn-primary" href={createHref} use:link>{createLabel}</a>
       <button class="btn" type="button" disabled={randomBusy} onclick={() => void onRandom()}>
-        {randomBusy ? 'Picking…' : `Random ${singular}`}
+        {randomBusy ? 'Picking…' : `Read random ${singular}`}
       </button>
     </nav>
   </div>
