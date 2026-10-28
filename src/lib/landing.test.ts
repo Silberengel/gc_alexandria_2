@@ -154,14 +154,15 @@ describe('dedupeLandingShelfEvents', () => {
     );
   });
 
-  it('allows the same cover on My shelf and a nested folder', () => {
+  it('keeps a cover on the nested folder and drops it from My shelf', () => {
     const shared = pub('shared', '1');
+    const onlyMine = pub('mine-only', '2');
     const deduped = dedupeLandingShelfEvents([
       { id: 'folder:summer', title: 'Summer', events: [shared] },
-      { id: 'mine', title: 'My shelf', events: [shared] },
+      { id: 'mine', title: 'My shelf', events: [shared, onlyMine] },
       { id: 'network', title: 'From the network', events: [shared] }
     ]);
-    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
+    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([onlyMine.id]);
     expect(deduped.find((s) => s.id === 'folder:summer')?.events.map((e) => e.id)).toEqual([
       shared.id
     ]);

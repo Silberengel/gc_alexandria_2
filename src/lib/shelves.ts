@@ -97,16 +97,32 @@ export function orderLandingShelves<T extends { id: string; title?: string }>(sh
 
 /**
  * Drop covers on follows / network that already appear on a higher row.
- * Viewer-owned shelves (My shelf + nested folders) keep every cover — intentional duplicates stay.
+ * Nested folder shelves keep their covers; My shelf omits anything already on a
+ * viewer folder (so Interior Castle in philosophy-and-theology is not also on Mine).
  * Empty curated shelves after dedupe are omitted.
  */
 export function dedupeLandingShelfEvents<
   T extends { id: string; title?: string; events: Event[] }
 >(shelves: T[]): T[] {
+  const ordered = orderLandingShelves(shelves);
+  const onViewerFolder = new Set<string>();
+  for (const shelf of ordered) {
+    if (!shelf.id.startsWith('folder:')) continue;
+    for (const event of pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent)) {
+      onViewerFolder.add(eventAddress(event) || event.id.toLowerCase());
+    }
+  }
+
   const seen = new Set<string>();
   const out: T[] = [];
-  for (const shelf of orderLandingShelves(shelves)) {
-    const listable = pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent);
+  for (const shelf of ordered) {
+    let listable = pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent);
+    if (shelf.id === 'mine' && onViewerFolder.size) {
+      listable = listable.filter((event) => {
+        const key = eventAddress(event) || event.id.toLowerCase();
+        return !onViewerFolder.has(key);
+      });
+    }
     const owned = isViewerOwnedShelfId(shelf.id);
     if (owned) {
       for (const event of listable) {
@@ -279,6 +295,8 @@ export function assignShelves(
   for (const membership of memberships) {
     const address = membership.address;
     if (!address) continue;
+    // Nested 30045 folders get their own Home rows — do not also bucket them as Mine.
+    if (membership.folderD) continue;
     const pub = publications.get(address);
     if (!pub) continue;
     const top = promoteToTopLevel(pub, knownPubs);

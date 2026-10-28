@@ -942,7 +942,8 @@ async function liveAdvancedSearch(req: AdvancedSearchRequest): Promise<Event[]> 
   // Cache scan + generic wiki-alias fan-out are for relays / free-text only.
   // Mixing them into Mercury typed searches leaks prior section/pub hits across endpoints.
   if (!mercuryOnly) {
-    const qText = filter.search?.trim() || (!hasMercury ? req.mercury?.q?.trim() : '');
+    // Prefer NIP-50 search; if only Mercury `q` was filled (combined mode), still cache-scan it.
+    const qText = filter.search?.trim() || (hasMercury ? req.mercury?.q?.trim() : '');
     if (qText) {
       batches.push(cacheScanText(qText, filter.limit));
       batches.push(resolveWikiAliasArticles(qText, filter.limit).then((r) => r.targets));
