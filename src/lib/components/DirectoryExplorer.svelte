@@ -41,13 +41,15 @@
   }
 
   /**
-   * Deferred self-import — a static `import DirectoryExplorer from …` is undefined
-   * during Vite's circular module init (folder expand rendered nothing). Dynamic
-   * import resolves after this module finishes exporting.
+   * Deferred self-import (Svelte 5 dropped `svelte:self`). A static self-import is
+   * undefined during Vite's circular module init, so nested folders would render
+   * nothing. The dynamic import shares one module-scoped Promise; `{#await}` below
+   * waits for it. By the time a user expands a folder the module is almost always
+   * already cached from the static imports in Feed / EventCard.
    */
-  const NestedExplorer = import('./DirectoryExplorer.svelte').then(
-    (m) => m.default as Component<Props>
-  );
+  const nestedExplorerPromise: Promise<Component<Props>> = import(
+    './DirectoryExplorer.svelte'
+  ).then((m) => m.default as Component<Props>);
 
   let {
     event,
@@ -291,7 +293,9 @@
               {:else if atDepthLimit}
                 <p class="muted directory-explorer-empty">Maximum folder depth reached.</p>
               {:else if child && child.kind === KIND.DIRECTORY}
-                {#await NestedExplorer then Explorer}
+                {#await nestedExplorerPromise}
+                  <LoadingHint message="Opening folder…" />
+                {:then Explorer}
                   <Explorer
                     event={child}
                     depth={depth + 1}
@@ -299,6 +303,8 @@
                     showMenu={false}
                     nested
                   />
+                {:catch}
+                  <p class="muted directory-explorer-empty">Could not open nested folder view.</p>
                 {/await}
               {:else if child}
                 <p class="muted directory-explorer-empty">Not a directory.</p>

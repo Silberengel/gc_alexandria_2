@@ -143,4 +143,18 @@ describe('advanced search encode/parse', () => {
     expect(mercuryHasQuery({ target: 'wiki', author: 'Ada' })).toBe(false);
     expect(mercuryHasQuery({ target: 'publications', author: 'Ada' })).toBe(true);
   });
+
+  it('never puts routing target on the Mercury POST body', () => {
+    const body = buildMercurySearchBody(
+      { target: 'publications', title: 'Monte', q: 'books' },
+      10
+    );
+    expect(body).toEqual({ limit: 10, title: 'Monte', q: 'books' });
+    expect(body).not.toHaveProperty('target');
+    for (const target of ['publications', 'sections', 'wiki'] as const) {
+      const q = target === 'sections' ? 'abcd' : target === 'wiki' ? 'no' : 'x';
+      const built = buildMercurySearchBody({ target, q }, 5);
+      expect(built && 'target' in built).toBe(false);
+    }
+  });
 });

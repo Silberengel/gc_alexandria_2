@@ -39,6 +39,40 @@ describe('buildComposePartial', () => {
     expect(partial.tags).toContainEqual(['e', pk]);
   });
 
+  it('keeps relay and author hints from naddr/nevent/nprofile pointer fields', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'b'.repeat(64);
+    const id = 'c'.repeat(64);
+    const naddr = nip19.naddrEncode({
+      kind: 30617,
+      pubkey: pk,
+      identifier: 'repo',
+      relays: ['wss://relay.example']
+    });
+    const nprofile = nip19.nprofileEncode({ pubkey: pk, relays: ['wss://people.example'] });
+    const nevent = nip19.neventEncode({
+      id,
+      relays: ['wss://notes.example'],
+      author: pk
+    });
+
+    const issue = buildComposePartial({
+      kind: 1621,
+      content: 'Subject: bug\n\nbody',
+      values: { repo_a: naddr, owner_p: nprofile }
+    });
+    expect(issue.tags).toContainEqual(['a', `30617:${pk}:repo`, 'wss://relay.example']);
+    expect(issue.tags).toContainEqual(['p', pk, 'wss://people.example']);
+
+    const reaction = buildComposePartial({
+      kind: 7,
+      content: '+',
+      values: { e: nevent, a: naddr }
+    });
+    expect(reaction.tags).toContainEqual(['e', id, 'wss://notes.example', pk]);
+    expect(reaction.tags).toContainEqual(['a', `30617:${pk}:repo`, 'wss://relay.example']);
+  });
+
   it('builds kind-0 JSON and mirror tags from editor rows', () => {
     const partial = buildComposePartial({
       kind: 0,

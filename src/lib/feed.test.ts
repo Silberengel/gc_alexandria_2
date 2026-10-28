@@ -196,6 +196,9 @@ describe('notification lookback', () => {
     expect(notificationLookbackSeconds('1w')).toBe(7 * 24 * 60 * 60);
     expect(notificationLookbackSeconds('3m')).toBe(90 * 24 * 60 * 60);
     expect(notificationLookbackSeconds('all')).toBeNull();
+    // Runtime fallback if an invalid id is cast past the type checker.
+    expect(notificationLookbackSeconds('nope' as never)).toBe(24 * 60 * 60);
+    expect(notificationLookbackSeconds()).toBe(24 * 60 * 60);
   });
 
   it('detects a wider lookback that needs a relay requery', async () => {

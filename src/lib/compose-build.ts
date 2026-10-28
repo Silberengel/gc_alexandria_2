@@ -13,7 +13,7 @@ import { KIND } from './constants';
 import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
 import { isComposePointerTagName, normalizeComposeTagRow } from './compose-tag-normalize';
-import { composerFieldSpecs } from './kind-compose';
+import { fieldSpecs } from './kind-compose';
 import { isCatalogued } from '@silberengel/kind-compose-catalog';
 
 export type ComposeFormState = {
@@ -51,20 +51,48 @@ function scrubComposeValues(values: Record<string, string>): Record<string, stri
   return out;
 }
 
-/** Expand naddr/nevent/npub in catalog fields that emit a/e/p/q (and uppercase). */
+/**
+ * Expand naddr/nevent/npub in catalog fields that emit a/e/p/q (and uppercase).
+ * Flat `values` only store slot 1 for {@link buildTagsForKind}; multi-slot rows
+ * (relay hint, author) are returned separately and merged onto the wire tags.
+ */
 function normalizePointerFieldValues(
   kind: number,
   values: Record<string, string>
-): Record<string, string> {
-  if (!isCatalogued(kind)) return values;
+): { values: Record<string, string>; pointerTagExtras: string[][] } {
+  if (!isCatalogued(kind)) return { values, pointerTagExtras: [] };
   const out = { ...values };
-  for (const field of composerFieldSpecs(kind)) {
+  const pointerTagExtras: string[][] = [];
+  for (const field of fieldSpecs(kind)) {
     const tag = (field.tag ?? '').trim();
     if (!isComposePointerTagName(tag)) continue;
     const raw = out[field.id];
     if (raw == null || !String(raw).trim()) continue;
-    const normalized = normalizeComposeTagRow([tag, String(raw)])[1];
-    if (normalized != null) out[field.id] = normalized;
+    const row = normalizeComposeTagRow([tag, String(raw)]);
+    if (row[1] != null) out[field.id] = row[1];
+    if (row.length > 2) pointerTagExtras.push(row);
+  }
+  return { values: out, pointerTagExtras };
+}
+
+/** Copy relay / author slots from normalized pointer rows onto emitted tags. */
+function mergePointerTagExtras(tags: string[][], extras: string[][]): string[][] {
+  if (!extras.length) return tags;
+  const out = tags.map((t) => [...t]);
+  for (const extra of extras) {
+    const name = extra[0];
+    const value = extra[1];
+    if (!name || !value) continue;
+    const idx = out.findIndex((t) => t[0] === name && t[1] === value);
+    if (idx < 0) continue;
+    const merged = [...out[idx]!];
+    for (let i = 2; i < extra.length; i++) {
+      const hint = (extra[i] ?? '').trim();
+      if (!hint) continue;
+      while (merged.length <= i) merged.push('');
+      if (!(merged[i] ?? '').trim()) merged[i] = hint;
+    }
+    out[idx] = merged;
   }
   return out;
 }
@@ -80,7 +108,10 @@ export function buildComposePartial(state: ComposeFormState): {
   tags: string[][];
 } {
   const { kind } = state;
-  const values = normalizePointerFieldValues(kind, scrubComposeValues(state.values));
+  const { values, pointerTagExtras } = normalizePointerFieldValues(
+    kind,
+    scrubComposeValues(state.values)
+  );
   const freeformTags = normalizeFreeformTagRows(state.freeformTags);
   let content: string;
   let tags: string[][];
@@ -168,6 +199,7 @@ export function buildComposePartial(state: ComposeFormState): {
     tags = withMarkupTag(tags, state.markup);
   }
 
+  tags = mergePointerTagExtras(tags, pointerTagExtras);
   return { kind, content, tags: withClientTag(tags) };
 }
 

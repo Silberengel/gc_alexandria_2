@@ -54,8 +54,22 @@ export type AdvancedSearchRequest = {
 
 const MERCURY_TARGETS = new Set<MercurySearchTarget>(['publications', 'sections', 'wiki']);
 
-/** String body fields (excludes `target`) each Mercury search endpoint accepts. */
-export type MercurySearchFieldKey = Exclude<keyof MercurySearchFields, 'target'>;
+/**
+ * String fields allowed on Mercury search POST bodies.
+ * Closed list — never includes routing `target` (that selects the endpoint) or
+ * deprecated share-link keys (`identifier` / `language` / `subject`).
+ */
+export const MERCURY_BODY_FIELD_KEYS = [
+  'q',
+  'title',
+  'author',
+  'd',
+  'T',
+  'N',
+  's',
+  'i'
+] as const;
+export type MercurySearchFieldKey = (typeof MERCURY_BODY_FIELD_KEYS)[number];
 
 /** Fields each Mercury search endpoint documents / accepts. */
 export const MERCURY_TARGET_FIELDS: Record<MercurySearchTarget, readonly MercurySearchFieldKey[]> =
@@ -64,6 +78,11 @@ export const MERCURY_TARGET_FIELDS: Record<MercurySearchTarget, readonly Mercury
     sections: ['q', 'title', 'd', 'T'],
     wiki: ['q', 'title', 'd', 'T', 's', 'i']
   };
+
+/** Typed POST body for one Mercury search endpoint (`target` is never a key). */
+export type MercurySearchBody = { limit: number } & Partial<
+  Record<MercurySearchFieldKey, string>
+>;
 
 /** Minimum `q` length enforced by Mercury (sections is stricter). */
 export function mercuryMinQLength(target: MercurySearchTarget): number {
@@ -216,17 +235,19 @@ export function mercuryHasQuery(mercury: MercurySearchFields | undefined): boole
 /**
  * Build the POST body for one Mercury search endpoint.
  * Returns null when the target has no usable query (or required `q` is too short).
+ * Routing `target` stays off the body — it only picks `/publications|sections|wiki/search`.
  */
 export function buildMercurySearchBody(
   mercury: MercurySearchFields,
   limit = ADVANCED_SEARCH_MAX_LIMIT
-): Record<string, unknown> | null {
+): MercurySearchBody | null {
   const target = normalizeMercuryTarget(mercury.target);
-  const allowed = new Set(MERCURY_TARGET_FIELDS[target]);
-  const body: Record<string, unknown> = {
+  const fields = MERCURY_TARGET_FIELDS[target];
+  const allowed = new Set<MercurySearchFieldKey>(fields);
+  const body: MercurySearchBody = {
     limit: clampAdvancedLimit(limit)
   };
-  for (const key of MERCURY_TARGET_FIELDS[target]) {
+  for (const key of fields) {
     const v = mercury[key]?.trim();
     if (v) body[key] = v;
   }
@@ -235,7 +256,7 @@ export function buildMercurySearchBody(
     body.i = mercury.identifier.trim();
   }
   const minQ = mercuryMinQLength(target);
-  const q = typeof body.q === 'string' ? body.q : '';
+  const q = body.q ?? '';
   if (minQ > 0) {
     if (q.length < minQ) return null;
   } else if (Object.keys(body).length <= 1) {

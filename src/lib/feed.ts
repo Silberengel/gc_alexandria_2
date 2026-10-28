@@ -82,12 +82,19 @@ export function parseNotificationLookback(
   return isNotificationLookbackId(t) ? t : DEFAULT_NOTIFICATION_LOOKBACK;
 }
 
+/** Seconds for {@link DEFAULT_NOTIFICATION_LOOKBACK} (always a finite window). */
+const DEFAULT_NOTIFICATION_LOOKBACK_SECONDS = NOTIFICATION_LOOKBACK_OPTIONS.find(
+  (o) => o.id === DEFAULT_NOTIFICATION_LOOKBACK
+)!.seconds;
+
 /** Seconds before now for `#p` queries, or `null` when unlimited. */
 export function notificationLookbackSeconds(
   id: NotificationLookbackId = DEFAULT_NOTIFICATION_LOOKBACK
 ): number | null {
   const opt = NOTIFICATION_LOOKBACK_OPTIONS.find((o) => o.id === id);
-  return opt ? opt.seconds : 30 * 24 * 60 * 60;
+  // Unknown ids (e.g. stale storage casts) follow the documented default, not a
+  // hard-coded month that is not DEFAULT_NOTIFICATION_LOOKBACK.
+  return opt ? opt.seconds : DEFAULT_NOTIFICATION_LOOKBACK_SECONDS;
 }
 
 /**

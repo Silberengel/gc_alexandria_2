@@ -303,18 +303,20 @@
     });
   }
 
-  function startAddList(): void {
+  async function startAddList(): Promise<void> {
     addingList = true;
     addingShelf = false;
-    void ensureTrustedSuggestions().then(() => void refineListsPlace());
-    void refineListsPlace();
+    // Wait for suggestions (and tick inside refine) once so the panel is measured
+    // with the add form and any new suggestion rows — avoid a no-op refine race.
+    await ensureTrustedSuggestions();
+    await refineListsPlace();
   }
 
-  function startAddShelf(): void {
+  async function startAddShelf(): Promise<void> {
     addingShelf = true;
     addingList = false;
-    void ensureTrustedSuggestions().then(() => void refineShelfPlace());
-    void refineShelfPlace();
+    await ensureTrustedSuggestions();
+    await refineShelfPlace();
   }
 
   async function toggleListsMenu(): Promise<void> {
@@ -434,7 +436,7 @@
             </li>
           {:else}
             <li>
-              <button class="menu-item" type="button" onclick={startAddList}>
+              <button class="menu-item" type="button" onclick={() => void startAddList()}>
                 + Add a new list…
               </button>
             </li>
@@ -545,7 +547,12 @@
             </li>
           {:else}
             <li>
-              <button class="menu-item" type="button" disabled={busy} onclick={startAddShelf}>
+              <button
+                class="menu-item"
+                type="button"
+                disabled={busy}
+                onclick={() => void startAddShelf()}
+              >
                 + New bookshelf…
               </button>
             </li>
