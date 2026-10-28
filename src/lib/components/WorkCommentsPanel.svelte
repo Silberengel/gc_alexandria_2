@@ -14,6 +14,7 @@
     type WorkResponses
   } from '$lib/comments';
   import { muteState, filterMuted } from '$lib/mute';
+  import { isInkMarginComment } from '$lib/ink-margin';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { closeOpCompose, opComposeId, opReplyToolbar, toggleOpCompose } from '$lib/stores/op-reply';
@@ -52,8 +53,11 @@
   let posting = $state(false);
   let asKind1Reply = $state(false);
 
+  // Ink notes render beside the quoted text; keep them out of the reply list.
   const threadEvents = $derived(
-    filterMuted([...responses.thread, ...localThread], $muteState)
+    filterMuted([...responses.thread, ...localThread], $muteState).filter(
+      (event) => !isInkMarginComment(event)
+    )
   );
   const quotes = $derived(filterMuted(responses.quotes ?? [], $muteState));
   const other = $derived(filterMuted(responses.other ?? [], $muteState));

@@ -104,7 +104,8 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { getSelectorContext, onSelectorContext } from '$lib/nostr/selector';
-  import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { inkMarginChipsFromEvents } from '$lib/ink-margin';
+  import { mergeInkIntoHighlights, textHighlightsFromEvents } from '$lib/text-highlights';
   import DrawingEditor from '$lib/components/DrawingEditor.svelte';
   import {
     deleteThreadDraft,
@@ -703,7 +704,10 @@
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
   const bodyHighlights = $derived(
     event
-      ? textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event))
+      ? mergeInkIntoHighlights(
+          textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event)),
+          inkMarginChipsFromEvents(responses.thread)
+        )
       : []
   );
   /**
