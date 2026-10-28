@@ -3156,6 +3156,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   color: var(--ink);
   line-height: 1.25;
 }
+/* Unloaded stubs — must beat the ink rule above. */
+.reader-layout .reader-section.reader-section-missing :is(h1, h2, h3, h4, h5, h6),
+.reader-layout .reader-section.reader-section-missing .section-heading {
+  color: var(--text-muted);
+}
 
 .reader-layout .reading-content {
   max-width: min(var(--max-read), 100%);
@@ -5282,7 +5287,12 @@ a.nostrdown-ref {
   font-size: 0.95rem;
 }
 .reader-section-missing {
-  opacity: 0.92;
+  opacity: 1;
+}
+.reader-section-missing .section-heading,
+.reader-section.reader-index.reader-section-missing .section-heading,
+.reader-section.reader-edition.reader-section-missing .section-heading {
+  color: var(--text-muted);
 }
 .section-comments {
   margin-top: 0.75rem;
@@ -7498,11 +7508,18 @@ a.embed-event-line:focus-visible {
 .toc-item.toc-root > .toc-row .toc-link {
   font-weight: 700;
 }
-.toc-item.toc-unloaded:not(.toc-index) > .toc-row .toc-link:not(:disabled) {
+.toc-item.toc-unloaded > .toc-row .toc-link:not(:disabled),
+.toc-item.toc-unloaded > .toc-row .toc-link:not(:disabled) .toc-link-text {
   color: var(--text-muted);
 }
-.toc-item.toc-unloaded.toc-index > .toc-row .toc-link:not(:disabled) {
-  color: color-mix(in srgb, var(--text) 72%, var(--text-muted));
+.toc-item.toc-unloaded > .toc-row .toc-link:hover .toc-link-text,
+.toc-item.toc-unloaded > .toc-row .toc-link:focus-visible .toc-link-text {
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--accent));
+  text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.toc-item.toc-unloaded.toc-current > .toc-row .toc-link-text {
+  color: color-mix(in srgb, var(--text-muted) 65%, var(--accent));
+  font-weight: 600;
 }
 .toc-fab {
   display: inline-flex;

@@ -435,39 +435,6 @@ function partitionRootTags(publication: Event): TocEntry[] {
   }));
 }
 
-/** Direct non-30040 children of the edition (Mercury /toc is indexes-only). */
-function rootLeafEntries(publication: Event): TocEntry[] {
-  const out: TocEntry[] = [];
-  for (const tag of publication.tags) {
-    if (tag[0] === 'a' && tag[1]) {
-      const parsed = parseAddress(tag[1]);
-      if (!parsed || parsed.kind === KIND.PUBLICATION) continue;
-      out.push({
-        pos: 0,
-        title: parsed.d ? humanizeHeading(parsed.d) : 'Section',
-        address: tag[1],
-        depth: 0,
-        index: false,
-        kind: parsed.kind
-      });
-    } else if (tag[0] === 'e' && tag[1] && /^[0-9a-f]{64}$/i.test(tag[1])) {
-      out.push({
-        pos: 0,
-        title: 'Section',
-        id: tag[1],
-        depth: 0,
-        index: false
-      });
-    }
-  }
-  // Negative pos so edition sections sort before Mercury index rows (pos ≥ 0).
-  return out.map((entry, i) => ({
-    ...entry,
-    pos: i - out.length,
-    title: entry.title === 'Section' ? `Section ${i + 1}` : entry.title
-  }));
-}
-
 /**
  * Direct non-30040 a-tag addresses on an edition.
  * Mercury /stream often omits these while /toc client-side still lists them.
@@ -644,17 +611,63 @@ export function parseToc(raw: unknown[] | null, publication: Event): TocEntry[] 
       }
     }
     const mercury = [...withDepth, ...leaves];
-    const seen = new Set(mercury.map((e) => tocEntryKey(e)));
-    // Edition-level sections belong before nested indexes (Mercury /toc omits them).
-    const rootLeaves = rootLeafEntries(publication).filter((e) => !seen.has(tocEntryKey(e)));
-    return withEditionRoot(
-      publication,
-      [...rootLeaves, ...mercury].sort(
-        (a, b) => a.pos - b.pos || Number(!!a.index) - Number(!!b.index)
-      )
-    );
+    // Edition a/e children Mercury omitted (leaves *and* nested 30040s) — append after /toc.
+    return withEditionRoot(publication, mergePublicationEventIntoToc(mercury, publication));
   }
   return withEditionRoot(publication, partitionRootTags(publication));
+}
+
+function tocSeenKeys(toc: TocEntry[]): Set<string> {
+  const seen = new Set<string>();
+  for (const entry of toc) {
+    seen.add(tocEntryKey(entry));
+    if (entry.id) seen.add(entry.id.toLowerCase());
+    if (entry.address) {
+      for (const key of publicationCoordinateLookupKeys(entry.address)) {
+        seen.add(key.toLowerCase());
+      }
+    }
+  }
+  return seen;
+}
+
+function tocAlreadyHas(seen: Set<string>, entry: TocEntry): boolean {
+  if (seen.has(tocEntryKey(entry))) return true;
+  if (entry.id && seen.has(entry.id.toLowerCase())) return true;
+  if (entry.address) {
+    for (const key of publicationCoordinateLookupKeys(entry.address)) {
+      if (seen.has(key.toLowerCase())) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Append a/e children from the live publication event that the current ToC lacks.
+ * Mercury `/toc` is often indexes-only or incomplete — root leaves and omitted
+ * nested 30040s still belong in Contents and the reading pane.
+ */
+export function mergePublicationEventIntoToc(
+  toc: TocEntry[],
+  publication: Event
+): TocEntry[] {
+  if (publication.kind !== KIND.PUBLICATION) return toc;
+  const fromEvent = partitionRootTags(publication);
+  if (!fromEvent.length) return toc;
+
+  const seen = tocSeenKeys(toc);
+  const missing = fromEvent.filter((entry) => !tocAlreadyHas(seen, entry));
+  if (!missing.length) return toc;
+
+  const depthBase = toc.some((e) => e.root) ? 1 : 0;
+  const startPos =
+    toc.reduce((max, e) => (e.root ? max : Math.max(max, e.pos)), -1) + 1;
+  const extras = missing.map((entry, i) => ({
+    ...entry,
+    pos: startPos + i,
+    depth: Math.max(entry.depth ?? 0, depthBase)
+  }));
+  return [...toc, ...extras];
 }
 
 /** Prepend the top-level 30040 as ToC root (title link → publication top). */
@@ -722,6 +735,19 @@ export function isPlaceholderSection(event: Event): boolean {
 /** @deprecated Prefer isPlaceholderSection — kept for callers that mean “ghost index”. */
 export function isPlaceholderIndex(event: Event): boolean {
   return isPlaceholderSection(event);
+}
+
+/**
+ * Whether a corpus event is ready to read (not a ghost stub / empty shell).
+ * Thin title-only 30040/30041s from Mercury still occupy the pane but should
+ * render muted until body text or walkable a/e children arrive.
+ */
+export function isReaderSectionReady(event: Event): boolean {
+  if (isPlaceholderSection(event)) return false;
+  if (event.kind === KIND.PUBLICATION) {
+    return publicationSectionCount(event) > 0 || !!(event.content ?? '').trim();
+  }
+  return !!(event.content ?? '').trim();
 }
 
 /** Drop placeholders when a real event for the same address is present. */
@@ -927,7 +953,7 @@ export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEn
     return undefined;
   };
 
-  // Only dump direct leaf sections from indexes Mercury already listed — never from
+  // Only dump direct leaf sections from indexes already in the ToC — never from
   // nested books/chapters discovered below (a Bible would explode the ToC).
   const originalIndexKeys = new Set(
     toc
@@ -948,17 +974,38 @@ export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEn
     };
   });
 
+  // Bind the edition root to the live publication when present in `sections`.
+  bound = bound.map((entry) => {
+    if (!entry.root) return entry;
+    const hit =
+      (entry.address && lookup(entry.address)) ||
+      sections.find((e) => e.id === entry.id) ||
+      entry.event;
+    if (!hit || hit.kind !== KIND.PUBLICATION) return entry;
+    return {
+      ...entry,
+      id: hit.id,
+      title: sectionHeading(hit) || entry.title,
+      event: hit
+    };
+  });
+
   // Multi-pass: nest 30040 indexes only (OT → book → chapter). Skip verse leaves here.
+  // Include the edition root so a/e tags Mercury omitted still enter Contents.
   for (let pass = 0; pass < 8; pass++) {
-    const seen = new Set(bound.map((e) => tocEntryKey(e)));
+    const seen = tocSeenKeys(bound);
     const extra: TocEntry[] = [];
     for (const entry of bound) {
-      if (!entry.index || entry.root || !entry.event) continue;
+      if (!entry.index || !entry.event) continue;
       for (const child of childEntriesFromItem({ event: entry.event }, entry, { indexes: true })) {
         if (!child.index) continue;
-        const key = tocEntryKey(child);
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (tocAlreadyHas(seen, child)) continue;
+        if (child.address) {
+          for (const key of publicationCoordinateLookupKeys(child.address)) {
+            seen.add(key.toLowerCase());
+          }
+        }
+        seen.add(tocEntryKey(child));
         const hit = child.address ? lookup(child.address) : undefined;
         if (hit) {
           extra.push({
@@ -976,17 +1023,22 @@ export function expandTocFromSections(toc: TocEntry[], sections: Event[]): TocEn
     bound = [...bound, ...extra];
   }
 
-  // One-level leaf sections under the original (Mercury) indexes only.
-  const seen = new Set(bound.map((e) => tocEntryKey(e)));
+  // One-level leaf sections under ToC indexes (including the edition root).
+  const seen = tocSeenKeys(bound);
   const leaves: TocEntry[] = [];
   for (const entry of bound) {
-    if (!entry.index || entry.root || !entry.event) continue;
+    if (!entry.index || !entry.event) continue;
     const key = (entry.address ?? entry.id ?? '').toLowerCase();
-    if (!originalIndexKeys.has(key)) continue;
+    // Root always; other indexes only if they were already in the ToC (not discovered-only).
+    if (!entry.root && !originalIndexKeys.has(key)) continue;
     for (const leaf of childEntriesFromItem({ event: entry.event }, entry, { indexes: false })) {
-      const leafKey = tocEntryKey(leaf);
-      if (seen.has(leafKey)) continue;
-      seen.add(leafKey);
+      if (tocAlreadyHas(seen, leaf)) continue;
+      if (leaf.address) {
+        for (const k of publicationCoordinateLookupKeys(leaf.address)) {
+          seen.add(k.toLowerCase());
+        }
+      }
+      seen.add(tocEntryKey(leaf));
       leaves.push(leaf);
     }
   }

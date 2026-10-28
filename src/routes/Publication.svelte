@@ -136,7 +136,9 @@
     hexFromNpubParam,
     isPlaceholderIndex,
     isPlaceholderSection,
+    isReaderSectionReady,
     isUnreadableMeta,
+    mergePublicationEventIntoToc,
     mergePublicationSections,
     missingRootLeafAddresses,
     orderPublicationSections,
@@ -556,8 +558,16 @@
     for (const e of sectionCorpus) {
       if (e.kind === KIND.PUBLICATION) indexes.push(e);
     }
+    // Always include the live edition so root a/e tags Mercury omitted still expand.
+    const edition = event;
+    if (edition?.kind === KIND.PUBLICATION && !indexes.some((e) => e.id === edition.id)) {
+      indexes.unshift(edition);
+    }
     if (!indexes.length) return;
     toc = expandTocFromSections(toc, indexes);
+    if (edition?.kind === KIND.PUBLICATION) {
+      toc = mergePublicationEventIntoToc(toc, edition);
+    }
   }
 
   function publishPainted(edition: Event, reorder: boolean, fillGaps = false): void {
@@ -1365,8 +1375,12 @@
     opts?: { expandToc?: boolean }
   ): void {
     if (!toc.length) toc = parseToc(null, edition);
+    else toc = mergePublicationEventIntoToc(toc, edition);
     sectionCorpus = mergePublicationSections(ensureIndexHeadings(list, toc), sectionCorpus);
-    if (opts?.expandToc !== false) toc = expandTocFromSections(toc, sectionCorpus);
+    if (opts?.expandToc !== false) {
+      toc = expandTocFromSections(toc, sectionCorpus);
+      toc = mergePublicationEventIntoToc(toc, edition);
+    }
     if (paintEnd < 35 && sectionCorpus.length) {
       paintEnd = Math.min(35, sectionCorpus.length);
     }
@@ -2759,7 +2773,9 @@
   }
 
   function tocEntryLoaded(entry: TocEntry): boolean {
-    return !!findLoadedSection(entry);
+    const hit = findLoadedSection(entry);
+    // Placeholders and title-only shells occupy the corpus but are not ready to read.
+    return Boolean(hit && isReaderSectionReady(hit));
   }
 
   /** Leaf sections stay disabled until in the pane (real or placeholder); nested 30040s stay jumpable. */
@@ -3816,6 +3832,7 @@
               {@const sectionKey = eventAddress(section)}
               {@const isIndex = section.kind === KIND.PUBLICATION}
               {@const missing = isPlaceholderSection(section)}
+              {@const unloaded = !isReaderSectionReady(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event, sections)}
               {@const heroFull = readerSectionHeroFullUrl(section, event, sections)}
               {@const showHero = Boolean(
@@ -3837,7 +3854,7 @@
                 class:reading-content={!isEditionRoot}
                 class:reader-index={isIndex}
                 class:reader-edition={isEditionRoot}
-                class:reader-section-missing={missing}
+                class:reader-section-missing={unloaded}
                 class:bible-verse-marked={verseInRange(section, urlVerseRange)}
                 data-read-pos={pos}
                 data-section-addr={sectionKey}

@@ -10,6 +10,8 @@ import {
   humanizeHeading,
   isPlaceholderIndex,
   isPlaceholderSection,
+  isReaderSectionReady,
+  mergePublicationEventIntoToc,
   mergePublicationSections,
   missingPublicationChildRefs,
   missingRootLeafAddresses,
@@ -642,6 +644,95 @@ describe('orderPublicationSections', () => {
       tags: [['d', 'a-nostr-magazine'], ['title', 'A Nostr magazine']]
     });
     expect(missingRootLeafAddresses(root, [root, politics, intro])).toEqual([]);
+  });
+
+  it('appends publication a-tag children Mercury omitted after the ToC loads', () => {
+    const pk = 'f'.repeat(64);
+    const startAddr = `30041:${pk}:start-here`;
+    const cosmologyAddr = `30041:${pk}:cosmology`;
+    const fermionsAddr = `30040:${pk}:fermions`;
+    const edition = ev({
+      id: '9'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      tags: [
+        ['d', 'we-are-so-skewed'],
+        ['title', 'We Are So Skewed'],
+        ['a', fermionsAddr],
+        ['a', cosmologyAddr],
+        ['a', startAddr]
+      ]
+    });
+    // Mercury listed only Fermions — Cosmology + Start Here live on the edition event.
+    const toc = parseToc(
+      [{ pos: 0, kind: 30040, d: 'fermions', title: 'Fermions', pubkey: pk }],
+      edition
+    );
+    expect(toc.some((e) => e.address === fermionsAddr)).toBe(true);
+    expect(toc.some((e) => e.address === cosmologyAddr)).toBe(true);
+    expect(toc.some((e) => e.address === startAddr)).toBe(true);
+    const start = toc.find((e) => e.address === startAddr)!;
+    const fermions = toc.find((e) => e.address === fermionsAddr)!;
+    // Omitted root children append after Mercury rows.
+    expect(start.pos).toBeGreaterThan(fermions.pos);
+  });
+
+  it('mergePublicationEventIntoToc is idempotent when tags are already listed', () => {
+    const pk = 'a'.repeat(64);
+    const leaf = `30041:${pk}:intro`;
+    const edition = ev({
+      kind: 30040,
+      pubkey: pk,
+      tags: [['d', 'book'], ['title', 'Book'], ['a', leaf]]
+    });
+    const toc = parseToc([{ pos: 0, kind: 30041, d: 'intro', title: 'Intro', pubkey: pk }], edition);
+    const once = mergePublicationEventIntoToc(toc, edition);
+    const twice = mergePublicationEventIntoToc(once, edition);
+    expect(twice.filter((e) => e.address === leaf)).toHaveLength(1);
+  });
+
+  it('treats title-only shells as not ready for the reader', () => {
+    const pk = 'e'.repeat(64);
+    const emptyLeaf = ev({
+      id: '1'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', 'cosmology'], ['title', 'Cosmology']],
+      content: ''
+    });
+    const thinIndex = ev({
+      id: '2'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', 'quantization'], ['title', 'Quantization']]
+    });
+    const readyLeaf = ev({
+      id: '3'.repeat(64),
+      kind: 30041,
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', 'key'], ['title', 'Key takeaway']],
+      content: 'Body text'
+    });
+    const walkable = ev({
+      id: '4'.repeat(64),
+      kind: 30040,
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', 'fermions'], ['title', 'Fermions'], ['a', `30041:${pk}:ch1`]]
+    });
+    expect(isReaderSectionReady(emptyLeaf)).toBe(false);
+    expect(isReaderSectionReady(thinIndex)).toBe(false);
+    expect(isReaderSectionReady(readyLeaf)).toBe(true);
+    expect(isReaderSectionReady(walkable)).toBe(true);
+    expect(isReaderSectionReady(placeholderSectionEvent({
+      pos: 1,
+      title: 'Ghost',
+      address: `30041:${pk}:ghost`,
+      depth: 1
+    })!)).toBe(false);
   });
 
   it('detects nested chapter gaps so truncated streams are not tree-closed', () => {
