@@ -1,40 +1,17 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { link } from 'svelte-spa-router';
-  import type { Event } from 'nostr-tools';
-  import WikiListRow from '$lib/components/WikiListRow.svelte';
-  import LoadingHint from '$lib/components/LoadingHint.svelte';
-  import { loadWikiRecent } from '$lib/wiki-hub';
+  import { querystring, replace } from 'svelte-spa-router';
+  import { parseWikiRecentKind, wikiHubListingHref } from '$lib/wiki-hub';
+  import { parseAuthorResultScope } from '$lib/result-scope';
+  import { skipNextNavTrack } from '$lib/nav-history';
 
-  let events = $state<Event[]>([]);
-  let loading = $state(true);
-
-  onMount(() => {
-    void (async () => {
-      try {
-        events = await loadWikiRecent(50);
-      } finally {
-        loading = false;
-      }
-    })();
+  $effect(() => {
+    const params = new URLSearchParams($querystring ?? '');
+    const kind = parseWikiRecentKind(params.get('kind'));
+    const from = parseAuthorResultScope(params.get('from'));
+    const href = wikiHubListingHref({ kind, from });
+    skipNextNavTrack();
+    void replace(href.startsWith('#') ? href.slice(1) : href);
   });
 </script>
 
-<main class="shell wiki-hub wiki-hub-subpage">
-  <header class="page-header">
-    <p class="muted"><a href="#/wiki" use:link>← Wiki</a></p>
-    <h1>Recent changes</h1>
-    <p class="muted">Newest wiki articles and specs from your wiki relays and local cache.</p>
-  </header>
-  {#if loading}
-    <LoadingHint message="Loading recent changes…" />
-  {:else if !events.length}
-    <p class="muted">No recent wiki pages yet.</p>
-  {:else}
-    <ul class="wiki-list">
-      {#each events as event (event.id)}
-        <WikiListRow {event} />
-      {/each}
-    </ul>
-  {/if}
-</main>
+<p class="muted" style="padding: 1rem">Opening wiki…</p>

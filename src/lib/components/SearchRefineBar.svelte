@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
+  import type { AuthorResultScope } from '$lib/result-scope';
   import {
     kindOptionLabel,
     pubkeyOptionLabel,
@@ -8,7 +9,7 @@
     type SearchSortMode
   } from '$lib/search-refine';
 
-  export type ResultScope = 'all' | 'mine' | 'follows';
+  const SCOPE_PREFIX = 'scope:';
 
   interface Props {
     events: Event[];
@@ -17,15 +18,16 @@
     sinceDate: string;
     untilDate: string;
     sort: SearchSortMode;
-    resultScope?: ResultScope;
+    resultScope?: AuthorResultScope;
     showMineScope?: boolean;
     showFollowsScope?: boolean;
+    showTrustedScope?: boolean;
     onKind: (v: number | null) => void;
     onPubkey: (v: string) => void;
     onSinceDate: (v: string) => void;
     onUntilDate: (v: string) => void;
     onSort: (v: SearchSortMode) => void;
-    onResultScope?: (v: ResultScope) => void;
+    onResultScope?: (v: AuthorResultScope) => void;
     onClear: () => void;
   }
 
@@ -39,6 +41,7 @@
     resultScope = 'all',
     showMineScope = false,
     showFollowsScope = false,
+    showTrustedScope = true,
     onKind,
     onPubkey,
     onSinceDate,
@@ -50,14 +53,16 @@
 
   const kinds = $derived(uniqueKinds(events));
   const pubkeys = $derived(uniquePubkeys(events));
-  const showScope = $derived(Boolean(onResultScope) && (showMineScope || showFollowsScope));
+  const publisherValue = $derived(
+    resultScope !== 'all' ? `${SCOPE_PREFIX}${resultScope}` : pubkey
+  );
   const hasRefine = $derived(
     kind != null ||
       !!pubkey ||
       !!sinceDate ||
       !!untilDate ||
       sort !== 'best' ||
-      (showScope && resultScope !== 'all')
+      resultScope !== 'all'
   );
 
   let detailsOpen = $state(false);
@@ -70,6 +75,22 @@
     }
     if (!hasRefine) openedForActive = false;
   });
+
+  function onPublisherChange(raw: string): void {
+    if (!raw) {
+      onResultScope?.('all');
+      onPubkey('');
+      return;
+    }
+    if (raw.startsWith(SCOPE_PREFIX)) {
+      const scope = raw.slice(SCOPE_PREFIX.length) as AuthorResultScope;
+      onResultScope?.(scope);
+      onPubkey('');
+      return;
+    }
+    onResultScope?.('all');
+    onPubkey(raw);
+  }
 </script>
 
 {#if events.length > 0}
@@ -80,37 +101,6 @@
         <span class="search-refine-summary-active muted">· active</span>
       {/if}
     </summary>
-    {#if showScope && onResultScope}
-      <div class="booklist-scope search-result-scope" role="group" aria-label="Result source">
-        <button
-          type="button"
-          class="booklist-scope-btn"
-          class:active={resultScope === 'all'}
-          aria-pressed={resultScope === 'all'}
-          onclick={() => onResultScope('all')}
-        >All</button>
-        {#if showMineScope}
-          <button
-            type="button"
-            class="booklist-scope-btn"
-            class:active={resultScope === 'mine'}
-            aria-pressed={resultScope === 'mine'}
-            title="Published by you"
-            onclick={() => onResultScope('mine')}
-          >From me</button>
-        {/if}
-        {#if showFollowsScope}
-          <button
-            type="button"
-            class="booklist-scope-btn"
-            class:active={resultScope === 'follows'}
-            aria-pressed={resultScope === 'follows'}
-            title="Published by accounts you follow"
-            onclick={() => onResultScope('follows')}
-          >From follows</button>
-        {/if}
-      </div>
-    {/if}
     <div class="search-refine-bar" role="group" aria-label="Refine results">
       <label class="search-refine-field">
         <span class="muted">Kind</span>
@@ -129,11 +119,29 @@
       </label>
       <label class="search-refine-field">
         <span class="muted">Publisher</span>
-        <select value={pubkey} onchange={(e) => onPubkey((e.currentTarget as HTMLSelectElement).value)}>
-          <option value="">Anyone</option>
-          {#each pubkeys as pk (pk)}
-            <option value={pk}>{pubkeyOptionLabel(pk)}</option>
-          {/each}
+        <select
+          value={publisherValue}
+          onchange={(e) => onPublisherChange((e.currentTarget as HTMLSelectElement).value)}
+        >
+          <optgroup label="Audience">
+            <option value="">Anyone / All npubs</option>
+            {#if showMineScope}
+              <option value="{SCOPE_PREFIX}mine">Me</option>
+            {/if}
+            {#if showFollowsScope}
+              <option value="{SCOPE_PREFIX}follows">My follows</option>
+            {/if}
+            {#if showTrustedScope}
+              <option value="{SCOPE_PREFIX}trusted">Trusted npubs</option>
+            {/if}
+          </optgroup>
+          {#if pubkeys.length}
+            <optgroup label="Publishers in results">
+              {#each pubkeys as pk (pk)}
+                <option value={pk}>{pubkeyOptionLabel(pk)}</option>
+              {/each}
+            </optgroup>
+          {/if}
         </select>
       </label>
       <label class="search-refine-field">

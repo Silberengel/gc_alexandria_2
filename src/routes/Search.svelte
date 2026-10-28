@@ -39,10 +39,14 @@
     sortSearchEvents,
     type SearchSortMode
   } from '$lib/search-refine';
+  import {
+    filterEventsByAuthorScope,
+    type AuthorResultScope
+  } from '$lib/result-scope';
   import { session } from '$lib/stores/session';
+  import { trust } from '$lib/stores/trust';
+  import { trustedAssertions } from '$lib/trusted-assertions';
   import type { Event } from 'nostr-tools';
-
-  type ResultScope = 'all' | 'mine' | 'follows';
 
   let events = $state<Event[]>([]);
   let loading = $state(false);
@@ -54,7 +58,8 @@
   /** Active query shown under the Search heading (empty when no params). */
   let searchTerm = $state('');
   let searchKind = $state('');
-  let resultScope = $state<ResultScope>('all');
+  let resultScope = $state<AuthorResultScope>('all');
+  let scoresReady = $state(0);
   let advancedReq = $state<AdvancedSearchRequest | null>(null);
 
   let refineKind = $state<number | null>(null);
@@ -68,6 +73,7 @@
   const hasFollows = $derived(follows.size > 0);
   const showMineScope = $derived(signedIn);
   const showFollowsScope = $derived(signedIn && hasFollows);
+  const showTrustedScope = true;
 
   function hashParams(): URLSearchParams {
     const hash = window.location.hash;
@@ -202,7 +208,7 @@
     else void runSearch(q, onUpdate);
   }
 
-  function setResultScope(next: ResultScope): void {
+  function setResultScope(next: AuthorResultScope): void {
     resultScope = next;
     page = 1;
   }
@@ -212,13 +218,23 @@
     else if (resultScope === 'follows' && !showFollowsScope) resultScope = 'all';
   });
 
-  function filterByScope(list: Event[], scope: ResultScope): Event[] {
-    if (scope === 'all') return list;
-    const me = $session.pubkey?.toLowerCase();
-    if (!me) return [];
-    if (scope === 'mine') return list.filter((e) => e.pubkey.toLowerCase() === me);
-    return list.filter((e) => follows.has(e.pubkey.toLowerCase()));
-  }
+  $effect(() => {
+    if (resultScope !== 'trusted' || !events.length) return;
+    const authors = [...new Set(events.map((e) => e.pubkey.toLowerCase()))];
+    let cancelled = false;
+    void trustedAssertions
+      .resolveProvider(session.getPubkey())
+      .then(() => trustedAssertions.requestScoresAndWait(authors))
+      .then(() => {
+        if (!cancelled) scoresReady += 1;
+      })
+      .catch(() => {
+        /* keep last scores */
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   onMount(() => {
     follows = followPubkeysFromMetadata(session.getMetadata());
@@ -257,21 +273,31 @@
   const pageSize = $derived(listingPageSize($listingDensity));
   const muted = $derived(filterMuted(events, $muteState));
   const visible = $derived(
-    filterByScope(
-      filterPageEvents(
-        sortSearchEvents(
-          filterSearchEvents(muted, {
-            kind: refineKind,
-            pubkey: refinePubkey || null,
-            since: refineSinceDate ? dateInputToSince(refineSinceDate) : null,
-            until: refineUntilDate ? dateInputToUntil(refineUntilDate) : null
-          }),
-          refineSort
+    (() => {
+      void scoresReady;
+      void $trust.rankMin;
+      return filterEventsByAuthorScope(
+        filterPageEvents(
+          sortSearchEvents(
+            filterSearchEvents(muted, {
+              kind: refineKind,
+              pubkey: refinePubkey || null,
+              since: refineSinceDate ? dateInputToSince(refineSinceDate) : null,
+              until: refineUntilDate ? dateInputToUntil(refineUntilDate) : null
+            }),
+            refineSort
+          ),
+          pageFilter
         ),
-        pageFilter
-      ),
-      resultScope
-    )
+        resultScope,
+        {
+          viewerPubkey: $session.pubkey,
+          followPubkeySet: follows,
+          rankMin: $trust.rankMin,
+          getScore: (pk) => trustedAssertions.getScore(pk)
+        }
+      );
+    })()
   );
   const paged = $derived(visible.slice((page - 1) * pageSize, page * pageSize));
   /** Bech32 / coordinate queries → editable kind · pubkey · d (or event id) parts. */
@@ -314,6 +340,7 @@
     {resultScope}
     {showMineScope}
     {showFollowsScope}
+    {showTrustedScope}
     onKind={(v) => (refineKind = v)}
     onPubkey={(v) => (refinePubkey = v)}
     onSinceDate={(v) => (refineSinceDate = v)}
@@ -331,7 +358,11 @@
       {#if resultScope === 'mine'}
         Nothing here from you.
       {:else if resultScope === 'follows'}
-        Nothing here from accounts you follow.
+        Nothing here from your follows.
+      {:else if resultScope === 'trusted'}
+        Nothing here from trusted npubs (rank ≥ {$trust.rankMin}).
+      {:else if refinePubkey}
+        Nothing from that publisher.
       {:else}
         Nothing matched.
       {/if}

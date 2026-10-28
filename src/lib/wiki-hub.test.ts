@@ -182,6 +182,49 @@ describe('wiki-hub helpers', () => {
     expect(vi.mocked(pool.relayPool.query).mock.calls.length).toBe(calls);
   });
 
+  it('parseWikiRecentKind accepts wiki/spec and defaults to all', async () => {
+    const { parseWikiRecentKind, wikiHubListingHref, wikiRecentKindHref } =
+      await import('./wiki-hub');
+    expect(parseWikiRecentKind(null)).toBe('all');
+    expect(parseWikiRecentKind('Wiki')).toBe('wiki');
+    expect(parseWikiRecentKind('spec')).toBe('spec');
+    expect(parseWikiRecentKind('other')).toBe('all');
+    expect(wikiRecentKindHref('all')).toBe('#/wiki');
+    expect(wikiRecentKindHref('wiki')).toBe('#/wiki?kind=wiki');
+    expect(wikiRecentKindHref('spec')).toBe('#/wiki?kind=spec');
+    expect(wikiHubListingHref({ kind: 'wiki', from: 'trusted' })).toBe(
+      '#/wiki?kind=wiki&from=trusted'
+    );
+    expect(wikiHubListingHref({ from: 'follows' })).toBe('#/wiki?from=follows');
+  });
+
+  it('loadWikiRecent filters by wiki or spec kind', async () => {
+    const cache = await import('./nostr/cache');
+    const pool = await import('./nostr/pool');
+    const wiki = ev({
+      id: '1'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 20,
+      tags: [['d', 'wiki-page'], ['title', 'Wiki page']]
+    });
+    const spec = ev({
+      id: '2'.repeat(64),
+      kind: KIND.SPEC,
+      created_at: 30,
+      tags: [['d', 'nkbip-04'], ['title', 'NKBIP-04']]
+    });
+    vi.mocked(cache.cachedEventsByKind).mockImplementation(async (kind) => {
+      if (kind === KIND.WIKI) return [wiki];
+      if (kind === KIND.SPEC) return [spec];
+      return [];
+    });
+    vi.mocked(pool.relayPool.query).mockResolvedValue([]);
+    const { loadWikiRecent } = await import('./wiki-hub');
+    expect((await loadWikiRecent(10, 'all')).map((e) => e.kind)).toEqual([KIND.SPEC, KIND.WIKI]);
+    expect((await loadWikiRecent(10, 'wiki')).map((e) => e.id)).toEqual([wiki.id]);
+    expect((await loadWikiRecent(10, 'spec')).map((e) => e.id)).toEqual([spec.id]);
+  });
+
   it('matches only d-tag and title, not body content', async () => {
     const { wikiHubMatchesQuery } = await import('./wiki-hub');
     const bodyOnly = ev({

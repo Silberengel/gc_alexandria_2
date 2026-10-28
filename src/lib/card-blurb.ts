@@ -34,7 +34,7 @@ function stripBareUrls(s: string): string {
 
 /**
  * Plain-text teaser for cards: strip AsciiDoc / Markdown so summaries never show
- * raw `=`, `image::`, or link markup.
+ * raw `=`, `#`, `image::`, infobox attrs, or link markup.
  */
 export function cardBlurb(
   raw: string | undefined,
@@ -49,8 +49,13 @@ export function cardBlurb(
   s = wikilinksToPlaintext(s);
 
   s = s.replace(/```[\s\S]*?```/g, ' ');
-  s = s.replace(/`[^`]+`/g, ' ');
+  // Keep inline code text; drop only the backticks.
+  s = s.replace(/`([^`]+)`/g, '$1');
   s = s.replace(/<[^>]+>/g, ' ');
+
+  // ATX headings — wiki/spec often use Markdown even when blurb mode is AsciiDoc.
+  s = s.replace(/^#{1,6}\s+/gm, '');
+  s = s.replace(/\s#{1,6}\s+/g, ' ');
 
   if (markup === 'asciidoc') {
     s = s.replace(/^(={4,}|-{4,}|\*{4,}|_{4,}|\+{4,}|\.{4,}|\/{4,}|\|={3,})\s*$/gm, ' ');
@@ -61,7 +66,7 @@ export function cardBlurb(
     // Mid-line heading leftovers like "= Title == Description"
     s = s.replace(/\s==+\s+/g, ' ');
     s = s.replace(/^\.(?=\S)/gm, '');
-    // Macros: keep alt/label text. Also handle broken `url"alt]` forms.
+    // Macros first — otherwise definition-list stripping eats `image::…` lines.
     s = s.replace(/image::?[^\s\[]+(?:\[[^\]]*\]|"[^\]]*")?/g, (m) => {
       const bracket = m.match(/\[([^\]]*)\]/);
       if (bracket) return bracket[1] || ' ';
@@ -70,11 +75,19 @@ export function cardBlurb(
       return ' ';
     });
     s = s.replace(/link:[^[\s]+\[([^\]]*)\]/g, '$1');
+    s = s.replace(/link:[^\s\[]+/g, ' ');
     s = s.replace(/https?:\/\/[^[\s]+\[([^\]]*)\]/g, '$1');
+    // Infobox / attribute noise (role=orange, Foundation bloodstock:: …)
+    s = s.replace(/\bInfobox\b/gi, ' ');
+    s = s.replace(/\brole\s*=\s*[^\s,\]]+/gi, ' ');
+    s = s.replace(
+      /^(?!include::|ifdef::|ifndef::|endif::|literal::)[^\n:]{1,60}::\s*/gim,
+      ''
+    );
+    s = s.replace(/\s::+\s*/g, ' ');
   } else {
     s = s.replace(/!\[[^\]]*]\([^)]*\)/g, ' ');
     s = s.replace(/\[([^\]]+)]\([^)]*\)/g, '$1');
-    s = s.replace(/^#{1,6}\s+/gm, '');
     s = s.replace(/^>\s?/gm, '');
   }
 
@@ -84,6 +97,8 @@ export function cardBlurb(
   s = s.replace(/\*\*|__/g, '');
   s = s.replace(/~~/g, '');
   s = s.replace(/\*|_/g, ' ');
+  // Percent-encoded leftovers from stripped link targets.
+  s = s.replace(/%[0-9A-Fa-f]{2}/g, ' ');
 
   s = stripBareUrls(s);
   s = s.replace(/\s+/g, ' ').trim();

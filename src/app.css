@@ -1888,9 +1888,6 @@ select:hover {
   letter-spacing: 0.04em;
   text-transform: none;
 }
-.search-refine-panel .search-result-scope {
-  margin: 0 0 0.75rem;
-}
 .search-refine-bar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9801,6 +9798,42 @@ button.directory-explorer-link {
 .wiki-hub-section-head h2 {
   margin: 0;
   font-size: 1.15rem;
+}
+.filter-option-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.85rem;
+  align-items: center;
+}
+.filter-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: var(--text-meta);
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.filter-option input {
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.filter-option.active {
+  color: var(--ink);
+}
+.filter-option:hover {
+  color: var(--ink);
+}
+.wiki-hub-recent .wiki-recent-kind,
+.wiki-hub-recent .author-scope {
+  margin: 0 0 0.55rem;
+}
+.wiki-hub-recent .author-scope {
+  margin-bottom: 0.85rem;
 }
 .wiki-hub-subpage .wiki-hub-search {
   margin: 0 0 1rem;

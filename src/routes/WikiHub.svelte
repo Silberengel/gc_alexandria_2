@@ -1,29 +1,133 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { link, push } from 'svelte-spa-router';
+  import { push, querystring, replace } from 'svelte-spa-router';
   import type { Event } from 'nostr-tools';
+  import AuthorScopeFilter from '$lib/components/AuthorScopeFilter.svelte';
   import WikiListRow from '$lib/components/WikiListRow.svelte';
+  import WikiRecentKindFilter from '$lib/components/WikiRecentKindFilter.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
-  import { loadWikiRecent, pickRandomWikiPage, wikiHubResultHref } from '$lib/wiki-hub';
+  import {
+    loadWikiRecent,
+    parseWikiRecentKind,
+    pickRandomWikiPage,
+    wikiHubListingHref,
+    wikiHubResultHref,
+    type WikiRecentKindFilter as KindFilter
+  } from '$lib/wiki-hub';
+  import {
+    filterEventsByAuthorScope,
+    parseAuthorResultScope,
+    type AuthorResultScope
+  } from '$lib/result-scope';
   import { suggestTitles, isNsec } from '$lib/search';
   import { warmNavEvent } from '$lib/nav-warm';
+  import { followPubkeysFromMetadata } from '$lib/mute';
+  import { session } from '$lib/stores/session';
+  import { trust } from '$lib/stores/trust';
+  import { trustedAssertions } from '$lib/trusted-assertions';
 
   let q = $state('');
   let suggestions = $state<string[]>([]);
   let suggestTimer: ReturnType<typeof setTimeout> | null = null;
-  let recent = $state<Event[]>([]);
+  let recentPool = $state<Event[]>([]);
   let recentLoading = $state(true);
+  let recentKind = $state<KindFilter>('all');
+  let authorScope = $state<AuthorResultScope>('all');
+  let recentSeq = 0;
+  let scoresReady = $state(0);
   let randomBusy = $state(false);
+  let follows = $state<Set<string>>(new Set());
 
-  onMount(() => {
-    void (async () => {
-      try {
-        recent = await loadWikiRecent(12);
-      } finally {
+  const signedIn = $derived(Boolean($session.pubkey));
+  const showMineScope = $derived(signedIn);
+  const showFollowsScope = $derived(signedIn && follows.size > 0);
+
+  const params = $derived(new URLSearchParams($querystring ?? ''));
+  const kindFromQuery = $derived(parseWikiRecentKind(params.get('kind')));
+  const fromFromQuery = $derived(parseAuthorResultScope(params.get('from')));
+
+  $effect(() => {
+    follows = followPubkeysFromMetadata(session.getMetadata());
+    const unsub = session.metadata.subscribe((meta) => {
+      follows = followPubkeysFromMetadata(meta);
+    });
+    return () => unsub();
+  });
+
+  $effect(() => {
+    if (authorScope === 'mine' && !showMineScope) {
+      setListing({ from: 'all' });
+    } else if (authorScope === 'follows' && !showFollowsScope) {
+      setListing({ from: 'all' });
+    }
+  });
+
+  $effect(() => {
+    const nextKind = kindFromQuery;
+    const nextFrom = fromFromQuery;
+    recentKind = nextKind;
+    authorScope = nextFrom;
+    const seq = ++recentSeq;
+    recentLoading = true;
+    void loadWikiRecent(50, nextKind).then(
+      (hits) => {
+        if (seq !== recentSeq) return;
+        recentPool = hits;
+        recentLoading = false;
+      },
+      () => {
+        if (seq !== recentSeq) return;
+        recentPool = [];
         recentLoading = false;
       }
-    })();
+    );
   });
+
+  $effect(() => {
+    if (authorScope !== 'trusted' || !recentPool.length) return;
+    const authors = [...new Set(recentPool.map((e) => e.pubkey.toLowerCase()))];
+    let cancelled = false;
+    void trustedAssertions
+      .resolveProvider(session.getPubkey())
+      .then(() => trustedAssertions.requestScoresAndWait(authors))
+      .then(() => {
+        if (!cancelled) scoresReady += 1;
+      })
+      .catch(() => {
+        /* keep last scores */
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const recent = $derived(
+    (() => {
+      void scoresReady;
+      void $trust.rankMin;
+      return filterEventsByAuthorScope(recentPool, authorScope, {
+        viewerPubkey: $session.pubkey,
+        followPubkeySet: follows,
+        rankMin: $trust.rankMin,
+        getScore: (pk) => trustedAssertions.getScore(pk)
+      });
+    })()
+  );
+
+  function setListing(next: { kind?: KindFilter; from?: AuthorResultScope }): void {
+    const kind = next.kind ?? kindFromQuery;
+    const from = next.from ?? fromFromQuery;
+    if (kind === kindFromQuery && from === fromFromQuery) return;
+    const href = wikiHubListingHref({ kind, from });
+    void replace(href.startsWith('#') ? href.slice(1) : href);
+  }
+
+  function setRecentKind(next: KindFilter): void {
+    setListing({ kind: next });
+  }
+
+  function setAuthorScope(next: AuthorResultScope): void {
+    setListing({ from: next });
+  }
 
   function onInput(): void {
     suggestions = [];
@@ -99,12 +203,33 @@
   <section class="wiki-hub-recent" aria-labelledby="wiki-recent-heading">
     <div class="wiki-hub-section-head">
       <h2 id="wiki-recent-heading">Recent changes</h2>
-      <a class="muted" href="#/wiki/recent" use:link>See all</a>
     </div>
+    <WikiRecentKindFilter value={recentKind} onchange={setRecentKind} />
+    <AuthorScopeFilter
+      value={authorScope}
+      showMine={showMineScope}
+      showFollows={showFollowsScope}
+      showTrusted={true}
+      onchange={setAuthorScope}
+    />
     {#if recentLoading}
       <LoadingHint message="Loading recent wiki pages…" />
     {:else if !recent.length}
-      <p class="muted">No recent wiki pages yet.</p>
+      <p class="muted">
+        {#if authorScope === 'mine'}
+          No recent pages from you.
+        {:else if authorScope === 'follows'}
+          No recent pages from accounts you follow.
+        {:else if authorScope === 'trusted'}
+          No recent pages from trusted npubs (rank ≥ {$trust.rankMin}).
+        {:else if recentKind === 'wiki'}
+          No recent wiki articles yet.
+        {:else if recentKind === 'spec'}
+          No recent specs yet.
+        {:else}
+          No recent wiki pages yet.
+        {/if}
+      </p>
     {:else}
       <ul class="wiki-list">
         {#each recent as event (event.id)}

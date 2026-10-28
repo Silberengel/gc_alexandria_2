@@ -39,4 +39,30 @@ describe('cardBlurb', () => {
   it('respects max length', () => {
     expect(cardBlurb('one two three four', { max: 7 })).toBe('one two…');
   });
+
+  it('strips markdown ATX headings even in asciidoc blurb mode', () => {
+    expect(
+      cardBlurb('# NIP-54 ## Wiki\n\nThis NIP defines `kind:30818` (wiki pages).', {
+        markup: 'asciidoc'
+      })
+    ).toBe('NIP-54 Wiki This NIP defines kind:30818 (wiki pages).');
+  });
+
+  it('strips asciidoc infobox attribute noise', () => {
+    const content = [
+      '.Ocicat',
+      '[Infobox]',
+      'image::https://example.com/cat.jpg[Ocicat]',
+      'Foundation bloodstock, role=orange:: Siamese, Abyssinian',
+      'Breed standards, role=orange:: link:https://example.com/tica[TICA]',
+      '',
+      'The Ocicat is a spotted domestic cat.'
+    ].join('\n');
+    const out = cardBlurb(content, { markup: 'asciidoc' });
+    expect(out).not.toMatch(/role=/i);
+    expect(out).not.toMatch(/Infobox/i);
+    expect(out).not.toMatch(/::/);
+    expect(out).not.toMatch(/link:/);
+    expect(out).toContain('The Ocicat is a spotted domestic cat.');
+  });
 });

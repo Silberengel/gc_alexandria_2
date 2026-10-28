@@ -9,9 +9,7 @@
 
   const path = $derived(($location ?? '').split('?')[0] || '');
   const onSearchPage = $derived(path === '/search');
-  const onWikiHub = $derived(
-    path === '/wiki' || path === '/wiki/recent' || path === '/wiki/search'
-  );
+  const onWikiHub = $derived(path === '/wiki' || path === '/wiki/search');
   const onHome = $derived(path === '/' || path === '');
   const onFeed = $derived(path.startsWith('/feed'));
   const onCompose = $derived(path.startsWith('/compose'));

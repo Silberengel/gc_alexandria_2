@@ -163,6 +163,9 @@ async function hydrateWikiGrapevine(events: Event[]): Promise<GrapevineTrustCont
 /** Skip wiki-relay round-trips for a few minutes after a successful recent fetch. */
 const WIKI_RECENT_TTL_MS = 5 * 60 * 1000;
 
+/** Kind filter for wiki hub / recent listings. */
+export type WikiRecentKindFilter = 'all' | 'wiki' | 'spec';
+
 type WikiRecentSnap = { at: number; fetchLimit: number; events: Event[] };
 
 let wikiRecentSnap: WikiRecentSnap | null = null;
@@ -183,6 +186,47 @@ function wikiRecentWithMemory(events: Event[], limit: number): Event[] {
   );
 }
 
+/** Parse `?kind=` from the wiki recent / hub query string. */
+export function parseWikiRecentKind(raw: string | null | undefined): WikiRecentKindFilter {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'wiki' || v === 'spec') return v;
+  return 'all';
+}
+
+export function wikiHubListingHref(
+  opts: { kind?: WikiRecentKindFilter; from?: string | null; base?: string } = {}
+): string {
+  const base = opts.base ?? '/wiki';
+  const q = new URLSearchParams();
+  const kind = opts.kind ?? 'all';
+  if (kind !== 'all') q.set('kind', kind);
+  const from = (opts.from ?? '').trim().toLowerCase();
+  if (from && from !== 'all') q.set('from', from);
+  const qs = q.toString();
+  return qs ? `#${base}?${qs}` : `#${base}`;
+}
+
+/** @deprecated Prefer {@link wikiHubListingHref}. */
+export function wikiRecentKindHref(kind: WikiRecentKindFilter, base = '/wiki'): string {
+  return wikiHubListingHref({ kind, base });
+}
+
+function matchesWikiRecentKind(event: Event, kind: WikiRecentKindFilter): boolean {
+  if (kind === 'all') return true;
+  if (kind === 'wiki') return event.kind === KIND.WIKI;
+  return event.kind === KIND.SPEC;
+}
+
+/** Apply All/Wiki/Spec after ranking — keep a larger pool so filters still fill `limit`. */
+function sliceWikiRecent(
+  events: Event[],
+  limit: number,
+  kind: WikiRecentKindFilter
+): Event[] {
+  if (kind === 'all') return events.slice(0, limit);
+  return events.filter((e) => matchesWikiRecentKind(e, kind)).slice(0, limit);
+}
+
 /** Test helper — drop the in-memory recent TTL cache. */
 export function resetWikiRecentCacheForTests(): void {
   wikiRecentSnap = null;
@@ -192,17 +236,21 @@ export function resetWikiRecentCacheForTests(): void {
 /**
  * Newest wiki + spec pages from IndexedDB/memory cache and (when stale) wiki relays.
  * Relay results are TTL-cached so hub ↔ recent navigation does not re-query every time.
+ * `kind` filters client-side against that shared cache (All / Wiki / Spec).
  */
-export async function loadWikiRecent(limit = 40): Promise<Event[]> {
-  const fetchLimit = Math.max(50, Math.ceil(limit * 1.5));
+export async function loadWikiRecent(
+  limit = 40,
+  kind: WikiRecentKindFilter = 'all'
+): Promise<Event[]> {
+  const fetchLimit = Math.max(50, Math.ceil(limit * (kind === 'all' ? 1.5 : 3)));
   const snap = wikiRecentSnap;
   if (snap && Date.now() - snap.at < WIKI_RECENT_TTL_MS && snap.fetchLimit >= fetchLimit) {
-    return wikiRecentWithMemory(snap.events, limit);
+    return sliceWikiRecent(wikiRecentWithMemory(snap.events, snap.events.length), limit, kind);
   }
 
   if (wikiRecentInflight) {
     const events = await wikiRecentInflight;
-    return wikiRecentWithMemory(events, limit);
+    return sliceWikiRecent(wikiRecentWithMemory(events, events.length), limit, kind);
   }
 
   wikiRecentInflight = (async () => {
@@ -224,7 +272,7 @@ export async function loadWikiRecent(limit = 40): Promise<Event[]> {
 
   try {
     const events = await wikiRecentInflight;
-    return wikiRecentWithMemory(events, limit);
+    return sliceWikiRecent(wikiRecentWithMemory(events, events.length), limit, kind);
   } finally {
     wikiRecentInflight = null;
   }
