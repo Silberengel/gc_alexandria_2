@@ -18,6 +18,7 @@ import { displayTitle } from './metadata';
 import { filterRenderableCatalogEvents, isRenderableCatalogEvent } from './catalog-visibility';
 import { refreshDeletionsFor } from './deletions';
 import { followPubkeysFromMetadata } from './mute';
+import { deprecatedListD } from './nip51-deprecated-lists';
 import { compareReplaceableNewestFirst, pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { newestRatingPerPublication, PUBLICATION_RATING_MARKS } from './ratings';
 import {
@@ -814,7 +815,17 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   const [dirWs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
     relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 40 }], 2500),
     viewer
-      ? relayPool.query(social, [{ kinds: [KIND.BOOKMARK], authors: [viewer], limit: 5 }], 2500)
+      ? relayPool.query(
+          social,
+          [
+            {
+              kinds: [KIND.BOOKMARK, KIND.DEPRECATED_CATEGORIZED_LIST],
+              authors: [viewer],
+              limit: 5
+            }
+          ],
+          2500
+        )
       : Promise.resolve([] as Event[]),
     viewer
       ? relayPool.query(
@@ -828,7 +839,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
           outbox,
           [
             {
-              kinds: [KIND.BOOKMARK, KIND.DIRECTORY, KIND.LABEL],
+              kinds: [KIND.BOOKMARK, KIND.DEPRECATED_CATEGORIZED_LIST, KIND.DIRECTORY, KIND.LABEL],
               authors: [viewer],
               limit: 40
             }
@@ -847,7 +858,9 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
     ),
     liveBookmarks: mergeEvents(
       settled(myBookmarks, []),
-      outboxEvents.filter((e) => e.kind === KIND.BOOKMARK)
+      outboxEvents.filter(
+        (e) => e.kind === KIND.BOOKMARK || deprecatedListD(e) === 'bookmark'
+      )
     ),
     liveDirs: mergeEvents(
       settled(dirWs, []),
@@ -958,7 +971,11 @@ async function loadShelvesAndLabels(
   // For My-shelf fold: prefer bookmarks + directories so 12 labels do not explode author lookups.
   const mineForMembership = viewerOnly
     ? mine.filter(
-        (e) => e.kind === KIND.BOOKMARK || e.kind === KIND.DIRECTORY || e.kind === KIND.LABEL
+        (e) =>
+          e.kind === KIND.BOOKMARK ||
+          deprecatedListD(e) === 'bookmark' ||
+          e.kind === KIND.DIRECTORY ||
+          e.kind === KIND.LABEL
       )
     : mine;
   const combined = pruneToLatestReplaceables(

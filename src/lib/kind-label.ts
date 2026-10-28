@@ -52,6 +52,14 @@ export function kindDescription(kind: number): string {
       return 'Label';
     case KIND.BOOKMARK:
       return 'Bookmarks';
+    case KIND.PIN:
+      return 'Pinned notes';
+    case KIND.MUTE:
+      return 'Mute list';
+    case KIND.COMMUNITIES:
+      return 'Communities';
+    case KIND.DEPRECATED_CATEGORIZED_LIST:
+      return 'Deprecated list';
     case KIND.READING_QUEUE:
       return 'Reading queue';
     case KIND.DIRECTORY:
@@ -85,6 +93,16 @@ export function eventKindDescription(event: Event): string {
   if (event.kind === KIND.TEXT_NOTE) {
     if (isKind1Reply(event)) return 'Short text reply';
     if (isKind1Quote(event)) return 'Quote';
+  }
+  if (event.kind === KIND.DEPRECATED_CATEGORIZED_LIST || event.kind === KIND.FOLLOW_SET) {
+    // Lazy: avoid pulling migrate helpers into every kind-label import cycle.
+    const d = (event.tags.find((t) => t[0] === 'd')?.[1] ?? '').trim().toLowerCase();
+    if (event.kind === KIND.FOLLOW_SET && (d === 'mute' || d === 'mutes')) return 'Deprecated mute list';
+    if (event.kind === KIND.DEPRECATED_CATEGORIZED_LIST) {
+      if (d === 'pin' || d === 'pins' || d === 'pinned') return 'Deprecated pin list';
+      if (d === 'bookmark' || d === 'bookmarks') return 'Deprecated bookmarks';
+      if (d === 'communities' || d === 'community') return 'Deprecated communities';
+    }
   }
   return kindDescription(event.kind);
 }

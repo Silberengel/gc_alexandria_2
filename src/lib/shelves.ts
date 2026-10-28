@@ -3,6 +3,7 @@ import { isRenderableCatalogEvent } from './catalog-visibility';
 import { KIND } from './constants';
 import { coverImageUrl } from './cover';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
+import { deprecatedListD } from './nip51-deprecated-lists';
 import {
   MY_BOOK_COLLECTION_D_TAG,
   ROOT_DIRECTORY_D_TAG,
@@ -10,6 +11,10 @@ import {
 } from './bookshelf';
 import { pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { firstTag, eventAddress } from './nostr/verify';
+
+function isBookmarkMembershipEvent(event: Event): boolean {
+  return event.kind === KIND.BOOKMARK || deprecatedListD(event) === 'bookmark';
+}
 
 export type ShelfId = 'mine' | 'follows' | 'network';
 
@@ -160,7 +165,7 @@ function targetsFromMembershipEvent(event: Event): {
 export function membershipsFromEvents(labelsBookmarksAndDirs: Event[]): Membership[] {
   const out: Membership[] = [];
   for (const event of labelsBookmarksAndDirs) {
-    const isBookmark = event.kind === KIND.BOOKMARK;
+    const isBookmark = isBookmarkMembershipEvent(event);
     const isLabel = isPublicationLabelEvent(event);
     const isDir = event.kind === KIND.DIRECTORY;
     if (!isBookmark && !isLabel && !isDir) continue;

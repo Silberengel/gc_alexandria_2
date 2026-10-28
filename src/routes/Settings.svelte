@@ -30,10 +30,50 @@
     translateDisplayName,
     type TranslateLanguageOption
   } from '$lib/libre-translate';
+  import {
+    findPendingNip51Migrations,
+    migrateDeprecatedNip51List,
+    type Nip51DeprecatedMigration
+  } from '$lib/nip51-deprecated-lists';
+  import { showNotice } from '$lib/stores/toast';
 
   let size = $state('0 B');
   let localOnlyBusy = $state(false);
   let translateLanguages = $state<TranslateLanguageOption[]>([...FALLBACK_TRANSLATE_LANGUAGES]);
+  let nip51Migrations = $state<Nip51DeprecatedMigration[]>([]);
+  let nip51MigrateBusy = $state<string | null>(null);
+
+  $effect(() => {
+    const pk = $session.pubkey;
+    if (!pk) {
+      nip51Migrations = [];
+      return;
+    }
+    const refresh = (meta: import('nostr-tools').Event[]) => {
+      nip51Migrations = findPendingNip51Migrations(meta, pk);
+    };
+    refresh(session.getMetadata());
+    const unsub = session.metadata.subscribe(refresh);
+    return () => unsub();
+  });
+
+  async function migrateNip51(item: Nip51DeprecatedMigration): Promise<void> {
+    if (nip51MigrateBusy) return;
+    const key = item.deprecated.id;
+    nip51MigrateBusy = key;
+    try {
+      const result = await migrateDeprecatedNip51List(item.deprecated);
+      if (!result.ok) {
+        showNotice(result.error);
+        return;
+      }
+      showNotice(`Migrated ${item.label} to kind ${item.standardKind}.`, true);
+      const pk = session.getPubkey();
+      if (pk) nip51Migrations = findPendingNip51Migrations(session.getMetadata(), pk);
+    } finally {
+      nip51MigrateBusy = null;
+    }
+  }
 
   async function setLocalOnly(on: boolean) {
     if (localOnlyBusy) return;
@@ -151,6 +191,40 @@
     <h1>Settings</h1>
     <p class="page-lede muted">Tune reading comfort, palette, and trust without leaving the library.</p>
   </header>
+
+  {#if $session.pubkey && nip51Migrations.length}
+    <section class="settings-panel">
+      <header class="settings-panel-head">
+        <h2>List format</h2>
+        <p class="muted">
+          Some of your NIP-51 lists still use the old addressable kinds (30000/30001). Migrate them
+          to the standard replaceable lists (10000+) and delete the deprecated copy.
+        </p>
+      </header>
+      <ul class="settings-nip51-list">
+        {#each nip51Migrations as item (item.deprecated.id)}
+          <li class="settings-nip51-row">
+            <span class="settings-toggle-text">
+              <span class="settings-toggle-title">{item.label}</span>
+              <span class="muted">
+                kind {item.deprecated.kind} · d={item.d} → kind {item.standardKind}
+              </span>
+            </span>
+            <button
+              class="btn"
+              type="button"
+              disabled={nip51MigrateBusy === item.deprecated.id}
+              onclick={() => void migrateNip51(item)}
+            >
+              {nip51MigrateBusy === item.deprecated.id
+                ? 'Migrating…'
+                : 'Migrate to the standard format'}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
 
   {#if $session.pubkey}
     <section class="settings-panel">

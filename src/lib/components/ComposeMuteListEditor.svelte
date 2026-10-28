@@ -5,6 +5,7 @@
     type MuteRow,
     type MuteTagName
   } from '$lib/compose-mute-list';
+  import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
 
   interface Props {
     value?: string;
@@ -85,42 +86,47 @@
     <p class="tag-rows-hint muted">{help}</p>
   {/if}
   {#each rows as row, i}
-    <div class="tag-row mute-row">
-      <select
-        value={row.tag}
-        aria-label={`Mute type ${i + 1}`}
-        onchange={(e) => setTag(i, e.currentTarget.value as MuteTagName)}
-      >
-        {#each TAG_OPTIONS as opt}
-          <option value={opt.value}>{opt.label}</option>
-        {/each}
-      </select>
-      <input
-        type="text"
-        class:mono={row.tag === 'p' || row.tag === 'e'}
-        value={row.value}
-        placeholder={placeholderFor(row.tag)}
-        aria-label={`Mute value ${i + 1}`}
-        autocomplete="off"
-        spellcheck="false"
-        oninput={(e) => setValue(i, e.currentTarget.value)}
-      />
-      <label class="mute-private" title="Private (encrypted in content)">
+    <div class="mute-block">
+      <div class="tag-row mute-row">
+        <select
+          value={row.tag}
+          aria-label={`Mute type ${i + 1}`}
+          onchange={(e) => setTag(i, e.currentTarget.value as MuteTagName)}
+        >
+          {#each TAG_OPTIONS as opt}
+            <option value={opt.value}>{opt.label}</option>
+          {/each}
+        </select>
         <input
-          type="checkbox"
-          checked={row.private}
-          onchange={(e) => setPrivate(i, e.currentTarget.checked)}
+          type="text"
+          class:mono={row.tag === 'p' || row.tag === 'e'}
+          value={row.value}
+          placeholder={placeholderFor(row.tag)}
+          aria-label={`Mute value ${i + 1}`}
+          autocomplete="off"
+          spellcheck="false"
+          oninput={(e) => setValue(i, e.currentTarget.value)}
         />
-        <span>Priv</span>
-      </label>
-      <button
-        type="button"
-        class="tag-rows-icon"
-        onclick={() => removeRow(i)}
-        aria-label="Remove mute"
-        disabled={rows.length <= 1 && !row.value.trim()}
-        >−</button
-      >
+        <label class="mute-private" title="Private (encrypted in content)">
+          <input
+            type="checkbox"
+            checked={row.private}
+            onchange={(e) => setPrivate(i, e.currentTarget.checked)}
+          />
+          <span>Priv</span>
+        </label>
+        <button
+          type="button"
+          class="tag-rows-icon"
+          onclick={() => removeRow(i)}
+          aria-label="Remove mute"
+          disabled={rows.length <= 1 && !row.value.trim()}
+          >−</button
+        >
+      </div>
+      {#if row.tag === 'p'}
+        <ComposeTextUserBadges value={row.value} />
+      {/if}
     </div>
   {/each}
 </div>
@@ -142,6 +148,12 @@
     margin: 0;
     font-size: 0.78rem;
     line-height: 1.35;
+  }
+  .mute-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    min-width: 0;
   }
   .mute-row {
     display: flex;

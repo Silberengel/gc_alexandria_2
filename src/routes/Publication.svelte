@@ -153,7 +153,6 @@
   } from '$lib/publication-load';
   import TocPanel from '$lib/components/TocPanel.svelte';
   import { searchByDTag } from '$lib/search';
-  import { normalizeDTag } from '$lib/dtag';
   import { parseAddress } from '$lib/library-scope';
   import {
     eventMatchesPublicationRoute,
@@ -2415,7 +2414,9 @@
     }
 
     const pubkey = npubParam ? hexFromNpubParam(npubParam) : '';
-    const slug = dTag ? normalizeDTag(dTag) || dTag : '';
+    // Keep the URL d as-is for relay `#d` REQs — normalizeDTag lowercases Æ→æ and
+    // exact-match relays miss the stored tag (e.g. Aesop's Fables).
+    const addressD = dTag;
     const pending = sameRoute ? null : takePendingNavEvent();
     const fromPending =
       pending && pubkey && dTag && eventMatchesPublicationRoute(pending, KIND.PUBLICATION, pubkey, dTag)
@@ -2425,7 +2426,7 @@
           : null;
     const warm =
       fromPending ??
-      (dTag && pubkey ? memoryFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag) : null);
+      (dTag && pubkey ? memoryFindByAddress(KIND.PUBLICATION, pubkey, addressD) : null);
 
     if (warm) {
       // Already had this event on a shelf/search card — show header before any I/O.
@@ -2512,18 +2513,18 @@
           // Do not REQ the same 30040 from relays just to render the header.
           if (warm) return;
           // Re-check memory after any await gap (HMR / late rememberEvents).
-          const again = memoryFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag);
+          const again = memoryFindByAddress(KIND.PUBLICATION, pubkey, addressD);
           if (again) {
             paintEdition(again);
             return;
           }
-          const cached = await cacheFindByAddress(KIND.PUBLICATION, pubkey, slug || dTag);
+          const cached = await cacheFindByAddress(KIND.PUBLICATION, pubkey, addressD);
           if (cancelled) return;
           if (cached) {
             paintEdition(cached);
             return;
           }
-          const fetched = await fetchPublication(slug || dTag, pubkey);
+          const fetched = await fetchPublication(addressD, pubkey);
           if (cancelled) return;
           if (fetched) {
             paintEdition(fetched);
@@ -2531,9 +2532,9 @@
           }
           // Inbound links sometimes use a section d-tag as if it were an edition.
           const section =
-            memoryFindByAddress(KIND.SECTION, pubkey, slug || dTag) ??
-            (await cacheFindByAddress(KIND.SECTION, pubkey, slug || dTag)) ??
-            (await fetchByAddress(`${KIND.SECTION}:${pubkey}:${slug || dTag}`));
+            memoryFindByAddress(KIND.SECTION, pubkey, addressD) ??
+            (await cacheFindByAddress(KIND.SECTION, pubkey, addressD)) ??
+            (await fetchByAddress(`${KIND.SECTION}:${pubkey}:${addressD}`));
           if (cancelled) return;
           if (section?.kind === KIND.SECTION && (await redirectSectionToReader(section))) return;
           error = true;

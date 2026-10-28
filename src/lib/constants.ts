@@ -183,7 +183,14 @@ export const KIND = {
   PIN: 10001,
   BOOKMARK: 10003,
   MUTE: 10000,
+  /** NIP-51 communities list (NIP-72). */
+  COMMUNITIES: 10004,
   RELAY_LIST: 10002,
+  /**
+   * Deprecated NIP-51 categorized list (addressable).
+   * Only `d` = pin | bookmark | communities — migrate to 10001 / 10003 / 10004.
+   */
+  DEPRECATED_CATEGORIZED_LIST: 30001,
   BLOCKED: 10006,
   FAVORITE: 10012,
   /** NIP-37 private storage relay list (encrypted content). */
@@ -259,8 +266,10 @@ export const LOGIN_METADATA_KINDS = [
   KIND.METADATA,
   KIND.CONTACT_LIST,
   KIND.MUTE,
+  KIND.PIN,
   KIND.RELAY_LIST,
   KIND.BOOKMARK,
+  KIND.COMMUNITIES,
   KIND.BLOCKED,
   KIND.FAVORITE,
   KIND.PRIVATE_RELAY_LIST,
@@ -269,6 +278,8 @@ export const LOGIN_METADATA_KINDS = [
   KIND.LABEL,
   KIND.DIRECTORY,
   KIND.FOLLOW_SET,
+  /** Deprecated NIP-51 pin/bookmark/communities lists (`d` reserved). */
+  KIND.DEPRECATED_CATEGORIZED_LIST,
   KIND.STATUS
 ];
 

@@ -13,7 +13,7 @@ import { decodeNostrBech32, type RefSegment } from './nostr-refs';
 import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { fetchByAddress, fetchById, fetchByIds } from './nostr/fetch';
 import { firstTag } from './nostr/verify';
-import { pickLatestReplaceable } from './nostr/replaceable';
+import { pickPinListWithDeprecated } from './nip51-deprecated-lists';
 import { eventPreview } from './event-preview';
 import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
 import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
@@ -39,9 +39,16 @@ export const PROFILE_PINBOARD_OP_KINDS = [
   KIND.WEB_BOOKMARK
 ] as const;
 
-/** Ordered unique `#e` ids from a pin list (kind 10001). */
+/** Ordered unique `#e` ids from a pin list (kind 10001 or deprecated 30001 `d=pin`). */
 export function pinEventIds(pinList: Event | null | undefined): string[] {
-  if (!pinList || pinList.kind !== KIND.PIN) return [];
+  if (!pinList) return [];
+  if (pinList.kind !== KIND.PIN && pinList.kind !== KIND.DEPRECATED_CATEGORIZED_LIST) return [];
+  if (
+    pinList.kind === KIND.DEPRECATED_CATEGORIZED_LIST &&
+    (firstTag(pinList, 'd') ?? '').trim().toLowerCase() !== 'pin'
+  ) {
+    return [];
+  }
   const seen = new Set<string>();
   const out: string[] = [];
   for (const tag of pinList.tags) {
@@ -54,9 +61,9 @@ export function pinEventIds(pinList: Event | null | undefined): string[] {
   return out;
 }
 
-/** Latest kind-10001 for `pubkey` from a batch of replaceable candidates. */
+/** Latest kind-10001 for `pubkey`, else deprecated 30001 `d=pin`. */
 export function pickPinList(events: Event[], pubkey: string): Event | null {
-  return pickLatestReplaceable(events, KIND.PIN, pubkey);
+  return pickPinListWithDeprecated(events, pubkey);
 }
 
 /**

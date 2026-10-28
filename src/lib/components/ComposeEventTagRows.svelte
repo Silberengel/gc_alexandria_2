@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
+
   interface Props {
     /** Each row is one multi-part entry: `[part0, part1, ...]`. */
     tags?: string[][];
@@ -111,43 +113,49 @@
     <p class="tag-rows-hint muted">{hint}</p>
   {/if}
   {#each tags as row, i}
-    <div class="tag-row event-tag-row">
-      <div class="tag-parts">
-        {#each row as cell, j}
-          <div class="tag-part">
-            <input
-              type="text"
-              value={cell}
-              placeholder={partPlaceholder(j)}
-              oninput={(e) => setPart(i, j, e.currentTarget.value)}
-            />
-            {#if j >= MIN_PARTS}
-              <button
-                type="button"
-                class="tag-part-remove"
-                onclick={() => removePart(i, j)}
-                aria-label="Remove tag part"
-                title="Remove part">×</button
-              >
-            {/if}
-          </div>
-        {/each}
+    {@const tagName = (row[0] ?? '').trim()}
+    <div class="event-tag-block">
+      <div class="tag-row event-tag-row">
+        <div class="tag-parts">
+          {#each row as cell, j}
+            <div class="tag-part">
+              <input
+                type="text"
+                value={cell}
+                placeholder={partPlaceholder(j)}
+                oninput={(e) => setPart(i, j, e.currentTarget.value)}
+              />
+              {#if j >= MIN_PARTS}
+                <button
+                  type="button"
+                  class="tag-part-remove"
+                  onclick={() => removePart(i, j)}
+                  aria-label="Remove tag part"
+                  title="Remove part">×</button
+                >
+              {/if}
+            </div>
+          {/each}
+          <button
+            type="button"
+            class="tag-rows-icon"
+            onclick={() => addPart(i)}
+            aria-label="Add tag part"
+            title="Add part">+</button
+          >
+        </div>
         <button
           type="button"
           class="tag-rows-icon"
-          onclick={() => addPart(i)}
-          aria-label="Add tag part"
-          title="Add part">+</button
+          onclick={() => removeRow(i)}
+          aria-label={removeRowLabel}
+          disabled={tags.length <= 1 && row.every((c) => !c.trim())}
+          >−</button
         >
       </div>
-      <button
-        type="button"
-        class="tag-rows-icon"
-        onclick={() => removeRow(i)}
-        aria-label={removeRowLabel}
-        disabled={tags.length <= 1 && row.every((c) => !c.trim())}
-        >−</button
-      >
+      {#if tagName === 'p' || tagName === 'P'}
+        <ComposeTextUserBadges value={row[1] ?? ''} />
+      {/if}
     </div>
   {/each}
 </div>
@@ -199,6 +207,12 @@
   }
   .tag-rows-hint code {
     font-size: 0.85em;
+  }
+  .event-tag-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    min-width: 0;
   }
   .event-tag-row {
     display: flex;

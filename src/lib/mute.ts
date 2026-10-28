@@ -1,6 +1,7 @@
 import { get, writable } from 'svelte/store';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { isDeprecatedFollowSetMute, pickMuteList } from './nip51-deprecated-lists';
 import { isNewerReplaceable, pickLatestReplaceable } from './nostr/replaceable';
 
 export type MuteState = {
@@ -58,8 +59,9 @@ export function filterMuted(events: Event[], state: MuteState = get(muteState)):
   return events.filter((event) => notMuted(event, state));
 }
 
+/** Prefer kind 10000; fall back to deprecated 30000 `d=mute`. */
 export function newestMuteList(events: Event[]): Event | null {
-  return pickLatestReplaceable(events, KIND.MUTE);
+  return pickMuteList(events);
 }
 
 function parseMuteTagRows(plain: string): string[][] | null {
@@ -161,9 +163,11 @@ export function followPubkeysFromMetadata(events: Event[]): Set<string> {
   const out = new Set<string>();
   const contact = pickLatestReplaceable(events, KIND.CONTACT_LIST);
   // Addressable follow sets: one winner per d (prune keeps latest per coord).
+  // Skip deprecated 30000 d=mute — those are mute lists, not follows.
   const followSets = new Map<string, Event>();
   for (const event of events) {
     if (event.kind !== KIND.FOLLOW_SET) continue;
+    if (isDeprecatedFollowSetMute(event)) continue;
     const d = event.tags.find((t) => t[0] === 'd')?.[1] ?? '';
     const key = `${event.pubkey.toLowerCase()}:${d}`;
     const prev = followSets.get(key);

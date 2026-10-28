@@ -4,6 +4,7 @@
     peopleRowsFromRaw,
     type PeopleRow
   } from '$lib/compose-people-list';
+  import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
 
   interface Props {
     value?: string;
@@ -62,41 +63,44 @@
     <p class="tag-rows-hint muted">{help}</p>
   {/if}
   {#each rows as row, i}
-    <div class="tag-row people-row">
-      <input
-        type="text"
-        class="mono people-pubkey"
-        value={row.pubkey}
-        placeholder="npub / hex"
-        aria-label={`Follow pubkey ${i + 1}`}
-        autocomplete="off"
-        spellcheck="false"
-        oninput={(e) => setField(i, 'pubkey', e.currentTarget.value)}
-      />
-      <input
-        type="url"
-        class="people-relay"
-        value={row.relay}
-        placeholder="relay (optional)"
-        aria-label={`Follow relay ${i + 1}`}
-        oninput={(e) => setField(i, 'relay', e.currentTarget.value)}
-      />
-      <input
-        type="text"
-        class="people-petname"
-        value={row.petname}
-        placeholder="petname"
-        aria-label={`Follow petname ${i + 1}`}
-        oninput={(e) => setField(i, 'petname', e.currentTarget.value)}
-      />
-      <button
-        type="button"
-        class="tag-rows-icon"
-        onclick={() => removeRow(i)}
-        aria-label="Remove follow"
-        disabled={rows.length <= 1 && !row.pubkey.trim()}
-        >−</button
-      >
+    <div class="people-block">
+      <div class="tag-row people-row">
+        <input
+          type="text"
+          class="mono people-pubkey"
+          value={row.pubkey}
+          placeholder="npub / hex"
+          aria-label={`Follow pubkey ${i + 1}`}
+          autocomplete="off"
+          spellcheck="false"
+          oninput={(e) => setField(i, 'pubkey', e.currentTarget.value)}
+        />
+        <input
+          type="url"
+          class="people-relay"
+          value={row.relay}
+          placeholder="relay (optional)"
+          aria-label={`Follow relay ${i + 1}`}
+          oninput={(e) => setField(i, 'relay', e.currentTarget.value)}
+        />
+        <input
+          type="text"
+          class="people-petname"
+          value={row.petname}
+          placeholder="petname"
+          aria-label={`Follow petname ${i + 1}`}
+          oninput={(e) => setField(i, 'petname', e.currentTarget.value)}
+        />
+        <button
+          type="button"
+          class="tag-rows-icon"
+          onclick={() => removeRow(i)}
+          aria-label="Remove follow"
+          disabled={rows.length <= 1 && !row.pubkey.trim()}
+          >−</button
+        >
+      </div>
+      <ComposeTextUserBadges value={row.pubkey} />
     </div>
   {/each}
 </div>
@@ -118,6 +122,12 @@
     margin: 0;
     font-size: 0.78rem;
     line-height: 1.35;
+  }
+  .people-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    min-width: 0;
   }
   .people-row {
     display: flex;

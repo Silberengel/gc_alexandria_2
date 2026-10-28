@@ -27,6 +27,21 @@ export function indexSlug(input: string, maxLen = 255): string {
   return slug;
 }
 
+/**
+ * Relays match `#d` exactly. URLs / normalizeDTag may lower `Æ`→`æ` while the
+ * stored tag keeps `Æ` — include both (and a few other Latin ligature cases).
+ */
+function specialLetterCaseVariants(input: string): string[] {
+  const lower = input.normalize('NFC').toLowerCase();
+  const restored = lower
+    .replaceAll('æ', 'Æ')
+    .replaceAll('œ', 'Œ')
+    .replaceAll('ø', 'Ø')
+    .replaceAll('ð', 'Ð')
+    .replaceAll('þ', 'Þ');
+  return restored === lower ? [] : [restored];
+}
+
 export function dTagVariants(input: string): string[] {
   const variants = new Set<string>();
   const add = (raw: string) => {
@@ -36,5 +51,9 @@ export function dTagVariants(input: string): string[] {
   add(input);
   const folded = input.normalize('NFD').replace(/\p{M}/gu, '');
   if (folded !== input) add(folded);
+  for (const v of specialLetterCaseVariants(input)) {
+    variants.add(v);
+    add(v);
+  }
   return [...variants];
 }

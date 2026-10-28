@@ -3,8 +3,10 @@
   import { link } from 'svelte-spa-router';
   import UserBadge from './UserBadge.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
+  import Nip51MigrateButton from './Nip51MigrateButton.svelte';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import { eventPreview } from '$lib/event-preview';
+  import { isDeprecatedNip51List } from '$lib/nip51-deprecated-lists';
   import { dedupeMediaUrls, mediaAltForUrl, uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
   import { openMediaViewer } from '$lib/stores/media-viewer';
@@ -29,6 +31,7 @@
     ]).filter((url) => isAllowedMediaUrl(url))
   );
   const galleryAlts = $derived(galleryUrls.map((url) => mediaAltForUrl(media, url)));
+  const showNip51Migrate = $derived(isDeprecatedNip51List(event));
 
   function openGallery(url: string, e: MouseEvent): void {
     e.preventDefault();
@@ -42,7 +45,7 @@
   }
 </script>
 
-<article class="card generic-card">
+<article class="card generic-card" class:generic-card-migrate={showNip51Migrate}>
   {#if showMenu}
     <CopyPointerButton {event} class="generic-card-copy" />
   {/if}
@@ -93,4 +96,7 @@
     <p class="muted generic-card-empty">No text in this event.</p>
   {/if}
   </div>
+  {#if showNip51Migrate}
+    <Nip51MigrateButton {event} />
+  {/if}
 </article>

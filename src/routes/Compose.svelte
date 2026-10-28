@@ -54,7 +54,9 @@
   import ComposeRelayListEditor from '$lib/components/ComposeRelayListEditor.svelte';
   import ComposePeopleListEditor from '$lib/components/ComposePeopleListEditor.svelte';
   import ComposeMuteListEditor from '$lib/components/ComposeMuteListEditor.svelte';
+  import ComposeTextUserBadges from '$lib/components/ComposeTextUserBadges.svelte';
   import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
+  import { fieldHoldsPubkeys } from '$lib/compose-field-pubkeys';
   import PrivateRelayListModal from '$lib/components/PrivateRelayListModal.svelte';
   import { emptyKind0TagRows } from '$lib/compose-kind0';
   import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
@@ -2918,6 +2920,9 @@
                         bind:value={values[field.id]}
                         onpaste={(e) => onFieldPaste(field.id, e)}
                       />
+                    {/if}
+                    {#if fieldHoldsPubkeys(field)}
+                      <ComposeTextUserBadges value={values[field.id] ?? ''} />
                     {/if}
                     {#if field.help}
                       <small class="muted">{field.help}</small>

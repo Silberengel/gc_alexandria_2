@@ -1351,6 +1351,21 @@ select:hover {
   font-size: 0.92rem;
   line-height: 1.4;
 }
+.settings-nip51-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.settings-nip51-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
 .settings-block {
   margin-bottom: 1rem;
 }
@@ -5516,6 +5531,11 @@ a.nostrdown-ref {
   padding-bottom: 1.85rem;
   max-height: 250px;
   overflow: hidden;
+}
+/* Room for the NIP-51 migrate CTA below the clipped preview. */
+.generic-card.generic-card-migrate {
+  max-height: none;
+  overflow: visible;
 }
 .card-clip {
   flex: 1 1 auto;
