@@ -188,6 +188,14 @@
   function openImageGallery(url: string): void {
     openMediaViewer({ url, urls: imageUrls, alts: imageAlts });
   }
+
+  /** Failed remote loads — show a readable alt fallback instead of black UA broken-image text. */
+  let brokenMediaUrls = $state<Record<string, true>>({});
+
+  function markMediaBroken(url: string): void {
+    if (brokenMediaUrls[url]) return;
+    brokenMediaUrls = { ...brokenMediaUrls, [url]: true };
+  }
   /** Active LibreTranslate overlay (⋯ → Translate this event) — does not mutate the Nostr event. */
   const translationEntry = $derived.by(() => {
     if (!applyTranslation) return undefined;
@@ -609,21 +617,31 @@
         <!-- svelte-ignore a11y_media_has_caption -->
         <audio class="event-imeta" src={item.url} controls></audio>
       {:else}
+        {@const alt = item.alt?.trim() || ''}
+        {@const broken = !!brokenMediaUrls[item.url]}
         <button
           class="event-imeta-btn"
+          class:is-broken={broken}
           type="button"
-          title={item.alt?.trim() || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
-          aria-label={item.alt?.trim() || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
+          title={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
+          aria-label={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
           onclick={() => openImageGallery(item.url)}
         >
           <img
             class="event-imeta"
             src={item.url}
-            alt={item.alt?.trim() || ''}
+            alt={broken ? '' : alt}
             loading="lazy"
-            width={item.width}
-            height={item.height}
+            decoding="async"
+            width={broken ? undefined : item.width}
+            height={broken ? undefined : item.height}
+            onerror={() => markMediaBroken(item.url)}
           />
+          {#if broken}
+            <span class="event-imeta-fallback"
+              >{alt || 'Image unavailable'}</span
+            >
+          {/if}
         </button>
       {/if}
     {/each}

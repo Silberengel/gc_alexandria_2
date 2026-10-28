@@ -7,6 +7,7 @@
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
+  import PublicationCard from '$lib/components/PublicationCard.svelte';
   import DirectoryExplorer from '$lib/components/DirectoryExplorer.svelte';
   import ProfileMetadataCard from '$lib/components/ProfileMetadataCard.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
@@ -1513,6 +1514,10 @@
                   <div class="feed-body feed-body-profile">
                     <ProfileMetadataCard event={item} showMenu={false} compact />
                   </div>
+                {:else if item.kind === KIND.LONG_FORM}
+                  <div class="feed-body feed-body-card">
+                    <PublicationCard event={item} showMenu={false} enlargeOnClick={false} />
+                  </div>
                 {:else}
                   <div class="thread-head">
                     <UserBadge pubkey={item.pubkey} />
@@ -1569,6 +1574,10 @@
                 {:else if target && target.kind === KIND.DIRECTORY}
                   <div class="feed-body feed-body-directory">
                     <DirectoryExplorer event={target} showMenu={false} headerOnly />
+                  </div>
+                {:else if target && target.kind === KIND.LONG_FORM}
+                  <div class="feed-body feed-body-card">
+                    <PublicationCard event={target} showMenu={false} enlargeOnClick={false} />
                   </div>
                 {:else if target}
                   <div class="thread-head">
@@ -2021,8 +2030,46 @@
     margin-top: 0.25rem;
     cursor: pointer;
   }
+  /* Keep imeta media inside the feed-row 500px clip instead of showing only alt. */
+  .feed-body :global(.event-imeta-btn .event-imeta),
+  .feed-body :global(img.event-imeta),
+  .feed-body :global(video.event-imeta) {
+    max-height: min(40vh, 14rem) !important;
+    margin-block: 0.45rem !important;
+  }
+  /* Notes with markdown headings stay compact in the list (full size in the OP thread). */
+  .feed-body :global(.event-body h1),
+  .feed-body :global(.event-body .sect1 > h2),
+  .feed-preview :global(h1) {
+    font-size: 1.05rem;
+    line-height: 1.3;
+    margin: 0 0 0.35rem;
+    font-weight: 650;
+  }
+  .feed-body :global(.event-body h2) {
+    font-size: 1rem;
+    line-height: 1.3;
+    margin: 0.55rem 0 0.3rem;
+  }
+  .feed-body :global(.event-body h3),
+  .feed-body :global(.event-body h4) {
+    font-size: 0.95rem;
+    line-height: 1.3;
+    margin: 0.45rem 0 0.25rem;
+  }
   .feed-body :global(:is(.generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .directory-explorer, .profile-meta-card)) {
     cursor: auto;
+  }
+  .feed-body-card {
+    margin-top: 0;
+  }
+  .feed-body-card :global(.pub-card) {
+    /* Nested inside the feed-row card — drop the second plate. */
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
   }
   .feed-body-directory {
     max-height: min(28rem, 70vh);
@@ -2032,7 +2079,8 @@
     margin-top: 0;
   }
   .feed-row:has(.feed-body-directory),
-  .feed-row:has(.feed-body-profile) {
+  .feed-row:has(.feed-body-profile),
+  .feed-row:has(.feed-body-card) {
     max-height: none;
   }
   .feed-preview {

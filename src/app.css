@@ -208,13 +208,13 @@ body:has(main.reading-page) .site-footer {
   align-items: center;
   justify-content: center;
   margin: 0;
-  padding: 0.45rem;
-  width: 2.35rem;
-  height: 2.35rem;
-  min-width: 2.35rem;
-  min-height: 2.35rem;
+  padding: 0.22rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
   border: 1px solid transparent;
-  border-radius: 0.45rem;
+  border-radius: 0.4rem;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
@@ -231,8 +231,8 @@ body:has(main.reading-page) .site-footer {
 .site-footer-btn svg {
   flex: 0 0 auto;
   display: block;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1.4rem;
+  height: 1.4rem;
   opacity: 0.92;
 }
 a.site-footer-btn:hover,
@@ -253,11 +253,11 @@ button.site-footer-btn:hover:not(:disabled),
 }
 .site-footer-profile {
   /* Match other footer controls; host the profile badge inside. */
-  padding: 0.45rem;
-  width: 2.35rem;
-  height: 2.35rem;
-  min-width: 2.35rem;
-  max-width: 2.35rem;
+  padding: 0.22rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  max-width: 2.25rem;
   cursor: default;
 }
 .site-footer-profile .userbadge {
@@ -274,8 +274,8 @@ button.site-footer-btn:hover:not(:disabled),
   color: inherit;
 }
 .site-footer-profile .userbadge-avatar {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.4rem;
+  height: 1.4rem;
   flex: 0 0 auto;
 }
 .site-footer-profile .userbadge span {
@@ -9195,51 +9195,7 @@ a.user-status-line:hover {
     inset 0 -1px 0 color-mix(in srgb, #2a1a0e 14%, transparent);
   pointer-events: none;
 }
-:root.dark .profile-pinboard-board {
-  background-color: #6e5a46;
-  background-image:
-    radial-gradient(circle at 14% 20%, color-mix(in srgb, #2a1e14 28%, transparent) 0 1.1px, transparent 1.6px),
-    radial-gradient(circle at 42% 48%, color-mix(in srgb, #1a120c 22%, transparent) 0 0.9px, transparent 1.4px),
-    radial-gradient(circle at 76% 28%, color-mix(in srgb, #3d2e20 24%, transparent) 0 1.2px, transparent 1.7px),
-    radial-gradient(ellipse at 20% 15%, color-mix(in srgb, #8a7358 16%, transparent), transparent 45%),
-    linear-gradient(
-      155deg,
-      #746050 0%,
-      #625244 50%,
-      #554636 100%
-    );
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, #1a120c 22%, transparent),
-    inset 0 0 16px color-mix(in srgb, #000 18%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-}
-:root.dark .profile-pinboard-board::before {
-  background:
-    repeating-linear-gradient(
-      92deg,
-      transparent 0 14px,
-      color-mix(in srgb, #000 12%, transparent) 14px 15px
-    ),
-    linear-gradient(
-      145deg,
-      #6a4e3a 0%,
-      #4e382a 35%,
-      #5c4432 70%,
-      #3c2a1c 100%
-    );
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, #000 28%, transparent),
-    0 0.25rem 0.6rem color-mix(in srgb, #000 22%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #c4a882 8%, transparent);
-}
-:root.dark .profile-pinboard-board::after {
-  background: linear-gradient(
-    160deg,
-    #6e543c 0%,
-    #55402e 55%,
-    #3e2e20 100%
-  );
-}
+/* Theme-independent: cork + white post-its stay the same in light and dark UI. */
 .pin-slip {
   position: relative;
   z-index: 1;
@@ -9249,22 +9205,23 @@ a.user-status-line:hover {
   min-width: 0;
   min-height: 5.5rem;
   padding: 0.85rem 0.8rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--rule) 45%, #8a7355 12%);
+  border: 1px solid color-mix(in srgb, #c4b49a 55%, #8a7355 20%);
   border-radius: 0.08rem 0.14rem 0.1rem 0.06rem;
   background:
     linear-gradient(
       175deg,
-      color-mix(in srgb, #fffdf8 55%, var(--paper)) 0%,
-      color-mix(in srgb, var(--paper) 92%, #f0e6d4 8%) 100%
+      #fffdf8 0%,
+      #f7f1e6 100%
     );
-  color: var(--ink);
+  color: #2a2218;
   text-decoration: none;
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 40%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 55%, transparent),
     0 1px 2px color-mix(in srgb, #3c2814 10%, transparent),
     0 3px 8px -2px color-mix(in srgb, #3c2814 14%, transparent);
   transform: rotate(-0.6deg);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  color-scheme: light;
 }
 .pin-slip:nth-child(2) {
   transform: rotate(0.9deg);
@@ -9282,15 +9239,11 @@ a.user-status-line:hover {
 .pin-slip:focus-visible {
   transform: translateY(-2px) rotate(0deg);
   box-shadow:
-    0 1px 0 color-mix(in srgb, var(--ink) 5%, transparent),
-    0 5px 12px -3px color-mix(in srgb, var(--ink) 14%, transparent);
-  color: var(--ink);
+    0 1px 0 color-mix(in srgb, #fff 70%, transparent),
+    0 5px 12px -3px color-mix(in srgb, #3c2814 18%, transparent);
+  color: #2a2218;
   text-decoration: none;
   z-index: 1;
-}
-:root.dark .pin-slip {
-  background: color-mix(in srgb, var(--paper-dark) 88%, #1a1612 12%);
-  border-color: color-mix(in srgb, var(--rule) 85%, transparent);
 }
 .pin-slip-hero {
   grid-column: 1 / -1;
@@ -9333,7 +9286,7 @@ a.user-status-line:hover {
   border-radius: 0.1rem;
   overflow: hidden;
   aspect-ratio: 16 / 9;
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, #2a2218 6%, #f0e6d4);
 }
 .pin-slip-hero .pin-slip-media {
   aspect-ratio: 2 / 1;
@@ -9353,7 +9306,7 @@ a.user-status-line:hover {
   border-radius: 0.1rem;
   aspect-ratio: 4 / 5;
   max-height: 18rem;
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, #2a2218 8%, #f0e6d4);
 }
 .pin-slip-photo img {
   display: block;
@@ -9397,7 +9350,7 @@ a.user-status-line:hover {
   font-size: 1.85rem;
   font-weight: 700;
   line-height: 1.15;
-  color: var(--accent-strong);
+  color: #7a4e28;
   transform: rotate(-2deg);
 }
 .pin-slip-og-host {
@@ -9405,13 +9358,14 @@ a.user-status-line:hover {
   font-size: 0.75rem;
   letter-spacing: 0.02em;
   text-transform: lowercase;
-  color: var(--ink-soft);
+  color: #6a5a48;
 }
 .pin-slip-og-title {
   font-family: var(--display-font);
   font-size: 0.95rem;
   font-weight: 650;
   line-height: 1.25;
+  color: #2a2218;
   word-break: break-word;
 }
 .pin-slip-og-desc {
@@ -9423,7 +9377,7 @@ a.user-status-line:hover {
   font-family: var(--ui-font);
   font-size: 0.82rem;
   line-height: 1.35;
-  color: var(--ink-soft);
+  color: #6a5a48;
   word-break: break-word;
 }
 .pin-slip-text {
@@ -9436,7 +9390,11 @@ a.user-status-line:hover {
   font-family: var(--ui-font);
   font-size: 0.88rem;
   line-height: 1.4;
+  color: #2a2218;
   word-break: break-word;
+}
+.pin-slip .muted {
+  color: #6a5a48;
 }
 .pin-slip-hero .pin-slip-text {
   -webkit-line-clamp: 5;
@@ -9756,6 +9714,8 @@ a.user-status-line:hover {
   margin: 0.4rem 0 0;
   padding: 0;
   border: 0;
+  /* Buttons do not inherit color; broken-image alt must stay readable in dark mode. */
+  color: inherit;
   background: transparent;
   cursor: zoom-in;
   border-radius: 0.35rem;
@@ -9771,6 +9731,38 @@ a.user-status-line:hover {
   max-width: 100%;
   height: auto;
   margin: 0;
+}
+.event-imeta-btn.is-broken,
+.picture-gallery-btn.is-broken {
+  width: 100%;
+  max-width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px dashed color-mix(in srgb, var(--rule) 70%, transparent);
+  background: color-mix(in srgb, var(--ink-soft) 10%, var(--paper-light, var(--paper)));
+  color: var(--text);
+  cursor: zoom-in;
+  text-align: start;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+/* Beat `.event-body img { display: block }` so failed loads do not keep a blank plate. */
+.event-body .event-imeta-btn.is-broken img.event-imeta,
+.event-body .picture-gallery-btn.is-broken img,
+.picture-gallery-btn.is-broken img,
+.event-imeta-btn.is-broken .event-imeta,
+.event-imeta-btn.is-broken .generic-media {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  max-width: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+}
+.event-imeta-fallback {
+  display: block;
+  margin: 0;
+  color: inherit;
 }
 .raw-event-backdrop {
   position: fixed;

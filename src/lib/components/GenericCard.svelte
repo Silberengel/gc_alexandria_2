@@ -32,6 +32,7 @@
   );
   const galleryAlts = $derived(galleryUrls.map((url) => mediaAltForUrl(media, url)));
   const showNip51Migrate = $derived(isDeprecatedNip51List(event));
+  let brokenUrls = $state<Record<string, true>>({});
 
   function openGallery(url: string, e: MouseEvent): void {
     e.preventDefault();
@@ -42,6 +43,11 @@
       alts: galleryAlts,
       title: preview.headline || undefined
     });
+  }
+
+  function markBroken(url: string): void {
+    if (brokenUrls[url]) return;
+    brokenUrls = { ...brokenUrls, [url]: true };
   }
 </script>
 
@@ -66,14 +72,26 @@
   {/if}
   {#each galleryUrls.slice(0, 4) as url}
     {@const alt = mediaAltForUrl(media, url)}
+    {@const broken = !!brokenUrls[url]}
     <button
       class="event-imeta-btn"
+      class:is-broken={broken}
       type="button"
       title={alt || (galleryUrls.length > 1 ? 'View gallery' : 'View image')}
       aria-label={alt || (galleryUrls.length > 1 ? 'View gallery' : 'View image')}
       onclick={(e) => openGallery(url, e)}
     >
-      <img class="generic-media" src={url} {alt} loading="lazy" />
+      <img
+        class="generic-media"
+        src={url}
+        alt={broken ? '' : alt}
+        loading="lazy"
+        decoding="async"
+        onerror={() => markBroken(url)}
+      />
+      {#if broken}
+        <span class="event-imeta-fallback">{alt || 'Image unavailable'}</span>
+      {/if}
     </button>
   {/each}
   {#each media.filter((m) => m.type === 'video' || m.type === 'audio') as item}

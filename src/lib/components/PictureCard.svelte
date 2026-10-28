@@ -18,6 +18,8 @@
   const imageAlts = $derived(images.map((img) => img.alt?.trim() || ''));
   const title = $derived(displayTitle(event));
 
+  let brokenUrls = $state<Record<string, true>>({});
+
   function openGallery(url: string): void {
     openMediaViewer({
       url,
@@ -25,6 +27,11 @@
       alts: imageAlts,
       title: title !== 'Untitled' ? title : undefined
     });
+  }
+
+  function markBroken(url: string): void {
+    if (brokenUrls[url]) return;
+    brokenUrls = { ...brokenUrls, [url]: true };
   }
 </script>
 
@@ -34,14 +41,25 @@
   <div class="picture-gallery">
     {#each images as img}
       {@const alt = img.alt?.trim() || ''}
+      {@const broken = !!brokenUrls[img.url]}
       <button
         class="picture-gallery-btn"
+        class:is-broken={broken}
         type="button"
         title={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
         aria-label={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
         onclick={() => openGallery(img.url)}
       >
-        <img src={img.url} {alt} loading="lazy" />
+        <img
+          src={img.url}
+          alt={broken ? '' : alt}
+          loading="lazy"
+          decoding="async"
+          onerror={() => markBroken(img.url)}
+        />
+        {#if broken}
+          <span class="event-imeta-fallback">{alt || 'Image unavailable'}</span>
+        {/if}
       </button>
     {/each}
   </div>
