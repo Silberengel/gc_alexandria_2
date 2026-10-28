@@ -44,8 +44,17 @@ describe('feedTabOrder', () => {
     feedTabOrder.set(['follows', 'original', 'replies', 'notifications']);
     expect(feedTabOrder.addKind(30023)).toBe('kind:30023');
     expect(get(feedTabOrder)).toContain('kind:30023');
+    expect(feedTabOrder.addKinds([7, 1, 1111], 'Social')).toBe('kind:1+7+1111');
+    expect(get(feedTabOrder)).toContain('kind:1+7+1111');
+    expect(feedTabOrder.labels.get()['kind:1+7+1111']).toBe('Social');
+    expect(feedTabOrder.addKinds([1111, 1, 7], 'Threads')).toBe('kind:1+7+1111');
+    expect(get(feedTabOrder).filter((t) => t === 'kind:1+7+1111')).toHaveLength(1);
+    expect(feedTabOrder.labels.get()['kind:1+7+1111']).toBe('Threads');
     feedTabOrder.remove('kind:30023');
     expect(get(feedTabOrder)).not.toContain('kind:30023');
+    feedTabOrder.remove('kind:1+7+1111');
+    expect(get(feedTabOrder)).not.toContain('kind:1+7+1111');
+    expect(feedTabOrder.labels.get()['kind:1+7+1111']).toBeUndefined();
     feedTabOrder.remove('follows');
     expect(get(feedTabOrder)).toContain('follows');
   });

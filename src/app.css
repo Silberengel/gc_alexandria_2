@@ -188,6 +188,10 @@ body:has(main.reading-page) .site-footer {
   max-width: min(40rem, 100%);
   min-width: 0;
 }
+.site-footer-back {
+  grid-column: 1;
+  justify-self: start;
+}
 .site-footer-top {
   grid-column: 3;
   justify-self: end;

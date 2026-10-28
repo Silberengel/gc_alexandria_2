@@ -5,6 +5,9 @@ import {
   collectNewFeedEvents,
   DEFAULT_NOTIFICATION_LOOKBACK,
   FEED_FILTER_KINDS,
+  encodeKindFeedTab,
+  feedTabKinds,
+  feedTabLabel,
   feedEventsWatermark,
   feedFollowAuthors,
   feedAuthorRepliesPath,
@@ -292,6 +295,24 @@ describe('notifications', () => {
   });
 });
 
+describe('kind feed tabs', () => {
+  it('encodes single and multi-kind tabs sorted unique', () => {
+    expect(encodeKindFeedTab([])).toBeNull();
+    expect(encodeKindFeedTab([1])).toBe('kind:1');
+    expect(encodeKindFeedTab([1111, 1, 7, 1])).toBe('kind:1+7+1111');
+    expect(feedTabKinds('kind:1')).toEqual([1]);
+    expect(feedTabKinds('kind:1+7+1111')).toEqual([1, 7, 1111]);
+    expect(feedTabKinds('original')).toEqual([]);
+    expect(feedTabLabel('kind:1')).toBe('Kind 1');
+    expect(feedTabLabel('kind:1+7+1111')).toBe('Kinds 1+7+1111');
+    expect(feedTabLabel('kind:1+7+1111+30023')).toBe('4 kinds');
+    expect(feedTabLabel('kind:1+7', 'Social')).toBe('Social');
+    expect(feedTabLabel('kind:1', '  Media hits  ')).toBe('Media hits');
+    expect(feedTabLabel('kind:1', '   ')).toBe('Kind 1');
+    expect(feedTabLabel('follows', 'Nope')).toBe('Follows');
+  });
+});
+
 describe('parseFeedTab', () => {
   it('defaults to original and accepts follows/replies/notifications/kind tabs', () => {
     expect(parseFeedTab(null)).toBe('original');
@@ -300,6 +321,7 @@ describe('parseFeedTab', () => {
     expect(parseFeedTab('notifications')).toBe('notifications');
     expect(parseFeedTab('kind:1')).toBe('kind:1');
     expect(parseFeedTab('kind:30023')).toBe('kind:30023');
+    expect(parseFeedTab('kind:7+1')).toBe('kind:1+7');
     expect(parseFeedTab('kind:nope')).toBe('original');
     expect(parseFeedTab('nope')).toBe('original');
   });

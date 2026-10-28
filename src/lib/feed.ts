@@ -197,8 +197,11 @@ export const FEED_FILTER_KINDS: readonly number[] = Object.freeze(
 export const BUILTIN_FEED_TABS = ['follows', 'original', 'replies', 'notifications'] as const;
 export type BuiltinFeedTab = (typeof BUILTIN_FEED_TABS)[number];
 
-/** Built-in tabs plus user-added `kind:N` filters. */
-export type FeedTab = BuiltinFeedTab | `kind:${number}`;
+/**
+ * Built-in tabs plus user-added kind filters.
+ * Single kind: `kind:1`. Multi: `kind:1+7+1111` (sorted, unique).
+ */
+export type FeedTab = BuiltinFeedTab | `kind:${string}`;
 
 /** Default strip order — Follows first. */
 export const DEFAULT_FEED_TAB_ORDER: FeedTab[] = [
@@ -210,14 +213,40 @@ export const DEFAULT_FEED_TAB_ORDER: FeedTab[] = [
 
 const BUILTIN_FEED_TAB_SET = new Set<string>(BUILTIN_FEED_TABS);
 
-export function isKindFeedTab(tab: string): tab is `kind:${number}` {
-  return /^kind:\d+$/.test(tab);
+const KIND_FEED_TAB_RE = /^kind:\d+(\+\d+)*$/;
+
+/** Sorted unique non-negative kind numbers. */
+export function normalizeFeedKinds(kinds: readonly number[]): number[] {
+  return [
+    ...new Set(kinds.filter((k) => Number.isInteger(k) && k >= 0))
+  ].sort((a, b) => a - b);
 }
 
+/** Encode a kind-filter tab id, or null when nothing valid remains. */
+export function encodeKindFeedTab(kinds: readonly number[]): FeedTab | null {
+  const unique = normalizeFeedKinds(kinds);
+  if (!unique.length) return null;
+  return `kind:${unique.join('+')}`;
+}
+
+export function isKindFeedTab(tab: string): tab is `kind:${string}` {
+  return KIND_FEED_TAB_RE.test(tab);
+}
+
+/** Kind numbers for a `kind:…` tab (empty for built-ins). */
+export function feedTabKinds(tab: FeedTab): number[] {
+  if (!isKindFeedTab(tab)) return [];
+  return normalizeFeedKinds(
+    tab
+      .slice('kind:'.length)
+      .split('+')
+      .map((part) => Number(part))
+  );
+}
+
+/** First kind on a kind tab (compat); null for built-ins or empty. */
 export function feedTabKind(tab: FeedTab): number | null {
-  const m = /^kind:(\d+)$/.exec(tab);
-  if (!m) return null;
-  return Number(m[1]);
+  return feedTabKinds(tab)[0] ?? null;
 }
 
 export function isFeedTab(raw: string): raw is FeedTab {
@@ -227,18 +256,30 @@ export function isFeedTab(raw: string): raw is FeedTab {
 export function parseFeedTab(raw: string | null | undefined): FeedTab {
   const t = (raw ?? '').trim().toLowerCase();
   if (t === 'follows' || t === 'replies' || t === 'notifications') return t;
-  if (isKindFeedTab(t)) return t;
+  if (isKindFeedTab(t)) return encodeKindFeedTab(feedTabKinds(t as FeedTab)) ?? 'original';
   return 'original';
 }
 
-/** Short label for a feed tab button. */
-export function feedTabLabel(tab: FeedTab): string {
+/** Collapse whitespace; empty → null (use kinds-based default). */
+export function normalizeFeedTabCustomName(raw: string | null | undefined): string | null {
+  const name = (raw ?? '').trim().replace(/\s+/g, ' ');
+  if (!name) return null;
+  return name.slice(0, 40);
+}
+
+/** Short label for a feed tab button. Custom names only apply to kind tabs. */
+export function feedTabLabel(tab: FeedTab, customName?: string | null): string {
   if (tab === 'follows') return 'Follows';
   if (tab === 'original') return 'Original Posts';
   if (tab === 'replies') return 'Replies';
   if (tab === 'notifications') return 'Notifications';
-  const kind = feedTabKind(tab);
-  return kind == null ? tab : `Kind ${kind}`;
+  const custom = normalizeFeedTabCustomName(customName);
+  if (custom) return custom;
+  const kinds = feedTabKinds(tab);
+  if (!kinds.length) return tab;
+  if (kinds.length === 1) return `Kind ${kinds[0]}`;
+  if (kinds.length <= 3) return `Kinds ${kinds.join('+')}`;
+  return `${kinds.length} kinds`;
 }
 
 /** Lowercase hex pubkey from `?author=` (hex, npub, or nprofile). */
@@ -381,12 +422,14 @@ function followOriginalFilters(authors: string[]): Filter[] {
   return filters;
 }
 
-function kindFeedFilters(kind: number, authors?: string[]): Filter[] {
-  if (!authors?.length) return [{ kinds: [kind], limit: 40 }];
+function kindFeedFilters(kinds: readonly number[], authors?: string[]): Filter[] {
+  const unique = normalizeFeedKinds(kinds);
+  if (!unique.length) return [];
+  if (!authors?.length) return [{ kinds: unique, limit: 40 }];
   const filters: Filter[] = [];
   for (let i = 0; i < authors.length; i += FOLLOW_AUTHOR_BATCH) {
     filters.push({
-      kinds: [kind],
+      kinds: unique,
       authors: authors.slice(i, i + FOLLOW_AUTHOR_BATCH),
       limit: 20
     });
@@ -641,24 +684,32 @@ export async function loadFollowsFeed(
   return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
 }
 
-/** Cached events of one kind (newest first). */
-export async function recallKindFeed(kind: number): Promise<Event[]> {
-  if (!Number.isInteger(kind) || kind < 0) return [];
-  return (await cachedEventsByKind(kind)).sort((a, b) => b.created_at - a.created_at).slice(0, 40);
+/** Cached events for one or more kinds (newest first). */
+export async function recallKindFeed(kinds: number | readonly number[]): Promise<Event[]> {
+  const unique = normalizeFeedKinds(Array.isArray(kinds) ? kinds : [kinds]);
+  if (!unique.length) return [];
+  const stored = (await Promise.all(unique.map((kind) => cachedEventsByKind(kind)))).flat();
+  const want = new Set(unique);
+  return stored
+    .filter((event) => want.has(event.kind))
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, 60);
 }
 
-/** Newest events of a single kind from the session's feed relays. */
+/** Newest events of one or more kinds from the session's feed relays. */
 export async function loadKindFeed(
-  kind: number,
+  kinds: number | readonly number[],
   muted: MuteState = emptyMute,
   onCache?: (events: Event[]) => void,
   lookbackSeconds: number | null = null
 ): Promise<Event[]> {
-  if (!Number.isInteger(kind) || kind < 0) return [];
+  const unique = normalizeFeedKinds(Array.isArray(kinds) ? kinds : [kinds]);
+  if (!unique.length) return [];
+  const want = new Set(unique);
   const since = feedSinceFromLookback(lookbackSeconds);
   const inWindow = (event: Event): boolean =>
     since == null || event.created_at >= since;
-  const cached = filterMuted(await recallKindFeed(kind), muted);
+  const cached = filterMuted(await recallKindFeed(unique), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
     const posts = filterMuted(
@@ -668,7 +719,7 @@ export async function loadKindFeed(
     if (posts.length) onCache?.(posts);
   };
   for (const event of cached) {
-    if (event.kind !== kind || !inWindow(event)) continue;
+    if (!want.has(event.kind) || !inWindow(event)) continue;
     byId.set(event.id, event);
   }
   if (byId.size) paint();
@@ -677,12 +728,12 @@ export async function loadKindFeed(
   if (!relays.length) {
     return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
   }
-  const filters = withFeedSince(kindFeedFilters(kind), since);
+  const filters = withFeedSince(kindFeedFilters(unique), since);
   const queryOpts = { includeCooling: true };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (event.kind !== kind || !inWindow(event) || byId.has(event.id)) continue;
+      if (!want.has(event.kind) || !inWindow(event) || byId.has(event.id)) continue;
       byId.set(event.id, event);
       added = true;
     }
@@ -695,7 +746,7 @@ export async function loadKindFeed(
     shipped.length ? ask(shipped, 4) : Promise.resolve([])
   ]);
   for (const event of [...fromPersonal, ...fromShipped]) {
-    if (event.kind !== kind || !inWindow(event)) continue;
+    if (!want.has(event.kind) || !inWindow(event)) continue;
     byId.set(event.id, event);
   }
   return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);

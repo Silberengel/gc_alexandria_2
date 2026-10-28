@@ -2,11 +2,15 @@ import { get, writable } from 'svelte/store';
 import {
   BUILTIN_FEED_TABS,
   DEFAULT_FEED_TAB_ORDER,
+  encodeKindFeedTab,
   isFeedTab,
+  isKindFeedTab,
+  normalizeFeedTabCustomName,
   type FeedTab
 } from '$lib/feed';
 
 const STORAGE_KEY = 'alexandria-feed-tab-order';
+const LABELS_KEY = 'alexandria-feed-tab-labels';
 
 /** Keep every built-in tab once; keep valid kind tabs; drop junk. */
 export function normalizeFeedTabOrder(raw: unknown): FeedTab[] {
@@ -26,7 +30,28 @@ export function normalizeFeedTabOrder(raw: unknown): FeedTab[] {
   return out.length ? out : [...DEFAULT_FEED_TAB_ORDER];
 }
 
-function read(): FeedTab[] {
+/**
+ * Custom names for kind tabs only; drop empty / non-kind keys.
+ * When `order` is passed, drop labels for tabs no longer in the strip.
+ */
+export function normalizeFeedTabLabels(
+  raw: unknown,
+  order?: readonly FeedTab[]
+): Record<string, string> {
+  const allowed = order ? new Set(order.filter(isKindFeedTab)) : null;
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isKindFeedTab(key)) continue;
+    if (allowed && !allowed.has(key)) continue;
+    const name = normalizeFeedTabCustomName(typeof value === 'string' ? value : null);
+    if (!name) continue;
+    out[key] = name;
+  }
+  return out;
+}
+
+function readOrder(): FeedTab[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [...DEFAULT_FEED_TAB_ORDER];
@@ -36,12 +61,25 @@ function read(): FeedTab[] {
   }
 }
 
-function createFeedTabOrderStore() {
-  const initial =
-    typeof localStorage !== 'undefined' ? read() : ([...DEFAULT_FEED_TAB_ORDER] as FeedTab[]);
-  const store = writable<FeedTab[]>(initial);
+function readLabels(order: readonly FeedTab[]): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(LABELS_KEY);
+    if (!raw) return {};
+    return normalizeFeedTabLabels(JSON.parse(raw), order);
+  } catch {
+    return {};
+  }
+}
 
-  function persist(next: FeedTab[]): void {
+function createFeedTabOrderStore() {
+  const initialOrder =
+    typeof localStorage !== 'undefined' ? readOrder() : ([...DEFAULT_FEED_TAB_ORDER] as FeedTab[]);
+  const initialLabels =
+    typeof localStorage !== 'undefined' ? readLabels(initialOrder) : ({} as Record<string, string>);
+  const store = writable<FeedTab[]>(initialOrder);
+  const labelsStore = writable<Record<string, string>>(initialLabels);
+
+  function persistOrder(next: FeedTab[]): FeedTab[] {
     const normalized = normalizeFeedTabOrder(next);
     store.set(normalized);
     try {
@@ -49,15 +87,44 @@ function createFeedTabOrderStore() {
     } catch {
       /* quota / private mode */
     }
+    return normalized;
+  }
+
+  function persistLabels(next: Record<string, string>, order: readonly FeedTab[]): Record<string, string> {
+    const normalized = normalizeFeedTabLabels(next, order);
+    labelsStore.set(normalized);
+    try {
+      localStorage.setItem(LABELS_KEY, JSON.stringify(normalized));
+    } catch {
+      /* quota / private mode */
+    }
+    return normalized;
+  }
+
+  function setLabel(tab: FeedTab, name: string | null | undefined, order: readonly FeedTab[]): void {
+    if (!isKindFeedTab(tab)) return;
+    const cur = { ...get(labelsStore) };
+    const normalized = normalizeFeedTabCustomName(name);
+    if (normalized) cur[tab] = normalized;
+    else delete cur[tab];
+    persistLabels(cur, order);
   }
 
   return {
     subscribe: store.subscribe,
+    /** Custom names keyed by kind-tab id. */
+    labels: {
+      subscribe: labelsStore.subscribe,
+      get(): Record<string, string> {
+        return get(labelsStore);
+      }
+    },
     get(): FeedTab[] {
       return get(store);
     },
     set(next: FeedTab[]) {
-      persist(next);
+      const order = persistOrder(next);
+      persistLabels(get(labelsStore), order);
     },
     reorder(from: number, to: number): void {
       const cur = get(store);
@@ -66,19 +133,26 @@ function createFeedTabOrderStore() {
       const [item] = next.splice(from, 1);
       if (!item) return;
       next.splice(to, 0, item);
-      persist(next);
+      persistOrder(next);
     },
-    addKind(kind: number): FeedTab | null {
-      if (!Number.isInteger(kind) || kind < 0) return null;
-      const tab = `kind:${kind}` as FeedTab;
+    addKind(kind: number, name?: string | null): FeedTab | null {
+      return this.addKinds([kind], name);
+    },
+    addKinds(kinds: readonly number[], name?: string | null): FeedTab | null {
+      const tab = encodeKindFeedTab(kinds);
+      if (!tab) return null;
       const cur = get(store);
-      if (cur.includes(tab)) return tab;
-      persist([...cur, tab]);
+      const order = cur.includes(tab) ? cur : persistOrder([...cur, tab]);
+      setLabel(tab, name, order);
       return tab;
+    },
+    setTabName(tab: FeedTab, name: string | null | undefined): void {
+      setLabel(tab, name, get(store));
     },
     remove(tab: FeedTab): void {
       if (BUILTIN_FEED_TABS.includes(tab as (typeof BUILTIN_FEED_TABS)[number])) return;
-      persist(get(store).filter((t) => t !== tab));
+      const order = persistOrder(get(store).filter((t) => t !== tab));
+      persistLabels(get(labelsStore), order);
     }
   };
 }

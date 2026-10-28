@@ -28,25 +28,25 @@
 </script>
 
 <footer class="site-footer" aria-label="App">
+  <button
+    type="button"
+    class="site-footer-btn site-footer-back"
+    title="Back"
+    aria-label="Back"
+    disabled={onHome}
+    onclick={() => navigateReturn()}
+  >
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path
+        d="M19 12H5M11 6l-6 6 6 6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+  </button>
   <nav class="site-footer-nav">
-    <button
-      type="button"
-      class="site-footer-btn"
-      title="Back"
-      aria-label="Back"
-      disabled={onHome}
-      onclick={() => navigateReturn()}
-    >
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
-        <path
-          d="M19 12H5M11 6l-6 6 6 6"
-          stroke="currentColor"
-          stroke-width="1.75"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-    </button>
     <a
       href="#/search"
       use:link

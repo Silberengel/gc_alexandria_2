@@ -58,7 +58,8 @@
     feedListPath,
     feedLookbackIsWider,
     feedRelayGroups,
-    feedTabKind,
+    FEED_FILTER_KINDS,
+    feedTabKinds,
     feedTabLabel,
     eventMatchesThreadTarget,
     isFeedInteractionEvent,
@@ -93,6 +94,7 @@
   import PageFilter from '$lib/components/PageFilter.svelte';
   import { filterPageEvents } from '$lib/page-filter';
   import { feedTabOrder } from '$lib/stores/feed-tab-order';
+  const feedTabLabels = feedTabOrder.labels;
   import { skipNextNavTrack } from '$lib/nav-history';
   import { takePendingNavEvent, warmNavEvent } from '$lib/nav-warm';
   import { memoryGetEvent, rememberEvents } from '$lib/nostr/event-memory';
@@ -112,7 +114,11 @@
   const feedAuthor = $derived(parseFeedAuthorParam(feedQuery.get('author')));
   /** Raw `?tab=` — null/empty means “use the first strip tab”. */
   const feedTabParam = $derived(feedQuery.get('tab'));
-  let kindDraft = $state('');
+  /** Kinds checked in the add-tab picker (multi-select). */
+  let kindDraftSelected = $state<Record<number, boolean>>({});
+  let kindDraftName = $state('');
+  let kindPickerOpen = $state(false);
+  let kindPickerWrap = $state<HTMLElement | null>(null);
   /** Tab id under the pointer — never a visible-strip index (visibility can change mid-drag). */
   let dragFromTab = $state<FeedTab | null>(null);
   let dragOverTab = $state<FeedTab | null>(null);
@@ -165,11 +171,12 @@
         ? 'Original posts and replies from this reader.'
         : 'Original posts from this reader.';
     }
-    const kind = feedTabKind(feedTab);
-    if (kind != null) {
+    const kinds = feedTabKinds(feedTab);
+    if (kinds.length) {
+      const label = kinds.length === 1 ? `kind ${kinds[0]}` : `kinds ${kinds.join('+')}`;
       return signedIn
-        ? `Events of kind ${kind} from your feed relays.`
-        : `Events of kind ${kind} from theforest.`;
+        ? `Events of ${label} from your feed relays.`
+        : `Events of ${label} from theforest.`;
     }
     if (feedTab === 'follows') {
       return signedIn
@@ -290,11 +297,30 @@
     setFeedTab(tab);
   }
 
+  const kindDraftKinds = $derived(
+    FEED_FILTER_KINDS.filter((kind) => kindDraftSelected[kind])
+  );
+
+  const kindPickerOptions = $derived(
+    FEED_FILTER_KINDS.map((kind) => ({
+      kind,
+      label: `${kind} · ${kindDescription(kind)}`
+    }))
+  );
+
+  function toggleKindDraft(kind: number): void {
+    kindDraftSelected = { ...kindDraftSelected, [kind]: !kindDraftSelected[kind] };
+  }
+
+  function toggleKindPicker(): void {
+    kindPickerOpen = !kindPickerOpen;
+  }
+
   function addKindTab(): void {
-    const n = Number(kindDraft.trim());
-    if (!Number.isInteger(n) || n < 0) return;
-    const tab = feedTabOrder.addKind(n);
-    kindDraft = '';
+    const tab = feedTabOrder.addKinds(kindDraftKinds, kindDraftName);
+    kindDraftSelected = {};
+    kindDraftName = '';
+    kindPickerOpen = false;
     if (tab) setFeedTab(tab);
   }
 
@@ -305,6 +331,16 @@
     feedTabOrder.remove(tab);
     if (feedTab === tab) setFeedTab('original');
   }
+
+  $effect(() => {
+    if (!kindPickerOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (kindPickerWrap && t && !kindPickerWrap.contains(t)) kindPickerOpen = false;
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  });
 
   /** Client-side list filters on the normal feed (hidden on author-scoped profiles). */
   let feedLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
@@ -338,7 +374,9 @@
     if (tab === 'notifications') return 'Loading notifications…';
     if (tab === 'follows') return 'Loading follows…';
     if (tab === 'replies') return 'Loading posts and replies…';
-    if (isKindFeedTab(tab)) return `Loading kind ${feedTabKind(tab)}…`;
+    const kinds = feedTabKinds(tab);
+    if (kinds.length === 1) return `Loading kind ${kinds[0]}…`;
+    if (kinds.length) return `Loading kinds ${kinds.join('+')}…`;
     return 'Loading original posts…';
   }
 
@@ -354,7 +392,9 @@
       return signedIn ? 'No posts from follows yet.' : 'Sign in to see follows.';
     }
     if (tab === 'replies') return 'No posts or replies here yet.';
-    if (isKindFeedTab(tab)) return `No kind ${feedTabKind(tab)} events here yet.`;
+    const kinds = feedTabKinds(tab);
+    if (kinds.length === 1) return `No kind ${kinds[0]} events here yet.`;
+    if (kinds.length) return `No events for kinds ${kinds.join('+')} here yet.`;
     return 'No original posts here yet.';
   }
 
@@ -874,15 +914,15 @@
     }
 
     if (pubkey && sessionLoading && !feedRelayGroups().personal.length && tab !== 'notifications') {
-      const kind = feedTabKind(tab);
+      const kinds = feedTabKinds(tab);
       const recall = author
         ? tab === 'replies'
           ? recallAuthorFeedWithReplies(author)
           : recallAuthorFeedPosts(author)
         : tab === 'follows'
           ? recallFollowsFeed(meta, muted)
-          : kind != null
-            ? recallKindFeed(kind)
+          : kinds.length
+            ? recallKindFeed(kinds)
             : tab === 'replies'
               ? recallFeedWithReplies()
               : recallFeedPosts();
@@ -931,9 +971,9 @@
       if (tab === 'follows') {
         return loadFollowsFeed(meta, muted, onCache, lookbackSec);
       }
-      const kind = feedTabKind(tab);
-      if (kind != null) {
-        return loadKindFeed(kind, muted, onCache, lookbackSec);
+      const kinds = feedTabKinds(tab);
+      if (kinds.length) {
+        return loadKindFeed(kinds, muted, onCache, lookbackSec);
       }
       if (tab === 'replies') {
         return loadFeedWithReplies(meta, muted, onCache, lookbackSec);
@@ -949,8 +989,8 @@
           : recallAuthorFeedPosts(author);
       }
       if (tab === 'follows') return recallFollowsFeed(meta, muted);
-      const kind = feedTabKind(tab);
-      if (kind != null) return recallKindFeed(kind);
+      const kinds = feedTabKinds(tab);
+      if (kinds.length) return recallKindFeed(kinds);
       if (tab === 'replies') return recallFeedWithReplies();
       return recallFeedPosts();
     };
@@ -1040,8 +1080,8 @@
               : await loadAuthorFeed(author, muted);
         } else if (tab === 'follows') {
           events = await loadFollowsFeed(meta, muted, undefined, lookbackSec);
-        } else if (feedTabKind(tab) != null) {
-          events = await loadKindFeed(feedTabKind(tab)!, muted, undefined, lookbackSec);
+        } else if (feedTabKinds(tab).length) {
+          events = await loadKindFeed(feedTabKinds(tab), muted, undefined, lookbackSec);
         } else if (tab === 'replies') {
           events = await loadFeedWithReplies(meta, muted, undefined, lookbackSec);
         } else {
@@ -1309,7 +1349,7 @@
             ondragend={onTabDragEnd}
             onclick={() => onTabClick(tab)}
           >
-            <span class="feed-tab-label">{feedTabLabel(tab)}</span>
+            <span class="feed-tab-label">{feedTabLabel(tab, $feedTabLabels[tab])}</span>
             {#if isKindFeedTab(tab)}
               <span
                 class="feed-tab-remove"
@@ -1322,34 +1362,60 @@
         {/each}
       </div>
       {#if !feedAuthor}
-        <form
-          class="feed-kind-add"
-          onsubmit={(e) => {
-            e.preventDefault();
-            addKindTab();
-          }}
-        >
-          <label class="sr-only" for="feed-kind-draft">Add kind filter tab</label>
-          <input
-            id="feed-kind-draft"
-            class="feed-kind-input"
-            type="text"
-            inputmode="numeric"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Kind"
-            bind:value={kindDraft}
-            disabled={!!pointer}
-          />
+        <div class="feed-kind-add" bind:this={kindPickerWrap}>
           <button
             class="btn feed-kind-add-btn"
-            type="submit"
-            disabled={!!pointer || !kindDraft.trim()}
+            type="button"
+            disabled={!!pointer}
+            aria-expanded={kindPickerOpen}
+            aria-haspopup="true"
             aria-label="Add kind tab"
             title="Add kind tab"
-          >+</button
-          >
-        </form>
+            onclick={toggleKindPicker}
+          >+</button>
+          {#if kindPickerOpen}
+            <div class="feed-kind-picker" role="group" aria-label="Kinds for new tab">
+              <p class="feed-kind-picker-hint muted">Select kinds for a custom feed tab</p>
+              <label class="feed-kind-picker-name">
+                <span class="muted">Tab name</span>
+                <input
+                  class="feed-kind-picker-name-input"
+                  type="text"
+                  maxlength="40"
+                  placeholder="Optional — e.g. Social"
+                  bind:value={kindDraftName}
+                  autocomplete="off"
+                />
+              </label>
+              <ul class="feed-kind-picker-list">
+                {#each kindPickerOptions as opt (opt.kind)}
+                  <li>
+                    <label class="feed-kind-picker-row">
+                      <input
+                        type="checkbox"
+                        checked={!!kindDraftSelected[opt.kind]}
+                        onchange={() => toggleKindDraft(opt.kind)}
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  </li>
+                {/each}
+              </ul>
+              <div class="feed-kind-picker-actions">
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  disabled={!kindDraftKinds.length}
+                  onclick={addKindTab}
+                >
+                  {kindDraftKinds.length <= 1
+                    ? 'Add kind tab'
+                    : `Add tab (${kindDraftKinds.length} kinds)`}
+                </button>
+              </div>
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
     {#if !feedAuthor}
@@ -1756,36 +1822,11 @@
   }
   .feed-kind-add {
     --feed-filter-h: 1.65rem;
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 0.15rem;
     margin: 0;
     flex: 0 0 auto;
-  }
-  .feed-kind-input {
-    box-sizing: border-box;
-    width: 4.25rem;
-    margin: 0;
-    height: var(--feed-filter-h);
-    min-height: var(--feed-filter-h);
-    max-height: var(--feed-filter-h);
-    padding: 0 0.4rem;
-    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
-    border-radius: 0.25rem;
-    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
-    color: var(--ink-soft);
-    font: inherit;
-    font-size: 0.72rem;
-    line-height: calc(var(--feed-filter-h) - 2px);
-    box-shadow: none;
-  }
-  .feed-kind-input::placeholder {
-    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
-  }
-  .feed-kind-input:hover {
-    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
-    background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
-    color: var(--ink);
   }
   .feed-kind-add-btn {
     box-sizing: border-box;
@@ -1804,6 +1845,99 @@
     border-color: color-mix(in srgb, var(--rule) 65%, transparent);
     background: color-mix(in srgb, var(--ink-soft) 9%, transparent);
     color: var(--ink);
+  }
+  .feed-kind-picker {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 40;
+    box-sizing: border-box;
+    width: min(18.5rem, calc(100vw - 2rem));
+    max-height: min(22rem, 70vh);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.55rem 0.6rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+    border-radius: 0.35rem;
+    background: var(--paper-light, var(--paper));
+    box-shadow: 0 0.45rem 1.1rem color-mix(in srgb, var(--ink) 14%, transparent);
+  }
+  .feed-kind-picker-hint {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
+  .feed-kind-picker-name {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin: 0;
+    font-size: 0.72rem;
+  }
+  .feed-kind-picker-name-input {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
+    padding: 0.35rem 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 42%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.3;
+  }
+  .feed-kind-picker-name-input::placeholder {
+    color: color-mix(in srgb, var(--ink-soft) 70%, transparent);
+  }
+  .feed-kind-picker-name-input:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent, currentColor) 45%, transparent);
+    outline-offset: 1px;
+  }
+  .feed-kind-picker-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  .feed-kind-picker-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin: 0;
+    padding: 0.28rem 0.3rem;
+    border-radius: 0.25rem;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .feed-kind-picker-row:hover {
+    background: color-mix(in srgb, var(--ink-soft) 8%, transparent);
+  }
+  .feed-kind-picker-row input {
+    margin: 0.15rem 0 0;
+    flex: 0 0 auto;
+  }
+  .feed-kind-picker-row span {
+    min-width: 0;
+  }
+  .feed-kind-picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding-top: 0.15rem;
+    border-top: 1px solid color-mix(in srgb, var(--rule) 40%, transparent);
+  }
+  .feed-kind-picker-actions .btn {
+    font-size: 0.78rem;
+    padding: 0.3rem 0.65rem;
   }
   .feed-list {
     list-style: none;
