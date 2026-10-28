@@ -36,7 +36,11 @@
   } from '$lib/comments';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
-  import { textHighlightsFromEvents, seedHighlightProfile } from '$lib/text-highlights';
+  import {
+    mergeInkIntoHighlights,
+    textHighlightsFromEvents,
+    seedHighlightProfile
+  } from '$lib/text-highlights';
   import { sectionHeroImageUrl } from '$lib/cover';
   import type { Event } from 'nostr-tools';
   import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
@@ -217,6 +221,10 @@
     const partial = commentDraft(event, body);
     const signed = await publishComment({ ...partial, tags: [...partial.tags, result.imeta] });
     if (signed) {
+      responses = {
+        ...responses,
+        thread: [signed, ...responses.thread.filter((e) => e.id !== signed.id)]
+      };
       inkOpen = false;
       inkQuote = null;
       wikiSelDraft = null;
@@ -302,9 +310,13 @@
     return kind === KIND.WIKI || kind === KIND.SPEC || kind === KIND.LONG_FORM;
   }
   const mutedHighlights = $derived(filterMuted(responses.highlights, $muteState));
+  const wikiInkChips = $derived(inkMarginChipsFromEvents(responses.thread));
   const bodyHighlights = $derived(
     event
-      ? textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event))
+      ? mergeInkIntoHighlights(
+          textHighlightsFromEvents(highlightsForEvent(mutedHighlights, event)),
+          wikiInkChips
+        )
       : []
   );
   const visibleVersions = $derived(filterPageEvents(versions, pageFilter));
@@ -327,7 +339,6 @@
       appHandlers: responses.appHandlers ?? []
     };
   });
-  const wikiInkChips = $derived(inkMarginChipsFromEvents(panelResponses.thread));
   /** Only strip an early body image when the header actually paints the `image` tag. */
   const dedupeHeaderHero = $derived(!!event && !!sectionHeroImageUrl(event));
   const hideBody = $derived(
@@ -823,9 +834,10 @@
       <DetailsPanel {event} appHandlers={responses.appHandlers ?? []} />
     </article>
     {#if wikiSelDraft && !inkOpen && !notePromptOpen && !replyComposeOpen}
+      {@const selDraft = wikiSelDraft}
       <div class="reader-sel-host" class:sheet={selectionSheet}>
         <SelectionActionTray
-          quote={wikiSelDraft.quote}
+          quote={selDraft.quote}
           sheet={selectionSheet}
           {markMode}
           onMarkMode={(on) => (markMode = on)}
@@ -833,13 +845,13 @@
           onHighlightNote={() => {
             keepWikiSelDraft = true;
             notePromptText = '';
-            hydrateSelectionDraft('note', wikiSelDraft.quote);
+            hydrateSelectionDraft('note', selDraft.quote);
             notePromptOpen = true;
           }}
           onReply={() => {
             keepWikiSelDraft = true;
             replyDraftText = '';
-            hydrateSelectionDraft('reply', wikiSelDraft.quote);
+            hydrateSelectionDraft('reply', selDraft.quote);
             replyComposeOpen = true;
           }}
           onInk={openWikiInk}

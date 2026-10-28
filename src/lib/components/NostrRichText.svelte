@@ -73,6 +73,9 @@
   /** Custom emoji slots — expand to <img> only after HTML escaping. */
   let emojiSlots = $state<EmojiInfo[]>([]);
   let generation = 0;
+  let rootEl = $state<HTMLElement | null>(null);
+  /** True only when clamped content actually overflows (hides useless Show more). */
+  let truncated = $state(false);
 
   const LNBC = /\b(lnbc[0-9a-z]+)\b/gi;
   const XMR =
@@ -252,6 +255,38 @@
   }
 
   $effect(() => {
+    void content;
+    expanded = false;
+    truncated = false;
+  });
+
+  $effect(() => {
+    const el = rootEl;
+    const lines = maxLines;
+    void content;
+    void segments;
+    void emojiSlots;
+    void resolved;
+    void bodyBlocks;
+    if (!el || lines == null || expanded) return;
+    let cancelled = false;
+    let raf2 = 0;
+    const measure = () => {
+      if (cancelled) return;
+      // Only meaningful while clamped — overflow means the line clamp is hiding text.
+      truncated = el.scrollHeight > el.clientHeight + 1;
+    };
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(measure);
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  });
+
+  $effect(() => {
     const src = content;
     const ev = event;
     const gen = ++generation;
@@ -339,6 +374,7 @@
 {/snippet}
 
 <div
+  bind:this={rootEl}
   class="nostr-rich-text"
   class:clamped={maxLines != null && !expanded}
   style={maxLines != null && !expanded ? `--nrt-max-lines: ${maxLines}` : undefined}
@@ -399,7 +435,7 @@
       {/if}
     {/if}
   {/each}
-  {#if maxLines != null}
+  {#if maxLines != null && (truncated || expanded)}
     <button type="button" class="nrt-expand" onclick={() => (expanded = !expanded)}>
       {expanded ? 'Show less' : 'Show more'}
     </button>

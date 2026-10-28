@@ -6,6 +6,7 @@ import {
   resolveMarkup,
   renderDjotHtml,
   renderWithFallback,
+  highlightCommentTag,
   renderHighlightEventHtml,
   markHighlights,
   linkifyTopicHashtags,
@@ -382,6 +383,13 @@ describe('topic hashtags', () => {
 describe('NIP-84 highlight passage', () => {
   const pk = 'a'.repeat(64);
 
+  it('reads the quote-highlight comment tag', () => {
+    expect(highlightCommentTag([['comment', '  hello nostr:npub1abc  ']])).toBe(
+      'hello nostr:npub1abc'
+    );
+    expect(highlightCommentTag([['context', 'only context']])).toBe('');
+  });
+
   it('marks the quote inside the context passage', async () => {
     const quote = 'The river runs cold in March.';
     const context = `${quote} Further along the bank the willows lean in.`;
@@ -430,6 +438,24 @@ describe('NIP-84 highlight passage', () => {
     ]);
     expect(html).toContain(`data-highlight-pubkey="${pk}"`);
     expect(html).toContain(`data-highlight-id="${id}"`);
+  });
+
+  it('markHighlights records note and ink attrs', () => {
+    const id = 'b'.repeat(64);
+    const inkId = 'c'.repeat(64);
+    const html = markHighlights('<p>Hello world from the river bank.</p>', [
+      {
+        quote: 'Hello world from the river bank.',
+        pubkey: pk,
+        eventId: id,
+        note: 'Nice line',
+        inkUrl: 'https://cdn.example.com/draw.gif',
+        inkEventId: inkId
+      }
+    ]);
+    expect(html).toContain('data-highlight-note="Nice line"');
+    expect(html).toContain('data-ink-url="https://cdn.example.com/draw.gif"');
+    expect(html).toContain(`data-ink-id="${inkId}"`);
   });
 });
 

@@ -694,7 +694,25 @@ export async function renderWithFallback(
   return renderMarkup(kind, content, tags);
 }
 
-export type HighlightQuote = { quote: string; pubkey?: string; eventId?: string };
+export type HighlightQuote = {
+  quote: string;
+  pubkey?: string;
+  eventId?: string;
+  /** NIP-84 `comment` tag on the highlight. */
+  note?: string;
+  /** Ink-note GIF URL (kind 1111 quote + drawing). */
+  inkUrl?: string;
+  /** Ink-note event id for thread deep-link (may differ from highlight id). */
+  inkEventId?: string;
+};
+
+function escapeHighlightAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 
 /** Allow markup tags / whitespace between words so quotes still match after AsciiDoc/Djot render. */
 export function flexibleQuotePattern(quote: string): string {
@@ -708,24 +726,44 @@ export function flexibleQuotePattern(quote: string): string {
   return words.join('(?:\\s|\\u00a0|&nbsp;|&#160;|<[^>]+>)+');
 }
 
-function highlightOpenTag(pubkey: string, eventId = ''): string {
-  const pk = pubkey.trim().toLowerCase();
-  const id = eventId.trim().toLowerCase();
-  const idAttr = /^[0-9a-f]{64}$/.test(id) ? ` data-highlight-id="${id}"` : '';
-  return /^[0-9a-f]{64}$/.test(pk)
-    ? `<mark class="text-highlight" data-highlight-pubkey="${pk}"${idAttr}><span class="text-highlight-text">`
-    : `<mark class="text-highlight"${idAttr}><span class="text-highlight-text">`;
+function highlightOpenTag(item: {
+  pubkey?: string;
+  eventId?: string;
+  note?: string;
+  inkUrl?: string;
+  inkEventId?: string;
+}): string {
+  const pk = (item.pubkey ?? '').trim().toLowerCase();
+  const id = (item.eventId ?? '').trim().toLowerCase();
+  const inkId = (item.inkEventId ?? '').trim().toLowerCase();
+  const note = (item.note ?? '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  const inkUrl = (item.inkUrl ?? '').trim();
+  const parts = ['class="text-highlight"'];
+  if (/^[0-9a-f]{64}$/.test(pk)) parts.push(`data-highlight-pubkey="${pk}"`);
+  if (/^[0-9a-f]{64}$/.test(id)) parts.push(`data-highlight-id="${id}"`);
+  if (note) parts.push(`data-highlight-note="${escapeHighlightAttr(note)}"`);
+  if (/^https?:\/\//i.test(inkUrl)) parts.push(`data-ink-url="${escapeHighlightAttr(inkUrl)}"`);
+  if (/^[0-9a-f]{64}$/.test(inkId)) parts.push(`data-ink-id="${inkId}"`);
+  return `<mark ${parts.join(' ')}><span class="text-highlight-text">`;
 }
 
 export function markHighlights(html: string, quotes: Array<string | HighlightQuote>): string {
   let out = html;
   for (const item of quotes) {
     const quote = typeof item === 'string' ? item : item.quote;
-    const pubkey = typeof item === 'string' ? '' : (item.pubkey ?? '');
-    const eventId = typeof item === 'string' ? '' : (item.eventId ?? '');
+    const meta =
+      typeof item === 'string'
+        ? {}
+        : {
+            pubkey: item.pubkey,
+            eventId: item.eventId,
+            note: item.note,
+            inkUrl: item.inkUrl,
+            inkEventId: item.inkEventId
+          };
     const trimmed = quote.replace(/\s+/g, ' ').trim();
     if (trimmed.length < 8) continue;
-    const open = highlightOpenTag(pubkey, eventId);
+    const open = highlightOpenTag(meta);
     const close = '</span></mark>';
 
     const exact = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -749,6 +787,12 @@ export function markHighlights(html: string, quotes: Array<string | HighlightQuo
 export function highlightContextTag(tags: string[][] | undefined): string {
   if (!tags?.length) return '';
   return tags.find((t) => t[0] === 'context' && t[1])?.[1]?.trim() ?? '';
+}
+
+/** NIP-84 quote-highlight `comment` tag — the highlighter's note on the quote. */
+export function highlightCommentTag(tags: string[][] | undefined): string {
+  if (!tags?.length) return '';
+  return tags.find((t) => t[0] === 'comment' && t[1])?.[1]?.trim() ?? '';
 }
 
 /**

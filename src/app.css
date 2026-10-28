@@ -5827,6 +5827,21 @@ a.nostrdown-ref {
   margin: 0 0 0.45rem;
   font-size: 0.9rem;
 }
+/* NIP-84 quote-highlight note (`comment` tag) on a kind-9802 thread OP. */
+.highlight-comment-note {
+  margin: 0.75rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, var(--surface-2, var(--paper-dark)) 70%, var(--surface, var(--paper)));
+  border: 1px solid color-mix(in srgb, var(--rule, var(--border)) 60%, transparent);
+}
+.highlight-comment-label {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 /* NIP-84 source chip (imwald “Highlight of:”) — above the marked passage. */
 .highlight-source-blurb {
   display: flex;
@@ -7998,6 +8013,160 @@ mark.text-highlight.highlight-flash,
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 1px;
   text-decoration: none;
+}
+.text-highlight-note {
+  position: relative;
+  display: inline-flex;
+  vertical-align: text-bottom;
+  margin-left: 0.28em;
+  z-index: 2;
+}
+.text-highlight-note-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35em;
+  height: 1.35em;
+  padding: 0;
+  border: 1.5px solid color-mix(in srgb, #fff 55%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface, var(--paper)) 82%, var(--accent));
+  color: color-mix(in srgb, var(--text, var(--ink)) 78%, var(--accent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #1a140c 28%, transparent);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.text-highlight-note-btn:hover,
+.text-highlight-note-btn:focus-visible,
+.text-highlight-note.is-open .text-highlight-note-btn {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+  color: var(--text, var(--ink));
+}
+.text-highlight-note-icon {
+  width: 0.78em;
+  height: 0.78em;
+  display: block;
+}
+.text-highlight-note-pop {
+  inset: unset;
+  margin: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 11rem;
+  max-width: min(22rem, 70vw);
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.4rem;
+  background: var(--surface, var(--paper-light, var(--paper)));
+  color: var(--text, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 16%, transparent);
+  box-shadow: 0 0.4rem 1.2rem rgb(0 0 0 / 22%);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.35;
+}
+.text-highlight-note-pop[hidden] {
+  display: none !important;
+}
+.text-highlight-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.text-highlight-note-label {
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, var(--ink-soft));
+}
+.text-highlight-note-close {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: color-mix(in srgb, var(--text, var(--ink)) 70%, transparent);
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.text-highlight-note-close:hover,
+.text-highlight-note-close:focus-visible {
+  background: color-mix(in srgb, var(--ink, #1a1510) 10%, transparent);
+  color: var(--text, var(--ink));
+}
+.text-highlight-note-body {
+  min-width: 0;
+  font-weight: 400;
+}
+.text-highlight-note-body .nostr-rich-text {
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+}
+.text-highlight-note-body strong,
+.text-highlight-note-body b,
+.text-highlight-note-body h1,
+.text-highlight-note-body h2,
+.text-highlight-note-body h3,
+.text-highlight-note-body h4 {
+  font-weight: 400;
+}
+.text-highlight-note-body .nrt-flow,
+.text-highlight-note-body .nrt-mention {
+  display: inline;
+}
+.text-highlight-note-open {
+  justify-self: start;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text-muted, var(--ink-soft)) 70%, var(--accent));
+  text-decoration: none;
+}
+.text-highlight-note-open:hover,
+.text-highlight-note-open:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.text-highlight-ink {
+  display: inline-flex;
+  vertical-align: text-bottom;
+  margin-left: 0.3em;
+  width: 2.1em;
+  height: 2.1em;
+  border-radius: 0.3em;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 18%, transparent);
+  box-shadow: 0 0.1rem 0.35rem rgb(0 0 0 / 14%);
+  background: color-mix(in srgb, var(--surface, var(--paper)) 80%, #fff);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.text-highlight-ink:hover,
+.text-highlight-ink:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.event-body .text-highlight-ink img,
+.reading-body .text-highlight-ink img,
+.reader-section .text-highlight-ink img,
+.thread-body .text-highlight-ink img,
+.text-highlight-ink img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  object-fit: cover !important;
+  border-radius: 0;
 }
 /* Win over prose `img { height: auto !important }` so the pfp stays a disc. */
 .event-body .text-highlight-by-avatar,

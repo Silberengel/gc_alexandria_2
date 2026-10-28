@@ -86,7 +86,12 @@
   import DrawingEditor from '$lib/components/DrawingEditor.svelte';
   import { inkMarginChipsFromEvents } from '$lib/ink-margin';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
-  import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
+  import {
+    mergeInkIntoHighlights,
+    textHighlightsFromEvents,
+    seedHighlightProfile,
+    type TextHighlight
+  } from '$lib/text-highlights';
   import {
     ingestLocalLandingHighlight,
     fetchContainingPublication,
@@ -95,6 +100,7 @@
   import { publishComment, signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
+  import { showNotice } from '$lib/stores/toast';
   import { loadResume, saveResume } from '$lib/resume';
   import {
     flushReadingProgress,
@@ -3178,6 +3184,18 @@
     }
   }
 
+  /** Warm section threads so ink thumbnails can paint next to source quotes. */
+  $effect(() => {
+    if (!reading) return;
+    const secs = paintedSections.slice(0, 12);
+    for (const section of secs) {
+      if (event && section.id === event.id) continue;
+      const a = eventAddress(section);
+      if (sectionResponses[a] || sectionComments[a] || sectionCommentsLoading[a]) continue;
+      void loadSectionComments(section);
+    }
+  });
+
   function rememberPos(pos: number, section: Event): void {
     if (!event) return;
     // Cover pane: keep resume on the edition root; never invent a nested ?section=.
@@ -3474,11 +3492,25 @@
     const tags = [...partial.tags, result.imeta];
     const signed = await publishComment({ ...partial, tags });
     if (signed) {
+      const a = eventAddress(anchor.section);
+      sectionComments = {
+        ...sectionComments,
+        [a]: [signed, ...(sectionComments[a] ?? []).filter((e) => e.id !== signed.id)]
+      };
+      const prev = sectionResponses[a] ?? emptyWorkResponses();
+      sectionResponses = {
+        ...sectionResponses,
+        [a]: {
+          ...prev,
+          thread: [signed, ...prev.thread.filter((e) => e.id !== signed.id)]
+        }
+      };
       inkOpen = false;
       inkAnchor = null;
       readerHighlightDraft = null;
       keepHighlightDraft = false;
       window.getSelection()?.removeAllRanges();
+      showNotice('Ink note posted.', true);
     }
   }
 
@@ -3549,17 +3581,24 @@
   function quotesFor(section: Event): TextHighlight[] {
     const forSection = highlightsForEvent(mutedHighlights, section);
     const fromEvents = textHighlightsFromEvents(forSection);
+    const sectionKey = eventAddress(section);
+    const inkChips = inkMarginChipsFromEvents(
+      sectionComments[sectionKey] ?? sectionResponses[sectionKey]?.thread ?? []
+    );
+    let merged = mergeInkIntoHighlights(fromEvents, inkChips);
     // Deep-link ?quote= from landing: mark even before the kind-9802 event is fetched.
     if (
       urlFocusQuote &&
-      !fromEvents.some((h) => h.quote.replace(/\s+/g, ' ').toLowerCase().includes(urlFocusQuote.slice(0, 80).toLowerCase()))
+      !merged.some((h) =>
+        h.quote.replace(/\s+/g, ' ').toLowerCase().includes(urlFocusQuote.slice(0, 80).toLowerCase())
+      )
     ) {
       const body = section.content.replace(/\s+/g, ' ').toLowerCase();
       if (body.includes(urlFocusQuote.slice(0, 80).toLowerCase())) {
-        return [...fromEvents, { quote: urlFocusQuote, pubkey: '' }];
+        merged = [...merged, { quote: urlFocusQuote, pubkey: '' }];
       }
     }
-    return fromEvents;
+    return merged;
   }
 
   async function enrichHighlightsFromSections(secs: Event[]): Promise<void> {
@@ -4274,9 +4313,10 @@
           </div>
         </div>
         {#if readerHighlightDraft && reading && !inkOpen && !notePromptOpen && !replyComposeOpen}
+          {@const selDraft = readerHighlightDraft}
           <div class="reader-sel-host" class:sheet={selectionSheet}>
             <SelectionActionTray
-              quote={readerHighlightDraft.quote}
+              quote={selDraft.quote}
               sheet={selectionSheet}
               {markMode}
               onMarkMode={(on) => (markMode = on)}
@@ -4284,13 +4324,13 @@
               onHighlightNote={() => {
                 keepHighlightDraft = true;
                 notePromptText = '';
-                hydrateReaderSelectionDraft('note', readerHighlightDraft.quote);
+                hydrateReaderSelectionDraft('note', selDraft.quote);
                 notePromptOpen = true;
               }}
               onReply={() => {
                 keepHighlightDraft = true;
                 replyDraftText = '';
-                hydrateReaderSelectionDraft('reply', readerHighlightDraft.quote);
+                hydrateReaderSelectionDraft('reply', selDraft.quote);
                 replyComposeOpen = true;
               }}
               onInk={openReaderInk}

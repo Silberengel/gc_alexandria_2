@@ -7,6 +7,7 @@
   import {
     renderWithFallback,
     renderHighlightEventHtml,
+    highlightCommentTag,
     markHighlights,
     resolveMarkup,
     isAllowedMediaUrl,
@@ -213,6 +214,8 @@
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
   const isHighlightEvent = $derived(sourceKind === KIND.HIGHLIGHT);
+  /** NIP-84 quote-highlight note (`comment` tag) on a kind-9802 OP. */
+  const highlightNote = $derived(isHighlightEvent ? highlightCommentTag(sourceTags) : '');
   /**
    * Plain notes normally use NostrRichText — but when this body has highlight quotes,
    * take the HTML mark path so kind-9802 ranges paint on the opened event.
@@ -261,7 +264,18 @@
 
   const quotesSig = $derived(
     quotes
-      .map((q) => (typeof q === 'string' ? q : `${q.pubkey ?? ''}\t${q.quote}`))
+      .map((q) =>
+        typeof q === 'string'
+          ? q
+          : [
+              q.pubkey ?? '',
+              q.eventId ?? '',
+              q.note ?? '',
+              q.inkUrl ?? '',
+              q.inkEventId ?? '',
+              q.quote
+            ].join('\t')
+      )
       .join('\n')
   );
 
@@ -419,12 +433,17 @@
   $effect(() => {
     const el = bodyEl;
     const ready = !bodyPending;
-    const q = quotes;
+    // Depend on content signature, not quotes[] identity — parents often pass a
+    // fresh array each render, which was remounting note chips mid-click.
+    const qSnap = quotesSig;
     const selfMarked = highlightHtml.includes('text-highlight');
     if (!el || !ready) return;
+    void qSnap;
     const stopYoutube = attachYoutubeEmbeds(el);
     const stopBadges =
-      q.length || selfMarked ? attachHighlightBadges(el) : undefined;
+      qSnap.length > 0 || selfMarked || !!el.querySelector('mark.text-highlight')
+        ? attachHighlightBadges(el)
+        : undefined;
     return () => {
       stopBadges?.();
       stopYoutube();
@@ -544,6 +563,12 @@
         kind={sourceKind}
         showEmbeds={false}
       />
+    {/if}
+    {#if highlightNote}
+      <aside class="highlight-comment-note" aria-label="Highlight note">
+        <p class="highlight-comment-label muted">Note</p>
+        <NostrRichText content={highlightNote} event={displayEvent} showEmbeds={false} />
+      </aside>
     {/if}
   {:else if usePlaintextRich}
     {#if showReferenceBlurb && displayEvent}
