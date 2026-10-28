@@ -24,8 +24,10 @@
     roomPresenceDraft
   } from '$lib/live-chat';
   import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
-  import { consumeSignFailure, isSignInFlight, signAndPublish } from '$lib/sign';
+  import { consumeSignFailure, isSignInFlight, publishComment, signAndPublish } from '$lib/sign';
   import { showNotice } from '$lib/stores/toast';
+  import { articleHighlightDraft, commentDraft } from '$lib/drafts';
+  import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
   import {
     emptyWorkResponses,
     eventsPointingAtId,
@@ -105,11 +107,16 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { getSelectorContext, onSelectorContext } from '$lib/nostr/selector';
   import { inkMarginChipsFromEvents } from '$lib/ink-margin';
-  import { mergeInkIntoHighlights, textHighlightsFromEvents } from '$lib/text-highlights';
+  import {
+    mergeInkIntoHighlights,
+    seedHighlightProfile,
+    textHighlightsFromEvents
+  } from '$lib/text-highlights';
   import DrawingEditor from '$lib/components/DrawingEditor.svelte';
   import {
     deleteThreadDraft,
     loadThreadDraft,
+    quoteDraftScope,
     saveThreadDraft
   } from '$lib/comment-drafts';
 
@@ -692,6 +699,17 @@
   let threadLoading = $state(true);
   let socialLoading = $state(false);
   let responses = $state<WorkResponses>(emptyWorkResponses());
+  let threadArticlePane = $state<HTMLElement | undefined>();
+  let threadSelDraft = $state<{ quote: string; context?: string } | null>(null);
+  let keepThreadSelDraft = false;
+  let markMode = $state(false);
+  let inkOpen = $state(false);
+  let inkQuote = $state<string | null>(null);
+  let notePromptOpen = $state(false);
+  let notePromptText = $state('');
+  let replyComposeOpen = $state(false);
+  let replyDraftText = $state('');
+  let selectionSheet = $state(false);
 
   const libraryKind = $derived(
     !!event &&
@@ -710,6 +728,209 @@
         )
       : []
   );
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 720px)');
+    const sync = () => {
+      selectionSheet = mq.matches;
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  });
+
+  function threadContextFromSelection(sel: Selection | null, quote: string): string | undefined {
+    try {
+      const node = sel?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      const block = el?.closest('p, li, blockquote, pre, div.paragraph, article');
+      const full = block?.textContent?.trim();
+      if (full && full !== quote && full.includes(quote)) return full.slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }
+
+  function syncThreadSelection(): void {
+    const sel = window.getSelection();
+    const quote = sel?.toString().trim() ?? '';
+    const holdDraft = keepThreadSelDraft || inkOpen || notePromptOpen || replyComposeOpen;
+    if (!quote || !sel || !threadArticlePane) {
+      if (!holdDraft) threadSelDraft = null;
+      return;
+    }
+    const node = sel.anchorNode;
+    if (!node || !threadArticlePane.contains(node)) {
+      if (!holdDraft) threadSelDraft = null;
+      return;
+    }
+    keepThreadSelDraft = false;
+    threadSelDraft = { quote, context: threadContextFromSelection(sel, quote) };
+  }
+
+  $effect(() => {
+    if (!pointer || !event || !threadArticlePane) {
+      threadSelDraft = null;
+      keepThreadSelDraft = false;
+      return;
+    }
+    const onSel = () => syncThreadSelection();
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (t.closest('.sel-tray, .reader-sel-host, .reader-mini-dialog, .draw-overlay')) {
+        keepThreadSelDraft = true;
+      }
+    };
+    document.addEventListener('selectionchange', onSel);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      document.removeEventListener('selectionchange', onSel);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
+
+  async function saveThreadHighlight(comment?: string): Promise<void> {
+    if (!event || !threadSelDraft) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const signed = await signAndPublish(
+      articleHighlightDraft(event, threadSelDraft.quote, threadSelDraft.context, comment)
+    );
+    if (signed) {
+      const mine = session
+        .getMetadata()
+        .find((e) => e.kind === KIND.METADATA && e.pubkey.toLowerCase() === signed.pubkey.toLowerCase());
+      seedHighlightProfile(signed.pubkey, mine ?? null);
+      responses = {
+        ...responses,
+        highlights: [signed, ...responses.highlights.filter((h) => h.id !== signed.id)]
+      };
+      clearThreadSelectionDraft('note', threadSelDraft.quote);
+      threadSelDraft = null;
+      notePromptOpen = false;
+      notePromptText = '';
+      window.getSelection()?.removeAllRanges();
+      showNotice('Highlight saved.', true);
+    }
+  }
+
+  async function submitThreadQuoteReply(): Promise<void> {
+    if (!event || !threadSelDraft) return;
+    const text = replyDraftText.trim();
+    if (!text) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const quote = threadSelDraft.quote;
+    const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${text}`;
+    const signed = await publishComment(commentDraft(event, body));
+    if (signed) {
+      clearThreadSelectionDraft('reply', quote);
+      responses = {
+        ...responses,
+        thread: [signed, ...responses.thread.filter((e) => e.id !== signed.id)]
+      };
+      replyComposeOpen = false;
+      replyDraftText = '';
+      threadSelDraft = null;
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  async function onThreadInkComplete(result: {
+    url: string;
+    imeta: string[];
+  }): Promise<void> {
+    const quote = inkQuote ?? threadSelDraft?.quote;
+    if (!event || !quote) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${result.url}`;
+    const partial = commentDraft(event, body);
+    const signed = await publishComment({ ...partial, tags: [...partial.tags, result.imeta] });
+    if (signed) {
+      responses = {
+        ...responses,
+        thread: [signed, ...responses.thread.filter((e) => e.id !== signed.id)]
+      };
+      inkOpen = false;
+      inkQuote = null;
+      threadSelDraft = null;
+      keepThreadSelDraft = false;
+      window.getSelection()?.removeAllRanges();
+      showNotice('Ink note posted.', true);
+    }
+  }
+
+  function openThreadInk(): void {
+    if (!threadSelDraft) return;
+    inkQuote = threadSelDraft.quote;
+    keepThreadSelDraft = true;
+    inkOpen = true;
+  }
+
+  const threadInkDraftScope = $derived(
+    event && inkQuote
+      ? `ink:${event.id.toLowerCase()}:${quoteDraftScope(inkQuote)}`
+      : ''
+  );
+
+  function threadSelectionDraftScope(kind: 'reply' | 'note', quote: string): string {
+    if (!event) return '';
+    return `feed-${kind}:${event.id.toLowerCase()}:${quoteDraftScope(quote)}`;
+  }
+
+  function hydrateThreadSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = threadSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    const saved = loadThreadDraft(pubkey, scope);
+    if (!saved?.text) return;
+    if (kind === 'reply') replyDraftText = saved.text;
+    else notePromptText = saved.text;
+  }
+
+  function persistThreadSelectionDraft(kind: 'reply' | 'note', quote: string, text: string): void {
+    const pubkey = $session.pubkey;
+    const scope = threadSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    saveThreadDraft(pubkey, scope, {
+      text,
+      imetaTags: [],
+      asKind1Reply: false
+    });
+  }
+
+  function clearThreadSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = threadSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    deleteThreadDraft(pubkey, scope);
+  }
+
+  $effect(() => {
+    if (!replyComposeOpen || !threadSelDraft) return;
+    const quote = threadSelDraft.quote;
+    const text = replyDraftText;
+    const t = setTimeout(() => persistThreadSelectionDraft('reply', quote, text), 280);
+    return () => clearTimeout(t);
+  });
+
+  $effect(() => {
+    if (!notePromptOpen || !threadSelDraft) return;
+    const quote = threadSelDraft.quote;
+    const text = notePromptText;
+    const t = setTimeout(() => persistThreadSelectionDraft('note', quote, text), 280);
+    return () => clearTimeout(t);
+  });
   /**
    * Kind 6 / 16 for the open thread OP.
    * Prefer list-row boosts for an instant strip, then merge relay responses.
@@ -1298,7 +1519,7 @@
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
         {:else}
-          <article class="card reading-body">
+          <article class="card reading-body" class:mark-mode={markMode} bind:this={threadArticlePane}>
             <FeedBoosters boosts={threadBoosts} targetId={event.id} />
             {#if libraryKind}
               <EditionHeader {event} />
@@ -1316,6 +1537,83 @@
             <EventBody {event} quotes={bodyHighlights} />
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
+          {#if threadSelDraft && !inkOpen && !notePromptOpen && !replyComposeOpen}
+            {@const selDraft = threadSelDraft}
+            <div class="reader-sel-host" class:sheet={selectionSheet}>
+              <SelectionActionTray
+                quote={selDraft.quote}
+                sheet={selectionSheet}
+                {markMode}
+                onMarkMode={(on) => (markMode = on)}
+                onHighlight={() => void saveThreadHighlight()}
+                onHighlightNote={() => {
+                  keepThreadSelDraft = true;
+                  notePromptText = '';
+                  hydrateThreadSelectionDraft('note', selDraft.quote);
+                  notePromptOpen = true;
+                }}
+                onReply={() => {
+                  keepThreadSelDraft = true;
+                  replyDraftText = '';
+                  hydrateThreadSelectionDraft('reply', selDraft.quote);
+                  replyComposeOpen = true;
+                }}
+                onInk={openThreadInk}
+                onDismiss={() => {
+                  threadSelDraft = null;
+                  keepThreadSelDraft = false;
+                  window.getSelection()?.removeAllRanges();
+                }}
+              />
+            </div>
+          {/if}
+          {#if notePromptOpen && threadSelDraft}
+            <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
+              <label>
+                Note on highlight
+                <textarea rows="3" bind:value={notePromptText} placeholder="Your note…"></textarea>
+              </label>
+              <div class="compose-actions">
+                <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  disabled={!notePromptText.trim()}
+                  onclick={() => void saveThreadHighlight(notePromptText.trim())}
+                  >Save highlight</button
+                >
+              </div>
+            </div>
+          {/if}
+          {#if replyComposeOpen && threadSelDraft}
+            <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
+              <label>
+                Reply
+                <textarea rows="3" bind:value={replyDraftText} placeholder="Your reply…"></textarea>
+              </label>
+              <div class="compose-actions">
+                <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  disabled={!replyDraftText.trim()}
+                  onclick={() => void submitThreadQuoteReply()}
+                  >Post reply</button
+                >
+              </div>
+            </div>
+          {/if}
+          <DrawingEditor
+            bind:open={inkOpen}
+            title="Ink note"
+            initialPaper="sticky"
+            draftScope={threadInkDraftScope}
+            onComplete={(r) => void onThreadInkComplete(r)}
+            onCancel={() => {
+              inkOpen = false;
+              inkQuote = null;
+            }}
+          />
         {/if}
         {#if fullPage}
           <p class="feed-full-page"><a href={`#${fullPage}`} use:link>Open the full page</a></p>
