@@ -17,7 +17,7 @@
 
   const parsed = $derived(ref ?? parseYouTubeUrl(url));
   const embedSrc = $derived(parsed ? youtubeEmbedSrc(parsed) : null);
-  const href = $derived(parsed ? youtubeOpenUrl(parsed) : url);
+  const href = $derived((parsed ? youtubeOpenUrl(parsed) : '') || url);
   const still = $derived(parsed ? youtubeStillUrl(parsed) : null);
 </script>
 

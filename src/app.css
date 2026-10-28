@@ -2298,10 +2298,10 @@ select:hover {
     grid-template-columns: 1fr;
   }
 }
-.advanced-search-fieldset :global(.tag-rows-head) {
+.advanced-search-fieldset .tag-rows-head {
   font-size: 0.88rem;
 }
-.advanced-search-fieldset :global(.tag-row input) {
+.advanced-search-fieldset .tag-row input {
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   background: var(--surface);
@@ -7608,7 +7608,9 @@ a.embed-event-line:focus-visible {
   pointer-events: none;
   margin: 0 0.5rem 0.5rem;
 }
-.reader-sel-host:not(.sheet) :global(.sel-tray) {
+/* app.css is global — do not use Svelte :global(); browsers ignore it and the
+   sticky host stays pointer-events:none, so tray buttons never receive hover/click. */
+.reader-sel-host:not(.sheet) .sel-tray {
   pointer-events: auto;
 }
 .reader-sel-host.sheet {

@@ -64,7 +64,8 @@
   let color = $state<string>(INK_PALETTE[0]!);
   let width = $state(5);
   let labelText = $state('');
-  let fontId = $state<DrawFontId>('sans');
+  /** Null = no font chosen (Clear / before first pick). */
+  let fontId = $state<DrawFontId | null>(null);
   /** Remember brush size when switching to/from text. */
   let brushWidth = 5;
   let paperId = $state<PaperId>('parchment');
@@ -101,7 +102,7 @@
       paperId,
       mirror,
       labelText,
-      fontId,
+      fontId: fontId ?? '',
       color,
       width,
       tool,
@@ -145,7 +146,11 @@
     if (typeof saved.paperId === 'string') paperId = saved.paperId as PaperId;
     mirror = !!saved.mirror;
     if (typeof saved.labelText === 'string') labelText = saved.labelText;
-    if (typeof saved.fontId === 'string') fontId = saved.fontId as DrawFontId;
+    if (typeof saved.fontId === 'string' && saved.fontId) {
+      fontId = saved.fontId as DrawFontId;
+    } else if (saved.fontId === '') {
+      fontId = null;
+    }
     if (typeof saved.color === 'string') color = saved.color;
     if (typeof saved.width === 'number') width = saved.width;
     if (typeof saved.tool === 'string') tool = saved.tool as DrawTool;
@@ -394,12 +399,22 @@
     ];
   }
 
+  function clearLabel(): void {
+    labelText = '';
+    fontId = null;
+    error = '';
+  }
+
   function onPointerDown(e: PointerEvent): void {
     if (step !== 'draw' || busy) return;
     if (penActive && e.pointerType === 'touch') return;
     if (e.pointerType === 'pen') penActive = true;
     if (isTextTool(tool) && !labelText.trim()) {
       error = 'Type a label, then drag on the canvas to place and size it.';
+      return;
+    }
+    if (isTextTool(tool) && !fontId) {
+      error = 'Pick a font, then drag on the canvas to place the label.';
       return;
     }
     error = '';
@@ -409,7 +424,7 @@
     drawing = true;
     redoStack = [];
     const pt = canvasPoint(e);
-    const font = drawFontById(fontId);
+    const font = drawFontById(fontId ?? 'sans');
     const stroke: DrawStroke = {
       tool,
       color: tool === 'eraser' ? '#000000' : color,
@@ -596,6 +611,7 @@
         </div>
       </header>
 
+      <div class="draw-body">
       {#if step === 'draw'}
         <div class="draw-tools" role="toolbar" aria-label="Drawing tools">
           <div class="tool-group" aria-label="Freehand">
@@ -663,15 +679,27 @@
 
         {#if isTextTool(tool)}
           <div class="text-row">
-            <label class="text-label">
-              Label
-              <input
-                type="text"
-                bind:value={labelText}
-                placeholder="Type text, then drag to place…"
-                disabled={busy}
-              />
-            </label>
+            <div class="text-label">
+              <span>Label</span>
+              <div class="text-input-row">
+                <input
+                  type="text"
+                  bind:value={labelText}
+                  placeholder="Type text, then drag to place…"
+                  disabled={busy}
+                  aria-label="Label text"
+                />
+                <button
+                  class="btn text-clear"
+                  type="button"
+                  disabled={busy || (!labelText && !fontId)}
+                  onclick={clearLabel}
+                  title="Clear label and font"
+                  aria-label="Clear label and font"
+                  >Clear label</button
+                >
+              </div>
+            </div>
             <div class="font-label">
               <span>Font</span>
               <div class="font-picker" role="listbox" aria-label="Label font">
@@ -693,7 +721,7 @@
               </div>
             </div>
             <p class="text-hint muted">
-              Drag on the canvas to place the label and set its size.
+              Type a label, pick a font, then drag on the canvas to place and size it.
             </p>
           </div>
         {/if}
@@ -797,6 +825,7 @@
       {#if error}
         <p class="draw-error" role="alert">{error}</p>
       {/if}
+      </div>
     </div>
   </div>
 {/if}
@@ -817,8 +846,10 @@
   }
   .draw-sheet {
     width: min(36rem, 100%);
-    max-height: min(96vh, 56rem);
-    overflow: auto;
+    max-height: min(96dvh, 56rem);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     background: var(--surface, var(--paper-light, var(--paper)));
     color: var(--text, var(--ink));
     border: 1px solid var(--border, var(--rule));
@@ -834,10 +865,14 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
     padding: 0.65rem 0.85rem 0.85rem;
+  }
+  .draw-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
   .draw-head {
     display: flex;
@@ -974,10 +1009,26 @@
     color: var(--text, var(--ink));
   }
   .text-label {
-    flex: 1 1 12rem;
+    flex: 1 1 14rem;
+    min-width: 10rem;
+    max-width: 26rem;
+  }
+  .text-input-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+  .text-input-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .text-clear {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .font-label {
-    flex: 1 1 100%;
+    flex: 1 1 16rem;
+    min-width: 12rem;
   }
   .text-label input {
     font: inherit;
@@ -1039,13 +1090,9 @@
     padding: 0.4rem;
     touch-action: none;
   }
-  .draw-sheet.full .canvas-wrap {
-    flex: 1 1 auto;
-    min-height: 0;
-    align-content: center;
-  }
   .draw-canvas {
-    width: min(100%, 22rem);
+    /* Cap by width and height so short viewports shrink the board, not clip chrome. */
+    width: min(100%, 22rem, calc(min(52dvh, 36rem) * 540 / 675));
     height: auto;
     aspect-ratio: 540 / 675;
     border-radius: 0.25rem;
@@ -1054,37 +1101,50 @@
     box-shadow: 0 0.15rem 0.5rem rgb(0 0 0 / 12%);
   }
   .draw-sheet.full .draw-canvas {
-    /* Grow within the flex area while keeping the bitmap aspect ratio. */
-    width: min(100%, calc((100dvh - 12.5rem) * 540 / 675));
-    height: auto;
-    max-width: 100%;
-    max-height: calc(100dvh - 12.5rem);
+    width: min(100%, 36rem, calc(min(58dvh, 42rem) * 540 / 675));
   }
   .draw-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
     margin-top: 0.7rem;
-    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    padding: 0.45rem 0 0.1rem;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--surface, var(--paper-light, var(--paper))) 0%, transparent),
+      var(--surface, var(--paper-light, var(--paper))) 28%
+    );
   }
   .preview-pane {
     display: grid;
     gap: 0.4rem;
     justify-items: center;
   }
-  .draw-sheet.full .preview-pane {
-    flex: 1 1 auto;
-    min-height: 0;
-    align-content: center;
-  }
   .preview-gif {
     max-width: min(100%, 22rem);
+    max-height: min(52dvh, 36rem);
     border-radius: 0.3rem;
     box-shadow: 0 0.15rem 0.5rem rgb(0 0 0 / 12%);
   }
   .draw-sheet.full .preview-gif {
     max-width: min(100%, 36rem);
-    max-height: calc(100dvh - 12rem);
+    max-height: min(58dvh, 42rem);
+  }
+  @media (max-width: 520px), (max-height: 700px) {
+    .draw-canvas,
+    .draw-sheet.full .draw-canvas {
+      width: min(100%, 20rem, calc(min(42dvh, 28rem) * 540 / 675));
+    }
+    .text-label {
+      max-width: none;
+      flex: 1 1 100%;
+    }
+    .font-label {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
   }
   .draw-error {
     color: color-mix(in srgb, #c44 55%, var(--text, var(--ink)));

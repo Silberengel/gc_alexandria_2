@@ -68,7 +68,20 @@
     e.preventDefault();
   }}
 >
-  <p class="sel-quote muted">{preview}</p>
+  <div class="sel-top">
+    <p class="sel-quote muted">{preview}</p>
+    {#if onDismiss}
+      <button
+        type="button"
+        class="sel-close"
+        aria-label="Close"
+        title="Close"
+        onpointerdown={(e) => runPointerAction(e, onDismiss)}
+        onclick={(e) => runClickAction(e, onDismiss)}
+        >×</button
+      >
+    {/if}
+  </div>
   <div class="sel-actions">
     {#if onMarkMode}
       <button
@@ -114,14 +127,6 @@
         onclick={(e) => runClickAction(e, onInk)}>Ink note</button
       >
     {/if}
-    {#if onDismiss}
-      <button
-        type="button"
-        class="btn"
-        onpointerdown={(e) => runPointerAction(e, onDismiss)}
-        onclick={(e) => runClickAction(e, onDismiss)}>Dismiss</button
-      >
-    {/if}
   </div>
 </div>
 
@@ -144,12 +149,42 @@
     z-index: 60;
     max-width: none;
   }
+  .sel-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
   .sel-quote {
     margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 0.82rem;
     line-height: 1.35;
     max-height: 3.2em;
     overflow: hidden;
+  }
+  .sel-close {
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin: -0.15rem -0.2rem 0 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0.3rem;
+    background: transparent;
+    color: color-mix(in srgb, var(--ink, #1a1510) 70%, transparent);
+    font: inherit;
+    font-size: 1.35rem;
+    line-height: 1;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .sel-close:hover,
+  .sel-close:focus-visible {
+    background: color-mix(in srgb, var(--ink, #1a1510) 10%, transparent);
+    color: var(--ink, #1a1510);
   }
   .sel-actions {
     display: flex;
