@@ -1063,16 +1063,19 @@ export async function loadViewerShelves(
   });
 }
 
+/** Skip a second full landing relay refresh within this window. */
+const LANDING_LIVE_TTL_MS = 5 * 60 * 1000;
+
 /**
  * SPA-session memory: Home was painted for this viewer+lists. Survives route unmount
  * so Booklists → Home can skip a second refreshLanding (pool stampede).
  */
-let warmLandingVisit: { viewer: string | null; metaKey: string } | null = null;
+let warmLandingVisit: { viewer: string | null; metaKey: string; at: number } | null = null;
 
 export function recordWarmLandingVisit(viewer: string | null, metaKey: string): void {
   // Empty metaKey is valid: signed-in viewers may have metadata with no list kinds
   // (no bookmarks / labels / directories / contacts). Treat that fingerprint like any other.
-  warmLandingVisit = { viewer: viewer?.toLowerCase() ?? null, metaKey };
+  warmLandingVisit = { viewer: viewer?.toLowerCase() ?? null, metaKey, at: Date.now() };
 }
 
 export function clearWarmLandingVisit(): void {
@@ -1085,6 +1088,10 @@ export function isWarmLandingRevisit(
   cached: LandingView | null | undefined
 ): boolean {
   if (!warmLandingVisit) return false;
+  if (Date.now() - warmLandingVisit.at > LANDING_LIVE_TTL_MS) {
+    warmLandingVisit = null;
+    return false;
+  }
   const nowViewer = viewer?.toLowerCase() ?? null;
   if (warmLandingVisit.viewer !== nowViewer) return false;
   const shelves = cached?.shelves ?? [];

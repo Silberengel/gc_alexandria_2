@@ -75,8 +75,8 @@
       <a href="#/wiki" use:link aria-current={onWikiHub ? 'page' : undefined}>Wiki</a>
       {#if signedIn}
         <a href="#/compose" use:link aria-current={onCompose ? 'page' : undefined}>Compose</a>
-        <a href="#/directory" use:link aria-current={onDirectory ? 'page' : undefined}>Directory</a>
       {/if}
+      <a href="#/directory" use:link aria-current={onDirectory ? 'page' : undefined}>Directory</a>
       <a href="#/feed" use:link aria-current={onFeed ? 'page' : undefined}>Feed</a>
     </div>
   </nav>

@@ -10,7 +10,8 @@ import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-fol
 import { displayTitle, libraryDocumentPath } from './metadata';
 import { followPubkeysFromMetadata } from './mute';
 import { mercuryFilter, mercuryWikiSearch } from './nostr/mercury';
-import { rememberEvents } from './nostr/event-memory';
+import { cachedEventsByKind } from './nostr/cache';
+import { memoryEventsByKind, rememberEvents } from './nostr/event-memory';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
@@ -19,10 +20,14 @@ import { firstTag } from './nostr/verify';
 import { session } from './stores/session';
 import { trust } from './stores/trust';
 import { trustedAssertions } from './trusted-assertions';
+import { SessionTtlCache } from './session-ttl-cache';
+import { isWikiDeference } from './wiki-defer';
 import {
   resolveWikiAliasArticles,
   wikiAliasMatchesQuery
 } from './wiki-redirect';
+
+const wikiHubSearchCache = new SessionTtlCache<Event[]>(5 * 60 * 1000, 40);
 
 /** @deprecated Prefer {@link wikiAliasMatchesQuery}. */
 export const wikiHubAliasMatchesQuery = wikiAliasMatchesQuery;
@@ -37,6 +42,11 @@ function mergeWikiEvents(batches: Event[][]): Event[] {
   const merged = pruneToLatestReplaceables(batches.flat().filter(isWikiish));
   rememberEvents(merged);
   return merged;
+}
+
+/** Real wiki/spec articles only — skip defers and empty shells (title/d with no body). */
+function isWikiHubListingPage(event: Event): boolean {
+  return isWikiish(event) && !isWikiDeference(event) && !!event.content?.trim();
 }
 
 function wikiTitleHay(event: Event): string {
@@ -150,42 +160,93 @@ async function hydrateWikiGrapevine(events: Event[]): Promise<GrapevineTrustCont
   return grapevineContext();
 }
 
-/** Newest wiki + spec pages from Mercury (NostrWiki “Recent changes”). */
-export async function loadWikiRecent(limit = 40): Promise<Event[]> {
-  const half = Math.max(10, Math.ceil(limit / 2));
-  const [wikis, specs] = await Promise.all([
-    mercuryFilter({ kinds: [KIND.WIKI], limit: half }).catch(() => [] as Event[]),
-    mercuryFilter({ kinds: [KIND.SPEC], limit: half }).catch(() => [] as Event[])
-  ]);
-  return mergeWikiEvents([wikis, specs])
+/** Skip wiki-relay round-trips for a few minutes after a successful recent fetch. */
+const WIKI_RECENT_TTL_MS = 5 * 60 * 1000;
+
+type WikiRecentSnap = { at: number; fetchLimit: number; events: Event[] };
+
+let wikiRecentSnap: WikiRecentSnap | null = null;
+let wikiRecentInflight: Promise<Event[]> | null = null;
+
+function rankWikiRecent(batches: Event[][], limit: number): Event[] {
+  return mergeWikiEvents(batches)
+    .filter(isWikiHubListingPage)
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, limit);
 }
 
-/**
- * Pick a random wiki article — Mercury and wiki relays in parallel
- * (same race pattern as NostrWiki).
- */
-export async function pickRandomWikiPage(): Promise<Event | null> {
-  const mercuryP = mercuryFilter({ kinds: [KIND.WIKI], limit: 25 }).catch(() => [] as Event[]);
-  const relaysP = relayPool
-    .query(wikiStack(), [{ kinds: [KIND.WIKI], limit: 25 }], 2500)
-    .catch(() => [] as Event[]);
+/** Fold anything newly remembered in this session into a cached recent list. */
+function wikiRecentWithMemory(events: Event[], limit: number): Event[] {
+  return rankWikiRecent(
+    [events, memoryEventsByKind(KIND.WIKI), memoryEventsByKind(KIND.SPEC)],
+    limit
+  );
+}
 
-  const first = await Promise.race([
-    mercuryP.then((events) => ({ events, src: 'm' as const })),
-    relaysP.then((events) => ({ events, src: 'r' as const }))
-  ]);
-  const otherP = first.src === 'm' ? relaysP : mercuryP;
-  const more = await Promise.race([
-    otherP,
-    new Promise<Event[]>((resolve) => setTimeout(() => resolve([]), 350))
-  ]);
-  let list = mergeWikiEvents([first.events, more]);
-  if (!list.length) {
-    const [m, r] = await Promise.all([mercuryP, relaysP]);
-    list = mergeWikiEvents([m, r]);
+/** Test helper — drop the in-memory recent TTL cache. */
+export function resetWikiRecentCacheForTests(): void {
+  wikiRecentSnap = null;
+  wikiRecentInflight = null;
+}
+
+/**
+ * Newest wiki + spec pages from IndexedDB/memory cache and (when stale) wiki relays.
+ * Relay results are TTL-cached so hub ↔ recent navigation does not re-query every time.
+ */
+export async function loadWikiRecent(limit = 40): Promise<Event[]> {
+  const fetchLimit = Math.max(50, Math.ceil(limit * 1.5));
+  const snap = wikiRecentSnap;
+  if (snap && Date.now() - snap.at < WIKI_RECENT_TTL_MS && snap.fetchLimit >= fetchLimit) {
+    return wikiRecentWithMemory(snap.events, limit);
   }
+
+  if (wikiRecentInflight) {
+    const events = await wikiRecentInflight;
+    return wikiRecentWithMemory(events, limit);
+  }
+
+  wikiRecentInflight = (async () => {
+    const wikiFilter = { kinds: [KIND.WIKI], limit: fetchLimit };
+    const specFilter = { kinds: [KIND.SPEC], limit: fetchLimit };
+    const [cachedWikis, cachedSpecs, relayWikis, relaySpecs] = await Promise.all([
+      cachedEventsByKind(KIND.WIKI).catch(() => [] as Event[]),
+      cachedEventsByKind(KIND.SPEC).catch(() => [] as Event[]),
+      relayPool.query(wikiStack(), [wikiFilter], 4000).catch(() => [] as Event[]),
+      relayPool.query(wikiStack(), [specFilter], 4000).catch(() => [] as Event[])
+    ]);
+    const events = rankWikiRecent(
+      [cachedWikis, cachedSpecs, relayWikis, relaySpecs],
+      fetchLimit
+    );
+    wikiRecentSnap = { at: Date.now(), fetchLimit, events };
+    return events;
+  })();
+
+  try {
+    const events = await wikiRecentInflight;
+    return wikiRecentWithMemory(events, limit);
+  } finally {
+    wikiRecentInflight = null;
+  }
+}
+
+/** Pick a random wiki article — prefer the recent TTL cache, else cache + wiki relays. */
+export async function pickRandomWikiPage(): Promise<Event | null> {
+  const fromRecent = wikiRecentSnap
+    ? wikiRecentWithMemory(wikiRecentSnap.events, wikiRecentSnap.events.length).filter(
+        (e) => e.kind === KIND.WIKI
+      )
+    : [];
+  if (fromRecent.length) {
+    return fromRecent[Math.floor(Math.random() * fromRecent.length)] ?? null;
+  }
+
+  const filter = { kinds: [KIND.WIKI], limit: 60 };
+  const [cached, relayHits] = await Promise.all([
+    cachedEventsByKind(KIND.WIKI).catch(() => [] as Event[]),
+    relayPool.query(wikiStack(), [filter], 2500).catch(() => [] as Event[])
+  ]);
+  const list = mergeWikiEvents([cached, relayHits]).filter(isWikiHubListingPage);
   if (!list.length) return null;
   return list[Math.floor(Math.random() * list.length)] ?? null;
 }
@@ -198,7 +259,11 @@ export async function pickRandomWikiPage(): Promise<Event | null> {
 export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
   const query = q.trim();
   if (!query) return [];
+  const cacheKey = `wiki-search:${query.toLowerCase()}:${limit}`;
+  return wikiHubSearchCache.getOrLoad(cacheKey, () => searchWikiHubUncached(query, limit));
+}
 
+async function searchWikiHubUncached(query: string, limit: number): Promise<Event[]> {
   const slug = normalizeDTag(query);
   const variants = dTagVariants(query);
   const titleSlug = relayTagSlug(query);

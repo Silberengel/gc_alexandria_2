@@ -24,15 +24,46 @@ import { deletionDraft } from './drafts';
 import { rememberDeletedTarget } from './deletions';
 import { documentStack } from './nostr/selector';
 import { relayPool } from './nostr/pool';
-import { rememberEvents } from './nostr/event-memory';
+import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { cacheDeleteEvent } from './nostr/cache';
+import { SessionTtlCache } from './session-ttl-cache';
 import { signAndPublish } from './sign';
 
+/** Replaceable directory lookups — avoid re-REQ on every Directory/bookshelf open. */
+const directoryByDCache = new SessionTtlCache<Event | null>(5 * 60 * 1000, 120);
+
+function directoryCacheKey(pubkey: string, d: string): string {
+  return `dir:${pubkey.toLowerCase()}:${d}`;
+}
+
 async function fetchDirectoryByD(pubkey: string, d: string): Promise<Event | null> {
-  const filter = { kinds: [KIND.DIRECTORY], authors: [pubkey], '#d': [d], limit: 1 };
-  const hits = await relayPool.query(documentStack(), [filter]);
-  return hits[0] ?? null;
+  const pk = pubkey.toLowerCase();
+  const key = directoryCacheKey(pk, d);
+  const warm = memoryFindByAddress(KIND.DIRECTORY, pk, d);
+  if (warm) {
+    directoryByDCache.set(key, warm);
+    return warm;
+  }
+  return directoryByDCache.getOrLoad(key, async () => {
+    const filter = { kinds: [KIND.DIRECTORY], authors: [pk], '#d': [d], limit: 1 };
+    const hits = await relayPool.query(documentStack(), [filter]);
+    const hit = hits[0] ?? null;
+    if (hit) rememberEvents([hit]);
+    return hit;
+  });
+}
+
+/**
+ * Fetch another (or your own) user's `/root` directory without minting missing
+ * folders. Used for read-only Directory browsing by npub/hex.
+ */
+export async function loadUserDirectoryRoot(pubkey: string): Promise<Event | null> {
+  const pk = pubkey.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(pk)) return null;
+  const root = await fetchDirectoryByD(pk, ROOT_DIRECTORY_D_TAG);
+  if (root) rememberEvents([root]);
+  return root;
 }
 
 export type UserHomeDirectories = {
@@ -44,6 +75,14 @@ export type UserHomeDirectories = {
   others: Event[];
 };
 
+const homeDirectoriesCache = new SessionTtlCache<UserHomeDirectories>(5 * 60 * 1000, 8);
+
+function invalidateDirectoryCaches(pubkey: string): void {
+  const pk = pubkey.toLowerCase();
+  directoryByDCache.invalidate(`dir:${pk}:`);
+  homeDirectoriesCache.invalidate(`home:${pk}`);
+}
+
 /**
  * Load the viewer's directories and mint `/root` plus `/root/my-book-collection`
  * when either is missing (empty 30045, Android-safe: no title tag). Always nests
@@ -51,6 +90,10 @@ export type UserHomeDirectories = {
  */
 export async function ensureUserHomeDirectories(pubkey: string): Promise<UserHomeDirectories> {
   const pk = pubkey.toLowerCase();
+  return homeDirectoriesCache.getOrLoad(`home:${pk}`, () => ensureUserHomeDirectoriesUncached(pk));
+}
+
+async function ensureUserHomeDirectoriesUncached(pk: string): Promise<UserHomeDirectories> {
   const hits = await relayPool.query(
     documentStack(),
     [{ kinds: [KIND.DIRECTORY], authors: [pk], limit: 80 }],
@@ -61,7 +104,10 @@ export async function ensureUserHomeDirectories(pubkey: string): Promise<UserHom
   const byD = new Map<string, Event>();
   for (const ev of latest) {
     const d = directoryDTag(ev);
-    if (d) byD.set(d, ev);
+    if (d) {
+      byD.set(d, ev);
+      directoryByDCache.set(directoryCacheKey(pk, d), ev);
+    }
   }
 
   async function ensureD(d: string): Promise<Event> {
@@ -76,6 +122,7 @@ export async function ensureUserHomeDirectories(pubkey: string): Promise<UserHom
     }
     rememberEvents([published]);
     byD.set(d, published);
+    directoryByDCache.set(directoryCacheKey(pk, d), published);
     return published;
   }
 
@@ -90,6 +137,7 @@ export async function ensureUserHomeDirectories(pubkey: string): Promise<UserHom
       if (published) {
         rememberEvents([published]);
         byD.set(ROOT_DIRECTORY_D_TAG, published);
+        directoryByDCache.set(directoryCacheKey(pk, ROOT_DIRECTORY_D_TAG), published);
         root = published;
       }
     }
@@ -174,6 +222,8 @@ export async function toggleBookshelfShelf(
   if ('error' in draft) return { error: 'Bookshelf is full' };
   const published = await signAndPublish(draft);
   if (!published) return { error: 'Publish failed' };
+  invalidateDirectoryCaches(pubkey);
+  directoryByDCache.set(directoryCacheKey(pubkey, directoryDTag(published) || shelf.d), published);
 
   const next: BookshelfState = {
     root: state.root,
@@ -248,6 +298,9 @@ export async function addNewBookshelf(
       membershipCoords.add(s.coordinate);
     }
   }
+  invalidateDirectoryCaches(pubkey);
+  directoryByDCache.set(directoryCacheKey(pubkey, MY_BOOK_COLLECTION_D_TAG), rootEv);
+  directoryByDCache.set(directoryCacheKey(pubkey, directoryDTag(updatedNested) || d), updatedNested);
   return {
     root: rootEv,
     nestedByCoord,
@@ -307,6 +360,12 @@ export async function createFolderInParent(
   const nextParent = await signAndPublish(linkDraft);
   if (!nextParent) return { error: 'Could not link folder' };
   rememberEvents([nested, nextParent]);
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(directoryCacheKey(parent.pubkey, directoryDTag(nested) || d), nested);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(nextParent) || ROOT_DIRECTORY_D_TAG),
+    nextParent
+  );
   return { folder: nested, parent: nextParent };
 }
 
@@ -335,6 +394,11 @@ export async function addMemberToDirectory(
   const published = await signAndPublish(draft);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(published) || ROOT_DIRECTORY_D_TAG),
+    published
+  );
   return published;
 }
 
@@ -367,6 +431,11 @@ export async function removeMemberFromDirectory(
   const published = await signAndPublish(draft);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(published) || ROOT_DIRECTORY_D_TAG),
+    published
+  );
   return published;
 }
 
@@ -397,6 +466,11 @@ export async function deleteFolderFromParent(
     rememberDeletedTarget(folder, deleted);
     void cacheDeleteEvent(folder.id).catch(() => {});
   }
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(unlinked) || ROOT_DIRECTORY_D_TAG),
+    unlinked
+  );
   return { parent: unlinked };
 }
 
@@ -451,5 +525,11 @@ export async function renameFolderInParent(
   }
 
   rememberEvents([rewritten, nextParent]);
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(directoryCacheKey(parent.pubkey, nextD), rewritten);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(nextParent) || ROOT_DIRECTORY_D_TAG),
+    nextParent
+  );
   return { folder: rewritten, parent: nextParent };
 }

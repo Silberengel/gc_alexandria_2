@@ -2281,6 +2281,27 @@ a.listing-row:hover,
 .edition-header-spec .edition-cover {
   --edition-cover-h: 13.5rem;
 }
+/* Wiki/spec without an `image` tag: no side cover — title column is full width. */
+.edition-header-text-only .edition-hero {
+  display: block;
+}
+.edition-header-text-only .edition-meta {
+  flex: none;
+  width: 100%;
+}
+.edition-doc-kind {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+}
+.edition-header-wiki .edition-doc-kind,
+.edition-header-spec .edition-doc-kind {
+  margin-bottom: 0.15rem;
+}
 .edition-cover .cover-frame {
   display: block;
   width: 100%;
@@ -9759,6 +9780,9 @@ button.directory-explorer-link {
   line-height: 1.45;
 }
 .wiki-hub-search {
+  /* `.search-form` uses flex-basis 12rem for width in the top bar; in this
+     column hero that basis becomes height and leaves a dead gap under the input. */
+  flex: 0 0 auto;
   width: 100%;
   max-width: 34rem;
 }
@@ -9879,6 +9903,78 @@ button.directory-explorer-link {
 .directory-signin p {
   margin: 0;
   flex: 1 1 12rem;
+}
+.directory-owner-accordion {
+  margin: 0 0 1rem;
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.directory-owner-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  list-style: none;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+.directory-owner-summary::-webkit-details-marker {
+  display: none;
+}
+.directory-owner-summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.15rem;
+  transition: transform 0.12s ease;
+  color: color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+}
+.directory-owner-accordion[open] > .directory-owner-summary::before {
+  transform: rotate(90deg);
+}
+.directory-owner-summary-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+.directory-owner-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0 0 0.85rem;
+  padding: 0.15rem 0 0.25rem;
+}
+.directory-owner-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.directory-owner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.directory-owner-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+}
+.directory-owner-error {
+  margin: 0;
+}
+.directory-readonly-pill {
+  display: inline-block;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--muted, #888) 45%, transparent);
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 /* Unix-style directory browser */
@@ -10165,7 +10261,31 @@ button.directory-explorer-link {
 .dir-col-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-  width: 4.25rem;
+  width: 9.5rem;
+}
+.dir-browser-objects {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0.2rem 0.35rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  white-space: normal;
+}
+.dir-browser-objects-sep {
+  opacity: 0.55;
+}
+.dir-browser-row.is-missing td {
+  opacity: 0.72;
+}
+.dir-browser-missing-flag {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dir-browser-icon.is-missing {
+  opacity: 0.55;
 }
 .dir-col-kind {
   font-size: 0.78rem;

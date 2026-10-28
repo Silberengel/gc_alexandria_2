@@ -32,6 +32,7 @@
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { sectionHeroImageUrl } from '$lib/cover';
   import type { Event } from 'nostr-tools';
 
   interface Props {
@@ -93,6 +94,8 @@
       appHandlers: responses.appHandlers ?? []
     };
   });
+  /** Only strip an early body image when the header actually paints the `image` tag. */
+  const dedupeHeaderHero = $derived(!!event && !!sectionHeroImageUrl(event));
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );
@@ -580,7 +583,7 @@
     <article class="card reading-body" bind:this={articlePane}>
       <EditionHeader {event} />
       {#if !hideBody}
-        <EventBody {event} quotes={bodyHighlights} />
+        <EventBody {event} quotes={bodyHighlights} dedupeHeroImage={dedupeHeaderHero} />
       {/if}
       <DetailsPanel {event} appHandlers={responses.appHandlers ?? []} />
     </article>

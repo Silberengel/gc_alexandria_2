@@ -47,3 +47,17 @@ Feature: Directory explorer (NKBIP-04)
     When I open the … menu on a publication, wiki, or note
     Then I can choose Add to folder and pick one of my directories
     And the chosen folder gains a membership a-tag for that event
+
+  Scenario: Browse another user's directory read-only
+    Given Directory is reachable from the top bar without signing in
+    And the Owner field defaults to my npub when I am signed in
+    When I enter another user's npub or hex pubkey and choose Open
+    Then their /root is loaded without minting missing folders
+    And create, remove, rename, and delete controls are hidden
+    And the URL carries ?npub= for that owner
+
+  Scenario: Return to my own folders
+    Given I am signed in and viewing another user's directory
+    When I choose My folders
+    Then the Owner field resets to my npub
+    And write controls are available again

@@ -13,6 +13,7 @@ import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { wikiStack } from './nostr/selector';
 import { eventAddress, firstTag } from './nostr/verify';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
+import { SessionTtlCache } from './session-ttl-cache';
 import { wikiPathFromCoordinate } from './wiki-defer';
 
 export type { WikiRedirect };
@@ -127,6 +128,8 @@ export type WikiAliasResolveResult = {
   exactAliasIds: Set<string>;
 };
 
+const wikiAliasCache = new SessionTtlCache<WikiAliasResolveResult>(5 * 60 * 1000, 40);
+
 function isWikiish(event: Event): boolean {
   return event.kind === KIND.WIKI || event.kind === KIND.SPEC;
 }
@@ -146,7 +149,14 @@ export async function resolveWikiAliasArticles(
   };
   const q = query.trim();
   if (!q) return empty;
+  const cacheKey = `wiki-alias:${q.toLowerCase()}:${limit}`;
+  return wikiAliasCache.getOrLoad(cacheKey, () => resolveWikiAliasArticlesUncached(q, limit));
+}
 
+async function resolveWikiAliasArticlesUncached(
+  q: string,
+  limit: number
+): Promise<WikiAliasResolveResult> {
   const variants = dTagVariants(q);
   const dValues = variants.length ? variants.slice(0, 12) : [q];
   const aliasFilter: Filter = {

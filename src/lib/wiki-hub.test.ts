@@ -17,6 +17,10 @@ vi.mock('./nostr/pool', () => ({
   }
 }));
 
+vi.mock('./nostr/cache', () => ({
+  cachedEventsByKind: vi.fn(async () => [])
+}));
+
 vi.mock('./nostr/selector', () => ({
   wikiStack: () => ['wss://wiki.example']
 }));
@@ -54,14 +58,18 @@ function ev(over: Partial<Event>): Event {
     created_at: over.created_at ?? 10,
     kind: over.kind ?? KIND.WIKI,
     tags: over.tags ?? [['d', 'monte-cristo'], ['title', 'Monte Cristo']],
-    content: over.content ?? '',
+    content: over.content ?? 'Article body.',
     sig: over.sig ?? 'b'.repeat(128)
   };
 }
 
 describe('wiki-hub helpers', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    const hub = await import('./wiki-hub');
+    const memory = await import('./nostr/event-memory');
+    hub.resetWikiRecentCacheForTests();
+    memory.resetEventMemoryForTests();
   });
 
   it('labels and paths for wiki vs spec', async () => {
@@ -78,13 +86,17 @@ describe('wiki-hub helpers', () => {
     expect(wikiHubResultHref(spec)).toContain('#/spec/');
   });
 
-  it('loadWikiRecent merges wiki and spec hits', async () => {
-    const mercury = await import('./nostr/mercury');
-    vi.mocked(mercury.mercuryFilter).mockImplementation(async (filter) => {
-      const kinds = filter.kinds ?? [];
-      if (kinds.includes(KIND.WIKI)) {
+  it('loadWikiRecent merges wiki and spec hits from cache and relays', async () => {
+    const cache = await import('./nostr/cache');
+    const pool = await import('./nostr/pool');
+    vi.mocked(cache.cachedEventsByKind).mockImplementation(async (kind) => {
+      if (kind === KIND.WIKI) {
         return [ev({ id: '1'.repeat(64), kind: KIND.WIKI, created_at: 20 })];
       }
+      return [];
+    });
+    vi.mocked(pool.relayPool.query).mockImplementation(async (_urls, filters) => {
+      const kinds = filters[0]?.kinds ?? [];
       if (kinds.includes(KIND.SPEC)) {
         return [
           ev({
@@ -100,6 +112,74 @@ describe('wiki-hub helpers', () => {
     const { loadWikiRecent } = await import('./wiki-hub');
     const hits = await loadWikiRecent(10);
     expect(hits.map((e) => e.kind)).toEqual([KIND.SPEC, KIND.WIKI]);
+  });
+
+  it('loadWikiRecent skips empty-content wiki pages', async () => {
+    const cache = await import('./nostr/cache');
+    const pool = await import('./nostr/pool');
+    const empty = ev({
+      id: 'c'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 80,
+      tags: [['d', 'empty-shell'], ['title', 'Empty shell']],
+      content: ''
+    });
+    const real = ev({
+      id: 'b'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 40,
+      tags: [['d', 'with-body'], ['title', 'With body']],
+      content: 'Actual article text.'
+    });
+    vi.mocked(cache.cachedEventsByKind).mockResolvedValue([empty, real]);
+    vi.mocked(pool.relayPool.query).mockResolvedValue([]);
+    const { loadWikiRecent } = await import('./wiki-hub');
+    expect((await loadWikiRecent(10)).map((e) => e.id)).toEqual([real.id]);
+  });
+
+  it('loadWikiRecent skips deferrals', async () => {
+    const cache = await import('./nostr/cache');
+    const pool = await import('./nostr/pool');
+    const defer = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 99,
+      tags: [
+        ['d', 'nkbip-02'],
+        ['a', `30818:${'f'.repeat(64)}:nkbip-02`, 'wss://relay.example/', 'defer']
+      ],
+      content: 'Read the other version instead.'
+    });
+    const real = ev({
+      id: 'e'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 50,
+      tags: [['d', 'bitcoin'], ['title', 'Bitcoin']]
+    });
+    vi.mocked(cache.cachedEventsByKind).mockResolvedValue([defer, real]);
+    vi.mocked(pool.relayPool.query).mockResolvedValue([]);
+    const { loadWikiRecent } = await import('./wiki-hub');
+    const hits = await loadWikiRecent(10);
+    expect(hits.map((e) => e.id)).toEqual([real.id]);
+  });
+
+  it('loadWikiRecent reuses the TTL cache and skips a second relay query', async () => {
+    const cache = await import('./nostr/cache');
+    const pool = await import('./nostr/pool');
+    const page = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.WIKI,
+      created_at: 40,
+      tags: [['d', 'cached'], ['title', 'Cached']]
+    });
+    vi.mocked(cache.cachedEventsByKind).mockResolvedValue([page]);
+    vi.mocked(pool.relayPool.query).mockResolvedValue([]);
+    const { loadWikiRecent } = await import('./wiki-hub');
+    expect((await loadWikiRecent(10)).map((e) => e.id)).toEqual([page.id]);
+    expect(pool.relayPool.query).toHaveBeenCalled();
+    const calls = vi.mocked(pool.relayPool.query).mock.calls.length;
+    expect((await loadWikiRecent(10)).map((e) => e.id)).toEqual([page.id]);
+    expect(vi.mocked(pool.relayPool.query).mock.calls.length).toBe(calls);
   });
 
   it('matches only d-tag and title, not body content', async () => {

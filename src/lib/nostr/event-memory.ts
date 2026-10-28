@@ -241,4 +241,6 @@ export function resetEventMemoryForTests(): void {
   byId.clear();
   byAddr.clear();
   byMetaPubkey.clear();
+  bySocialKind.clear();
+  byRef.clear();
 }

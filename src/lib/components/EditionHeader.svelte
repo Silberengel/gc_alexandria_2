@@ -11,7 +11,14 @@
   } from '$lib/publication-metadata';
   import { normalizeSubjectTag } from '$lib/metadata';
   import { KIND } from '$lib/constants';
-  import { contentHeroFullUrl, contentHeroThumbUrl, coverFullImageUrl, coverImageUrl } from '$lib/cover';
+  import {
+    contentHeroFullUrl,
+    contentHeroThumbUrl,
+    coverFullImageUrl,
+    coverImageUrl,
+    sectionHeroFullImageUrl,
+    sectionHeroImageUrl
+  } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { isAllowedHref } from '$lib/markup';
@@ -21,6 +28,7 @@
   import type { Snippet } from 'svelte';
   import Stars from './Stars.svelte';
   import { isWikiOrSpecKind } from '$lib/wiki-fork';
+  import { wikiHubKindLabel } from '$lib/wiki-hub';
   import {
     wikiAliasesFromRedirects,
     type WikiAliasLink
@@ -46,7 +54,9 @@
   let { event, sections = [], ratingAverage, ratingCount = 0, children }: Props = $props();
   const meta = $derived(editionMetadata(event));
   const isLongForm = $derived(event.kind === KIND.LONG_FORM);
-  const showWikiAliases = $derived(isWikiOrSpecKind(event.kind));
+  const isWikiOrSpec = $derived(isWikiOrSpecKind(event.kind));
+  const wikiSpecKindLabel = $derived(isWikiOrSpec ? wikiHubKindLabel(event) : '');
+  const showWikiAliases = $derived(isWikiOrSpec);
 
   let wikiAliases = $state<WikiAliasLink[]>([]);
 
@@ -87,8 +97,17 @@
   const remoteCover = $derived(contentHero ?? coverImageUrl(event));
   const fullCover = $derived(contentHeroFull ?? coverFullImageUrl(event) ?? remoteCover);
   const generatedCover = $derived(coverPlaceholderUrl(event));
-  const heroSrc = $derived(remoteCover || generatedCover);
-  const showGeneratedHero = $derived(!remoteCover);
+  /** Wiki/spec: only an explicit `image` tag — never Gutenberg, body scrape, or SVG plate. */
+  const wikiSpecTaggedHero = $derived(isWikiOrSpec ? sectionHeroImageUrl(event) : undefined);
+  const wikiSpecTaggedHeroFull = $derived(
+    isWikiOrSpec ? (sectionHeroFullImageUrl(event) ?? wikiSpecTaggedHero) : undefined
+  );
+  const showReadingHero = $derived(isLongForm || !!wikiSpecTaggedHero);
+  const heroSrc = $derived(
+    isLongForm ? remoteCover || generatedCover : wikiSpecTaggedHero || ''
+  );
+  const heroFull = $derived(isLongForm ? fullCover : wikiSpecTaggedHeroFull);
+  const showGeneratedHero = $derived(isLongForm && !remoteCover);
   const heroTitle = $derived(meta.titles[0] || coverTitle(event));
 
   function scrollToRatings(): void {
@@ -96,7 +115,7 @@
   }
 
   function openHero(): void {
-    const url = fullCover || heroSrc;
+    const url = heroFull || heroSrc;
     if (!url) return;
     openMediaViewer({ url, title: heroTitle });
   }
@@ -255,8 +274,12 @@
   {/if}
 {/snippet}
 
-{#if isLongForm}
-  <div class="edition-header edition-header-article">
+{#if showReadingHero}
+  <div
+    class="edition-header edition-header-article"
+    class:edition-header-wiki={isWikiOrSpec && event.kind === KIND.WIKI}
+    class:edition-header-spec={isWikiOrSpec && event.kind === KIND.SPEC}
+  >
     <div class="reader-edition-hero" class:reader-edition-hero-generated={showGeneratedHero}>
       <figure class="section-hero">
         <button class="section-hero-zoom" type="button" title="View cover" onclick={openHero}>
@@ -264,6 +287,9 @@
         </button>
       </figure>
       <div class="reader-edition-hero-meta">
+        {#if wikiSpecKindLabel}
+          <p class="edition-doc-kind">{wikiSpecKindLabel}</p>
+        {/if}
         <h1 class="section-heading">
           {#if meta.titles.length}
             {#each meta.titles as name, i}
@@ -292,6 +318,9 @@
         {/if}
         <p class="muted edition-reader-publisher">
           Published by <UserBadge pubkey={event.pubkey} />
+          {#if isLibraryCopyPubkey(event.pubkey)}
+            <span> · Library copy</span>
+          {/if}
         </p>
       </div>
     </div>
@@ -330,12 +359,18 @@
     class="edition-header"
     class:edition-header-wiki={event.kind === KIND.WIKI}
     class:edition-header-spec={event.kind === KIND.SPEC}
+    class:edition-header-text-only={isWikiOrSpec}
   >
     <div class="edition-hero">
-      <div class="edition-cover">
-        <Cover {event} {sections} enlargeOnClick />
-      </div>
+      {#if !isWikiOrSpec}
+        <div class="edition-cover">
+          <Cover {event} {sections} enlargeOnClick />
+        </div>
+      {/if}
       <div class="edition-meta">
+        {#if wikiSpecKindLabel}
+          <p class="edition-doc-kind">{wikiSpecKindLabel}</p>
+        {/if}
         <h1>
           {#if meta.titles.length}
             {#each meta.titles as name, i}

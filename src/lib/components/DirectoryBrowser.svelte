@@ -43,13 +43,15 @@
   } from '$lib/stores/directory-browser-prefs';
 
   interface Props {
-    /** Filesystem top — always the viewer's `/root` directory. */
+    /** Filesystem top — the owner's `/root` directory. */
     root: Event;
+    /** Hide create/remove/rename when browsing someone else's tree. */
+    readOnly?: boolean;
     /** Fired when `/root` is republished after a membership change. */
     onRootChange?: (root: Event) => void;
   }
 
-  let { root, onRootChange }: Props = $props();
+  let { root, readOnly = false, onRootChange }: Props = $props();
 
   /** Stack of opened folders; index 0 is always `/root`. */
   let stack = $state<Event[]>(untrack(() => [root]));
@@ -101,6 +103,8 @@
     folders: number | null;
     events: number | null;
     objects: number | null;
+    /** Membership a/e-tag points at an event that could not be fetched. */
+    missing: boolean;
     kindLine: string;
     iconClass: string;
     entry?: DirectoryExplorerEntry;
@@ -109,7 +113,11 @@
 
   const listing = $derived.by((): ListingRow[] => {
     return directoryExplorerEntries(cwd).map((entry) => {
-      const hit = resolved[entry.key] ?? undefined;
+      const resolvedHit = Object.prototype.hasOwnProperty.call(resolved, entry.key)
+        ? resolved[entry.key]
+        : undefined;
+      const hit = resolvedHit ?? undefined;
+      const missing = resolvedHit === null;
       if (entry.role === 'folder') {
         const counts = hit ? directoryChildCounts(hit) : null;
         const folders = counts?.folders ?? null;
@@ -118,13 +126,16 @@
           key: entry.key,
           role: 'folder' as const,
           name: (hit ? directoryExplorerTitle(hit) : '') || entry.label,
-          dTag: hit ? directoryDTag(hit) : entry.coordinate?.split(':')[2] || entry.label,
+          dTag: hit
+            ? directoryDTag(hit)
+            : entry.coordinate?.split(':').slice(2).join(':') || entry.label,
           createdAt: hit?.created_at ?? null,
           folders,
           events,
           objects: folders != null && events != null ? folders + events : null,
-          kindLine: 'Folder',
-          iconClass: 'is-folder',
+          missing,
+          kindLine: missing ? 'Missing folder' : 'Folder',
+          iconClass: missing ? 'is-folder is-missing' : 'is-folder',
           entry,
           event: hit
         };
@@ -140,8 +151,11 @@
         folders: null,
         events: null,
         objects: null,
-        kindLine: directoryEntryKindLine(entry),
-        iconClass: directoryEntryIconClass(entry),
+        missing,
+        kindLine: missing ? `Missing ${directoryEntryKindLine(entry)}` : directoryEntryKindLine(entry),
+        iconClass: missing
+          ? `${directoryEntryIconClass(entry)} is-missing`
+          : directoryEntryIconClass(entry),
         entry,
         event: hit
       };
@@ -308,7 +322,15 @@
       }
       if (row.entry) {
         const hit = await ensureResolved(row.entry);
-        if (hit && hit.kind === KIND.DIRECTORY) await openFolder(hit);
+        if (hit && hit.kind === KIND.DIRECTORY) {
+          await openFolder(hit);
+          return;
+        }
+        showNotice(
+          readOnly
+            ? `“${row.name}” is linked here but its folder event is missing on relays.`
+            : `“${row.name}” is linked here but its folder event is missing on relays. Select it and choose Remove to unlink.`
+        );
       }
       return;
     }
@@ -380,11 +402,13 @@
   }
 
   function openNewFolder(): void {
+    if (readOnly) return;
     newFolderName = '';
     newFolderOpen = true;
   }
 
   async function submitNewFolder(): Promise<void> {
+    if (readOnly) return;
     const name = newFolderName.trim();
     if (!name || creatingFolder) return;
     creatingFolder = true;
@@ -408,6 +432,7 @@
   }
 
   async function removeSelected(): Promise<void> {
+    if (readOnly) return;
     const rows = selectedRows.filter((row) => row.entry);
     if (!rows.length || selectionBusy) return;
     selectionBusy = true;
@@ -444,6 +469,7 @@
   }
 
   async function deleteSelectedFolders(): Promise<void> {
+    if (readOnly) return;
     const rows = selectedDeletableFolders;
     if (!rows.length || selectionBusy) return;
     const label =
@@ -491,6 +517,7 @@
   }
 
   function openRenameSelected(): void {
+    if (readOnly) return;
     const row = singleRenameTarget;
     if (!row) return;
     renameOpen = true;
@@ -503,6 +530,7 @@
   }
 
   async function submitRenameSelected(): Promise<void> {
+    if (readOnly) return;
     const row = singleRenameTarget;
     const name = renameName.trim();
     if (!row || !name || renamingFolder) return;
@@ -559,54 +587,56 @@
     <span class="muted dir-browser-cwd">
       /{pathSegments.map((s) => s.name).join('/')}
     </span>
-    <div class="dir-browser-actions">
-      {#if newFolderOpen}
-        <form
-          class="dir-browser-new-folder"
-          onsubmit={(e) => {
-            e.preventDefault();
-            void submitNewFolder();
-          }}
-        >
-          <label class="visually-hidden" for="dir-new-folder-name">Folder name</label>
-          <input
-            id="dir-new-folder-name"
-            type="text"
-            bind:this={newFolderInput}
-            bind:value={newFolderName}
-            placeholder="New folder name"
-            maxlength="80"
-            disabled={creatingFolder}
-          />
-          <button
-            class="btn dir-browser-op-btn"
-            type="submit"
-            disabled={creatingFolder || !newFolderName.trim()}
+    {#if !readOnly}
+      <div class="dir-browser-actions">
+        {#if newFolderOpen}
+          <form
+            class="dir-browser-new-folder"
+            onsubmit={(e) => {
+              e.preventDefault();
+              void submitNewFolder();
+            }}
           >
-            {creatingFolder ? 'Creating…' : 'Create'}
-          </button>
+            <label class="visually-hidden" for="dir-new-folder-name">Folder name</label>
+            <input
+              id="dir-new-folder-name"
+              type="text"
+              bind:this={newFolderInput}
+              bind:value={newFolderName}
+              placeholder="New folder name"
+              maxlength="80"
+              disabled={creatingFolder}
+            />
+            <button
+              class="btn dir-browser-op-btn"
+              type="submit"
+              disabled={creatingFolder || !newFolderName.trim()}
+            >
+              {creatingFolder ? 'Creating…' : 'Create'}
+            </button>
+            <button
+              class="btn dir-browser-op-btn"
+              type="button"
+              disabled={creatingFolder}
+              onclick={() => {
+                newFolderOpen = false;
+                newFolderName = '';
+              }}>Cancel</button
+            >
+          </form>
+        {:else}
           <button
-            class="btn dir-browser-op-btn"
+            class="btn dir-browser-new-folder-btn"
             type="button"
-            disabled={creatingFolder}
-            onclick={() => {
-              newFolderOpen = false;
-              newFolderName = '';
-            }}>Cancel</button
+            disabled={creatingFolder || atDepthLimit}
+            title={atDepthLimit ? 'Maximum folder depth reached' : 'Create a folder here'}
+            onclick={openNewFolder}
           >
-        </form>
-      {:else}
-        <button
-          class="btn dir-browser-new-folder-btn"
-          type="button"
-          disabled={creatingFolder || atDepthLimit}
-          title={atDepthLimit ? 'Maximum folder depth reached' : 'Create a folder here'}
-          onclick={openNewFolder}
-        >
-          New folder
-        </button>
-      {/if}
-    </div>
+            New folder
+          </button>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <div class="dir-browser-table-wrap">
@@ -617,7 +647,9 @@
         <col style="width: {colWidth.created}px" />
         <col style="width: {colWidth.objects}px" />
         <col style="width: {colWidth.kind}px" />
-        <col class="dir-col-check" style="width: 2.75rem" />
+        {#if !readOnly}
+          <col class="dir-col-check" style="width: 2.75rem" />
+        {/if}
       </colgroup>
       <thead>
         <tr>
@@ -702,24 +734,26 @@
               onpointercancel={onResizeEnd}
             ></span>
           </th>
-          <th class="dir-col-check" scope="col">
-            <label class="dir-browser-check">
-              <input
-                type="checkbox"
-                bind:this={selectAllInput}
-                checked={allSelected}
-                disabled={!sortedListing.length || selectionBusy}
-                aria-label="Select all"
-                onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
-              />
-            </label>
-          </th>
+          {#if !readOnly}
+            <th class="dir-col-check" scope="col">
+              <label class="dir-browser-check">
+                <input
+                  type="checkbox"
+                  bind:this={selectAllInput}
+                  checked={allSelected}
+                  disabled={!sortedListing.length || selectionBusy}
+                  aria-label="Select all"
+                  onchange={(e) => toggleSelectAll((e.currentTarget as HTMLInputElement).checked)}
+                />
+              </label>
+            </th>
+          {/if}
         </tr>
       </thead>
       <tbody>
         {#if !sortedListing.length}
           <tr>
-            <td colspan="6" class="dir-browser-empty muted">This folder is empty.</td>
+            <td colspan={readOnly ? 5 : 6} class="dir-browser-empty muted">This folder is empty.</td>
           </tr>
         {:else}
           {#each sortedListing as row (row.key)}
@@ -730,6 +764,7 @@
               class="dir-browser-row"
               class:is-folder={row.role === 'folder'}
               class:is-file={row.role === 'file'}
+              class:is-missing={row.missing}
               class:is-selected={!!selectedKeys[row.key]}
             >
               <td class="dir-col-icon">
@@ -763,6 +798,8 @@
                   {/if}
                   {#if busy}
                     <span class="muted">…</span>
+                  {:else if row.missing}
+                    <span class="dir-browser-missing-flag muted">missing</span>
                   {/if}
                   {#if row.dTag}
                     <span class="dir-browser-dtag">{row.dTag}</span>
@@ -779,25 +816,42 @@
                     <span class="dir-browser-created-time">{created.time}</span>
                   </time>
                 {:else}
-                  <span class="muted">{busy ? '…' : '—'}</span>
+                  <span class="muted">{busy ? '…' : row.missing ? 'missing' : '—'}</span>
                 {/if}
               </td>
               <td class="dir-col-num">
-                {row.role === 'folder' ? (row.objects ?? (busy ? '…' : '—')) : '—'}
+                {#if row.role === 'folder' && row.folders != null && row.events != null}
+                  <span class="dir-browser-objects">
+                    <span
+                      >{row.folders}
+                      {row.folders === 1 ? 'folder' : 'folders'}</span
+                    >
+                    <span class="dir-browser-objects-sep" aria-hidden="true">·</span>
+                    <span
+                      >{row.events} {row.events === 1 ? 'file' : 'files'}</span
+                    >
+                  </span>
+                {:else if row.role === 'folder'}
+                  <span class="muted">{busy ? '…' : row.missing ? 'missing' : '—'}</span>
+                {:else}
+                  {row.missing ? 'missing' : '—'}
+                {/if}
               </td>
               <td class="dir-col-kind muted">{row.kindLine}</td>
-              <td class="dir-col-check">
-                <label class="dir-browser-check">
-                  <input
-                    type="checkbox"
-                    checked={!!selectedKeys[row.key]}
-                    disabled={selectionBusy}
-                    aria-label={`Select ${row.name}`}
-                    onchange={(e) =>
-                      toggleRowSelected(row.key, (e.currentTarget as HTMLInputElement).checked)}
-                  />
-                </label>
-              </td>
+              {#if !readOnly}
+                <td class="dir-col-check">
+                  <label class="dir-browser-check">
+                    <input
+                      type="checkbox"
+                      checked={!!selectedKeys[row.key]}
+                      disabled={selectionBusy}
+                      aria-label={`Select ${row.name}`}
+                      onchange={(e) =>
+                        toggleRowSelected(row.key, (e.currentTarget as HTMLInputElement).checked)}
+                    />
+                  </label>
+                </td>
+              {/if}
             </tr>
           {/each}
         {/if}
@@ -805,70 +859,72 @@
     </table>
   </div>
 
-  <div class="dir-browser-selection-bar" aria-label="Selection actions">
-    {#if renameOpen && singleRenameTarget}
-      <form
-        class="dir-browser-rename"
-        onsubmit={(e) => {
-          e.preventDefault();
-          void submitRenameSelected();
-        }}
-      >
-        <label class="visually-hidden" for="dir-rename-selected">New folder name</label>
-        <input
-          id="dir-rename-selected"
-          type="text"
-          bind:this={renameInput}
-          bind:value={renameName}
-          maxlength="80"
-          disabled={renamingFolder}
-        />
-        <button
-          class="btn btn-primary dir-browser-op-btn"
-          type="submit"
-          disabled={renamingFolder || !renameName.trim()}
+  {#if !readOnly}
+    <div class="dir-browser-selection-bar" aria-label="Selection actions">
+      {#if renameOpen && singleRenameTarget}
+        <form
+          class="dir-browser-rename"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void submitRenameSelected();
+          }}
         >
-          {renamingFolder ? '…' : 'Save'}
-        </button>
-        <button class="btn dir-browser-op-btn" type="button" disabled={renamingFolder} onclick={cancelRename}
-          >Cancel</button
-        >
-      </form>
-    {:else}
-      <span class="muted dir-browser-selection-count">
-        {selectedCount ? `${selectedCount} selected` : 'None selected'}
-      </span>
-      <button
-        type="button"
-        class="btn dir-browser-op-btn"
-        disabled={!selectedCount || selectionBusy}
-        title="Remove selected items from this folder"
-        onclick={() => void removeSelected()}
-      >
-        {selectionBusy ? '…' : 'Remove'}
-      </button>
-      <button
-        type="button"
-        class="btn dir-browser-op-btn"
-        disabled={!selectedDeletableFolders.length || selectionBusy}
-        title="Delete selected folders"
-        onclick={() => void deleteSelectedFolders()}
-      >
-        Delete
-      </button>
-      {#if singleRenameTarget}
+          <label class="visually-hidden" for="dir-rename-selected">New folder name</label>
+          <input
+            id="dir-rename-selected"
+            type="text"
+            bind:this={renameInput}
+            bind:value={renameName}
+            maxlength="80"
+            disabled={renamingFolder}
+          />
+          <button
+            class="btn btn-primary dir-browser-op-btn"
+            type="submit"
+            disabled={renamingFolder || !renameName.trim()}
+          >
+            {renamingFolder ? '…' : 'Save'}
+          </button>
+          <button class="btn dir-browser-op-btn" type="button" disabled={renamingFolder} onclick={cancelRename}
+            >Cancel</button
+          >
+        </form>
+      {:else}
+        <span class="muted dir-browser-selection-count">
+          {selectedCount ? `${selectedCount} selected` : 'None selected'}
+        </span>
         <button
           type="button"
           class="btn dir-browser-op-btn"
-          disabled={selectionBusy}
-          title="Rename selected folder"
-          onclick={openRenameSelected}
+          disabled={!selectedCount || selectionBusy}
+          title="Remove selected items from this folder"
+          onclick={() => void removeSelected()}
         >
-          Rename
+          {selectionBusy ? '…' : 'Remove'}
         </button>
+        <button
+          type="button"
+          class="btn dir-browser-op-btn"
+          disabled={!selectedDeletableFolders.length || selectionBusy}
+          title="Delete selected folders"
+          onclick={() => void deleteSelectedFolders()}
+        >
+          Delete
+        </button>
+        {#if singleRenameTarget}
+          <button
+            type="button"
+            class="btn dir-browser-op-btn"
+            disabled={selectionBusy}
+            title="Rename selected folder"
+            onclick={openRenameSelected}
+          >
+            Rename
+          </button>
+        {/if}
       {/if}
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   {#if loadingKeys && Object.values(loadingKeys).some(Boolean) && !sortedListing.some((r) => r.createdAt != null || r.role === 'file')}
     <LoadingHint message="Reading folder…" />

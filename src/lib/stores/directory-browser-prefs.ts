@@ -17,7 +17,7 @@ const STORAGE_KEY = 'alexandria-directory-browser';
 export const DEFAULT_DIRECTORY_COLUMN_WIDTHS: Record<DirectoryColumnId, number> = {
   name: 280,
   created: 120,
-  objects: 72,
+  objects: 148,
   kind: 110
 };
 

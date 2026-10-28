@@ -90,7 +90,6 @@
       {/if}
     </form>
     <nav class="wiki-hub-actions" aria-label="Wiki">
-      <a class="btn" href="#/wiki/recent" use:link>Recent changes</a>
       <button class="btn" type="button" disabled={randomBusy} onclick={() => void onRandom()}>
         {randomBusy ? 'Picking…' : 'Random page'}
       </button>

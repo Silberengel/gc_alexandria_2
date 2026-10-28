@@ -7,7 +7,10 @@ import { followPubkeysFromMetadata, type MuteState, notMuted } from './mute';
 import { displayTitleForPublicationLabel, isHomeShelfSlug } from './publication-lists';
 import { relayPool } from './nostr/pool';
 import { socialStack, viewerOutboxStack } from './nostr/selector';
+import { SessionTtlCache } from './session-ttl-cache';
 import { session } from './stores/session';
+
+const booklistLabelCache = new SessionTtlCache<Event[]>(5 * 60 * 1000, 8);
 
 export type BooklistScope = 'all' | 'mine' | 'follows';
 
@@ -171,10 +174,19 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 /** Fetch recent publication labels for the booklists overview. */
 export async function loadBooklistLabelEvents(): Promise<Event[]> {
+  const viewer = session.getPubkey()?.toLowerCase() ?? '';
+  const follows = [...followPubkeysFromMetadata(session.getMetadata())]
+    .map((pk) => pk.toLowerCase())
+    .sort()
+    .slice(0, 60);
+  const cacheKey = `booklists:${viewer}:${follows.join(',')}`;
+  return booklistLabelCache.getOrLoad(cacheKey, () => loadBooklistLabelEventsUncached(follows));
+}
+
+async function loadBooklistLabelEventsUncached(follows: string[]): Promise<Event[]> {
   const social = socialStack();
   const outbox = viewerOutboxStack();
   const viewer = session.getPubkey();
-  const follows = [...followPubkeysFromMetadata(session.getMetadata())].slice(0, 60);
   const mineMeta = session.getMetadata().filter((e) => isListPublicationLabelEvent(e));
 
   const queries: Promise<Event[]>[] = [

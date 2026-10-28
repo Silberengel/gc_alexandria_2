@@ -45,6 +45,7 @@ import {
 import { parseReadingQueue, readingQueueFromMetadata } from './reading-queue';
 import { localReadingQueue } from './stores/local-reading-queue';
 import { readingPrefs } from './stores/reading-prefs';
+import { SessionTtlCache } from './session-ttl-cache';
 import { get } from 'svelte/store';
 import { session } from './stores/session';
 import { trust } from './stores/trust';
@@ -704,9 +705,12 @@ export async function runReadingQueueSearch(
   await cachedOrLive(key, onUpdate, () => searchByReadingQueue(hex));
 }
 
+const suggestTitlesCache = new SessionTtlCache<string[]>(90_000, 40);
+
 export async function suggestTitles(q: string): Promise<string[]> {
   if (q.length < 2) return [];
-  return mercurySuggest(q);
+  const key = `suggest:${q.trim().toLowerCase()}`;
+  return suggestTitlesCache.getOrLoad(key, () => mercurySuggest(q));
 }
 
 export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => void): Promise<void> {

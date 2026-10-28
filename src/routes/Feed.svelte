@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { untrack } from 'svelte';
-  import { link, location, querystring, replace } from 'svelte-spa-router';
+  import { link, location, push, querystring, replace } from 'svelte-spa-router';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
@@ -37,6 +37,7 @@
   import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
+  import { contentWithoutMediaUrls, uniqueMedia } from '$lib/media';
   import { eventKindDescription } from '$lib/kind-label';
   import { eventHref } from '$lib/listing-table';
   import { libraryDocumentPath } from '$lib/metadata';
@@ -434,6 +435,16 @@
     }
   }
 
+  /**
+   * Media-only notes (bare image/video URL + imeta) collapse to empty blurb text.
+   * Mount EventBody without waiting on intersection so the feed doesn't show "Note".
+   */
+  function feedNeedsFullBody(item: Event): boolean {
+    const media = uniqueMedia(item);
+    if (!media.length) return false;
+    return !contentWithoutMediaUrls(item.content ?? '', media).trim();
+  }
+
   function rowText(item: Event): string {
     if (item.kind === KIND.REACTION) {
       const face = item.content.trim() || DEFAULT_LIKE_REACTION_CONTENT;
@@ -624,7 +635,8 @@
     if (target.closest('.directory-explorer-header-only')) {
       armListRestore(restoreId);
       warmNavEvent(item);
-      void replace(feedOpenPath(item));
+      // Push (not replace) so browser Back returns to the feed list.
+      void push(feedOpenPath(item));
       queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
       return;
     }
@@ -644,7 +656,7 @@
     } else {
       warmNavEvent(item);
     }
-    void replace(feedOpenPath(item));
+    void push(feedOpenPath(item));
     queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
@@ -657,7 +669,7 @@
     const path = warm
       ? feedThreadPath(warm, feedTab, { author: feedAuthor })
       : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
-    void replace(path);
+    void push(path);
     queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
@@ -1271,7 +1283,7 @@
                     {/if}
                   </div>
                   <div class="feed-body">
-                    {#if shown[item.id.toLowerCase()]}
+                    {#if shown[item.id.toLowerCase()] || feedNeedsFullBody(item)}
                       <EventBody event={item} />
                     {:else}
                       <p class="feed-preview">{rowText(item)}</p>
@@ -1326,7 +1338,7 @@
                     <span class="feed-kind muted">{eventKindDescription(target)}</span>
                   </div>
                   <div class="feed-body">
-                    {#if shown[row.targetId]}
+                    {#if shown[row.targetId] || feedNeedsFullBody(target)}
                       <EventBody event={target} />
                     {:else}
                       <p class="feed-preview">{rowText(target)}</p>

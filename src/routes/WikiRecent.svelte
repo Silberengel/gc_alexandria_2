@@ -24,7 +24,7 @@
   <header class="page-header">
     <p class="muted"><a href="#/wiki" use:link>← Wiki</a></p>
     <h1>Recent changes</h1>
-    <p class="muted">Newest wiki articles and specs from Mercury.</p>
+    <p class="muted">Newest wiki articles and specs from your wiki relays and local cache.</p>
   </header>
   {#if loading}
     <LoadingHint message="Loading recent changes…" />
