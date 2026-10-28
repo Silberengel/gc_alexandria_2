@@ -194,7 +194,8 @@ export const FEED_FILTER_KINDS: readonly number[] = Object.freeze(
       ...FEED_POST_KINDS,
       KIND.COMMENT,
       ...FEED_REPOST_KINDS,
-      ...NOTIFICATION_KINDS
+      ...NOTIFICATION_KINDS,
+      KIND.SNO
     ])
   ].sort((a, b) => a - b)
 );

@@ -581,6 +581,9 @@ function createSessionStore() {
       void import('../compose-drafts').then(({ clearComposeDraftsForPubkey }) => {
         clearComposeDraftsForPubkey(previousPubkey);
       });
+      void import('../comment-drafts').then(({ clearThreadDraftsForPubkey }) => {
+        clearThreadDraftsForPubkey(previousPubkey);
+      });
     }
   }
 

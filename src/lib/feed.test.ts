@@ -202,6 +202,7 @@ describe('feed kind filter options', () => {
     expect(FEED_FILTER_KINDS).not.toContain(KIND.SECTION);
     expect(FEED_FILTER_KINDS).not.toContain(KIND.WIKI);
     expect(FEED_FILTER_KINDS).not.toContain(KIND.SPEC);
+    expect(FEED_FILTER_KINDS).toContain(KIND.SNO);
   });
 });
 

@@ -48,6 +48,7 @@
   import WikiRedirectCard from './WikiRedirectCard.svelte';
   import AppHandlerChip from './AppHandlerChip.svelte';
   import HighlightSourceBlurb from './HighlightSourceBlurb.svelte';
+  import SnoViewer from './SnoViewer.svelte';
   import EventReferenceBlurb from './EventReferenceBlurb.svelte';
   import { noteReferenceSpec } from '$lib/note-reference';
   import { eventTranslations } from '$lib/event-translation';
@@ -523,6 +524,11 @@
     <WikiRedirectCard {event} />
   {:else if event && sourceKind === KIND.APP_HANDLER}
     <AppHandlerChip {event} showMenu={false} />
+  {:else if event && sourceKind === KIND.SNO}
+    <SnoViewer
+      content={event.content}
+      name={event.tags.find((t) => t[0] === 'name')?.[1] ?? ''}
+    />
   {:else if isHighlightEvent}
     {#if displayEvent}
       <HighlightSourceBlurb event={displayEvent} />

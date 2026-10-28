@@ -7560,6 +7560,90 @@ a.embed-event-line:focus-visible {
 .interacted-card {
   min-width: 0;
 }
+.reader-layout .reading-body.mark-mode,
+.reading-body.mark-mode {
+  touch-action: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ink-margin-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.4rem 0 0.55rem;
+}
+.ink-margin-chip {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr;
+  gap: 0.4rem;
+  align-items: center;
+  max-width: 16rem;
+  padding: 0.3rem;
+  border-radius: 0.35rem;
+  text-decoration: none;
+  color: inherit;
+  background: color-mix(in srgb, var(--paper, #f7f2e8) 85%, #fff3a0);
+  border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 12%, transparent);
+}
+.ink-margin-chip img {
+  width: 3.2rem;
+  height: 3.2rem;
+  object-fit: cover;
+  border-radius: 0.25rem;
+}
+.ink-margin-quote {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  max-height: 3.2em;
+  overflow: hidden;
+}
+
+.reader-sel-host:not(.sheet) {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  margin: 0 0.5rem 0.5rem;
+}
+.reader-sel-host:not(.sheet) :global(.sel-tray) {
+  pointer-events: auto;
+}
+.reader-sel-host.sheet {
+  /* tray is position:fixed inside SelectionActionTray */
+}
+
+.reader-mini-dialog {
+  position: fixed;
+  left: 50%;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  z-index: 70;
+  width: min(26rem, calc(100vw - 1.5rem));
+  padding: 0.85rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--paper, #f7f2e8);
+  border: 1px solid color-mix(in srgb, var(--ink, #1a1510) 16%, transparent);
+  box-shadow: 0 0.4rem 1.2rem rgb(0 0 0 / 18%);
+  display: grid;
+  gap: 0.55rem;
+}
+.reader-mini-dialog label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+.reader-mini-dialog textarea {
+  width: 100%;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  background: color-mix(in srgb, var(--paper) 88%, #fff);
+}
+
 .reader-layout {
   display: grid;
   gap: 1rem;

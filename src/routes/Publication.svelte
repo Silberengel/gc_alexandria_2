@@ -75,7 +75,16 @@
   } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
   import { scrubTrackingUrlsInText } from '$lib/clean-url';
+  import {
+    deleteThreadDraft,
+    loadThreadDraft,
+    quoteDraftScope,
+    saveThreadDraft
+  } from '$lib/comment-drafts';
   import { commentDraft, highlightDraft } from '$lib/drafts';
+  import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
+  import DrawingEditor from '$lib/components/DrawingEditor.svelte';
+  import { inkMarginChipsFromEvents } from '$lib/ink-margin';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
   import { textHighlightsFromEvents, seedHighlightProfile, type TextHighlight } from '$lib/text-highlights';
   import {
@@ -329,7 +338,28 @@
   } | null>(null);
   /** Skip one empty selectionchange after pointerdown on ToC / FAB. */
   let keepHighlightDraft = false;
+  /** Mark mode: prefer selection drag over scroll on touch. */
+  let markMode = $state(false);
+  let selectionSheet = $state(false);
+  let inkOpen = $state(false);
+  /** Frozen when Ink note opens — survives selection/tray teardown. */
+  let inkAnchor = $state<{ section: Event; quote: string } | null>(null);
+  let replyComposeOpen = $state(false);
+  let replyDraftText = $state('');
+  let notePromptOpen = $state(false);
+  let notePromptText = $state('');
   const pageFind = createPageFindController();
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 720px)');
+    const sync = () => {
+      selectionSheet = mq.matches;
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  });
 
   function isMarkupKind(kind: number): boolean {
     return (
@@ -2886,19 +2916,19 @@
   function syncReaderHighlightDraft(): void {
     const sel = window.getSelection();
     const quote = sel?.toString().trim() ?? '';
+    // Sticky while tray chrome is pressed or a follow-up UI is open — selection
+    // often clears on pointerdown before the action click lands.
+    const holdDraft = keepHighlightDraft || inkOpen || notePromptOpen || replyComposeOpen;
     if (!quote || !sel) {
-      if (keepHighlightDraft) {
-        keepHighlightDraft = false;
-        return;
-      }
-      readerHighlightDraft = null;
+      if (!holdDraft) readerHighlightDraft = null;
       return;
     }
     const section = sectionFromReadingSelection(sel);
     if (!section || isPlaceholderSection(section)) {
-      readerHighlightDraft = null;
+      if (!holdDraft) readerHighlightDraft = null;
       return;
     }
+    keepHighlightDraft = false;
     readerHighlightDraft = {
       section,
       quote,
@@ -2916,8 +2946,8 @@
     const onPointer = (e: PointerEvent) => {
       const t = e.target;
       if (!(t instanceof Element)) return;
-      // Opening / using ToC chrome must not drop a captured quote.
-      if (t.closest('.toc, .toc-fab')) keepHighlightDraft = true;
+      // Opening / using ToC chrome or the selection tray must not drop a captured quote.
+      if (t.closest('.toc, .toc-fab, .sel-tray, .reader-sel-host')) keepHighlightDraft = true;
     };
     document.addEventListener('selectionchange', onSel);
     document.addEventListener('pointerdown', onPointer, true);
@@ -3360,7 +3390,7 @@
 
   async function saveHighlight(
     section: Event,
-    preset?: { quote: string; context?: string }
+    preset?: { quote: string; context?: string; comment?: string }
   ): Promise<void> {
     if (!$session.pubkey) {
       openLoginDialog();
@@ -3371,7 +3401,9 @@
     if (!quote) return;
     const context = preset?.context ?? highlightContextFromSelection(sel, quote);
     if (!event) return;
-    const signed = await signAndPublish(highlightDraft(event, section, quote, context));
+    const signed = await signAndPublish(
+      highlightDraft(event, section, quote, context, preset?.comment)
+    );
     if (signed) {
       const mine = session
         .getMetadata()
@@ -3382,15 +3414,137 @@
       window.getSelection()?.removeAllRanges();
       readerHighlightDraft = null;
       keepHighlightDraft = false;
+      notePromptOpen = false;
+      notePromptText = '';
     }
   }
 
-  async function createHighlightFromReaderSelection(): Promise<void> {
+  async function createHighlightFromReaderSelection(comment?: string): Promise<void> {
     const draft = readerHighlightDraft;
     if (!draft) return;
     tocOpen = false;
-    await saveHighlight(draft.section, { quote: draft.quote, context: draft.context });
+    await saveHighlight(draft.section, {
+      quote: draft.quote,
+      context: draft.context,
+      comment
+    });
   }
+
+  async function submitHighlightNote(): Promise<void> {
+    const note = notePromptText.trim();
+    const draft = readerHighlightDraft;
+    if (!note || !draft) return;
+    await createHighlightFromReaderSelection(note);
+    clearReaderSelectionDraft('note', draft.quote);
+  }
+
+  async function submitSelectionReply(): Promise<void> {
+    const draft = readerHighlightDraft;
+    const text = replyDraftText.trim();
+    if (!draft || !text || !event) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const body = `> ${draft.quote.replace(/\n/g, '\n> ')}\n\n${text}`;
+    const partial = commentDraft(draft.section, body);
+    const signed = await publishComment(partial);
+    if (signed) {
+      clearReaderSelectionDraft('reply', draft.quote);
+      replyComposeOpen = false;
+      replyDraftText = '';
+      readerHighlightDraft = null;
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  async function onInkComplete(result: {
+    url: string;
+    imeta: string[];
+    alt: string;
+  }): Promise<void> {
+    const anchor = inkAnchor ?? readerHighlightDraft;
+    if (!anchor || !event) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const body = `> ${anchor.quote.replace(/\n/g, '\n> ')}\n\n${result.url}`;
+    const partial = commentDraft(anchor.section, body);
+    const tags = [...partial.tags, result.imeta];
+    const signed = await publishComment({ ...partial, tags });
+    if (signed) {
+      inkOpen = false;
+      inkAnchor = null;
+      readerHighlightDraft = null;
+      keepHighlightDraft = false;
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  function openReaderInk(): void {
+    const draft = readerHighlightDraft;
+    if (!draft) return;
+    inkAnchor = { section: draft.section, quote: draft.quote };
+    keepHighlightDraft = true;
+    inkOpen = true;
+  }
+
+  const readerInkDraftScope = $derived(
+    inkAnchor
+      ? `ink:${inkAnchor.section.id.toLowerCase()}:${quoteDraftScope(inkAnchor.quote)}`
+      : ''
+  );
+
+  function readerSelectionDraftScope(kind: 'reply' | 'note', quote: string): string {
+    const sectionId = readerHighlightDraft?.section.id ?? inkAnchor?.section.id;
+    if (!sectionId) return '';
+    return `pub-${kind}:${sectionId.toLowerCase()}:${quoteDraftScope(quote)}`;
+  }
+
+  function hydrateReaderSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = readerSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    const saved = loadThreadDraft(pubkey, scope);
+    if (!saved?.text) return;
+    if (kind === 'reply') replyDraftText = saved.text;
+    else notePromptText = saved.text;
+  }
+
+  function persistReaderSelectionDraft(kind: 'reply' | 'note', quote: string, text: string): void {
+    const pubkey = $session.pubkey;
+    const scope = readerSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    saveThreadDraft(pubkey, scope, {
+      text,
+      imetaTags: [],
+      asKind1Reply: false
+    });
+  }
+
+  function clearReaderSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = readerSelectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    deleteThreadDraft(pubkey, scope);
+  }
+
+  $effect(() => {
+    if (!replyComposeOpen || !readerHighlightDraft) return;
+    const quote = readerHighlightDraft.quote;
+    const text = replyDraftText;
+    const t = setTimeout(() => persistReaderSelectionDraft('reply', quote, text), 280);
+    return () => clearTimeout(t);
+  });
+
+  $effect(() => {
+    if (!notePromptOpen || !readerHighlightDraft) return;
+    const quote = readerHighlightDraft.quote;
+    const text = notePromptText;
+    const t = setTimeout(() => persistReaderSelectionDraft('note', quote, text), 280);
+    return () => clearTimeout(t);
+  });
 
   function quotesFor(section: Event): TextHighlight[] {
     const forSection = highlightsForEvent(mutedHighlights, section);
@@ -3588,17 +3742,17 @@
             <div class="toc-chrome">
               <h2>Contents</h2>
               <div class="toc-chrome-actions">
-                {#if readerHighlightDraft}
-                  <button
-                    class="toc-create-highlight"
-                    type="button"
-                    title="Create a highlight from the selected text"
-                    onpointerdown={(e) => e.preventDefault()}
-                    onclick={() => void createHighlightFromReaderSelection()}
-                  >
-                    Create highlight
-                  </button>
-                {/if}
+                <button
+                  class="toc-create-highlight"
+                  type="button"
+                  class:active={markMode}
+                  title="Mark mode — drag to select text for highlight or ink"
+                  aria-pressed={markMode}
+                  onpointerdown={(e) => e.preventDefault()}
+                  onclick={() => (markMode = !markMode)}
+                >
+                  {markMode ? 'Marking…' : 'Mark'}
+                </button>
                 <button
                   class="toc-find"
                   type="button"
@@ -3656,7 +3810,7 @@
             Opening “{jumpLabel || 'section'}”…
           </p>
         {/if}
-        <div class="reading-body" bind:this={readingPane}>
+        <div class="reading-body" class:mark-mode={markMode} bind:this={readingPane}>
           {#if jumpBusy && !paintedSections.length}
             <div class="reading-content">
               <p class="loading-hint jump-busy" aria-hidden="true">
@@ -4069,6 +4223,21 @@
                 </div>
                 {/if}
                 {#if sectionCommentsOpen[sectionKey] && !(event && section.id === event.id)}
+                  {@const inkChips = inkMarginChipsFromEvents(
+                    sectionComments[sectionKey] ??
+                      sectionResponses[sectionKey]?.thread ??
+                      []
+                  )}
+                  {#if inkChips.length}
+                    <aside class="ink-margin-strip" aria-label="Ink notes in the margin">
+                      {#each inkChips as chip (chip.eventId)}
+                        <a class="ink-margin-chip" href={`#/feed?thread=${chip.eventId}`} title={chip.quote}>
+                          <img src={chip.gifUrl} alt="" loading="lazy" decoding="async" />
+                          <span class="ink-margin-quote muted">{chip.quote}</span>
+                        </a>
+                      {/each}
+                    </aside>
+                  {/if}
                   <div class="section-comments">
                     <WorkCommentsPanel
                       target={section}
@@ -4104,6 +4273,78 @@
           {/if}
           </div>
         </div>
+        {#if readerHighlightDraft && reading && !inkOpen && !notePromptOpen && !replyComposeOpen}
+          <div class="reader-sel-host" class:sheet={selectionSheet}>
+            <SelectionActionTray
+              quote={readerHighlightDraft.quote}
+              sheet={selectionSheet}
+              {markMode}
+              onMarkMode={(on) => (markMode = on)}
+              onHighlight={() => void createHighlightFromReaderSelection()}
+              onHighlightNote={() => {
+                keepHighlightDraft = true;
+                notePromptText = '';
+                hydrateReaderSelectionDraft('note', readerHighlightDraft.quote);
+                notePromptOpen = true;
+              }}
+              onReply={() => {
+                keepHighlightDraft = true;
+                replyDraftText = '';
+                hydrateReaderSelectionDraft('reply', readerHighlightDraft.quote);
+                replyComposeOpen = true;
+              }}
+              onInk={openReaderInk}
+              onDismiss={() => {
+                readerHighlightDraft = null;
+                keepHighlightDraft = false;
+                window.getSelection()?.removeAllRanges();
+              }}
+            />
+          </div>
+        {/if}
+        {#if notePromptOpen && readerHighlightDraft}
+          <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
+            <label>
+              Note on highlight
+              <textarea rows="3" bind:value={notePromptText} placeholder="Your note…"></textarea>
+            </label>
+            <div class="compose-actions">
+              <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                disabled={!notePromptText.trim()}
+                onclick={() => void submitHighlightNote()}
+                >Save highlight</button
+              >
+            </div>
+          </div>
+        {/if}
+        {#if replyComposeOpen && readerHighlightDraft}
+          <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
+            <label>
+              Reply
+              <textarea rows="3" bind:value={replyDraftText} placeholder="Your reply…"></textarea>
+            </label>
+            <div class="compose-actions">
+              <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                disabled={!replyDraftText.trim()}
+                onclick={() => void submitSelectionReply()}
+                >Post reply</button
+              >
+            </div>
+          </div>
+        {/if}
+        <DrawingEditor
+          bind:open={inkOpen}
+          title="Ink note"
+          initialPaper="sticky"
+          draftScope={readerInkDraftScope}
+          onComplete={(r) => void onInkComplete(r)}
+        />
       </div>
     {/if}
   {:else if loading}

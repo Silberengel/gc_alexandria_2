@@ -107,13 +107,13 @@ export async function republishPublicationToWriteRelays(
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     report({ phase: 'error', done: 0, total: 0, message: error });
-    return { ok: false, eventCount: 0, relayAttempted: relays.length, acceptedEvents: 0, failedIds: [], error };
+    return { ok: false, eventCount: 0, relayAttempted: 0, acceptedEvents: 0, failedIds: [], error };
   }
 
   if (!events.length) {
     const error = 'No publication events to republish.';
     report({ phase: 'error', done: 0, total: 0, message: error });
-    return { ok: false, eventCount: 0, relayAttempted: relays.length, acceptedEvents: 0, failedIds: [], error };
+    return { ok: false, eventCount: 0, relayAttempted: 0, acceptedEvents: 0, failedIds: [], error };
   }
 
   const total = events.length;

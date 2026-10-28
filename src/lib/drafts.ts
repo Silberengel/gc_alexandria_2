@@ -118,13 +118,41 @@ export function highlightDraft(
   book: Event,
   section: Event,
   quote: string,
-  context?: string
+  context?: string,
+  comment?: string
 ): { kind: number; content: string; tags: string[][] } {
   const tags: string[][] = [...buildHighlightBookSectionScopeTags(book, section)];
   const source = chapterSourceUrl(section);
   if (source) tags.push(['r', source, 'source']);
   const ctx = context?.trim();
   if (ctx) tags.push(['context', ctx]);
+  const note = comment?.trim();
+  if (note) tags.push(['comment', note]);
+  return {
+    kind: KIND.HIGHLIGHT,
+    content: quote,
+    tags
+  };
+}
+
+/** NIP-84 highlight for a standalone wiki/spec/long-form article (no book/section split). */
+export function articleHighlightDraft(
+  article: Event,
+  quote: string,
+  context?: string,
+  comment?: string
+): { kind: number; content: string; tags: string[][] } {
+  const address = eventAddress(article);
+  const tags: string[][] = [
+    ['a', address],
+    ['e', article.id],
+    ['k', String(article.kind)],
+    ['p', article.pubkey]
+  ];
+  const ctx = context?.trim();
+  if (ctx) tags.push(['context', ctx]);
+  const note = comment?.trim();
+  if (note) tags.push(['comment', note]);
   return {
     kind: KIND.HIGHLIGHT,
     content: quote,

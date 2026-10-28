@@ -105,6 +105,17 @@ describe('publication republish', () => {
     expect(result.error).toMatch(/write relays/i);
   });
 
+  it('reports zero relay attempts when collection fails before broadcast', async () => {
+    vi.mocked(collectPublicationEventsForExport).mockRejectedValueOnce(new Error('fetch failed'));
+    const result = await republishPublicationToWriteRelays(
+      ev({ id: '1'.repeat(64), kind: KIND.PUBLICATION, tags: [['d', 'book']] })
+    );
+    expect(result.ok).toBe(false);
+    expect(result.relayAttempted).toBe(0);
+    expect(result.error).toMatch(/fetch failed/);
+    expect(relayPool.broadcast).not.toHaveBeenCalled();
+  });
+
   it('broadcasts every collected event to the write stack', async () => {
     const root = ev({
       id: '1'.repeat(64),

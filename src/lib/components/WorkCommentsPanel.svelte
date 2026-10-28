@@ -46,6 +46,7 @@
   let replyOpenId = $state<string | null>(null);
   const quoteNodes = new Map<string, ThreadNode>();
   let commentText = $state('');
+  let commentImeta = $state<string[][]>([]);
   let composeEl = $state<HTMLDivElement | null>(null);
   let localThread = $state<Event[]>([]);
   let posting = $state(false);
@@ -90,26 +91,34 @@
     localThread = [...localThread.filter((e) => e.id !== event.id), event];
   }
 
-  async function postComment(): Promise<void> {
+  async function postComment(): Promise<boolean> {
     if (!$session.pubkey) {
       openLoginDialog();
-      return;
+      return false;
     }
-    if (!commentText.trim() || posting) return;
+    if (!commentText.trim() || posting) return false;
     posting = true;
     try {
-      const published = await publishComment(
-        commentDraft(target, commentText.trim(), undefined, { asKind1Reply: offerKind1 && asKind1Reply })
-      );
-      if (!published) return;
+      const partial = commentDraft(target, commentText.trim(), undefined, {
+        asKind1Reply: offerKind1 && asKind1Reply
+      });
+      const published = await publishComment({
+        ...partial,
+        tags: [...partial.tags, ...commentImeta.map((row) => [...row])]
+      });
+      if (!published) return false;
       showPublished(published);
       commentText = '';
+      commentImeta = [];
       closeOpCompose(target.id);
       asKind1Reply = false;
+      return true;
     } finally {
       posting = false;
     }
   }
+
+  const commentDraftScope = $derived(`comment:${target.id.toLowerCase()}`);
 </script>
 
 <section class="work-comments-panel">
@@ -120,10 +129,12 @@
       <div class="op-reply-compose" bind:this={composeEl}>
         <ThreadCompose
           bind:value={commentText}
+          bind:imetaTags={commentImeta}
           bind:asKind1Reply
+          draftScope={commentDraftScope}
           {posting}
           {offerKind1}
-          onSubmit={() => void postComment()}
+          onSubmit={() => postComment()}
           onCancel={() => closeOpCompose(target.id)}
         />
       </div>

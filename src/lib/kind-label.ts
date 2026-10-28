@@ -40,6 +40,8 @@ export function kindDescription(kind: number): string {
       return 'Wiki article';
     case KIND.SPEC:
       return 'Specification';
+    case KIND.SNO:
+      return '3D object';
     case KIND.RATING:
       return 'Publication rating';
     case KIND.MUSIC:

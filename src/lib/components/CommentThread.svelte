@@ -48,6 +48,7 @@
   }: Props = $props();
 
   let reply = $state('');
+  let replyImeta = $state<string[][]>([]);
   let posting = $state(false);
   let asKind1Reply = $state(false);
 
@@ -64,23 +65,33 @@
     event ? textHighlightsFromEvents(highlightsForEvent(highlights, event)) : []
   );
 
-  async function sendReply(): Promise<void> {
-    if (!event || !canReply || !reply.trim() || posting) return;
+  async function sendReply(): Promise<boolean> {
+    if (!event || !canReply || !reply.trim() || posting) return false;
     posting = true;
     try {
-      const published = await publishComment(
-        commentDraft(target, reply.trim(), event, { asKind1Reply: offerKind1 && asKind1Reply })
-      );
-      if (!published) return;
+      const partial = commentDraft(target, reply.trim(), event, {
+        asKind1Reply: offerKind1 && asKind1Reply
+      });
+      const published = await publishComment({
+        ...partial,
+        tags: [...partial.tags, ...replyImeta.map((row) => [...row])]
+      });
+      if (!published) return false;
       if (onPublished) onPublished(published);
       else node.children = [...node.children, { event: published, placeholder: null, children: [] }];
       reply = '';
+      replyImeta = [];
       asKind1Reply = false;
       replyOpenId = null;
+      return true;
     } finally {
       posting = false;
     }
   }
+
+  const replyDraftScope = $derived(
+    event ? `reply:${target.id.toLowerCase()}:${event.id.toLowerCase()}` : ''
+  );
 
   function onReplyClick(): void {
     if (!canReply) {
@@ -146,11 +157,13 @@
     {#if open && canReply}
       <ThreadCompose
         bind:value={reply}
+        bind:imetaTags={replyImeta}
         bind:asKind1Reply
+        draftScope={replyDraftScope}
         placeholder="Write a reply"
         {posting}
         {offerKind1}
-        onSubmit={() => void sendReply()}
+        onSubmit={() => sendReply()}
         onCancel={() => (replyOpenId = null)}
       />
     {/if}

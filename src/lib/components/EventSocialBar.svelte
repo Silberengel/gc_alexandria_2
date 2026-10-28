@@ -37,6 +37,7 @@
 
   let replyOpen = $state(false);
   let replyText = $state('');
+  let replyImeta = $state<string[][]>([]);
   let posting = $state(false);
   let asKind1Reply = $state(false);
   let thread = $state<ThreadNode[]>([]);
@@ -129,22 +130,30 @@
     if (replyOpen) void ensureThread(event.id, threadGen);
   }
 
-  async function sendRootReply(): Promise<void> {
-    if (!canReply || posting || !replyText.trim()) return;
+  async function sendRootReply(): Promise<boolean> {
+    if (!canReply || posting || !replyText.trim()) return false;
     posting = true;
     try {
-      const published = await publishComment(
-        commentDraft(event, replyText.trim(), undefined, { asKind1Reply: offerKind1 && asKind1Reply })
-      );
-      if (!published) return;
+      const partial = commentDraft(event, replyText.trim(), undefined, {
+        asKind1Reply: offerKind1 && asKind1Reply
+      });
+      const published = await publishComment({
+        ...partial,
+        tags: [...partial.tags, ...replyImeta.map((row) => [...row])]
+      });
+      if (!published) return false;
       showPublished(published);
       replyText = '';
+      replyImeta = [];
       replyOpen = false;
       asKind1Reply = false;
+      return true;
     } finally {
       posting = false;
     }
   }
+
+  const rootReplyDraftScope = $derived(`comment:${event.id.toLowerCase()}`);
 </script>
 
 <div class="event-social">
@@ -186,11 +195,13 @@
   {#if allowReply && canReply && replyOpen}
     <ThreadCompose
       bind:value={replyText}
+      bind:imetaTags={replyImeta}
       bind:asKind1Reply
+      draftScope={rootReplyDraftScope}
       placeholder="Write a reply"
       {posting}
       {offerKind1}
-      onSubmit={() => void sendRootReply()}
+      onSubmit={() => sendRootReply()}
       onCancel={() => (replyOpen = false)}
     />
   {/if}

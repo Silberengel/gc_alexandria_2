@@ -105,8 +105,18 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { getSelectorContext, onSelectorContext } from '$lib/nostr/selector';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import DrawingEditor from '$lib/components/DrawingEditor.svelte';
+  import {
+    deleteThreadDraft,
+    loadThreadDraft,
+    saveThreadDraft
+  } from '$lib/comment-drafts';
 
   let { params: _params = {} }: { params?: Record<string, string> } = $props();
+  let drawOpen = $state(false);
+  let pendingImeta = $state<string[][]>([]);
+  const feedNoteDraftScope = 'feed:note';
+  let feedNoteHydrated = false;
 
   /** Open thread from `?thread=` (nevent / naddr / hex) — same `/feed` route. */
   const threadTarget = $derived(parseFeedThreadTarget($querystring));
@@ -516,12 +526,57 @@
 
   function clearNoteDraft(): void {
     noteDraft = '';
+    pendingImeta = [];
+    const pubkey = $session.pubkey;
+    if (pubkey) deleteThreadDraft(pubkey, feedNoteDraftScope);
   }
+
+  $effect(() => {
+    const pubkey = $session.pubkey;
+    if (!pubkey || feedNoteHydrated) return;
+    feedNoteHydrated = true;
+    const saved = loadThreadDraft(pubkey, feedNoteDraftScope);
+    if (!saved) return;
+    if (!noteDraft.trim()) noteDraft = saved.text;
+    if (!pendingImeta.length && saved.imetaTags.length) {
+      pendingImeta = saved.imetaTags.map((row) => [...row]);
+    }
+  });
+
+  $effect(() => {
+    const pubkey = $session.pubkey;
+    void noteDraft;
+    void pendingImeta;
+    if (!pubkey || !feedNoteHydrated) return;
+    const t = setTimeout(() => {
+      saveThreadDraft(pubkey, feedNoteDraftScope, {
+        text: noteDraft,
+        imetaTags: pendingImeta,
+        asKind1Reply: false
+      });
+    }, 280);
+    return () => clearTimeout(t);
+  });
 
   function onNotePaste(event: ClipboardEvent): void {
     scrubClipboardTextPaste(event, (scrubbed, start, end) => {
       noteDraft = noteDraft.slice(0, start) + scrubbed + noteDraft.slice(end);
     });
+  }
+
+  function onDrawingComplete(result: {
+    url: string;
+    imeta: string[];
+    alt: string;
+  }): void {
+    const url = result.url.trim();
+    if (!url) return;
+    const sep = noteDraft.trim() ? (noteDraft.endsWith('\n') ? '' : '\n') : '';
+    noteDraft = `${noteDraft}${sep}${url}`;
+    const next = [...pendingImeta];
+    if (result.imeta.length) next.push(result.imeta);
+    pendingImeta = next;
+    showNotice('Drawing attached — post when ready.', true);
   }
 
   async function postNote(): Promise<void> {
@@ -534,17 +589,18 @@
     noteDraft = content;
     notePosting = true;
     try {
+      const tags = pendingImeta.map((row) => [...row]);
       const signed = await signAndPublish({
         kind: KIND.TEXT_NOTE,
         content,
-        tags: []
+        tags
       });
       if (!signed) {
         showNotice(consumeSignFailure() ?? 'Could not post this note.');
         return;
       }
       rememberEvents([signed]);
-      noteDraft = '';
+      clearNoteDraft();
       items = mergeFeedPosts(untrack(() => items), [signed]);
       showNotice('Posted.', true);
     } finally {
@@ -1313,6 +1369,12 @@
       <div class="compose-actions">
         {#if signedIn}
           <button
+            class="btn"
+            type="button"
+            disabled={notePosting}
+            onclick={() => (drawOpen = true)}
+          >Draw</button>
+          <button
             class="btn btn-primary"
             type="submit"
             disabled={notePosting || !noteDraft.trim()}
@@ -1330,6 +1392,11 @@
         {/if}
       </div>
     </form>
+    <DrawingEditor
+      bind:open={drawOpen}
+      draftScope={`draw:${feedNoteDraftScope}`}
+      onComplete={onDrawingComplete}
+    />
     <div class="feed-tabs-row">
       <div class="feed-tabs" role="tablist" aria-label="Feed view">
         {#each visibleFeedTabs as tab (tab)}

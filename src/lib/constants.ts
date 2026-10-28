@@ -251,6 +251,8 @@ export const KIND = {
   WIKI_MERGE_ACCEPTANCE: 819,
   /** NIP-54 wiki redirect / alias. */
   WIKI_REDIRECT: 30819,
+  /** DECK-0003 Simple Nostr Object (addressable 3D mesh). */
+  SNO: 33331,
   DJOT: 11,
   /** Music track (catalog kind). */
   MUSIC: 36787,

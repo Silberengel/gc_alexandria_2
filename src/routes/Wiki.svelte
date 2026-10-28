@@ -36,9 +36,23 @@
   } from '$lib/comments';
   import { isLibraryCopyPubkey } from '$lib/hex';
   import { decodePublicationPointer, hexFromNpubParam } from '$lib/publication-load';
-  import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { textHighlightsFromEvents, seedHighlightProfile } from '$lib/text-highlights';
   import { sectionHeroImageUrl } from '$lib/cover';
   import type { Event } from 'nostr-tools';
+  import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
+  import DrawingEditor from '$lib/components/DrawingEditor.svelte';
+  import {
+    deleteThreadDraft,
+    loadThreadDraft,
+    quoteDraftScope,
+    saveThreadDraft
+  } from '$lib/comment-drafts';
+  import { articleHighlightDraft, commentDraft } from '$lib/drafts';
+  import { publishComment, signAndPublish } from '$lib/sign';
+  import { session } from '$lib/stores/session';
+  import { openLoginDialog } from '$lib/stores/login-ui';
+  import { showNotice } from '$lib/stores/toast';
+  import { inkMarginChipsFromEvents } from '$lib/ink-margin';
 
   interface Props {
     params?: { d?: string; npub?: string; naddr?: string };
@@ -58,11 +72,221 @@
   let loading = $state(true);
   let socialLoading = $state(false);
   let articlePane = $state<HTMLElement | undefined>();
+  let wikiSelDraft = $state<{ quote: string; context?: string } | null>(null);
+  /** Hold quote when tray chrome / follow-up UI clears the browser selection. */
+  let keepWikiSelDraft = false;
+  let markMode = $state(false);
+  let inkOpen = $state(false);
+  /** Quote frozen when Ink note opens — survives selection/tray teardown. */
+  let inkQuote = $state<string | null>(null);
+  let notePromptOpen = $state(false);
+  let notePromptText = $state('');
+  let replyComposeOpen = $state(false);
+  let replyDraftText = $state('');
+  let selectionSheet = $state(false);
   /** Bumps on each wiki route paint; drops stale social/deferrer assignments. */
   let wikiPaintGen = 0;
   /** Route kind from URL prefix — wiki, spec, and article share this page but never the same address. */
   let routeKind = $state<number>(KIND.WIKI);
   const pageFind = createPageFindController();
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 720px)');
+    const sync = () => {
+      selectionSheet = mq.matches;
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  });
+
+  function wikiContextFromSelection(sel: Selection | null, quote: string): string | undefined {
+    try {
+      const node = sel?.anchorNode;
+      const el = node instanceof Element ? node : node?.parentElement;
+      const block = el?.closest('p, li, blockquote, pre, div.paragraph, article');
+      const full = block?.textContent?.trim();
+      if (full && full !== quote && full.includes(quote)) return full.slice(0, 500);
+    } catch {
+      /* ignore */
+    }
+    return undefined;
+  }
+
+  function syncWikiSelection(): void {
+    const sel = window.getSelection();
+    const quote = sel?.toString().trim() ?? '';
+    // Keep the draft while tray chrome is pressed or a follow-up UI is open —
+    // browsers often clear the selection on pointerdown before click fires.
+    const holdDraft = keepWikiSelDraft || inkOpen || notePromptOpen || replyComposeOpen;
+    if (!quote || !sel || !articlePane) {
+      if (!holdDraft) wikiSelDraft = null;
+      return;
+    }
+    const node = sel.anchorNode;
+    if (!node || !articlePane.contains(node)) {
+      if (!holdDraft) wikiSelDraft = null;
+      return;
+    }
+    keepWikiSelDraft = false;
+    wikiSelDraft = { quote, context: wikiContextFromSelection(sel, quote) };
+  }
+
+  $effect(() => {
+    if (!event || !articlePane) {
+      wikiSelDraft = null;
+      keepWikiSelDraft = false;
+      return;
+    }
+    const onSel = () => syncWikiSelection();
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      // Tray / follow-up chrome must not drop the captured quote on pointerdown.
+      if (t.closest('.sel-tray, .reader-sel-host, .reader-mini-dialog, .draw-overlay')) {
+        keepWikiSelDraft = true;
+      }
+    };
+    document.addEventListener('selectionchange', onSel);
+    document.addEventListener('pointerdown', onPointer, true);
+    return () => {
+      document.removeEventListener('selectionchange', onSel);
+      document.removeEventListener('pointerdown', onPointer, true);
+    };
+  });
+
+  async function saveWikiHighlight(comment?: string): Promise<void> {
+    if (!event || !wikiSelDraft) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const signed = await signAndPublish(
+      articleHighlightDraft(event, wikiSelDraft.quote, wikiSelDraft.context, comment)
+    );
+    if (signed) {
+      const mine = session
+        .getMetadata()
+        .find((e) => e.kind === KIND.METADATA && e.pubkey.toLowerCase() === signed.pubkey.toLowerCase());
+      seedHighlightProfile(signed.pubkey, mine ?? null);
+      responses = {
+        ...responses,
+        highlights: [signed, ...responses.highlights.filter((h) => h.id !== signed.id)]
+      };
+      clearSelectionDraft('note', wikiSelDraft.quote);
+      wikiSelDraft = null;
+      notePromptOpen = false;
+      notePromptText = '';
+      window.getSelection()?.removeAllRanges();
+      showNotice('Highlight saved.', true);
+    }
+  }
+
+  async function submitWikiReply(): Promise<void> {
+    if (!event || !wikiSelDraft) return;
+    const text = replyDraftText.trim();
+    if (!text) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const quote = wikiSelDraft.quote;
+    const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${text}`;
+    const signed = await publishComment(commentDraft(event, body));
+    if (signed) {
+      clearSelectionDraft('reply', quote);
+      replyComposeOpen = false;
+      replyDraftText = '';
+      wikiSelDraft = null;
+      window.getSelection()?.removeAllRanges();
+    }
+  }
+
+  async function onWikiInkComplete(result: {
+    url: string;
+    imeta: string[];
+  }): Promise<void> {
+    const quote = inkQuote ?? wikiSelDraft?.quote;
+    if (!event || !quote) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${result.url}`;
+    const partial = commentDraft(event, body);
+    const signed = await publishComment({ ...partial, tags: [...partial.tags, result.imeta] });
+    if (signed) {
+      inkOpen = false;
+      inkQuote = null;
+      wikiSelDraft = null;
+      keepWikiSelDraft = false;
+      window.getSelection()?.removeAllRanges();
+      showNotice('Ink note posted.', true);
+    }
+  }
+
+  function openWikiInk(): void {
+    if (!wikiSelDraft) return;
+    inkQuote = wikiSelDraft.quote;
+    keepWikiSelDraft = true;
+    inkOpen = true;
+  }
+
+  const wikiInkDraftScope = $derived(
+    event && inkQuote
+      ? `ink:${event.id.toLowerCase()}:${quoteDraftScope(inkQuote)}`
+      : ''
+  );
+
+  function selectionDraftScope(kind: 'reply' | 'note', quote: string): string {
+    if (!event) return '';
+    return `wiki-${kind}:${event.id.toLowerCase()}:${quoteDraftScope(quote)}`;
+  }
+
+  function hydrateSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = selectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    const saved = loadThreadDraft(pubkey, scope);
+    if (!saved?.text) return;
+    if (kind === 'reply') replyDraftText = saved.text;
+    else notePromptText = saved.text;
+  }
+
+  function persistSelectionDraft(kind: 'reply' | 'note', quote: string, text: string): void {
+    const pubkey = $session.pubkey;
+    const scope = selectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    saveThreadDraft(pubkey, scope, {
+      text,
+      imetaTags: [],
+      asKind1Reply: false
+    });
+  }
+
+  function clearSelectionDraft(kind: 'reply' | 'note', quote: string): void {
+    const pubkey = $session.pubkey;
+    const scope = selectionDraftScope(kind, quote);
+    if (!pubkey || !scope) return;
+    deleteThreadDraft(pubkey, scope);
+  }
+
+  $effect(() => {
+    if (!replyComposeOpen || !wikiSelDraft) return;
+    const quote = wikiSelDraft.quote;
+    const text = replyDraftText;
+    const t = setTimeout(() => persistSelectionDraft('reply', quote, text), 280);
+    return () => clearTimeout(t);
+  });
+
+  $effect(() => {
+    if (!notePromptOpen || !wikiSelDraft) return;
+    const quote = wikiSelDraft.quote;
+    const text = notePromptText;
+    const t = setTimeout(() => persistSelectionDraft('note', quote, text), 280);
+    return () => clearTimeout(t);
+  });
 
   const isSpecRoute = $derived(routeKind === KIND.SPEC);
   const isArticleRoute = $derived(routeKind === KIND.LONG_FORM);
@@ -103,6 +327,7 @@
       appHandlers: responses.appHandlers ?? []
     };
   });
+  const wikiInkChips = $derived(inkMarginChipsFromEvents(panelResponses.thread));
   /** Only strip an early body image when the header actually paints the `image` tag. */
   const dedupeHeaderHero = $derived(!!event && !!sectionHeroImageUrl(event));
   const hideBody = $derived(
@@ -590,14 +815,100 @@
       placeholder="Find in this page…"
       onEnter={cyclePageFind}
     />
-    <article class="card reading-body" bind:this={articlePane}>
+    <article class="card reading-body" class:mark-mode={markMode} bind:this={articlePane}>
       <EditionHeader {event} />
       {#if !hideBody}
         <EventBody {event} quotes={bodyHighlights} dedupeHeroImage={dedupeHeaderHero} />
       {/if}
       <DetailsPanel {event} appHandlers={responses.appHandlers ?? []} />
     </article>
+    {#if wikiSelDraft && !inkOpen && !notePromptOpen && !replyComposeOpen}
+      <div class="reader-sel-host" class:sheet={selectionSheet}>
+        <SelectionActionTray
+          quote={wikiSelDraft.quote}
+          sheet={selectionSheet}
+          {markMode}
+          onMarkMode={(on) => (markMode = on)}
+          onHighlight={() => void saveWikiHighlight()}
+          onHighlightNote={() => {
+            keepWikiSelDraft = true;
+            notePromptText = '';
+            hydrateSelectionDraft('note', wikiSelDraft.quote);
+            notePromptOpen = true;
+          }}
+          onReply={() => {
+            keepWikiSelDraft = true;
+            replyDraftText = '';
+            hydrateSelectionDraft('reply', wikiSelDraft.quote);
+            replyComposeOpen = true;
+          }}
+          onInk={openWikiInk}
+          onDismiss={() => {
+            wikiSelDraft = null;
+            keepWikiSelDraft = false;
+            window.getSelection()?.removeAllRanges();
+          }}
+        />
+      </div>
+    {/if}
+    {#if notePromptOpen && wikiSelDraft}
+      <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
+        <label>
+          Note on highlight
+          <textarea rows="3" bind:value={notePromptText} placeholder="Your note…"></textarea>
+        </label>
+        <div class="compose-actions">
+          <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
+          <button
+            class="btn btn-primary"
+            type="button"
+            disabled={!notePromptText.trim()}
+            onclick={() => void saveWikiHighlight(notePromptText.trim())}
+            >Save highlight</button
+          >
+        </div>
+      </div>
+    {/if}
+    {#if replyComposeOpen && wikiSelDraft}
+      <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
+        <label>
+          Reply
+          <textarea rows="3" bind:value={replyDraftText} placeholder="Your reply…"></textarea>
+        </label>
+        <div class="compose-actions">
+          <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
+          <button
+            class="btn btn-primary"
+            type="button"
+            disabled={!replyDraftText.trim()}
+            onclick={() => void submitWikiReply()}
+            >Post reply</button
+          >
+        </div>
+      </div>
+    {/if}
+    <DrawingEditor
+      bind:open={inkOpen}
+      title="Ink note"
+      initialPaper="sticky"
+      draftScope={wikiInkDraftScope}
+      onComplete={(r) => void onWikiInkComplete(r)}
+      onCancel={() => {
+        inkOpen = false;
+        inkQuote = null;
+      }}
+    />
     <div class="card reading-width" style="margin-top:1rem">
+      {#if wikiInkChips.length}
+        <aside class="ink-margin-strip" aria-label="Ink notes in the margin">
+          {#each wikiInkChips as chip (chip.eventId)}
+            <a class="ink-margin-chip" href={`#/feed?thread=${chip.eventId}`} title={chip.quote}>
+              <img src={chip.gifUrl} alt="" loading="lazy" decoding="async" />
+              <span class="ink-margin-quote muted">{chip.quote}</span>
+            </a>
+          {/each}
+        </aside>
+      {/if}
       <WorkCommentsPanel target={event} responses={panelResponses} focusId={urlFocusComment} loading={socialLoading} />
     </div>
   {:else}
