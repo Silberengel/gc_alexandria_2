@@ -147,6 +147,19 @@ describe('profile pins', () => {
     expect(pinboardSlipPreview(note, 120)).not.toContain('nevent1');
   });
 
+  it('strips markdown headings and emphasis from slip preview text', () => {
+    const note = ev({
+      content:
+        '# TeX Test\n\n## Simple Math Rendering Test\n\nThis is a **minimal** test note for TeX math rendering.'
+    });
+    const preview = pinboardSlipPreview(note, 120);
+    expect(preview).toContain('TeX Test');
+    expect(preview).toContain('Simple Math Rendering Test');
+    expect(preview).toContain('minimal');
+    expect(preview).not.toMatch(/#/);
+    expect(preview).not.toContain('**');
+  });
+
   it('finds the first embedded note/nevent and resolves its excerpt', async () => {
     const quotedId = 'd'.repeat(64);
     const quoted = ev({

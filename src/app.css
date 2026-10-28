@@ -9248,8 +9248,18 @@ a.user-status-line:hover {
 .pin-slip-hero {
   grid-column: 1 / -1;
   min-height: 8.5rem;
-  padding: 1.15rem 1.1rem 1rem;
+  padding: 0.7rem 0.7rem 0.8rem;
+  gap: 0.4rem;
   transform: rotate(-0.25deg);
+}
+.pin-slip-hero .pin-slip-media,
+.pin-slip-hero .pin-slip-photo {
+  width: 100%;
+  flex: 1 1 auto;
+  aspect-ratio: 4 / 5;
+  max-height: min(52vw, 22rem);
+  min-height: 12rem;
+  margin-top: 0.2rem;
 }
 .pin-slip-hero:hover,
 .pin-slip-hero:focus-visible {
@@ -9285,12 +9295,9 @@ a.user-status-line:hover {
   margin-top: 0.35rem;
   border-radius: 0.1rem;
   overflow: hidden;
+  width: 100%;
   aspect-ratio: 16 / 9;
   background: color-mix(in srgb, #2a2218 6%, #f0e6d4);
-}
-.pin-slip-hero .pin-slip-media {
-  aspect-ratio: 2 / 1;
-  max-height: 9rem;
 }
 .pin-slip-media img {
   display: block;
@@ -9303,6 +9310,7 @@ a.user-status-line:hover {
   display: block;
   margin-top: 0.45rem;
   overflow: hidden;
+  width: 100%;
   border-radius: 0.1rem;
   aspect-ratio: 4 / 5;
   max-height: 18rem;
@@ -9396,29 +9404,65 @@ a.user-status-line:hover {
 .pin-slip .muted {
   color: #6a5a48;
 }
+.pin-slip-hero .pin-slip-text,
+.pin-slip-hero .pin-slip-og-caption {
+  flex: 0 0 auto;
+}
 .pin-slip-hero .pin-slip-text {
-  -webkit-line-clamp: 5;
-  line-clamp: 5;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   font-family: var(--display-font);
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.35;
   letter-spacing: 0.01em;
 }
+/* Keep side notes compact so the 2-row hero cell (and board) stay short. */
+.pin-slip:not(.pin-slip-hero) {
+  max-height: 13.5rem;
+  overflow: hidden;
+}
+.pin-slip:not(.pin-slip-hero) .pin-slip-media {
+  max-height: 5.25rem;
+}
+.pin-slip:not(.pin-slip-hero) .pin-slip-text {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
 @media (min-width: 720px) {
   .profile-pinboard-board {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Equal row tracks — hero height follows the compact side notes, not raw text. */
+    grid-template-rows: repeat(2, minmax(0, 13.5rem));
   }
   .pin-slip-hero {
     grid-column: 1 / span 2;
     grid-row: 1 / span 2;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    /* Polaroid: photo eats the slip; caption is a thin footer. */
+    padding: 0.55rem 0.55rem 0.65rem;
+    gap: 0.35rem;
+  }
+  /*
+   * flex-basis 0 + min-height 0 is required so the media box actually claims
+   * leftover height (flex: 1 1 auto lets the intrinsic image win and leaves
+   * empty paper under the photo).
+   */
+  .pin-slip-hero .pin-slip-media,
+  .pin-slip-hero .pin-slip-photo {
+    flex: 1 1 0;
+    min-height: 0;
+    aspect-ratio: unset;
+    max-height: none;
+    margin-top: 0.2rem;
   }
   .pin-slip-photo {
     aspect-ratio: 1 / 1;
     max-height: none;
     flex: 1 1 auto;
-    min-height: 12rem;
+    min-height: 0;
   }
 }
 

@@ -14,7 +14,7 @@ import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { fetchByAddress, fetchById, fetchByIds } from './nostr/fetch';
 import { firstTag } from './nostr/verify';
 import { pickPinListWithDeprecated } from './nip51-deprecated-lists';
-import { eventPreview } from './event-preview';
+import { eventPreview, plainCardText } from './event-preview';
 import { fetchOgPreview, shouldOgPreview, tidyLinkUrl } from './og-preview';
 import { peekProfileThumb, profileThumbFromKind0 } from './profile-cache';
 import { webBookmarkUrl } from './web-bookmark';
@@ -152,17 +152,17 @@ export function composeProfilePinboardSlips(
   return { slips, hasPins };
 }
 
-/** Short text for a pinboard slip face (media URLs and nostr: refs stripped). */
+/** Short text for a pinboard slip face (media URLs, nostr: refs, and markup stripped). */
 export function pinboardSlipPreview(event: Event, maxChars = 160): string {
   const media = uniqueMedia(event);
-  const body = omitMediaUrls(event.content ?? '', media)
-    .replace(NOSTR_BECH32, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (body) return cropText(body, maxChars);
+  const body = omitMediaUrls(event.content ?? '', media).replace(NOSTR_BECH32, ' ').trim();
+  if (body) {
+    const plain = plainCardText(body, event.kind, maxChars);
+    if (plain) return plain;
+  }
   // Web bookmarks and other tagged posts often have empty content.
   const title = firstTag(event, 'title')?.trim();
-  if (title) return cropText(title, maxChars);
+  if (title) return plainCardText(title, event.kind, maxChars) || cropText(title, maxChars);
   return '';
 }
 
@@ -399,14 +399,15 @@ export async function pinboardResolveFaceImage(
  */
 export function pinboardHandText(event: Event, maxChars = 40): string {
   const media = uniqueMedia(event);
-  let body = omitMediaUrls(event.content ?? '', media);
-  body = body
+  const body = omitMediaUrls(event.content ?? '', media)
     .replace(CONTENT_HTTP_URL, ' ')
     .replace(NOSTR_BECH32, ' ')
     .replace(/#[\p{L}\p{N}_-]+/gu, ' ')
-    .replace(/\s+/g, ' ')
     .trim();
-  if (body) return cropText(body, maxChars);
+  if (body) {
+    const plain = plainCardText(body, event.kind, maxChars);
+    if (plain) return plain;
+  }
   const title = firstTag(event, 'title')?.trim();
-  return title ? cropText(title, maxChars) : '';
+  return title ? plainCardText(title, event.kind, maxChars) || cropText(title, maxChars) : '';
 }
