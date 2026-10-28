@@ -1,6 +1,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'node:child_process';
 import { lookup as dnsLookup, setDefaultResultOrder } from 'node:dns';
 import { readFileSync } from 'node:fs';
 import { Agent as HttpsAgent } from 'node:https';
@@ -12,7 +13,28 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
   version: string;
 };
 
-/** Emit /version.json (not precached) so clients can detect a newer deploy. */
+/** Short git SHA — changes every deploy even when package.json version does not. */
+function resolveGitCommit(): string {
+  const fromEnv = (process.env.GIT_COMMIT || process.env.VITE_GIT_COMMIT || '').trim();
+  if (fromEnv) return fromEnv.replace(/^"|"$/g, '').slice(0, 12);
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const gitCommit = resolveGitCommit();
+/** Semver + build id, e.g. `0.4.2+df92b0d`. */
+const appBuild = `${pkg.version}+${gitCommit}`;
+
+/**
+ * Emit /version.json (not precached). Clients compare `build` so same-semver
+ * deploys still raise the update banner.
+ */
 function versionJsonPlugin(): Plugin {
   return {
     name: 'alexandria-version-json',
@@ -20,7 +42,7 @@ function versionJsonPlugin(): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: 'version.json',
-        source: `${JSON.stringify({ version: pkg.version }, null, 2)}\n`
+        source: `${JSON.stringify({ version: pkg.version, build: appBuild }, null, 2)}\n`
       });
     }
   };
@@ -59,7 +81,8 @@ export default defineConfig(({ mode }) => {
 
   return {
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version)
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_BUILD__: JSON.stringify(appBuild)
   },
   plugins: [
     svelte(),
@@ -86,6 +109,11 @@ export default defineConfig(({ mode }) => {
         navigateFallback: null,
 
         runtimeCaching: [
+          {
+            // Never cache the deploy stamp — banner detection must hit the network.
+            urlPattern: /\/version\.json(?:\?.*)?$/i,
+            handler: 'NetworkOnly'
+          },
           {
             // Manifest must follow a new export. Shard URLs are versioned (?v=) and stay CacheFirst.
             urlPattern: /\/seeds\/manifest\.json$/i,

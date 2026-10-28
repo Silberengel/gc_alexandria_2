@@ -6,6 +6,9 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+# Stamp /version.json and the shell so same-semver deploys still prompt updates.
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
 # The image must ship the Douay verses and both reading plans. Shards are
 # generated (gitignored); a build without them would silently fall back to Mercury.
 RUN test -s public/seeds/manifest.json \

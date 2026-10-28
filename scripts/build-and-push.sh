@@ -57,6 +57,7 @@ fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 
 echo "Building ${IMAGE}:${VERSION} and :latest (commit ${GIT_COMMIT})"
 docker build \
+  --build-arg "GIT_COMMIT=${GIT_COMMIT}" \
   --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
   --label "org.opencontainers.image.version=${VERSION}" \
   -t "${IMAGE}:${VERSION}" \

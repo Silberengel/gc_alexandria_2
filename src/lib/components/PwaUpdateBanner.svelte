@@ -1,6 +1,6 @@
 <script lang="ts">
   import { applyPwaUpdate, pwaUpdateAvailable } from '$lib/pwa';
-  import { APP_VERSION } from '$lib/constants';
+  import { APP_BUILD, APP_VERSION } from '$lib/constants';
 
   let applying = $state(false);
 
@@ -8,22 +8,22 @@
     if (applying) return;
     applying = true;
     try {
+      // Do not clear the banner here — applyPwaUpdate hard-navigates. If that
+      // fails, keep OK enabled so another click can retry the nuke+reload.
       await applyPwaUpdate();
     } catch (error) {
       console.warn('[pwa] apply update failed', error);
-    } finally {
-      // Reload usually tears the page down; if it does not, allow another try.
       applying = false;
     }
   }
 </script>
 
 {#if $pwaUpdateAvailable}
-  <div class="pwa-update-banner" role="status" aria-live="polite">
+  <div class="pwa-update-banner" role="status" aria-live="assertive">
     <p class="pwa-update-copy">
       A new version of Alexandria is available
-      {#if APP_VERSION}
-        (you are on {APP_VERSION})
+      {#if APP_BUILD || APP_VERSION}
+        (you are on {APP_BUILD || APP_VERSION})
       {/if}. Reload to update.
     </p>
     <button

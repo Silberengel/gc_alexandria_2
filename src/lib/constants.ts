@@ -1,7 +1,9 @@
 import { viteHex, viteList, viteString } from './build-env';
 
-/** Release version from package.json, baked in at build time. */
+/** Semver from package.json, baked in at build time. */
 export const APP_VERSION: string = __APP_VERSION__;
+/** Semver+git SHA — changes every deploy; used for update detection. */
+export const APP_BUILD: string = __APP_BUILD__;
 
 /**
  * Relays and pubkeys below keep these addresses when the matching `VITE_`

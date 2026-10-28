@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { APP_VERSION } from './constants';
+import { APP_BUILD, APP_VERSION } from './constants';
 
 describe('APP_VERSION', () => {
   it('matches package.json so About can show the release in the GUI', () => {
@@ -9,5 +9,6 @@ describe('APP_VERSION', () => {
     };
     expect(APP_VERSION).toBe(pkg.version);
     expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+    expect(APP_BUILD).toMatch(new RegExp(`^${pkg.version.replace(/\./g, '\\.')}\\+`));
   });
 });
