@@ -11,7 +11,6 @@
     clearWarmLandingVisit,
     isWarmLandingRevisit,
     landingCoverSeed,
-    landingRefHasRenderableTarget,
     loadCachedLanding,
     loadViewerShelves,
     mergeLandingShelves,
@@ -115,25 +114,35 @@
   const hasViewerShelves = $derived(
     visibleShelves.some((s) => isViewerBoundShelfId(s.id))
   );
-  const showLandingSpinner = $derived(landingBusy || shelfBusy || $session.loading);
+  /**
+   * Paint feed rows immediately — do not wait for resolveReferenced.
+   * Rows without a resolved work still show excerpt/title; links hydrate when
+   * `referenced` arrives (LandingRefRow already falls back to a plain span).
+   */
   const visibleHighlights = $derived(
-    filterMuted(highlights, $muteState)
-      .filter((e) => landingRefHasRenderableTarget(e, referenced))
-      .slice(0, LANDING_FEED_LIMIT)
+    filterMuted(highlights, $muteState).slice(0, LANDING_FEED_LIMIT)
   );
   const visibleComments = $derived(
-    filterMuted(comments, $muteState)
-      .filter((e) => landingRefHasRenderableTarget(e, referenced))
-      .slice(0, LANDING_FEED_LIMIT)
+    filterMuted(comments, $muteState).slice(0, LANDING_FEED_LIMIT)
   );
   const visibleRatings = $derived(
-    filterMuted(ratings, $muteState)
-      .filter((e) => landingRefHasRenderableTarget(e, referenced))
-      .slice(0, LANDING_FEED_LIMIT)
+    filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT)
   );
   const visibleSubjects = $derived(subjects);
   const visibleLabels = $derived(labels);
   const visibleGuides = $derived(guideChips);
+  /** Busy spinner only until something paints — do not hold it for session.loading after shelves. */
+  const landingHasPaintedContent = $derived(
+    visibleShelves.length > 0 ||
+      visibleGuides.length > 0 ||
+      visibleLabels.length > 0 ||
+      visibleRatings.length > 0 ||
+      visibleHighlights.length > 0 ||
+      visibleComments.length > 0
+  );
+  const showLandingSpinner = $derived(
+    !landingHasPaintedContent && (landingBusy || shelfBusy || $session.loading)
+  );
 
   function shelfCoverEvents(shelf: LandingShelfSnap): Event[] {
     // Keep reading-queue order; other shelves still shuffle for variety.
@@ -312,7 +321,9 @@
       return;
     }
     // Do not compete with refreshLanding for relay slots — that stalled every page.
-    if (loadInFlight) {
+    // Defer only when My shelf is already painted — otherwise fold lists in parallel
+    // with refreshLanding so signed-in shelves do not wait on the 8s shelf race.
+    if (loadInFlight && hasViewerBoundCovers()) {
       mergeAgain = true;
       console.info(LOG, 'mergeViewerShelves deferred until landing idle');
       return;
@@ -470,7 +481,11 @@
         hit: !!cached,
         shelves: cached?.shelves?.map((s) => `${s.id}:${s.events.length}`).join(', ') ?? ''
       });
-      if (cached) apply(cached, replaceFromCache);
+      if (cached) {
+        apply(cached, replaceFromCache);
+        // Unblock the hero as soon as cache has covers — refresh continues below.
+        if ((cached.shelves ?? []).some((s) => s.events.length)) landingBusy = false;
+      }
       const metaKey = shelfMetaKey(session.getMetadata());
       // Same SPA session, same lists, cache still has My shelf — do not re-stampede relays
       // (Booklists → Home remount used to start a second full refreshLanding).
@@ -489,6 +504,11 @@
         // Drop updates only when the viewer identity changed under us.
         if (session.getPubkey() !== identity) return;
         apply(view, false);
+        // Progressive shelf/feed paints should clear the busy hero without waiting
+        // for the full refreshLanding promise to settle.
+        if ((view.shelves ?? []).some((s) => s.events.length) || view.highlights.length) {
+          landingBusy = false;
+        }
       });
       console.info(LOG, 'refreshLanding done', {
         shelves: live.shelves.map((s) => `${s.id}:${s.events.length}`).join(', '),
@@ -496,7 +516,12 @@
       });
       if (session.getPubkey() === identity) apply(live, true);
       markViewerShelvesFoldedIfReady();
-      if (hasViewerBoundCovers() || (!identity && shelves.some((s) => s.events.length))) {
+      const hasFeeds =
+        highlights.length > 0 || comments.length > 0 || ratings.length > 0;
+      if (
+        hasFeeds &&
+        (hasViewerBoundCovers() || (!identity && shelves.some((s) => s.events.length)))
+      ) {
         recordWarmLandingVisit(identity, shelfMetaKey(session.getMetadata()));
       }
       landingStatus = '';
@@ -610,10 +635,12 @@
             {#if showLandingSpinner}
               <span class="landing-status-dot" aria-hidden="true"></span>
             {/if}
-            {#if $session.loading}
+            {#if $session.loading && !landingHasPaintedContent}
               Signing in and fetching your lists…
             {:else if landingStatus}
               {landingStatus}
+            {:else if $session.loading}
+              Updating your lists…
             {:else}
               Loading library…
             {/if}

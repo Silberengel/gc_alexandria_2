@@ -323,7 +323,23 @@ describe('warm landing revisit', () => {
     clearWarmLandingVisit();
   });
 
-  it('skips refresh when same viewer, same lists, and cache has My shelf', () => {
+  it('skips refresh when same viewer, same lists, and cache has My shelf + feeds', () => {
+    recordWarmLandingVisit(viewer, metaKey);
+    const cached = {
+      viewerPubkey: viewer,
+      publications: [],
+      comments: [],
+      highlights: [ev([['a', '30040:x:y']])],
+      ratings: [],
+      referenced: [],
+      subjects: [],
+      shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+      labels: []
+    };
+    expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(true);
+  });
+
+  it('does not skip when cache has shelves but no feeds yet', () => {
     recordWarmLandingVisit(viewer, metaKey);
     const cached = {
       viewerPubkey: viewer,
@@ -336,7 +352,7 @@ describe('warm landing revisit', () => {
       shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
       labels: []
     };
-    expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(true);
+    expect(isWarmLandingRevisit(viewer, metaKey, cached)).toBe(false);
   });
 
   it('does not skip when metadata fingerprint changed', () => {
@@ -345,7 +361,7 @@ describe('warm landing revisit', () => {
       viewerPubkey: viewer,
       publications: [],
       comments: [],
-      highlights: [],
+      highlights: [ev([['a', '30040:x:y']])],
       ratings: [],
       referenced: [],
       subjects: [],
@@ -360,7 +376,7 @@ describe('warm landing revisit', () => {
       viewerPubkey: viewer,
       publications: [],
       comments: [],
-      highlights: [],
+      highlights: [ev([['a', '30040:x:y']])],
       ratings: [],
       referenced: [],
       subjects: [],
@@ -376,7 +392,7 @@ describe('warm landing revisit', () => {
       viewerPubkey: viewer,
       publications: [],
       comments: [],
-      highlights: [],
+      highlights: [ev([['a', '30040:x:y']])],
       ratings: [],
       referenced: [],
       subjects: [],

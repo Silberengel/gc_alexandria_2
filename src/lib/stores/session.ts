@@ -223,15 +223,20 @@ function createSessionStore() {
         KIND.PRIVATE_RELAY_LIST
       ];
       const bootFilter = [{ authors: [pubkey], kinds: bootKinds, limit: 20 }];
+      const hadCachedLists =
+        getSelectorContext().inbox.length > 0 || getSelectorContext().favorites.length > 0;
+      // Cached inbox/favorites already steer stacks — one short boot is enough.
+      // Blind 3× retries (2.5s+5s+5s + sleeps) kept session.loading true for ~15s on Home.
+      const bootAttempts = hadCachedLists ? 1 : 3;
       let bootEvents: Event[] = [];
-      for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (let attempt = 0; attempt < bootAttempts; attempt += 1) {
         if (get({ subscribe }).pubkey?.toLowerCase() !== pubkey.toLowerCase()) return;
         const [bootSocial, bootProfile] = await Promise.allSettled([
-          relayPool.query(socialStack(), bootFilter, attempt === 0 ? 2500 : 5000, 4, undefined, {
+          relayPool.query(socialStack(), bootFilter, attempt === 0 ? 2500 : 4000, 4, undefined, {
             priority: true,
             includeCooling: attempt > 0
           }),
-          relayPool.query(profileStack(), [profileFilter], attempt === 0 ? 2500 : 5000, 4, undefined, {
+          relayPool.query(profileStack(), [profileFilter], attempt === 0 ? 2500 : 4000, 4, undefined, {
             priority: true,
             includeCooling: attempt > 0
           })
@@ -243,14 +248,16 @@ function createSessionStore() {
         if (bootEvents.some((event) => event.kind === KIND.RELAY_LIST || event.kind === KIND.FAVORITE)) {
           break;
         }
-        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1200));
+        if (attempt < bootAttempts - 1) await new Promise((resolve) => setTimeout(resolve, 800));
       }
-      const hadCachedLists =
-        getSelectorContext().inbox.length > 0 || getSelectorContext().favorites.length > 0;
       const gotFreshLists = bootEvents.some(
         (event) => event.kind === KIND.RELAY_LIST || event.kind === KIND.FAVORITE
       );
       if (gotFreshLists || !hadCachedLists) await applyRelayContextFromEvents(bootEvents, pubkey);
+      // Unblock Home as soon as stacks/lists are usable — phase 2 continues below.
+      if (hadCachedLists || gotFreshLists || priorLocal.length) {
+        update((s) => ({ ...s, loading: false }));
+      }
 
       // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
       const outboxSocial = viewerOutboxStack();
@@ -470,6 +477,8 @@ function createSessionStore() {
     set({
       pubkey: persisted.pubkey,
       npub: persisted.npub,
+      // Seeded cache is enough to paint Home — do not hold the landing spinner on
+      // relay/extension round-trips when we already have lists from IndexedDB.
       loading: true,
       signerType: persisted.signerType
     });
@@ -481,12 +490,20 @@ function createSessionStore() {
       void applyRelayContextFromEvents(seeded, persisted.pubkey);
       const muteEvent = newestMuteList(seeded);
       if (muteEvent) applyMuteList(parseMuteList(muteEvent, []));
+      update((s) => ({ ...s, loading: false }));
     }
     void confirmRestoredSession(persisted);
     return true;
   }
 
   async function confirmRestoredSession(persisted: PersistedSession): Promise<void> {
+    const finishLoading = (): void => {
+      update((s) => ({ ...s, loading: false }));
+    };
+    // Fetch lists in parallel with extension/bunker attach — waiting on window.nostr
+    // alone used to add multi-second dead time before any relay REQ.
+    const metaPromise = loadMetadata(persisted.pubkey).finally(finishLoading);
+
     if (persisted.signerType === 'bunker' && persisted.bunker && persisted.bunkerClientSecretKey) {
       try {
         const signer = new BunkerSigner(persisted.bunkerClientSecretKey);
@@ -505,17 +522,16 @@ function createSessionStore() {
           });
           return;
         }
-        void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
       } catch {
         // Keep painted identity; signing may fail until ensureBunkerSigner / re-login.
-        void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
       }
+      await metaPromise;
       return;
     }
 
-    const ext = await waitForNostr(4000);
+    const ext = await waitForNostr(1500);
     if (!ext?.getPublicKey) {
-      void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
+      await metaPromise;
       return;
     }
     try {
@@ -528,11 +544,10 @@ function createSessionStore() {
       activeSigner = signer;
       activeSignerType = 'nip07';
       wireRelayAuth();
-      void loadMetadata(pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     } catch {
       // Some extensions need a user gesture for getPublicKey — keep persisted identity.
-      void loadMetadata(persisted.pubkey).finally(() => update((s) => ({ ...s, loading: false })));
     }
+    await metaPromise;
   }
 
   function signOut(): void {

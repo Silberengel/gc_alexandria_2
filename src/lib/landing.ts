@@ -1114,6 +1114,13 @@ export function isWarmLandingRevisit(
   const nowViewer = viewer?.toLowerCase() ?? null;
   if (warmLandingVisit.viewer !== nowViewer) return false;
   const shelves = cached?.shelves ?? [];
+  // Shelves-only cache must not skip refresh — otherwise Ratings/Highlights never
+  // appear after a warm revisit that recorded before feeds resolved.
+  const hasFeeds =
+    (cached?.highlights?.length ?? 0) > 0 ||
+    (cached?.comments?.length ?? 0) > 0 ||
+    (cached?.ratings?.length ?? 0) > 0;
+  if (!hasFeeds) return false;
   if (nowViewer) {
     // Do not treat empty metaKey as "missing" — it is a real fingerprint.
     if (warmLandingVisit.metaKey !== metaKey) return false;
@@ -1298,6 +1305,24 @@ export async function refreshLanding(
   ratings = landingRatings(rateWs, cacheOk ? (cached?.ratings ?? []) : []);
   paint(snapshot());
 
+  // Hydrate work titles as soon as feeds arrive — do not wait on the 8s shelf race
+  // (that delay left Ratings/Highlights filtered out of the UI until targets resolved).
+  const hydrateRefs = (): void => {
+    void resolveReferenced(
+      [...highlights, ...comments, ...ratings],
+      [
+        ...publications,
+        ...(cacheOk ? (cached?.referenced ?? []) : []),
+        ...shelves.flatMap((s) => s.events)
+      ]
+    ).then((refs) => {
+      if (!refs.length) return;
+      referenced = refs;
+      paint(snapshot());
+    });
+  };
+  hydrateRefs();
+
   // Never block Home forever on shelf author lookups — race and paint whatever we have.
   const shelfPack = await raceWithTimeout(
     shelvesPromise,
@@ -1329,16 +1354,8 @@ export async function refreshLanding(
   }
   if (shelfPack.labels.length) labels = shelfPack.labels;
   paint(snapshot());
-
-  // Hydrate highlight/comment titles in the background — do not gate landing return.
-  void resolveReferenced(
-    [...highlights, ...comments, ...ratings],
-    [...publications, ...(cacheOk ? (cached?.referenced ?? []) : []), ...shelves.flatMap((s) => s.events)]
-  ).then((refs) => {
-    if (!refs.length) return;
-    referenced = refs;
-    paint(snapshot());
-  });
+  // Re-hydrate with any newly resolved shelf editions as known parents.
+  hydrateRefs();
 
   const view = snapshot();
   paint(view);
