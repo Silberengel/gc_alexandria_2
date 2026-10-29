@@ -75,7 +75,12 @@
   let redoStack = $state<DrawStroke[]>([]);
   let drawing = $state(false);
   let activePointerId = $state<number | null>(null);
-  let penActive = $state(false);
+  /** True after a stylus tip has contacted this board — finger/palm must not ink. */
+  let stylusSeen = false;
+  /** Stylus tip is currently down on the canvas. */
+  let penContact = false;
+  /** Ignore touch/mouse briefly after pen lift (palm often lands on lift). */
+  let palmGuardUntil = 0;
   let busy = $state(false);
   let error = $state('');
   let altText = $state('');
@@ -201,6 +206,9 @@
   $effect(() => {
     if (!open) {
       restoredForOpen = false;
+      stylusSeen = false;
+      penContact = false;
+      palmGuardUntil = 0;
       return;
     }
     if (restoredForOpen) return;
@@ -210,6 +218,9 @@
     altText = '';
     previewUrl = null;
     previewBlob = null;
+    stylusSeen = false;
+    penContact = false;
+    palmGuardUntil = 0;
     clearBackground({ persist: false });
     const restored = restoreDrawingDraft();
     if (!restored) {
@@ -419,10 +430,47 @@
     error = '';
   }
 
+  /** Palm / resting hand must not leave dots while a stylus is in use. */
+  function shouldIgnorePointer(e: PointerEvent): boolean {
+    if (e.pointerType === 'pen') return false;
+    if (e.pointerType === 'touch') {
+      if (stylusSeen || penContact || Date.now() < palmGuardUntil) return true;
+      // Fat contact before any stylus tip ≈ palm or wrist.
+      if (e.width >= 22 || e.height >= 22) return true;
+    }
+    // Some drivers report palm as mouse while the pen is in range or just lifted.
+    if (e.pointerType === 'mouse' && (penContact || Date.now() < palmGuardUntil)) {
+      return true;
+    }
+    return false;
+  }
+
+  function dropForeignStroke(incomingId: number): void {
+    if (!drawing || activePointerId === null || activePointerId === incomingId) return;
+    const priorId = activePointerId;
+    strokes = strokes.slice(0, -1);
+    drawing = false;
+    activePointerId = null;
+    try {
+      canvasEl?.releasePointerCapture(priorId);
+    } catch {
+      /* already released */
+    }
+  }
+
   function onPointerDown(e: PointerEvent): void {
     if (step !== 'draw' || busy) return;
-    if (penActive && e.pointerType === 'touch') return;
-    if (e.pointerType === 'pen') penActive = true;
+    if (shouldIgnorePointer(e)) {
+      e.preventDefault();
+      return;
+    }
+    if (e.pointerType === 'pen') {
+      stylusSeen = true;
+      penContact = true;
+      palmGuardUntil = 0;
+      // Stylus wins over an in-progress palm/finger smear.
+      dropForeignStroke(e.pointerId);
+    }
     if (isTextTool(tool) && !labelText.trim()) {
       error = 'Type a label, then drag on the canvas to place and size it.';
       return;
@@ -464,7 +512,7 @@
 
   function onPointerMove(e: PointerEvent): void {
     if (!drawing || e.pointerId !== activePointerId) return;
-    if (penActive && e.pointerType === 'touch') return;
+    if (shouldIgnorePointer(e)) return;
     e.preventDefault();
     const pt = canvasPoint(e);
     const last = strokes[strokes.length - 1];
@@ -505,10 +553,9 @@
       ];
     }
     if (e.pointerType === 'pen') {
-      // Keep palm rejection briefly after pen lift.
-      setTimeout(() => {
-        penActive = false;
-      }, 80);
+      penContact = false;
+      // Palm often settles as the tip lifts — keep rejecting touch for a beat.
+      palmGuardUntil = Date.now() + 700;
     }
   }
 
@@ -536,8 +583,11 @@
     busy = true;
     error = '';
     try {
+      // Clear paper needs alpha — GIF is opaque-only here.
+      const format = paperId === 'transparent' ? 'png' : exportFormat;
+      if (format === 'png' && exportFormat !== 'png') exportFormat = 'png';
       const blob =
-        exportFormat === 'png'
+        format === 'png'
           ? await encodeDrawingPng({
               strokes,
               paperId,
@@ -572,8 +622,9 @@
     busy = true;
     error = '';
     try {
+      const format = paperId === 'transparent' ? 'png' : exportFormat;
       const uploadBlob =
-        exportFormat === 'png'
+        format === 'png'
           ? await encodeDrawingPng({
               strokes,
               paperId,
@@ -586,7 +637,7 @@
               mirror,
               backgroundImage
             });
-      const mime = exportFormat === 'png' ? 'image/png' : 'image/gif';
+      const mime = format === 'png' ? 'image/png' : 'image/gif';
       const uploaded = await uploadDrawingImage(uploadBlob, pubkey, mime);
       onComplete?.({
         url: uploaded.url,
@@ -697,7 +748,7 @@
                   {/each}
                 </div>
                 <label class="size">
-                  {isTextTool(tool) ? 'Font size' : 'Size'}
+                  {isTextTool(tool) ? 'Font size' : 'Tip'}
                   {#if isTextTool(tool)}
                     <input
                       type="range"
@@ -708,7 +759,10 @@
                     />
                     <span class="size-val muted">{Math.round(width)}</span>
                   {:else}
-                    <input type="range" min="1" max="28" bind:value={width} />
+                    <input type="range" min="0.25" max="28" step="0.25" bind:value={width} />
+                    <span class="size-val muted"
+                      >{width < 1 ? width.toFixed(2) : Number.isInteger(width) ? width : width.toFixed(1)}</span
+                    >
                   {/if}
                 </label>
                 <label class="mirror">
@@ -779,13 +833,16 @@
                   <button
                     type="button"
                     class="paper"
+                    class:paper-clear={p.id === 'transparent'}
                     class:active={paperId === p.id && !backgroundImage}
-                    style:background={p.background}
+                    style:background={p.id === 'transparent' ? undefined : p.background}
                     style:color={p.defaultInk}
                     onclick={() => {
                       paperId = p.id;
                       color = p.defaultInk;
                       clearBackground();
+                      // GIF has no useful alpha — keep Clear exports as PNG.
+                      if (p.id === 'transparent') exportFormat = 'png';
                     }}>{p.label}</button
                   >
                 {/each}
@@ -817,10 +874,11 @@
           </aside>
 
           <div class="draw-stage">
-            <div class="canvas-wrap">
+            <div class="canvas-wrap" class:checker={paperId === 'transparent' && !backgroundImage}>
               <canvas
                 bind:this={canvasEl}
                 class="draw-canvas"
+                class:on-clear={paperId === 'transparent' && !backgroundImage}
                 width={W}
                 height={H}
                 onpointerdown={onPointerDown}
@@ -845,15 +903,16 @@
               <button
                 type="button"
                 class="tool"
-                class:active={exportFormat === 'png'}
+                class:active={exportFormat === 'png' || paperId === 'transparent'}
                 disabled={busy}
                 onclick={() => (exportFormat = 'png')}>PNG</button
               >
               <button
                 type="button"
                 class="tool"
-                class:active={exportFormat === 'gif'}
-                disabled={busy}
+                class:active={exportFormat === 'gif' && paperId !== 'transparent'}
+                disabled={busy || paperId === 'transparent'}
+                title={paperId === 'transparent' ? 'Clear paper exports as PNG (keeps transparency)' : undefined}
                 onclick={() => (exportFormat = 'gif')}>GIF</button
               >
             </div>
@@ -1187,6 +1246,20 @@
       inset 0 0 0 2px var(--accent),
       0 0 0 1px color-mix(in srgb, var(--text, var(--ink)) 35%, transparent);
   }
+  .paper-clear {
+    background-color: #ddd;
+    background-image:
+      linear-gradient(45deg, #bbb 25%, transparent 25%),
+      linear-gradient(-45deg, #bbb 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #bbb 75%),
+      linear-gradient(-45deg, transparent 75%, #bbb 75%);
+    background-size: 0.55rem 0.55rem;
+    background-position:
+      0 0,
+      0 0.275rem,
+      0.275rem -0.275rem,
+      -0.275rem 0;
+  }
   .canvas-wrap {
     display: grid;
     place-items: center;
@@ -1198,6 +1271,20 @@
     min-height: 0;
     flex: 1 1 auto;
   }
+  .canvas-wrap.checker {
+    background-color: #c8c4bc;
+    background-image:
+      linear-gradient(45deg, #b0aca4 25%, transparent 25%),
+      linear-gradient(-45deg, #b0aca4 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #b0aca4 75%),
+      linear-gradient(-45deg, transparent 75%, #b0aca4 75%);
+    background-size: 0.75rem 0.75rem;
+    background-position:
+      0 0,
+      0 0.375rem,
+      0.375rem -0.375rem,
+      -0.375rem 0;
+  }
   .draw-canvas {
     /* Cap by width and height so short viewports shrink the board, not clip chrome. */
     width: min(100%, 26rem, calc(min(58dvh, 40rem) * 540 / 675));
@@ -1207,6 +1294,10 @@
     cursor: crosshair;
     touch-action: none;
     box-shadow: 0 0.15rem 0.5rem rgb(0 0 0 / 12%);
+  }
+  .draw-canvas.on-clear {
+    background: transparent;
+    box-shadow: none;
   }
   .draw-actions {
     display: flex;

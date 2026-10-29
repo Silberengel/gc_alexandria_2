@@ -26,6 +26,12 @@ describe('drawing paint helpers', () => {
     expect(strokeWidthAt(s, 1)).toBeGreaterThan(strokeWidthAt(s, 0.2));
   });
 
+  it('strokeWidthAt keeps fine stylus tips under 1px floor', () => {
+    const fine = stroke({ points: [], width: 0.25 });
+    expect(strokeWidthAt(fine, 0.5)).toBeLessThan(0.8);
+    expect(strokeWidthAt(fine, 0.5)).toBeGreaterThanOrEqual(0.2);
+  });
+
   it('replaySteps advances through all points', () => {
     const strokes = [
       stroke({
@@ -60,6 +66,7 @@ describe('drawing paint helpers', () => {
 
   it('papers resolve by id', () => {
     expect(paperById('chalkboard').background).toMatch(/#2a3328/i);
+    expect(paperById('transparent').background).toBe('transparent');
     expect(paperById('nope').id).toBe('parchment');
   });
 });

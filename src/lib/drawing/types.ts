@@ -156,11 +156,19 @@ export type DrawStroke = {
   fontWeight?: 'normal' | 'bold' | number;
 };
 
-export type PaperId = 'parchment' | 'lined' | 'grid' | 'dots' | 'chalkboard' | 'sticky';
+export type PaperId =
+  | 'parchment'
+  | 'lined'
+  | 'grid'
+  | 'dots'
+  | 'chalkboard'
+  | 'sticky'
+  | 'transparent';
 
 export type PaperDef = {
   id: PaperId;
   label: string;
+  /** CSS fill; use `transparent` for alpha-only exports (PNG). */
   background: string;
   /** Optional overlay drawn after the fill (lines, dots). */
   pattern: 'none' | 'lined' | 'grid' | 'dots';

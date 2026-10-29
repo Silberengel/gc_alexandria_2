@@ -42,13 +42,14 @@ export function mulberry32(seed: number): () => number {
 
 export function strokeWidthAt(stroke: DrawStroke, pressure: number): number {
   const p = Number.isFinite(pressure) && pressure > 0 ? Math.min(1, pressure) : 0.5;
-  if (stroke.tool === 'pencil') return Math.max(0.6, stroke.width * 0.55 * (0.7 + p * 0.6));
-  if (stroke.tool === 'spray') return stroke.width;
+  if (stroke.tool === 'pencil') return Math.max(0.15, stroke.width * 0.55 * (0.7 + p * 0.6));
+  if (stroke.tool === 'spray') return Math.max(0.25, stroke.width);
   if (stroke.tool === 'highlighter') {
     // Wide, soft tip — good for marking photos and paper.
     return Math.max(6, stroke.width * 2.4 * (0.85 + p * 0.35));
   }
-  return Math.max(0.8, stroke.width * (0.55 + p * 0.9));
+  // Brush / eraser — allow sub-pixel tips for stylus fine detail.
+  return Math.max(0.2, stroke.width * (0.55 + p * 0.9));
 }
 
 /** Parse #rgb / #rrggbb (and optional alpha) into an rgba() stroke color. */
@@ -80,8 +81,12 @@ function drawPaperBackground(
   backgroundImage?: DrawBackgroundImage | null
 ): void {
   const paper = paperById(paperId);
-  ctx.fillStyle = paper.background;
-  ctx.fillRect(0, 0, width, height);
+  // Always clear first so transparent paper (and GIF frame reuse) does not keep prior pixels.
+  ctx.clearRect(0, 0, width, height);
+  if (paper.id !== 'transparent') {
+    ctx.fillStyle = paper.background;
+    ctx.fillRect(0, 0, width, height);
+  }
 
   if (backgroundImage) {
     drawCoverImage(ctx, backgroundImage, width, height);
@@ -235,7 +240,7 @@ function paintShape(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = stroke.color;
-  ctx.lineWidth = Math.max(1, stroke.width);
+  ctx.lineWidth = Math.max(0.25, stroke.width);
   ctx.globalCompositeOperation = 'source-over';
 
   const drawOnce = (flip: boolean) => {

@@ -48,6 +48,14 @@ export const PAPERS: readonly PaperDef[] = [
     pattern: 'none',
     patternColor: 'transparent',
     defaultInk: '#1a1a1a'
+  },
+  {
+    id: 'transparent',
+    label: 'Clear',
+    background: 'transparent',
+    pattern: 'none',
+    patternColor: 'transparent',
+    defaultInk: '#1a1a1a'
   }
 ] as const;
 
