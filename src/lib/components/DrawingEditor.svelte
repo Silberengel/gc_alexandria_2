@@ -269,6 +269,61 @@
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  /**
+   * Full-screen draw on tablets: pinching / double-tap / focus-zoom was scaling the
+   * page under the overlay and trapping the viewport on a corner. Lock scale while
+   * maximized; restore the original meta on exit.
+   */
+  $effect(() => {
+    if (!open || !fullScreen || typeof document === 'undefined') return;
+    const meta = document.querySelector('meta[name="viewport"]');
+    const prevContent = meta?.getAttribute('content') ?? '';
+    meta?.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+    );
+
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyTouch = body.style.touchAction;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.touchAction = 'none';
+
+    const blockPinch = (e: TouchEvent): void => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    const blockGesture = (e: Event): void => {
+      e.preventDefault();
+    };
+    // Non-passive so preventDefault actually stops Safari/Chrome pinch-zoom.
+    document.addEventListener('touchmove', blockPinch, { passive: false });
+    document.addEventListener('gesturestart', blockGesture, { passive: false });
+    document.addEventListener('gesturechange', blockGesture, { passive: false });
+    document.addEventListener('gestureend', blockGesture, { passive: false });
+
+    // Snap back if the page was already zoomed before entering full screen.
+    window.scrollTo(0, 0);
+
+    return () => {
+      if (meta) {
+        meta.setAttribute(
+          'content',
+          prevContent || 'width=device-width, initial-scale=1.0'
+        );
+      }
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.touchAction = prevBodyTouch;
+      document.removeEventListener('touchmove', blockPinch);
+      document.removeEventListener('gesturestart', blockGesture);
+      document.removeEventListener('gesturechange', blockGesture);
+      document.removeEventListener('gestureend', blockGesture);
+    };
+  });
+
   function redraw(): void {
     const canvas = canvasEl;
     if (!canvas) return;
@@ -969,10 +1024,15 @@
     place-items: center;
     padding: 0.75rem;
     background: color-mix(in srgb, var(--ink) 55%, transparent);
+    /* Kill double-tap zoom even in the windowed sheet. */
+    touch-action: manipulation;
   }
   .draw-overlay.full {
     padding: 0;
     place-items: stretch;
+    /* Full-screen board: no pan/zoom gestures through to the page. */
+    touch-action: none;
+    overscroll-behavior: none;
   }
   .draw-sheet {
     width: min(40rem, 100%);
@@ -996,6 +1056,8 @@
     border-radius: 0;
     box-shadow: none;
     padding: 0.4rem 0.5rem 0.4rem;
+    touch-action: none;
+    overscroll-behavior: none;
   }
   .draw-body {
     flex: 1 1 auto;
@@ -1003,6 +1065,16 @@
     overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+  .draw-sheet.full .draw-body {
+    overscroll-behavior: none;
+  }
+  /* Tool rail may still scroll vertically; canvas keeps touch-action: none. */
+  .draw-sheet.full .draw-chrome {
+    touch-action: pan-y;
+  }
+  .draw-sheet.full .draw-actions {
+    touch-action: manipulation;
   }
   .draw-layout {
     display: grid;
