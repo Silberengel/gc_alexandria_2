@@ -575,6 +575,8 @@ function linkifyHttpText(segment: string): string {
     const url = tidyBareUrl(raw);
     const trail = raw.slice(url.length);
     if (!isAllowedHref(url)) return raw;
+    // Full href + label; `cropRenderedUrlsInHtml` splits trackers into a
+    // safe-prefix link and plaintext tail (Threema-style).
     return `<a href="${escapeHrefAttr(url)}" rel="noopener noreferrer" target="_blank">${escapeHrefAttr(url)}</a>${trail}`;
   });
 }

@@ -128,7 +128,10 @@ export function noteReferenceSpec(event: Event): NoteRefSpec | null {
   if (isKind1Reply(event) || event.kind === KIND.COMMENT) {
     return replySpec(event);
   }
-  if (isKind1Quote(event) || (event.kind === KIND.TEXT_NOTE && qTag(event))) {
+  if (
+    isKind1Quote(event) ||
+    ((event.kind === KIND.TEXT_NOTE || event.kind === KIND.PUBLIC_MESSAGE) && qTag(event))
+  ) {
     return quoteSpec(event);
   }
   return null;

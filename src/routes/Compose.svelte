@@ -132,6 +132,7 @@
     canForkWikiEvent,
     eventToComposeDraft
   } from '$lib/event-compose-preload';
+  import { quoteComposeSeed } from '$lib/repost';
   import { wikiForkDraftFrom } from '$lib/wiki-fork';
   import { wikiMergeRequestDraftFromFork } from '$lib/wiki-merge';
   import {
@@ -154,9 +155,11 @@
     imetaTagFromUpload
   } from '$lib/blossom';
   import {
+    proseHasShareTrackers,
     scrubClipboardTextPaste,
     scrubProseText,
-    scrubTrackingUrlsInText
+    scrubTrackingUrlsInText,
+    SHARE_TRACKER_WARNING
   } from '$lib/clean-url';
   import {
     fetchRemoteMediaFile,
@@ -278,7 +281,7 @@
   let manuscriptDrafts = $state<PublicationManuscriptMeta[]>([]);
   /** Own kind-1 being revised as NIP-41 kind 1010 (null = normal compose / copy). */
   let shortNoteEditSource = $state<NostrEvent | null>(null);
-  /** Last `?copy=` / `?edit=` id we applied, so the effect does not loop. */
+  /** Last `?copy=` / `?edit=` / `?quote=` (etc.) id we applied, so the effect does not loop. */
   let appliedIntentKey = $state<string | null>(null);
   /** True when the form was filled from the viewer's newest replaceable of this kind. */
   let replaceablePreloaded = $state(false);
@@ -1383,6 +1386,15 @@
     bumpPreview();
   }
 
+  async function applyQuoteIntent(source: NostrEvent): Promise<void> {
+    persistCurrent();
+    shortNoteEditSource = null;
+    applyDraft(quoteComposeSeed(source));
+    formError = '';
+    editorTab = 'edit';
+    bumpPreview();
+  }
+
   /** Load the signed-in viewer's live replaceable into the open form. */
   async function applyReplaceablePreload(nextKind: number): Promise<boolean> {
     const pk = $session.pubkey;
@@ -2332,7 +2344,8 @@
       params.get('copy') ||
       params.get('edit') ||
       params.get('fork') ||
-      params.get('merge')
+      params.get('merge') ||
+      params.get('quote')
     ) {
       return;
     }
@@ -2407,6 +2420,7 @@
     const editId = (params.get('edit') ?? '').trim().toLowerCase();
     const forkId = (params.get('fork') ?? '').trim().toLowerCase();
     const mergeId = (params.get('merge') ?? '').trim().toLowerCase();
+    const quoteId = (params.get('quote') ?? '').trim().toLowerCase();
     const intentKey = copyId
       ? `copy:${copyId}`
       : editId
@@ -2415,12 +2429,14 @@
           ? `fork:${forkId}`
           : mergeId
             ? `merge:${mergeId}`
-            : '';
+            : quoteId
+              ? `quote:${quoteId}`
+              : '';
     if (!pk || !intentKey) return;
     if (appliedIntentKey === intentKey) return;
     let cancelled = false;
     void (async () => {
-      const id = copyId || editId || forkId || mergeId;
+      const id = copyId || editId || forkId || mergeId || quoteId;
       const source = await resolveIntentEvent(id);
       if (cancelled) return;
       if (!source) {
@@ -2432,6 +2448,7 @@
       if (copyId) await applyCopyIntent(source);
       else if (forkId) await applyForkIntent(source);
       else if (mergeId) await applyMergeIntent(source);
+      else if (quoteId) await applyQuoteIntent(source);
       else await applyEditIntent(source);
     })();
     return () => {
@@ -3028,6 +3045,9 @@
                     ondrop={(event) => void onBodyDrop(event)}
                   />
                 {/if}
+                {#if proseHasShareTrackers(content)}
+                  <p class="compose-track-warn muted">{SHARE_TRACKER_WARNING}</p>
+                {/if}
                 {#if kind !== 9802}
                   <div class="compose-grammar-tools">
                     <label class="compose-grammar-check">
@@ -3342,6 +3362,9 @@
   .compose-tab-preview,
   .compose-tab-json {
     padding-top: 0.25rem;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
   }
   .compose-json-toolbar {
     display: flex;
@@ -3605,6 +3628,12 @@
   .compose-split-progress {
     margin: 0.35rem 0;
     font-size: 0.88rem;
+  }
+  .compose-track-warn {
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: color-mix(in srgb, #b45309 55%, var(--ink-soft));
   }
   .compose-grammar-tools {
     display: flex;

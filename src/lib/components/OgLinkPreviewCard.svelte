@@ -64,14 +64,18 @@
   .og-card {
     display: grid;
     gap: 0.55rem;
+    box-sizing: border-box;
     margin: 0.35rem 0 0.5rem;
-    max-width: 36rem;
+    width: 100%;
+    min-width: 0;
+    max-width: min(36rem, 100%);
     padding: 0.75rem 0.9rem;
     border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
     border-radius: 0.45rem;
     background: color-mix(in srgb, currentColor 4%, transparent);
     color: inherit;
     text-decoration: none;
+    overflow: hidden;
   }
   a.og-card:hover {
     border-color: color-mix(in srgb, currentColor 28%, transparent);

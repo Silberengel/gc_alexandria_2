@@ -172,6 +172,8 @@ export const KIND = {
   METADATA: 0,
   CONTACT_LIST: 3,
   TEXT_NOTE: 1,
+  /** NIP-A4 public message (plaintext to one or more `p` recipients; no `e` threads). */
+  PUBLIC_MESSAGE: 24,
   /** NIP-41 short-note edit (kind-1 content revision). */
   SHORT_NOTE_EDIT: 1010,
   DELETION: 5,
@@ -181,6 +183,10 @@ export const KIND = {
   HIGHLIGHT: 9802,
   /** NIP-57 zap receipt. */
   ZAP: 9735,
+  /** Nosmero / Monero tip disclosure. */
+  MONERO_TIP: 9736,
+  /** Garnet / jumble Monero tip receipt. */
+  MONERO_TIP_RECEIPT: 1814,
   /** NIP-51 pin list. */
   PIN: 10001,
   BOOKMARK: 10003,
@@ -296,6 +302,7 @@ export const CACHE_KINDS = [
   KIND.PIN,
   KIND.BOOKMARK,
   KIND.TEXT_NOTE,
+  KIND.PUBLIC_MESSAGE,
   KIND.REACTION,
   KIND.COMMENT,
   KIND.REPOST,

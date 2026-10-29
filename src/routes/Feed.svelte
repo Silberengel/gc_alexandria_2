@@ -15,6 +15,8 @@
   import LiveChatFeed from '$lib/components/LiveChatFeed.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import FeedBoosters from '$lib/components/FeedBoosters.svelte';
+  import TipReceiptCard from '$lib/components/TipReceiptCard.svelte';
+  import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { appClientHeight, appOffsetTop, appScrollTo, appScrollY } from '$lib/app-scroll';
   import { KIND } from '$lib/constants';
   import { isNip53Kind, NIP53_KIND, parseLiveStream } from '$lib/nip53';
@@ -24,7 +26,12 @@
     localRoomPresence,
     roomPresenceDraft
   } from '$lib/live-chat';
-  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
+  import {
+    proseHasShareTrackers,
+    scrubClipboardTextPaste,
+    scrubProseText,
+    SHARE_TRACKER_WARNING
+  } from '$lib/clean-url';
   import { consumeSignFailure, isSignInFlight, publishComment, signAndPublish } from '$lib/sign';
   import { showNotice } from '$lib/stores/toast';
   import { articleHighlightDraft, commentDraft } from '$lib/drafts';
@@ -56,6 +63,12 @@
   } from '$lib/reactions';
   import { collapseFeedReposts, peekRepostTarget } from '$lib/repost';
   import {
+    isMoneroTipEvent,
+    parseZap,
+    tipActorPubkey,
+    tipNotificationText
+  } from '$lib/zaps';
+  import {
     collectNewFeedEvents,
     DEFAULT_NOTIFICATION_LOOKBACK,
     feedEventsWatermark,
@@ -67,13 +80,14 @@
     feedTabKinds,
     feedTabLabel,
     eventMatchesThreadTarget,
-    isFeedInteractionEvent,
     isKindFeedTab,
     isOptionalBuiltinFeedTab,
     isRemovableFeedTab,
+    normalizeFeedKinds,
     OPTIONAL_BUILTIN_FEED_TABS,
     feedThreadPath,
     feedThreadPathFromId,
+    feedThreadWarmSeed,
     fetchFeedThreadTarget,
     mergeFeedPosts,
     loadAuthorFeed,
@@ -140,8 +154,12 @@
   const feedTabParam = $derived(feedQuery.get('tab'));
   /** Kinds checked in the add-tab picker (multi-select). */
   let kindDraftSelected = $state<Record<number, boolean>>({});
+  /** Extra kind numbers typed in the + picker (one row per string). */
+  let kindDraftCustomRows = $state<string[]>(['']);
   let kindDraftName = $state('');
   let kindPickerOpen = $state(false);
+  /** Tab awaiting remove confirmation (modal). */
+  let tabPendingRemove = $state<FeedTab | null>(null);
   let kindPickerWrap = $state<HTMLElement | null>(null);
   /** Tab id under the pointer — never a visible-strip index (visibility can change mid-drag). */
   let dragFromTab = $state<FeedTab | null>(null);
@@ -331,8 +349,21 @@
     setFeedTab(tab);
   }
 
+  function parseCustomKindRow(raw: string): number | null {
+    const t = raw.trim();
+    if (!t || !/^\d+$/.test(t)) return null;
+    const n = Number(t);
+    if (!Number.isInteger(n) || n < 0) return null;
+    return n;
+  }
+
   const kindDraftKinds = $derived(
-    FEED_FILTER_KINDS.filter((kind) => kindDraftSelected[kind])
+    normalizeFeedKinds([
+      ...FEED_FILTER_KINDS.filter((kind) => kindDraftSelected[kind]),
+      ...kindDraftCustomRows
+        .map(parseCustomKindRow)
+        .filter((kind): kind is number => kind != null)
+    ])
   );
 
   const kindPickerOptions = $derived(
@@ -348,27 +379,63 @@
 
   function toggleKindPicker(): void {
     kindPickerOpen = !kindPickerOpen;
+    if (kindPickerOpen && !kindDraftCustomRows.length) kindDraftCustomRows = [''];
+  }
+
+  function addCustomKindRow(): void {
+    kindDraftCustomRows = [...kindDraftCustomRows, ''];
+  }
+
+  function setCustomKindRow(index: number, value: string): void {
+    kindDraftCustomRows = kindDraftCustomRows.map((row, i) => (i === index ? value : row));
+  }
+
+  function removeCustomKindRow(index: number): void {
+    if (kindDraftCustomRows.length <= 1) {
+      kindDraftCustomRows = [''];
+      return;
+    }
+    kindDraftCustomRows = kindDraftCustomRows.filter((_, i) => i !== index);
   }
 
   function addKindTab(): void {
     const tab = feedTabOrder.addKinds(kindDraftKinds, kindDraftName);
     kindDraftSelected = {};
+    kindDraftCustomRows = [''];
     kindDraftName = '';
     kindPickerOpen = false;
     if (tab) setFeedTab(tab);
   }
 
-  function removeTab(tab: FeedTab, e: MouseEvent): void {
+  function requestRemoveTab(tab: FeedTab, e: MouseEvent): void {
     e.stopPropagation();
     e.preventDefault();
     if (!isRemovableFeedTab(tab)) return;
     // Author profiles always need Original / Replies; only hide them on the home strip.
+    if (feedAuthor && isOptionalBuiltinFeedTab(tab)) return;
+    tabPendingRemove = tab;
+  }
+
+  function cancelRemoveTab(): void {
+    tabPendingRemove = null;
+  }
+
+  function confirmRemoveTab(): void {
+    const tab = tabPendingRemove;
+    tabPendingRemove = null;
+    if (!tab || !isRemovableFeedTab(tab)) return;
     if (feedAuthor && isOptionalBuiltinFeedTab(tab)) return;
     const next = visibleFeedTabs.find((t) => t !== tab) ?? 'follows';
     const wasActive = feedTab === tab;
     feedTabOrder.remove(tab);
     if (wasActive) setFeedTab(next);
   }
+
+  const tabPendingRemoveLabel = $derived(
+    tabPendingRemove
+      ? feedTabLabel(tabPendingRemove, $feedTabLabels[tabPendingRemove])
+      : ''
+  );
 
   function restoreOptionalBuiltin(tab: (typeof OPTIONAL_BUILTIN_FEED_TABS)[number]): void {
     const restored = feedTabOrder.addOptionalBuiltin(tab);
@@ -384,6 +451,18 @@
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
+  });
+
+  $effect(() => {
+    if (!tabPendingRemove) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelRemoveTab();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   });
 
   /** Client-side list filters on the normal feed (hidden on author-scoped profiles). */
@@ -485,6 +564,7 @@
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
   let noteDraft = $state('');
+  let notePreviewing = $state(false);
   let notePosting = $state(false);
   let listLoading = $state(true);
   /** True only after a load finishes once the viewer's relay lists are in place. */
@@ -513,6 +593,8 @@
   function ingestFeedEvents(incoming: Event[], muted: MuteState): void {
     const next = filterMuted(incoming, muted);
     if (!next.length) return;
+    // Keep list rows in session memory so thread opens can seed the OP without a relay round-trip.
+    rememberEvents(next);
     const settled = untrack(() => listSettled);
     const current = untrack(() => items);
     if (!settled || !current.length) {
@@ -559,9 +641,24 @@
   function clearNoteDraft(): void {
     noteDraft = '';
     pendingImeta = [];
+    notePreviewing = false;
     const pubkey = $session.pubkey;
     if (pubkey) deleteThreadDraft(pubkey, feedNoteDraftScope);
   }
+
+  /** Unsigned kind-1 for the feed compose Preview tab. */
+  const notePreviewEvent = $derived.by((): Event => {
+    const pk = $session.pubkey ?? '0'.repeat(64);
+    return {
+      id: '',
+      sig: '',
+      pubkey: pk,
+      created_at: Math.floor(Date.now() / 1000),
+      kind: KIND.TEXT_NOTE,
+      content: scrubProseText(noteDraft),
+      tags: pendingImeta.map((row) => [...row])
+    };
+  });
 
   $effect(() => {
     const pubkey = $session.pubkey;
@@ -663,7 +760,8 @@
       if (resolved?.shortcode) return `:${resolved.shortcode}:`;
       return face;
     }
-    if (item.kind === KIND.ZAP) return 'Zap receipt';
+    const tipText = tipNotificationText(item);
+    if (tipText) return tipText;
     const preview = eventPreview(item);
     const text =
       item.kind === KIND.TEXT_NOTE
@@ -1088,13 +1186,20 @@
     return feedThreadPath(item, feedTab, { author: feedAuthor });
   }
 
+  /** Stash the thread OP (not just the clicked row) for the thread pane seed. */
+  function warmThreadOpen(item: Event): void {
+    rememberEvents([item]);
+    const seed = feedThreadWarmSeed(item);
+    warmNavEvent(seed, item.id);
+  }
+
   function openThreadForEvent(item: Event, e: MouseEvent, restoreId: string): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
     /* Directory listing indicators: whole card opens the OP thread. */
     if (target.closest('.directory-explorer-header-only')) {
       armListRestore(restoreId);
-      warmNavEvent(item);
+      warmThreadOpen(item);
       // Push (not replace) so browser Back returns to the feed list.
       void push(feedOpenPath(item));
       queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
@@ -1102,20 +1207,13 @@
     }
     if (
       target.closest(
-        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge, .directory-explorer'
+        'a, button, input, textarea, video, audio, .generic-card, .note-card, .pub-card, .picture-card, .video-card, .result-card-wrap, .userbadge, .directory-explorer, .event-more-menu, .menu-panel'
       )
     ) {
       return;
     }
     armListRestore(restoreId);
-    if (isFeedInteractionEvent(item)) {
-      const eTags = item.tags.filter((t) => t[0] === 'e' && t[1] && /^[0-9a-f]{64}$/i.test(t[1]));
-      const targetId = eTags[eTags.length - 1]?.[1]?.toLowerCase();
-      const warm = targetId ? memoryGetEvent(targetId) : null;
-      warmNavEvent(warm ?? item);
-    } else {
-      warmNavEvent(item);
-    }
+    warmThreadOpen(item);
     const path = feedOpenPath(item);
     void push(path);
     // Reply deep-links (`?comment=`) scroll to the focused node; bare threads go to top.
@@ -1129,7 +1227,11 @@
     if (!(target instanceof Element)) return;
     if (target.closest('a, button, input, textarea, video, audio, .userbadge')) return;
     armListRestore(targetId);
-    if (warm) warmNavEvent(warm);
+    if (warm) warmThreadOpen(warm);
+    else {
+      const fromMem = memoryGetEvent(targetId);
+      if (fromMem) warmNavEvent(fromMem);
+    }
     const path = warm
       ? feedThreadPath(warm, feedTab, { author: feedAuthor })
       : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
@@ -1141,7 +1243,7 @@
 
   function openThreadLink(item: Event, restoreId = item.id): void {
     armListRestore(restoreId);
-    warmNavEvent(item);
+    warmThreadOpen(item);
     queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
   }
 
@@ -1424,7 +1526,22 @@
     responses = emptyWorkResponses();
     socialLoading = false;
     const warm = takePendingNavEvent();
-    const seeded = warm && eventMatchesThreadTarget(warm, target) ? warm : null;
+    // Prefer the pending click seed when it is the OP; otherwise fall back to
+    // session memory (feed rows are remembered on ingest / warmThreadOpen).
+    let seeded =
+      warm && eventMatchesThreadTarget(warm, target)
+        ? warm
+        : target.type === 'id'
+          ? memoryGetEvent(target.id)
+          : null;
+    if (!seeded && warm) {
+      // Pending was often the reply/reaction row — keep it remembered for comment focus.
+      rememberEvents([warm]);
+      seeded =
+        target.type === 'id'
+          ? memoryGetEvent(target.id)
+          : null;
+    }
     event = seeded;
     threadLoading = !seeded;
     void (async () => {
@@ -1683,23 +1800,49 @@
         void postNote();
       }}
     >
-      <label class="feed-note-label" for="feed-note-draft">Post a note</label>
-      <MentionControl
-        id="feed-note-draft"
-        mode="prose"
-        multiline
-        rows={3}
-        bind:value={noteDraft}
-        placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
-        disabled={notePosting || !signedIn}
-        onpaste={onNotePaste}
-      />
+      <div class="feed-note-head">
+        <label class="feed-note-label" for="feed-note-draft">Post a note</label>
+        {#if signedIn}
+          <button
+            class="btn feed-note-preview-btn"
+            type="button"
+            disabled={notePosting || (!notePreviewing && !noteDraft.trim() && !pendingImeta.length)}
+            aria-pressed={notePreviewing}
+            onclick={() => (notePreviewing = !notePreviewing)}
+          >{notePreviewing ? 'Edit' : 'Preview'}</button>
+        {/if}
+      </div>
+      {#if notePreviewing}
+        <div class="compose-preview feed-note-preview" aria-live="polite">
+          {#if noteDraft.trim() || pendingImeta.length}
+            {#key `${noteDraft}\0${pendingImeta.length}`}
+              <EventBody event={notePreviewEvent} showEmbeds />
+            {/key}
+          {:else}
+            <p class="muted">Nothing to preview yet.</p>
+          {/if}
+        </div>
+      {:else}
+        <MentionControl
+          id="feed-note-draft"
+          mode="prose"
+          multiline
+          rows={3}
+          bind:value={noteDraft}
+          placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
+          disabled={notePosting || !signedIn}
+          onpaste={onNotePaste}
+        />
+      {/if}
+      {#if proseHasShareTrackers(noteDraft)}
+        <p class="feed-note-track-warn muted">{SHARE_TRACKER_WARNING}</p>
+      {/if}
       <div class="compose-actions">
         {#if signedIn}
           <button
             class="btn"
             type="button"
-            disabled={notePosting}
+            disabled={notePosting || notePreviewing}
             onclick={() => (drawOpen = true)}
           >Draw</button>
           <button
@@ -1751,7 +1894,7 @@
                 class="feed-tab-remove"
                 role="presentation"
                 title={isKindFeedTab(tab) ? 'Remove kind tab' : `Remove ${feedTabLabel(tab)}`}
-                onclick={(e) => removeTab(tab, e)}>×</span
+                onclick={(e) => requestRemoveTab(tab, e)}>×</span
               >
             {/if}
           </button>
@@ -1772,45 +1915,86 @@
           {#if kindPickerOpen}
             <div class="feed-kind-picker" role="group" aria-label="Add a feed tab">
               {#if missingOptionalBuiltins.length}
-                <p class="feed-kind-picker-hint muted">Restore a built-in view</p>
+                <div class="feed-kind-picker-restore-block">
+                  <p class="feed-kind-picker-hint muted">Restore tab</p>
+                  <ul class="feed-kind-picker-list feed-kind-picker-list-restore">
+                    {#each missingOptionalBuiltins as tab (tab)}
+                      <li>
+                        <button
+                          class="btn feed-kind-picker-restore"
+                          type="button"
+                          onclick={() => restoreOptionalBuiltin(tab)}
+                        >{feedTabLabel(tab)}</button>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              <div class="feed-kind-picker-kinds-block">
+                <p class="feed-kind-picker-hint muted">Select kinds for a custom feed tab</p>
+                <label class="feed-kind-picker-name">
+                  <span class="muted">Tab name</span>
+                  <input
+                    class="feed-kind-picker-name-input"
+                    type="text"
+                    maxlength="40"
+                    placeholder="Optional — e.g. Social"
+                    bind:value={kindDraftName}
+                    autocomplete="off"
+                  />
+                </label>
                 <ul class="feed-kind-picker-list">
-                  {#each missingOptionalBuiltins as tab (tab)}
+                  {#each kindPickerOptions as opt (opt.kind)}
                     <li>
-                      <button
-                        class="btn feed-kind-picker-restore"
-                        type="button"
-                        onclick={() => restoreOptionalBuiltin(tab)}
-                      >{feedTabLabel(tab)}</button>
+                      <label class="feed-kind-picker-row">
+                        <input
+                          type="checkbox"
+                          checked={!!kindDraftSelected[opt.kind]}
+                          onchange={() => toggleKindDraft(opt.kind)}
+                        />
+                        <span>{opt.label}</span>
+                      </label>
                     </li>
                   {/each}
                 </ul>
-              {/if}
-              <p class="feed-kind-picker-hint muted">Select kinds for a custom feed tab</p>
-              <label class="feed-kind-picker-name">
-                <span class="muted">Tab name</span>
-                <input
-                  class="feed-kind-picker-name-input"
-                  type="text"
-                  maxlength="40"
-                  placeholder="Optional — e.g. Social"
-                  bind:value={kindDraftName}
-                  autocomplete="off"
-                />
-              </label>
-              <ul class="feed-kind-picker-list">
-                {#each kindPickerOptions as opt (opt.kind)}
-                  <li>
-                    <label class="feed-kind-picker-row">
+                <div class="feed-kind-picker-custom">
+                  <div class="feed-kind-picker-custom-head">
+                    <span class="muted">Other kinds</span>
+                    <button
+                      type="button"
+                      class="feed-kind-picker-row-btn"
+                      onclick={addCustomKindRow}
+                      aria-label="Add kind number"
+                      title="Add kind number"
+                    >+</button>
+                  </div>
+                  <p class="feed-kind-picker-hint muted">Any integer kind not listed above</p>
+                  {#each kindDraftCustomRows as row, i (i)}
+                    <div class="feed-kind-picker-custom-row">
                       <input
-                        type="checkbox"
-                        checked={!!kindDraftSelected[opt.kind]}
-                        onchange={() => toggleKindDraft(opt.kind)}
+                        class="feed-kind-picker-name-input feed-kind-picker-kind-input"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="e.g. 31923"
+                        value={row}
+                        aria-label={`Custom kind ${i + 1}`}
+                        autocomplete="off"
+                        spellcheck="false"
+                        oninput={(e) => setCustomKindRow(i, e.currentTarget.value)}
                       />
-                      <span>{opt.label}</span>
-                    </label>
-                  </li>
-                {/each}
-              </ul>
+                      <button
+                        type="button"
+                        class="feed-kind-picker-row-btn"
+                        onclick={() => removeCustomKindRow(i)}
+                        aria-label={`Remove kind row ${i + 1}`}
+                        title="Remove row"
+                        disabled={kindDraftCustomRows.length <= 1 && !row.trim()}
+                      >−</button>
+                    </div>
+                  {/each}
+                </div>
+              </div>
               <div class="feed-kind-picker-actions">
                 <button
                   class="btn btn-primary"
@@ -1894,16 +2078,19 @@
           {#if row.type === 'event'}
             {@const item = row.event}
             {@const reactionRow = item.kind === KIND.REACTION || item.kind === 17}
+            {@const tipRow = !!(parseZap(item) || isMoneroTipEvent(item))}
+            {@const tipOneline = tipRow && !shown[item.id.toLowerCase()]}
+            {@const actorPubkey = tipRow ? tipActorPubkey(item) : item.pubkey}
             {@const threadHref = `#${feedOpenPath(item)}`}
             <li
               class="card feed-row"
-              class:feed-row-oneline={reactionRow}
+              class:feed-row-oneline={reactionRow || tipOneline}
               data-feed-row={item.id.toLowerCase()}
               use:watchRow={item.id}
             >
               <div
                 class="feed-hit"
-                class:feed-hit-oneline={reactionRow}
+                class:feed-hit-oneline={reactionRow || tipOneline}
                 role="link"
                 tabindex="0"
                 onclick={(e) => openThreadForEvent(item, e, item.id)}
@@ -1917,19 +2104,31 @@
                 <FeedBoosters boosts={row.boosts} targetId={item.id} />
                 {#if item.kind === KIND.DIRECTORY}
                   <div class="feed-body feed-body-directory">
-                    <DirectoryExplorer event={item} showMenu={false} headerOnly />
+                    <DirectoryExplorer
+                      event={item}
+                      showMenu={feedTab === 'notifications'}
+                      headerOnly
+                    />
                   </div>
                 {:else if item.kind === KIND.METADATA}
                   <div class="feed-body feed-body-profile">
-                    <ProfileMetadataCard event={item} showMenu={false} compact />
+                    <ProfileMetadataCard
+                      event={item}
+                      showMenu={feedTab === 'notifications'}
+                      compact
+                    />
                   </div>
                 {:else if item.kind === KIND.LONG_FORM}
                   <div class="feed-body feed-body-card">
-                    <PublicationCard event={item} showMenu={false} enlargeOnClick={false} />
+                    <PublicationCard
+                      event={item}
+                      showMenu={feedTab === 'notifications'}
+                      enlargeOnClick={false}
+                    />
                   </div>
                 {:else}
                   <div class="thread-head">
-                    <UserBadge pubkey={item.pubkey} />
+                    <UserBadge pubkey={actorPubkey} />
                     <a
                       class="thread-time muted"
                       href={threadHref}
@@ -1940,9 +2139,16 @@
                     {#if !reactionRow}
                       <span class="feed-kind muted">{eventKindDescription(item)}</span>
                     {/if}
+                    {#if feedTab === 'notifications'}
+                      <div class="thread-actions">
+                        <CopyPointerButton event={item} class="thread-more feed-row-more" />
+                      </div>
+                    {/if}
                   </div>
                   <div class="feed-body">
-                    {#if shown[item.id.toLowerCase()] || feedNeedsFullBody(item)}
+                    {#if tipRow && (shown[item.id.toLowerCase()] || feedNeedsFullBody(item))}
+                      <TipReceiptCard event={item} />
+                    {:else if shown[item.id.toLowerCase()] || feedNeedsFullBody(item)}
                       <EventBody event={item} />
                     {:else}
                       <p class="feed-preview">{rowText(item)}</p>
@@ -2019,6 +2225,36 @@
       </ul>
     {/if}
   </div>
+
+  {#if tabPendingRemove}
+    <div
+      class="login-overlay"
+      role="presentation"
+      onclick={cancelRemoveTab}
+    >
+      <div
+        class="login-dialog card feed-tab-remove-dialog"
+        role="dialog"
+        tabindex="-1"
+        aria-modal="true"
+        aria-labelledby="feed-tab-remove-title"
+        onclick={(e) => e.stopPropagation()}
+        onkeydown={(e) => e.stopPropagation()}
+      >
+        <header class="login-dialog-head">
+          <h2 id="feed-tab-remove-title">Remove feed tab?</h2>
+        </header>
+        <p class="login-lede">
+          Remove <strong>{tabPendingRemoveLabel}</strong> from this feed? You can add it again
+          later from the + menu.
+        </p>
+        <div class="feed-tab-remove-actions">
+          <button class="btn" type="button" onclick={cancelRemoveTab}>Cancel</button>
+          <button class="btn btn-primary" type="button" onclick={confirmRemoveTab}>Remove</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -2033,13 +2269,34 @@
     margin: 0 0 1rem;
     max-width: none;
   }
+  .feed-note-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
   .feed-note-label {
     font-family: var(--ui-font);
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--ink-soft);
   }
-  .feed-note-compose textarea {
+  .feed-note-preview-btn {
+    flex: 0 0 auto;
+    min-height: 1.85rem;
+    padding: 0.2rem 0.7rem;
+    font-size: 0.78rem;
+  }
+  .feed-note-preview-btn[aria-pressed='true'] {
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
+  }
+  .feed-note-preview {
+    margin-top: 0.15rem;
+    min-height: 4.5rem;
+  }
+  /* MentionControl owns the textarea — pierce scoped styles into the child. */
+  .feed-note-compose :global(textarea) {
     width: 100%;
     box-sizing: border-box;
     resize: vertical;
@@ -2052,8 +2309,14 @@
     border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
     border-radius: 0.4rem;
   }
-  .feed-note-compose textarea:disabled {
+  .feed-note-compose :global(textarea:disabled) {
     opacity: 0.7;
+  }
+  .feed-note-track-warn {
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: color-mix(in srgb, #b45309 55%, var(--ink-soft));
   }
   .feed-new-wrap {
     margin: 0 0 0.65rem;
@@ -2245,6 +2508,15 @@
     color: inherit;
     background: color-mix(in srgb, var(--rule) 55%, transparent);
   }
+  .feed-tab-remove-dialog {
+    width: min(22rem, 100%);
+  }
+  .feed-tab-remove-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
   .feed-kind-add {
     --feed-filter-h: 1.65rem;
     position: relative;
@@ -2278,20 +2550,92 @@
     z-index: 40;
     box-sizing: border-box;
     width: min(18.5rem, calc(100vw - 2rem));
-    max-height: min(22rem, 70vh);
+    max-height: min(28rem, 75vh);
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0.55rem;
     padding: 0.55rem 0.6rem 0.6rem;
     border: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
     border-radius: 0.35rem;
     background: var(--paper-light, var(--paper));
     box-shadow: 0 0.45rem 1.1rem color-mix(in srgb, var(--ink) 14%, transparent);
+    overflow: hidden;
+  }
+  .feed-kind-picker-restore-block {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--rule) 40%, transparent);
+  }
+  .feed-kind-picker-kinds-block {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
   }
   .feed-kind-picker-hint {
     margin: 0;
     font-size: 0.72rem;
     line-height: 1.3;
+    flex: 0 0 auto;
+  }
+  .feed-kind-picker-list-restore {
+    flex: 0 0 auto;
+    overflow: visible;
+    min-height: 0;
+  }
+  .feed-kind-picker-custom {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex: 0 0 auto;
+  }
+  .feed-kind-picker-custom-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+  }
+  .feed-kind-picker-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .feed-kind-picker-kind-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .feed-kind-picker-row-btn {
+    appearance: none;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    width: 1.65rem;
+    height: 1.65rem;
+    margin: 0;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--rule) 45%, transparent);
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--ink-soft) 6%, transparent);
+    color: var(--ink-soft);
+    font: inherit;
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .feed-kind-picker-row-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--rule) 65%, transparent);
+    background: color-mix(in srgb, var(--ink-soft) 10%, transparent);
+    color: var(--ink);
+  }
+  .feed-kind-picker-row-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .feed-kind-picker-name {
     display: flex;
@@ -2324,12 +2668,15 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    overflow: auto;
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
-    min-height: 0;
+    flex: 0 0 auto;
+  }
+  .feed-kind-picker-kinds-block > .feed-kind-picker-list {
     flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
   }
   .feed-kind-picker-row {
     display: flex;
@@ -2357,12 +2704,22 @@
     width: 100%;
     justify-content: flex-start;
     font-size: 0.78rem;
-    padding: 0.28rem 0.45rem;
+    font-weight: 600;
+    padding: 0.35rem 0.55rem;
+    color: var(--ink);
+    background: var(--paper-light, var(--paper));
+    border: 1px solid color-mix(in srgb, var(--rule) 65%, transparent);
+  }
+  .feed-kind-picker-restore:hover:not(:disabled) {
+    color: var(--ink);
+    background: color-mix(in srgb, var(--accent) 10%, var(--paper-light, var(--paper)));
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--rule));
   }
   .feed-kind-picker-actions {
     display: flex;
     justify-content: flex-end;
     gap: 0.35rem;
+    flex: 0 0 auto;
     padding-top: 0.15rem;
     border-top: 1px solid color-mix(in srgb, var(--rule) 40%, transparent);
   }
@@ -2383,6 +2740,9 @@
   .feed-row {
     display: flex;
     flex-direction: column;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     max-height: 500px;
     padding: 0.55rem 0.75rem;
     overflow: hidden;
@@ -2390,7 +2750,9 @@
   }
   .feed-row-oneline {
     max-height: none;
-    overflow: visible;
+    /* Keep menus usable vertically; never spill text past the card. */
+    overflow-x: clip;
+    overflow-y: visible;
     padding: 0.4rem 0.75rem;
   }
   .feed-boost-missing {
@@ -2403,6 +2765,8 @@
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;
+    max-width: 100%;
+    width: 100%;
     overflow: hidden;
     cursor: pointer;
   }
@@ -2415,11 +2779,40 @@
   .feed-hit-oneline .thread-head {
     margin-bottom: 0;
     flex: 0 1 auto;
+    min-width: 0;
+    max-width: 70%;
   }
   .feed-hit-oneline .feed-body {
     margin-top: 0;
-    flex: 0 1 auto;
+    flex: 1 1 0;
     min-width: 0;
+    max-width: 100%;
+  }
+  .feed-hit .thread-actions {
+    opacity: 0.45;
+  }
+  .feed-hit:hover .thread-actions,
+  .feed-hit:focus-within .thread-actions,
+  .feed-hit .thread-actions:focus-within {
+    opacity: 1;
+  }
+  .feed-hit-oneline .thread-actions {
+    margin-left: 0.15rem;
+  }
+  .feed-hit :global(.feed-row-more .copy-pointer-btn) {
+    width: 1.85rem;
+    height: 1.85rem;
+    min-width: 1.85rem;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+  .feed-hit :global(.feed-row-more .copy-pointer-btn:hover),
+  .feed-hit :global(.feed-row-more .copy-pointer-btn:focus-visible),
+  .feed-hit :global(.feed-row-more.event-more-menu-open .copy-pointer-btn) {
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface) 55%, var(--surface-2));
   }
   .feed-hit-oneline :global(.event-body),
   .feed-hit-oneline :global(.reaction-face) {
@@ -2436,6 +2829,8 @@
   }
   .feed-hit-oneline .feed-preview {
     display: block;
+    min-width: 0;
+    max-width: 100%;
     -webkit-line-clamp: unset;
     line-clamp: unset;
     white-space: nowrap;
@@ -2448,9 +2843,12 @@
     text-transform: uppercase;
   }
   .feed-body {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
     margin-top: 0.25rem;
     cursor: pointer;
+    overflow-x: clip;
   }
   /* Keep imeta media inside the feed-row 500px clip instead of showing only alt. */
   .feed-body :global(.event-imeta-btn .event-imeta),
@@ -2507,12 +2905,16 @@
   }
   .feed-preview {
     margin: 0;
+    min-width: 0;
+    max-width: 100%;
     display: -webkit-box;
     -webkit-line-clamp: 4;
     line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .feed-comments {
     margin-top: 1rem;

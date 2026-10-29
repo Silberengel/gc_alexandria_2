@@ -8,7 +8,7 @@ import { memoryGetEvent } from './nostr/event-memory';
 import { relayPool } from './nostr/pool';
 import { socialStack } from './nostr/selector';
 import { eventAddress } from './nostr/verify';
-import { pointerHintRelays } from './publication-load';
+import { copyPointerForEvent, pointerHintRelays } from './publication-load';
 
 const HEX_64 = /^[0-9a-f]{64}$/i;
 
@@ -21,6 +21,40 @@ function nip18RepostETag(target: Event): string[] {
   const author = target.pubkey.toLowerCase();
   const relay = pointerHintRelays(target)[0] ?? '';
   return relay ? ['e', id, relay, author] : ['e', id];
+}
+
+/** NIP-18 quote `q` tag: event id or address + optional relay + author. */
+function nip18QuoteQTag(target: Event): string[] {
+  const author = target.pubkey.toLowerCase();
+  const relay = pointerHintRelays(target)[0] ?? '';
+  const value = isAddressable(target.kind)
+    ? eventAddress(target)
+    : target.id.toLowerCase();
+  return relay ? ['q', value, relay, author] : ['q', value];
+}
+
+/**
+ * Seed a NIP-18 quote-repost (kind 1 + `q`) for the compose form.
+ * Content embeds a NIP-21 pointer; commentary goes above it.
+ */
+export function quoteComposeSeed(target: Event): {
+  kind: number;
+  content: string;
+  values: Record<string, string>;
+  hashtags: string[];
+  imetaTags: string[][];
+  freeformTags: string[][];
+} {
+  const ptr = copyPointerForEvent(target);
+  const author = target.pubkey.toLowerCase();
+  return {
+    kind: KIND.TEXT_NOTE,
+    content: `\n\nnostr:${ptr.text}`,
+    values: {},
+    hashtags: [],
+    imetaTags: [],
+    freeformTags: [nip18QuoteQTag(target), ['p', author]]
+  };
 }
 
 export function isRepostKind(kind: number): boolean {

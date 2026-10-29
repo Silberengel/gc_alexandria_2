@@ -6,7 +6,7 @@ import { parseAddress } from './library-scope';
 import { hexPubkey } from './metadata';
 import { emptyMuteState, filterMuted, followPubkeysFromMetadata, type MuteState } from './mute';
 import { authorOutbox, uniqueRelayUrls, withPreferredRelays } from './nostr/mailboxes';
-import { memoryGetEvent, rememberEvents } from './nostr/event-memory';
+import { memoryFindByAddress, memoryGetEvent, rememberEvents } from './nostr/event-memory';
 import { cachedEventsByKind, cacheGetEvent } from './nostr/cache';
 import { fetchByAddress } from './nostr/fetch';
 import { relayPool } from './nostr/pool';
@@ -172,10 +172,13 @@ export function isTopLevelWebComment(event: Event): boolean {
 /** Social responses that can notify the viewer when they `#p`-tag them. */
 export const NOTIFICATION_KINDS = [
   KIND.TEXT_NOTE,
+  KIND.PUBLIC_MESSAGE,
   KIND.COMMENT,
   KIND.REACTION,
   KIND.HIGHLIGHT,
   KIND.ZAP,
+  KIND.MONERO_TIP,
+  KIND.MONERO_TIP_RECEIPT,
   KIND.REPOST,
   KIND.GENERIC_REPOST,
   KIND.RATING
@@ -1196,25 +1199,79 @@ function pointerFromAddressCoord(coord: string): string | null {
   }
 }
 
-/** Kind 7 / 17 reactions and kind 9735 zap receipts — open the target, not themselves. */
+/** Kind 7 / 17 reactions, Lightning zaps, and Monero tips — open the target, not themselves. */
 export function isFeedInteractionEvent(event: Event): boolean {
-  return event.kind === KIND.REACTION || event.kind === KIND.ZAP || event.kind === 17;
+  if (event.kind === KIND.REACTION || event.kind === KIND.ZAP || event.kind === 17) return true;
+  if (event.kind === KIND.MONERO_TIP || event.kind === KIND.MONERO_TIP_RECEIPT) return true;
+  // PosterChan kind-1 `#monerotip` — treated like a tip receipt in notifications.
+  if (event.kind === KIND.TEXT_NOTE) {
+    return event.tags.some(
+      (t) => t[0] === 't' && (t[1] ?? '').trim().toLowerCase() === 'monerotip'
+    );
+  }
+  return false;
 }
 
 /**
  * Pointer for the event a reaction or zap targets.
  * NIP-25: last `e` is the reacted-to note; NIP-57 may use `e` and/or `a`/`A`.
+ * Prefer relay/author tips on the `e` tag so the thread fetch can hunt beyond feed relays.
  */
 export function feedInteractionTargetPointer(event: Event): string | null {
   if (!isFeedInteractionEvent(event)) return null;
   const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
   if (eTags.length) {
-    const id = eTags[eTags.length - 1]?.[1];
-    if (id) return feedThreadPointerFromId(id);
+    const tag = eTags[eTags.length - 1]!;
+    const id = tag[1]!.toLowerCase();
+    const relay = (tag[2] ?? '').trim();
+    const author = (tag[3] ?? '').trim().toLowerCase();
+    try {
+      return nip19.neventEncode({
+        id,
+        ...(HEX_ID.test(author) ? { author } : {}),
+        ...(relay ? { relays: [relay] } : {})
+      });
+    } catch {
+      return feedThreadPointerFromId(id);
+    }
   }
   const aTag = event.tags.find((t) => (t[0] === 'a' || t[0] === 'A') && t[1]?.trim());
   if (aTag?.[1]) return pointerFromAddressCoord(aTag[1]);
   return null;
+}
+
+/**
+ * Best in-memory event to seed the thread OP after a list click.
+ * Replies / reactions / zaps often navigate to a different root than the row —
+ * warm that OP when we already have it so the thread pane does not miss.
+ */
+export function feedThreadWarmSeed(event: Event): Event {
+  if (isFeedInteractionEvent(event)) {
+    const eTags = event.tags.filter((t) => t[0] === 'e' && t[1] && HEX_ID.test(t[1]));
+    const targetId = eTags[eTags.length - 1]?.[1]?.toLowerCase();
+    const target = targetId ? memoryGetEvent(targetId) : null;
+    if (target && target.id.toLowerCase() !== event.id.toLowerCase()) {
+      // Do not recurse through stacked reactions forever.
+      if (isFeedInteractionEvent(target)) return target;
+      return feedThreadWarmSeed(target);
+    }
+    return event;
+  }
+  const rootPointer = feedThreadRootPointer(event);
+  if (!rootPointer) return event;
+  const rootTarget = decodeFeedThreadTarget(rootPointer);
+  if (rootTarget?.type === 'id') {
+    const root = memoryGetEvent(rootTarget.id);
+    if (root) return root;
+  } else if (rootTarget?.type === 'addr') {
+    const root = memoryFindByAddress(
+      rootTarget.kind,
+      rootTarget.pubkey,
+      rootTarget.identifier
+    );
+    if (root) return root;
+  }
+  return event;
 }
 
 /**
@@ -1428,14 +1485,14 @@ export async function fetchFeedThreadTarget(
       rememberEvents([cached]);
       return cached;
     }
-    if (target.relays?.length || target.author) {
-      const { fetchById } = await import('./nostr/fetch');
-      const hit = await fetchById(target.id, {
-        hintRelays: target.relays,
-        authorPubkey: target.author
-      });
-      if (hit) return hit;
-    }
+    // Always hunt via fetchById (document + social stacks + author outbox) —
+    // feed list relays alone often miss a note that was only on inbox/index hosts.
+    const { fetchById } = await import('./nostr/fetch');
+    const hit = await fetchById(target.id, {
+      hintRelays: target.relays,
+      authorPubkey: target.author
+    });
+    if (hit) return hit;
     return fetchFeedEvent(target.id);
   }
   return fetchByAddress(`${target.kind}:${target.pubkey}:${target.identifier}`, {

@@ -28,6 +28,7 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
+  import TipButton from './TipButton.svelte';
   import AppHandlerIcon from './AppHandlerIcon.svelte';
   import UserBadge from './UserBadge.svelte';
   import { uniqueAppHandlers } from '$lib/app-handlers';
@@ -501,6 +502,7 @@
 {:else}
   <div class="details-panel-wrap">
     <div class="details-toolbar">
+      <TipButton {event} />
       <HeartButton {event} />
       <button
         class="btn btn-icon icon-action-btn thread-reply"

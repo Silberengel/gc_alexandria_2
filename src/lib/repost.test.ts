@@ -11,6 +11,7 @@ import {
   myRepostOf,
   parseEmbeddedRepostEvent,
   peekRepostExcerpt,
+  quoteComposeSeed,
   repostDraft,
   repostKindForTarget,
   repostPointsAt,
@@ -83,6 +84,43 @@ describe('repost', () => {
         })
       )
     ).toBe('boosted text');
+  });
+
+  it('seeds a kind-1 quote with q/p and a nostr pointer', () => {
+    const note = ev({
+      id: '1'.repeat(64),
+      pubkey: '2'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      content: 'hi'
+    });
+    noteEventSource(note.id, 'wss://relay.example/');
+    const seed = quoteComposeSeed(note);
+    expect(seed.kind).toBe(KIND.TEXT_NOTE);
+    expect(seed.content).toMatch(/^(\n\n)?nostr:nevent1/);
+    expect(seed.freeformTags).toContainEqual([
+      'q',
+      note.id,
+      'wss://relay.example',
+      note.pubkey
+    ]);
+    expect(seed.freeformTags).toContainEqual(['p', note.pubkey]);
+
+    const article = ev({
+      id: '3'.repeat(64),
+      pubkey: '4'.repeat(64),
+      kind: KIND.LONG_FORM,
+      content: 'essay',
+      tags: [['d', 'essay-1']]
+    });
+    noteEventSource(article.id, 'wss://relay.example/');
+    const articleSeed = quoteComposeSeed(article);
+    expect(articleSeed.content).toMatch(/^(\n\n)?nostr:naddr1/);
+    expect(articleSeed.freeformTags).toContainEqual([
+      'q',
+      `${KIND.LONG_FORM}:${article.pubkey}:essay-1`,
+      'wss://relay.example',
+      article.pubkey
+    ]);
   });
 
   it('drafts kind 6 for notes and kind 16 for everything else', () => {

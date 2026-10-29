@@ -11,10 +11,12 @@
   import { canOfferKind1Reply, highlightsForEvent, threadNodeKey } from '$lib/comments';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import HeartButton from './HeartButton.svelte';
+  import TipButton from './TipButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import ThreadRefBadges from './ThreadRefBadges.svelte';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { textHighlightsFromEvents } from '$lib/text-highlights';
+  import { eventKindDescription } from '$lib/kind-label';
 
   /** Visual nest steps before further replies share the same indent. */
   const MAX_THREAD_INDENT = 4;
@@ -59,6 +61,7 @@
   const open = $derived(!!event && !!replyOpenId && replyOpenId.toLowerCase() === event.id.toLowerCase());
   const relative = $derived(event ? formatRelativeTime(event.created_at) : '');
   const absolute = $derived(event ? formatAbsoluteTime(event.created_at) : '');
+  const kindLabel = $derived(event ? eventKindDescription(event) : '');
   const canReply = $derived(!!$session.pubkey);
   const offerKind1 = $derived(!!event && canOfferKind1Reply(event));
   const highlightQuotes = $derived(
@@ -121,7 +124,11 @@
           title={absolute}>{relative}</time
         >
       {/if}
+      {#if kindLabel}
+        <span class="thread-kind muted" title={`Kind ${event.kind}`}>{kindLabel}</span>
+      {/if}
       <div class="thread-actions">
+        <TipButton {event} />
         <HeartButton {event} />
         <ThreadRefBadges {event} {zaps} {boosts} />
         <button

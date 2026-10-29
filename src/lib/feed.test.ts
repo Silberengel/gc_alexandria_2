@@ -17,6 +17,7 @@ import {
   feedThreadPath,
   feedThreadPathFromId,
   feedThreadRootPointer,
+  feedThreadWarmSeed,
   isCoreFeedTab,
   isFeedInteractionEvent,
   isFeedReplyRow,
@@ -28,6 +29,7 @@ import {
   isRepliesTimelineEvent,
   isTopLevelWebComment,
   keepFeedPosts,
+  NOTIFICATION_KINDS,
   notificationLookbackSeconds,
   parseFeedAuthorParam,
   parseFeedTab,
@@ -197,6 +199,7 @@ describe('feed kind filter options', () => {
   it('lists feed kinds ascending without library catalog kinds', () => {
     expect(FEED_FILTER_KINDS).toEqual([...FEED_FILTER_KINDS].sort((a, b) => a - b));
     expect(FEED_FILTER_KINDS).toContain(KIND.TEXT_NOTE);
+    expect(FEED_FILTER_KINDS).toContain(KIND.PUBLIC_MESSAGE);
     expect(FEED_FILTER_KINDS).toContain(KIND.COMMENT);
     expect(FEED_FILTER_KINDS).toContain(KIND.LONG_FORM);
     expect(FEED_FILTER_KINDS).toContain(KIND.REACTION);
@@ -250,6 +253,21 @@ describe('notifications', () => {
             ['e', 'c'.repeat(64)],
             ['p', viewer]
           ]
+        }),
+        viewer
+      )
+    ).toBe(true);
+  });
+
+  it('keeps NIP-A4 public messages that #p-tag the viewer', () => {
+    expect(NOTIFICATION_KINDS).toContain(KIND.PUBLIC_MESSAGE);
+    expect(
+      isNotificationForViewer(
+        ev({
+          pubkey: other,
+          kind: KIND.PUBLIC_MESSAGE,
+          content: 'hey',
+          tags: [['p', viewer]]
         }),
         viewer
       )
@@ -714,5 +732,43 @@ describe('feed thread query paths', () => {
     });
     const innerNevent = nip19.neventEncode({ id: inner.id });
     expect(feedThreadPath(outer)).toBe(`/feed?thread=${innerNevent}`);
+  });
+
+  it('warms the thread OP seed for replies and reactions when memory has them', () => {
+    const rootId = 'd1'.repeat(32);
+    const replyId = 'd2'.repeat(32);
+    const root = ev({
+      id: rootId,
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'a'.repeat(64),
+      content: 'op'
+    });
+    const reply = ev({
+      id: replyId,
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'b'.repeat(64),
+      tags: [
+        ['e', rootId, '', 'root'],
+        ['e', rootId, '', 'reply']
+      ]
+    });
+    rememberEvents([root, reply]);
+    expect(feedThreadWarmSeed(reply).id).toBe(rootId);
+    const reaction = ev({
+      id: 'd3'.repeat(32),
+      kind: KIND.REACTION,
+      content: '+',
+      tags: [['e', replyId, 'wss://relay.example/', 'b'.repeat(64)]]
+    });
+    expect(feedThreadWarmSeed(reaction).id).toBe(rootId);
+    const ptr = feedInteractionTargetPointer(reaction);
+    expect(ptr).toBeTruthy();
+    const decoded = nip19.decode(ptr!);
+    expect(decoded.type).toBe('nevent');
+    if (decoded.type === 'nevent') {
+      expect(decoded.data.id).toBe(replyId);
+      expect(decoded.data.author).toBe('b'.repeat(64));
+      expect(decoded.data.relays).toContain('wss://relay.example/');
+    }
   });
 });

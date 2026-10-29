@@ -17,6 +17,7 @@
   import AppHandlerChip from './AppHandlerChip.svelte';
   import ProfileMetadataCard from './ProfileMetadataCard.svelte';
   import DirectoryExplorer from './DirectoryExplorer.svelte';
+  import TipReceiptCard from './TipReceiptCard.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -25,6 +26,7 @@
   import { withReaderQuote } from '$lib/reader-share-url';
   import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from '$lib/relative-time';
   import type { LivePresencePerson } from '$lib/live-chat';
+  import { isMoneroTipEvent, parseZap, tipActorPubkey } from '$lib/zaps';
 
   interface Props {
     event: Event;
@@ -82,7 +84,10 @@
 
   /** Compact note. Quotes use the one-line embed; other citations use a card. */
   const isThreadNote = $derived(
-    !asCard && (event.kind === KIND.COMMENT || event.kind === KIND.TEXT_NOTE)
+    !asCard &&
+      (event.kind === KIND.COMMENT ||
+        event.kind === KIND.TEXT_NOTE ||
+        event.kind === KIND.PUBLIC_MESSAGE)
   );
   const preview = $derived(eventPreview(event));
   const relative = $derived(formatRelativeTime(event.created_at));
@@ -230,6 +235,18 @@
     </article>
   {:else if event.kind === KIND.DIRECTORY}
     <DirectoryExplorer {event} showMenu={showMenu} headerOnly={openAsThread || embedded} />
+  {:else if parseZap(event) || isMoneroTipEvent(event)}
+    <article class="card note-card tip-receipt-card">
+      {#if showMenu}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <p class="note-card-by muted">
+          by <UserBadge pubkey={tipActorPubkey(event)} />
+        </p>
+        <TipReceiptCard {event} />
+      </div>
+    </article>
   {:else}
     <GenericCard {event} {embedDepth} {showMenu} />
   {/if}

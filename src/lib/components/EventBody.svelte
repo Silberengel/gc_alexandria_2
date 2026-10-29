@@ -50,8 +50,10 @@
   import AppHandlerChip from './AppHandlerChip.svelte';
   import HighlightSourceBlurb from './HighlightSourceBlurb.svelte';
   import SnoViewer from './SnoViewer.svelte';
+  import TipReceiptCard from './TipReceiptCard.svelte';
   import EventReferenceBlurb from './EventReferenceBlurb.svelte';
   import { noteReferenceSpec } from '$lib/note-reference';
+  import { isMoneroTipEvent, parseZap } from '$lib/zaps';
   import { eventTranslations } from '$lib/event-translation';
   import {
     isShortNoteEdited,
@@ -247,8 +249,23 @@
       sourceKind === KIND.LONG_FORM ||
       sourceKind === KIND.DJOT ||
       sourceKind === KIND.TEXT_NOTE ||
+      sourceKind === KIND.PUBLIC_MESSAGE ||
       sourceKind === KIND.COMMENT
   );
+  /** NIP-A4 recipients (`p` tags) — shown above the plaintext body. */
+  const publicMessageRecipients = $derived.by(() => {
+    if (!displayEvent || displayEvent.kind !== KIND.PUBLIC_MESSAGE) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const tag of displayEvent.tags) {
+      if (tag[0] !== 'p') continue;
+      const pk = (tag[1] ?? '').trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(pk) || seen.has(pk)) continue;
+      seen.add(pk);
+      out.push(pk);
+    }
+    return out;
+  });
   let segments = $state<Array<ContentSegment | RenderSegment>>([]);
   let resolved = $state<Record<number, Event | null>>({});
   let extraEmbeds = $state<Event[]>([]);
@@ -535,6 +552,8 @@
         <span>{reactionFace.raw}</span>
       {/if}
     </p>
+  {:else if event && (parseZap(event) || isMoneroTipEvent(event))}
+    <TipReceiptCard {event} />
   {:else if event && sourceKind === NIP53_KIND.LIVE_EVENT}
     <LiveStreamCard {event} />
   {:else if event && sourceKind === NIP53_KIND.MEETING_SPACE}
@@ -581,6 +600,15 @@
     {#if showReferenceBlurb && displayEvent}
       <EventReferenceBlurb event={displayEvent} />
     {/if}
+    {#if publicMessageRecipients.length}
+      <p class="public-message-to muted">
+        To
+        {#each publicMessageRecipients as pk, i (pk)}
+          {#if i > 0}<span aria-hidden="true">,</span>{/if}
+          <UserBadge pubkey={pk} compact />
+        {/each}
+      </p>
+    {/if}
     <NostrRichText
       content={source}
       event={displayEvent}
@@ -590,6 +618,15 @@
   {:else}
     {#if showReferenceBlurb && displayEvent}
       <EventReferenceBlurb event={displayEvent} />
+    {/if}
+    {#if publicMessageRecipients.length}
+      <p class="public-message-to muted">
+        To
+        {#each publicMessageRecipients as pk, i (pk)}
+          {#if i > 0}<span aria-hidden="true">,</span>{/if}
+          <UserBadge pubkey={pk} compact />
+        {/each}
+      </p>
     {/if}
     {#if bodyPending}
       <LoadingHint message={loadingLabel} />

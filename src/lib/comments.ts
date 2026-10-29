@@ -814,9 +814,12 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       }
       continue;
     }
+    const isMoneroTipKind =
+      event.kind === KIND.MONERO_TIP || event.kind === KIND.MONERO_TIP_RECEIPT;
     const decorate =
       event.kind === KIND.HIGHLIGHT ||
       event.kind === KIND.ZAP ||
+      isMoneroTipKind ||
       event.kind === KIND.REPOST ||
       event.kind === KIND.GENERIC_REPOST ||
       ATTRIBUTION_KINDS.has(event.kind);
@@ -831,7 +834,16 @@ export function partitionWorkResponses(events: Event[], target: Event): WorkResp
       }
       continue;
     }
-    if (event.kind === KIND.ZAP) {
+    if (event.kind === KIND.ZAP || isMoneroTipKind) {
+      zapsById.set(key, event);
+      continue;
+    }
+    // PosterChan kind-1 `#monerotip` counts as an XMR tip, not a reply row.
+    if (
+      event.kind === KIND.TEXT_NOTE &&
+      event.tags.some((t) => t[0] === 't' && (t[1] ?? '').trim().toLowerCase() === 'monerotip') &&
+      referencesTarget(event, target)
+    ) {
       zapsById.set(key, event);
       continue;
     }
@@ -912,9 +924,14 @@ export function highlightsForEvent(highlights: Event[], event: Event): Event[] {
 }
 
 export function isXmrZap(event: Event): boolean {
-  return event.tags.some((t) =>
-    t.some((cell) => /xmr|monero/i.test(cell ?? ''))
-  );
+  if (event.kind === KIND.MONERO_TIP || event.kind === KIND.MONERO_TIP_RECEIPT) return true;
+  if (
+    event.kind === KIND.TEXT_NOTE &&
+    event.tags.some((t) => t[0] === 't' && (t[1] ?? '').trim().toLowerCase() === 'monerotip')
+  ) {
+    return true;
+  }
+  return event.tags.some((t) => t.some((cell) => /xmr|monero/i.test(cell ?? '')));
 }
 
 function nip73Values(target: Event): string[] {

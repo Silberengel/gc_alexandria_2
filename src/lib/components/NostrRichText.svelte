@@ -14,6 +14,7 @@
   } from '$lib/emoji-content';
   import { KIND } from '$lib/constants';
   import { isAllowedHref } from '$lib/markup';
+  import { formatUrlHtml } from '$lib/crop-url';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import UserBadge from './UserBadge.svelte';
   import EmbedEventLine from './EmbedEventLine.svelte';
@@ -92,15 +93,27 @@
   }
 
   function linkifyBody(text: string): string {
-    let s = escapeHtml(text);
-    s = s.replace(URL_RE, (url) => {
-      // YouTube / OG / njump-event links are lifted out — skip bare anchors here.
-      if (parseYouTubeUrl(url)) return url;
-      if (urlEmbedsNostrEvent(url)) return url;
-      if (shouldOgPreview(url)) return url;
-      if (!isAllowedHref(url)) return url;
-      return `<a href="${url}" rel="noopener noreferrer" target="_blank">${url}</a>`;
-    });
+    // Split around URLs so we can escape text while formatting links (safe-prefix
+    // hyperlink + plaintext tracker tail, no ellipsis crop).
+    const parts: string[] = [];
+    let last = 0;
+    URL_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = URL_RE.exec(text))) {
+      const url = m[1] ?? m[0];
+      if (m.index > last) parts.push(escapeHtml(text.slice(last, m.index)));
+      // YouTube / OG / njump-event links are lifted out — leave raw escaped text.
+      if (parseYouTubeUrl(url) || urlEmbedsNostrEvent(url) || shouldOgPreview(url)) {
+        parts.push(escapeHtml(url));
+      } else if (!isAllowedHref(url)) {
+        parts.push(escapeHtml(url));
+      } else {
+        parts.push(formatUrlHtml(url));
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push(escapeHtml(text.slice(last)));
+    let s = parts.join('');
     s = s.replace(HASHTAG, (_m, prefix: string, tag: string) => {
       return `${prefix}<a href="#/search?subject=${encodeURIComponent(tag)}">#${tag}</a>`;
     });

@@ -71,6 +71,9 @@ export function kindDescription(kind: number): string {
       return 'Repost';
     case KIND.ZAP:
       return 'Zap';
+    case KIND.MONERO_TIP:
+    case KIND.MONERO_TIP_RECEIPT:
+      return 'Monero tip';
     case 1244:
       return 'Voice comment';
     case KIND.DJOT:
@@ -93,6 +96,11 @@ export function kindLabelLine(kind: number): string {
  */
 export function eventKindDescription(event: Event): string {
   if (event.kind === KIND.TEXT_NOTE) {
+    // Lazy: avoid pulling zap helpers into every kind-label import cycle.
+    const moneroTip = event.tags.some(
+      (t) => t[0] === 't' && (t[1] ?? '').trim().toLowerCase() === 'monerotip'
+    );
+    if (moneroTip) return 'Monero tip';
     if (isKind1Reply(event)) return 'Short text reply';
     if (isKind1Quote(event)) return 'Quote';
   }

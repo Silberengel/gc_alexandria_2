@@ -1,4 +1,13 @@
-/** Visible URL budget: the first 100 characters, "...", then the last 50. */
+import {
+  SHARE_TRACKER_WARNING,
+  splitTrackedUrl,
+  tidyPastedUrl
+} from './clean-url';
+
+/**
+ * Soft label budget for chrome (profile lists, tip rows) — not used for note body
+ * rendering. Prefer `formatUrlHtml` / `formatUrlsInHtml` for content.
+ */
 export const RENDERED_URL_MAX = 150;
 const RENDERED_URL_HEAD = 100;
 const RENDERED_URL_TAIL = 50;
@@ -6,8 +15,8 @@ const RENDERED_URL_TAIL = 50;
 const URL_IN_TEXT = /(?:https?|wss?):\/\/[^\s<]+/gi;
 
 /**
- * Shorten a URL that is shown as text.
- * The link target stays the original string. 150 characters or fewer are left whole.
+ * Compact label for UI chrome (menus, metadata lists).
+ * Note bodies use {@link formatUrlHtml} instead so long SPA / share URLs stay whole.
  */
 export function cropRenderedUrl(url: string): string {
   if (url.length <= RENDERED_URL_MAX) return url;
@@ -31,30 +40,58 @@ function decodeHtmlText(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
-/** Crop URL text. Trailing sentence punctuation stays after the shortened URL. */
-export function cropRenderedUrlsInText(text: string): string {
-  return text.replace(URL_IN_TEXT, (raw) => {
-    const peeled = raw.match(/^(.*?)([.,;:!?)]*)$/);
-    const url = peeled?.[1] || raw;
-    const trail = peeled?.[2] ?? '';
-    if (!/^https?:\/\/|^wss?:\/\//i.test(url) || url.length <= RENDERED_URL_MAX) return raw;
-    return cropRenderedUrl(url) + trail;
-  });
+function peelTrailingPunctuation(raw: string): { url: string; trail: string } {
+  const peeled = raw.match(/^(.*?)([.,;:!?)]*)$/);
+  return { url: peeled?.[1] || raw, trail: peeled?.[2] ?? '' };
 }
 
-function cropHtmlText(segment: string): string {
+function trackerWarnHtml(): string {
+  return `<span class="url-track-warn" title="${escapeHtml(SHARE_TRACKER_WARNING)}">share tracking</span>`;
+}
+
+/**
+ * Threema-style URL HTML: full string stays visible; only the tracker-free prefix
+ * is a hyperlink. Tracker tails render as plaintext with a caution chip.
+ */
+export function formatUrlHtml(raw: string, opts?: { asAnchor?: boolean }): string {
+  const asAnchor = opts?.asAnchor !== false;
+  const tidy = tidyPastedUrl(raw);
+  const split = splitTrackedUrl(tidy);
+  if (!split) return escapeHtml(raw);
+
+  const safe = escapeHtml(split.safeText);
+  const unsafe = split.unsafeText ? escapeHtml(split.unsafeText) : '';
+  const warn = split.trackerNames.length ? ` ${trackerWarnHtml()}` : '';
+
+  if (!asAnchor) {
+    return `<span class="url-split">${safe}${unsafe}</span>${warn}`;
+  }
+
+  const href = escapeHtml(split.safeHref);
+  return (
+    `<span class="url-split">` +
+    `<a href="${href}" rel="noopener noreferrer" target="_blank">${safe}</a>` +
+    (unsafe ? `<span class="url-split-tail">${unsafe}</span>` : '') +
+    `</span>${warn}`
+  );
+}
+
+/** Leave plain-text bodies uncropped so long deep links stay copyable. */
+export function cropRenderedUrlsInText(text: string): string {
+  return text;
+}
+
+function formatHtmlTextUrls(segment: string): string {
   return segment.replace(URL_IN_TEXT, (raw) => {
     const decoded = decodeHtmlText(raw);
-    const peeled = decoded.match(/^(.*?)([.,;:!?)]*)$/);
-    const url = peeled?.[1] || decoded;
-    const trail = peeled?.[2] ?? '';
-    if (url.length <= RENDERED_URL_MAX) return raw;
-    return escapeHtml(cropRenderedUrl(url)) + escapeHtml(trail);
+    const { url, trail } = peelTrailingPunctuation(decoded);
+    if (!/^https?:\/\//i.test(url)) return raw;
+    return formatUrlHtml(url) + escapeHtml(trail);
   });
 }
 
-/** Crop URLs in text nodes. Tags, including href and src, are copied through. */
-function cropTextNodes(html: string): string {
+/** Format URLs in text nodes. Tags, including href and src, are copied through. */
+function formatTextNodes(html: string): string {
   let out = '';
   let i = 0;
   while (i < html.length) {
@@ -70,35 +107,53 @@ function cropTextNodes(html: string): string {
     }
     const next = html.indexOf('<', i);
     const text = html.slice(i, next === -1 ? html.length : next);
-    out += cropHtmlText(text);
+    out += formatHtmlTextUrls(text);
     if (next === -1) break;
     i = next;
   }
   return out;
 }
 
-function withFullUrlTitle(open: string, href: string): string {
-  if (/\btitle\s*=/i.test(open) || href.length <= RENDERED_URL_MAX) return open;
-  return `${open.slice(0, -1)} title="${escapeHtml(href)}">`;
-}
-
-function cropAnchor(anchor: string): string {
+/**
+ * Rewrite an existing `<a href="url">url</a>` into a safe-prefix link + plaintext
+ * tracker tail. Labels that are not the URL itself are left alone (href cleaned).
+ */
+function formatAnchor(anchor: string): string {
   const openEnd = anchor.indexOf('>');
   if (openEnd < 0) return anchor;
   const open = anchor.slice(0, openEnd + 1);
   const inner = anchor.slice(openEnd + 1, -4);
   const hrefMatch = /\bhref\s*=\s*(["'])([\s\S]*?)\1/i.exec(open);
   const href = hrefMatch ? decodeHtmlText(hrefMatch[2]) : '';
-  const croppedInner = cropTextNodes(inner);
+  if (!href || !/^https?:\/\//i.test(href)) {
+    return open + formatTextNodes(inner) + '</a>';
+  }
+
   const visible = decodeHtmlText(inner).replace(/\s+/g, '').trim();
-  const nextOpen =
-    href && visible === href.replace(/\s+/g, '') ? withFullUrlTitle(open, href) : open;
-  return nextOpen + croppedInner + '</a>';
+  const hrefCompact = href.replace(/\s+/g, '');
+  const labelIsUrl = visible === hrefCompact || visible === tidyPastedUrl(hrefCompact);
+
+  if (!labelIsUrl) {
+    const split = splitTrackedUrl(href);
+    if (!split || !split.trackerNames.length) {
+      return open + formatTextNodes(inner) + '</a>';
+    }
+    // Keep the custom label, but point at the cleaned href and show a warning.
+    const cleanedOpen = open.replace(
+      /\bhref\s*=\s*(["'])([\s\S]*?)\1/i,
+      `href="${escapeHtml(split.safeHref)}"`
+    );
+    return cleanedOpen + formatTextNodes(inner) + '</a> ' + trackerWarnHtml();
+  }
+
+  const { trail } = peelTrailingPunctuation(decodeHtmlText(inner));
+  return formatUrlHtml(href) + escapeHtml(trail);
 }
 
 /**
- * Shorten URL text in rendered HTML. href, src, and other attributes stay intact.
- * An anchor whose label is the URL itself keeps the full target in `title`.
+ * Present URLs in rendered HTML without ellipsis cropping.
+ * Bare http(s) text and URL-as-label anchors become safe-prefix links; tracker
+ * query tails stay visible as plaintext with a share-tracking caution.
  */
 export function cropRenderedUrlsInHtml(html: string): string {
   if (!html || !/https?:\/\/|wss?:\/\//i.test(html)) return html;
@@ -107,10 +162,10 @@ export function cropRenderedUrlsInHtml(html: string): string {
   let last = 0;
   for (const match of html.matchAll(re)) {
     const index = match.index ?? 0;
-    pieces.push(cropTextNodes(html.slice(last, index)));
-    pieces.push(cropAnchor(match[0]));
+    pieces.push(formatTextNodes(html.slice(last, index)));
+    pieces.push(formatAnchor(match[0]));
     last = index + match[0].length;
   }
-  pieces.push(cropTextNodes(html.slice(last)));
+  pieces.push(formatTextNodes(html.slice(last)));
   return pieces.join('');
 }

@@ -6,6 +6,7 @@ import {
   scrubProseText,
   scrubTrackingInEventPartial,
   scrubTrackingUrlsInText,
+  splitTrackedUrl,
   tidyPastedUrl
 } from './clean-url';
 
@@ -13,12 +14,24 @@ const SAMPLE_NPUB = nip19.npubEncode('aa'.repeat(32));
 const SAMPLE_NOTE = nip19.noteEncode('bb'.repeat(32));
 
 describe('cleanTrackingUrl', () => {
-  it('strips utm and click-id trackers while keeping useful params', () => {
+  it('strips utm and click-id trackers while keeping useful params and the hash', () => {
     expect(
       cleanTrackingUrl(
         'https://cdn.example/pic.jpg?w=800&utm_source=twitter&utm_medium=social&fbclid=abc#frag'
       )
-    ).toBe('https://cdn.example/pic.jpg?w=800');
+    ).toBe('https://cdn.example/pic.jpg?w=800#frag');
+  });
+
+  it('preserves Alexandria SPA deep-link hashes (read/section/quote are not trackers)', () => {
+    const deep =
+      'https://gc-alexandria.imwald.eu/#/spec/d/nip-84/p/npub1abc?read=1&section=deadbeef&quote=Hello';
+    expect(cleanTrackingUrl(deep)).toBe(deep);
+  });
+
+  it('still strips real trackers that sit inside a hash query (no host allowlist)', () => {
+    expect(
+      cleanTrackingUrl('https://gc-alexandria.imwald.eu/#/spec/d/nip-84?utm_source=mail&read=1')
+    ).toBe('https://gc-alexandria.imwald.eu/#/spec/d/nip-84?read=1');
   });
 
   it('rejects credentials and non-http schemes', () => {
@@ -32,6 +45,48 @@ describe('cleanTrackingUrl', () => {
     expect(cleanTrackingUrl('https://example.com/a.png?utm_campaign=x).')).toBe(
       'https://example.com/a.png'
     );
+  });
+});
+
+describe('splitTrackedUrl', () => {
+  it('splits YouTube ?si= into a safe href and plaintext tail', () => {
+    const split = splitTrackedUrl(
+      'https://www.youtube.com/live/Pr80H5oZdr8?si=lBisTLqlZ4jewk2b'
+    );
+    expect(split).toEqual({
+      original: 'https://www.youtube.com/live/Pr80H5oZdr8?si=lBisTLqlZ4jewk2b',
+      safeHref: 'https://www.youtube.com/live/Pr80H5oZdr8',
+      safeText: 'https://www.youtube.com/live/Pr80H5oZdr8',
+      unsafeText: '?si=lBisTLqlZ4jewk2b',
+      trackerNames: ['si']
+    });
+  });
+
+  it('keeps functional params linked and appends trackers with &', () => {
+    const split = splitTrackedUrl(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=43&si=AbCdEf12345'
+    );
+    expect(split?.safeHref).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=43');
+    expect(split?.unsafeText).toBe('&si=AbCdEf12345');
+    expect(split?.trackerNames).toEqual(['si']);
+  });
+
+  it('does not treat Alexandria reader deep-link params as share trackers', () => {
+    const deep =
+      'https://gc-alexandria.imwald.eu/#/spec/d/nip-84/p/npub1abc?read=1&section=deadbeef&quote=Quote+Highlights';
+    const split = splitTrackedUrl(deep);
+    expect(split?.trackerNames).toEqual([]);
+    expect(split?.unsafeText).toBe('');
+    expect(split?.safeHref).toBe(deep);
+  });
+
+  it('flags trackers inside hash queries on any host, including our own', () => {
+    const split = splitTrackedUrl(
+      'https://gc-alexandria.imwald.eu/#/feed?tab=follows&utm_source=share&si=abc'
+    );
+    expect(split?.trackerNames).toEqual(['utm_source', 'si']);
+    expect(split?.safeHref).toBe('https://gc-alexandria.imwald.eu/#/feed?tab=follows');
+    expect(split?.unsafeText).toBe('&utm_source=share&si=abc');
   });
 });
 
@@ -65,10 +120,10 @@ describe('normalizeNostrBech32InText', () => {
 });
 
 describe('scrubProseText', () => {
-  it('scrubs trackers and normalizes bech32 together', () => {
+  it('normalizes bech32 but leaves tracking params visible for the author', () => {
     expect(
       scrubProseText(`hi ${SAMPLE_NPUB} https://a.example/x?utm_source=mail`)
-    ).toBe(`hi nostr:${SAMPLE_NPUB} https://a.example/x`);
+    ).toBe(`hi nostr:${SAMPLE_NPUB} https://a.example/x?utm_source=mail`);
   });
 });
 

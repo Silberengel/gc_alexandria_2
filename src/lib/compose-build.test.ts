@@ -174,4 +174,21 @@ describe('buildComposePartial', () => {
     expect(partial.tags.filter((t) => t[0] === 'client')).toEqual([['client', 'Alexandria']]);
     expect(partial.tags.some((t) => t[0] === 'e')).toBe(true);
   });
+
+  it('builds NIP-A4 kind 24 public messages with a recipient p tag', async () => {
+    const { nip19 } = await import('nostr-tools');
+    const pk = 'd'.repeat(64);
+    const partial = buildComposePartial({
+      kind: 24,
+      content: 'hello publicly',
+      values: { recipient_p: nip19.npubEncode(pk) },
+    });
+    expect(partial.kind).toBe(24);
+    expect(partial.content).toBe('hello publicly');
+    expect(partial.tags).toContainEqual(['p', pk]);
+    expect(partial.tags.some((t) => t[0] === 'e')).toBe(false);
+    expect(validateComposeForm({ kind: 24, content: 'hello publicly', values: { recipient_p: pk } })).toEqual({
+      ok: true,
+    });
+  });
 });

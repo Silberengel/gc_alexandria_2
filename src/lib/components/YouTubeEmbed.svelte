@@ -6,6 +6,8 @@
     youtubeStillUrl,
     type YouTubeRef
   } from '$lib/youtube';
+  import { SHARE_TRACKER_WARNING, splitTrackedUrl } from '$lib/clean-url';
+  import { formatUrlHtml } from '$lib/crop-url';
 
   interface Props {
     url: string;
@@ -19,6 +21,9 @@
   const embedSrc = $derived(parsed ? youtubeEmbedSrc(parsed) : null);
   const href = $derived((parsed ? youtubeOpenUrl(parsed) : '') || url);
   const still = $derived(parsed ? youtubeStillUrl(parsed) : null);
+  const split = $derived(splitTrackedUrl(url));
+  const hasTrackers = $derived(!!split && split.trackerNames.length > 0);
+  const openHref = $derived(split?.safeHref || href);
 </script>
 
 {#if parsed}
@@ -34,14 +39,20 @@
         referrerpolicy="strict-origin-when-cross-origin"
       ></iframe>
     {:else if still}
-      <a class="youtube-embed-still" href={href} rel="noopener noreferrer" target="_blank">
+      <a class="youtube-embed-still" href={openHref} rel="noopener noreferrer" target="_blank">
         <img src={still} alt="" loading="lazy" decoding="async" />
         <span class="youtube-embed-play" aria-hidden="true"></span>
       </a>
     {/if}
-    <a class="youtube-embed-open muted" href={href} rel="noopener noreferrer" target="_blank"
-      >Open on YouTube</a
-    >
+    <div class="youtube-embed-meta">
+      <a class="youtube-embed-open muted" href={openHref} rel="noopener noreferrer" target="_blank"
+        >Open on YouTube</a
+      >
+      {#if hasTrackers}
+        <p class="youtube-embed-track-url">{@html formatUrlHtml(url)}</p>
+        <p class="youtube-embed-track-note muted">{SHARE_TRACKER_WARNING}</p>
+      {/if}
+    </div>
   </div>
 {/if}
 
@@ -101,7 +112,24 @@
   .youtube-embed-still:focus-visible .youtube-embed-play {
     background: #f00;
   }
+  .youtube-embed-meta {
+    display: grid;
+    gap: 0.2rem;
+    min-width: 0;
+  }
   .youtube-embed-open {
     font-size: 0.82rem;
+  }
+  .youtube-embed-track-url {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .youtube-embed-track-note {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
   }
 </style>

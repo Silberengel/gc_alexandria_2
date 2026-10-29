@@ -976,6 +976,14 @@ describe('reactions', () => {
     const highlight = ev({ id: 'c'.repeat(64), kind: KIND.HIGHLIGHT, pubkey: '3'.repeat(64) });
     expect(reactionDraft(highlight).tags).toContainEqual(['k', String(KIND.HIGHLIGHT)]);
     expect(reactionDraft(highlight).tags.some((t) => t[0] === 'a')).toBe(false);
+
+    const publicMsg = ev({
+      id: 'd'.repeat(64),
+      kind: KIND.PUBLIC_MESSAGE,
+      pubkey: '4'.repeat(64),
+      tags: [['p', '5'.repeat(64)]]
+    });
+    expect(reactionDraft(publicMsg).tags).toContainEqual(['k', String(KIND.PUBLIC_MESSAGE)]);
   });
 
   it('counts one like per pubkey and finds mine', () => {

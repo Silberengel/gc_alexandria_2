@@ -110,6 +110,8 @@
   );
   /** Repost only others' events (signed-out users see the item and get the login dialog). */
   const showRepost = $derived(!!$session.pubkey && !isOwnEvent);
+  /** Quote opens compose with a NIP-18 `q` seed (own posts are fine to quote). */
+  const showQuote = $derived(event.kind !== KIND.DELETION);
   const showBroadcast = $derived(!!$session.pubkey);
   const hasMyRepost = $derived(!!myRepost);
   const showCopyEvent = $derived(
@@ -212,6 +214,17 @@
     warmNavEvent(event);
     close();
     window.location.hash = `#/compose?copy=${event.id.toLowerCase()}`;
+  }
+
+  function openComposeQuote(): void {
+    if (!$session.pubkey) {
+      close();
+      openLoginDialog();
+      return;
+    }
+    warmNavEvent(event);
+    close();
+    window.location.hash = `#/compose?quote=${event.id.toLowerCase()}`;
   }
 
   function openComposeEdit(): void {
@@ -845,6 +858,22 @@
             {:else}
               Repost
             {/if}
+          </button>
+        </li>
+      {/if}
+      {#if showQuote}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openComposeQuote();
+            }}
+          >
+            Quote
           </button>
         </li>
       {/if}
