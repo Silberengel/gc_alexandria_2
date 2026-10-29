@@ -399,7 +399,7 @@
     flex: 1 1 auto;
     min-height: 0;
   }
-  .pub-split-source {
+  .pub-split-pane :global(textarea.pub-split-source) {
     flex: 1;
     width: 100%;
     border: 0;
