@@ -25,7 +25,8 @@ function load(): ReadingQueueEntry[] {
         updated:
           typeof r.updated === 'number' && Number.isFinite(r.updated) && r.updated > 0
             ? Math.floor(r.updated)
-            : undefined
+            : undefined,
+        private: r.private === true ? true : undefined
       });
     }
     return out;

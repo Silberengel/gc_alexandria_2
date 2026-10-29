@@ -310,10 +310,6 @@
     return Boolean(url && brokenHeroUrls.has(url.trim()));
   }
 
-  function heroIsConfirmed(url: string | undefined): boolean {
-    return Boolean(url && confirmedHeroUrls.has(url.trim()));
-  }
-
   /** Prefer HEAD; treat HTTP errors and nostr.build `x-status: 404` as broken. */
   async function probeHeroReachable(url: string, gen: number): Promise<void> {
     if (gen !== heroProbeGen) return;
@@ -4045,8 +4041,9 @@
               {@const unloaded = !isReaderSectionReady(section)}
               {@const heroUrl = readerSectionHeroUrl(section, event, sections)}
               {@const heroFull = readerSectionHeroFullUrl(section, event, sections)}
+              <!-- Show as soon as we have a URL; probe only hides soft-404s (do not wait on confirm). -->
               {@const showHero = Boolean(
-                heroUrl && isAllowedMediaUrl(heroUrl) && !heroIsBroken(heroUrl) && heroIsConfirmed(heroUrl)
+                heroUrl && isAllowedMediaUrl(heroUrl) && !heroIsBroken(heroUrl)
               )}
               {@const showGeneratedHero = Boolean(event && section.id === event.id && !showHero)}
               {@const generatedHero = showGeneratedHero ? coverPlaceholderUrl(section) : ''}
@@ -4071,8 +4068,10 @@
                 data-section-id={section.id}
               >
                 {#if isEditionRoot && heroSrc}
+                  {@const isBookCover = event?.kind === KIND.PUBLICATION}
                   <div
                     class="reader-edition-hero reading-cover"
+                    class:reader-edition-hero-book={isBookCover}
                     class:reader-edition-hero-generated={showGeneratedHero}
                   >
                     <figure class="section-hero">
@@ -4090,9 +4089,9 @@
                           src={heroSrc}
                           alt=""
                           loading="lazy"
-                          use:probeHero={showHero && heroUrl ? heroUrl : ''}
+                          use:probeHero={heroUrl && showHero ? heroUrl : ''}
                           onerror={() => {
-                            if (showHero && heroUrl) markHeroBroken(heroUrl, heroProbeGen);
+                            if (heroUrl) markHeroBroken(heroUrl, heroProbeGen);
                           }}
                         />
                       </button>

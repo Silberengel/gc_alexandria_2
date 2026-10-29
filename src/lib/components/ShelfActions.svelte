@@ -51,6 +51,8 @@
   let addingShelf = $state(false);
   let newListName = $state('');
   let newShelfName = $state('');
+  /** Add new shelf memberships as encrypted private tags. */
+  let shelfPrivate = $state(false);
   let listLabelSuggestions = $state<string[]>([]);
   let folderNameSuggestions = $state<string[]>([]);
   let suggestionsLoading = $state(false);
@@ -262,7 +264,10 @@
     if (!pk || !bookshelf || busy) return;
     busy = true;
     try {
-      const next = await toggleBookshelfShelf(pk, publication, shelf, bookshelf);
+      const already = bookshelf.membershipCoords.has(shelf.coordinate);
+      const next = await toggleBookshelfShelf(pk, publication, shelf, bookshelf, {
+        private: !already && shelfPrivate
+      });
       if ('error' in next) {
         window.alert(next.error);
         return;
@@ -518,6 +523,15 @@
             <li class="menu-item-static shelf-suggest-heading">Loading suggestions…</li>
           {/if}
           <li class="menu-sep"></li>
+          <li class="menu-item-static">
+            <label
+              class="shelf-private-toggle"
+              title="New adds go in encrypted directory content (hidden from others)"
+            >
+              <input type="checkbox" bind:checked={shelfPrivate} disabled={busy} />
+              Priv
+            </label>
+          </li>
           {#if addingShelf}
             <li class="menu-item-static shelf-suggest-form-wrap">
               <form class="shelf-suggest-form" onsubmit={(e) => void submitNewShelf(e)}>

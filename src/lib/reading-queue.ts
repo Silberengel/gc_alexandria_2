@@ -17,16 +17,16 @@ export type ReadingQueueEntry = {
   sectionId?: string;
   /** Unix seconds of last advance. */
   updated?: number;
+  /** When true, book tags live in NIP-44-encrypted content. */
+  private?: boolean;
 };
 
 const HEX64 = /^[0-9a-f]{64}$/i;
 const ADDR = /^30040:[0-9a-f]{64}:.+/i;
 
-/** Parse one kind-16374 replaceable into ordered queue entries. */
-export function parseReadingQueue(event: Event | null | undefined): ReadingQueueEntry[] {
-  if (!event || event.kind !== KIND.READING_QUEUE) return [];
+function bookEntriesFromTags(tags: string[][], isPrivate: boolean): ReadingQueueEntry[] {
   const out: ReadingQueueEntry[] = [];
-  for (const tag of event.tags) {
+  for (const tag of tags) {
     if (tag[0] !== 'book' || !tag[1]) continue;
     const a = tag[1].trim();
     if (!ADDR.test(a)) continue;
@@ -40,8 +40,27 @@ export function parseReadingQueue(event: Event | null | undefined): ReadingQueue
       pos: Math.max(0, Math.floor(pos)),
       total: Math.max(1, Math.floor(total)),
       sectionId: sectionRaw || undefined,
-      updated: Number.isFinite(updatedRaw) && updatedRaw > 0 ? Math.floor(updatedRaw) : undefined
+      updated: Number.isFinite(updatedRaw) && updatedRaw > 0 ? Math.floor(updatedRaw) : undefined,
+      private: isPrivate || undefined
     });
+  }
+  return out;
+}
+
+/** Parse one kind-16374 replaceable into ordered queue entries (public + optional private tags). */
+export function parseReadingQueue(
+  event: Event | null | undefined,
+  privateTags: string[][] = []
+): ReadingQueueEntry[] {
+  if (!event || event.kind !== KIND.READING_QUEUE) return [];
+  const publicEntries = bookEntriesFromTags(event.tags, false);
+  const privateEntries = bookEntriesFromTags(privateTags, true);
+  const seen = new Set(publicEntries.map((e) => e.a.toLowerCase()));
+  const out = [...publicEntries];
+  for (const row of privateEntries) {
+    if (seen.has(row.a.toLowerCase())) continue;
+    seen.add(row.a.toLowerCase());
+    out.push(row);
   }
   return out;
 }
@@ -55,8 +74,11 @@ function normalizeEditionAddr(a: string): string {
   return `${kind}:${pk}:${d}`;
 }
 
-export function readingQueueFromMetadata(events: Event[]): ReadingQueueEntry[] {
-  return parseReadingQueue(latestReplaceable(events, KIND.READING_QUEUE));
+export function readingQueueFromMetadata(
+  events: Event[],
+  privateTags: string[][] = []
+): ReadingQueueEntry[] {
+  return parseReadingQueue(latestReplaceable(events, KIND.READING_QUEUE), privateTags);
 }
 
 export function findQueueEntry(
@@ -103,15 +125,16 @@ export function upsertReadingEntry(
 ): ReadingQueueEntry[] {
   const addr = normalizeEditionAddr(next.a);
   const rest = entries.filter((e) => !coordinatesOverlap(e.a, addr));
+  const prev = entries.find((e) => coordinatesOverlap(e.a, addr));
   const row: ReadingQueueEntry = {
     a: addr,
     pos: Math.max(0, Math.floor(next.pos)),
     total: Math.max(1, Math.floor(next.total)),
     sectionId: next.sectionId?.trim() || undefined,
-    updated: next.updated ?? Math.floor(Date.now() / 1000)
+    updated: next.updated ?? Math.floor(Date.now() / 1000),
+    private: next.private ?? prev?.private
   };
   if (opts?.front) return [row, ...rest];
-  const prev = entries.find((e) => coordinatesOverlap(e.a, addr));
   if (prev) {
     const i = entries.findIndex((e) => coordinatesOverlap(e.a, addr));
     const copy = [...entries];
@@ -137,22 +160,33 @@ export function moveReadingEntryToFront(
   return [hit, ...entries.filter((e) => !coordinatesOverlap(e.a, editionAddress))];
 }
 
-/** Draft tags + empty content for kind 16374. */
-export function readingQueueDraft(entries: ReadingQueueEntry[]): {
+export type ReadingQueueDraft = {
   kind: number;
-  content: string;
+  /** Public tags only. */
   tags: string[][];
-} {
-  const tags = buildReadingQueueBookTags(
-    entries.map((e) => ({
-      a: normalizeEditionAddr(e.a),
-      pos: e.pos,
-      total: e.total,
-      sectionId: e.sectionId,
-      updated: e.updated
-    }))
-  );
-  return { kind: KIND.READING_QUEUE, content: '', tags };
+  /** Private book/a tag rows to encrypt into content (may be empty). */
+  privateTags: string[][];
+};
+
+function toBookEmit(e: ReadingQueueEntry) {
+  return {
+    a: normalizeEditionAddr(e.a),
+    pos: e.pos,
+    total: e.total,
+    sectionId: e.sectionId,
+    updated: e.updated
+  };
+}
+
+/** Split entries into public tags + private tag rows for encryption. */
+export function readingQueueDraft(entries: ReadingQueueEntry[]): ReadingQueueDraft {
+  const publicEntries = entries.filter((e) => !e.private);
+  const privateEntries = entries.filter((e) => e.private);
+  return {
+    kind: KIND.READING_QUEUE,
+    tags: buildReadingQueueBookTags(publicEntries.map(toBookEmit)),
+    privateTags: buildReadingQueueBookTags(privateEntries.map(toBookEmit))
+  };
 }
 
 export function editionAddressFromPublication(publication: Event): string {
@@ -167,7 +201,7 @@ export function isSectionEventId(id: string | undefined): boolean {
   return !!id && HEX64.test(id);
 }
 
-/** Pubkeys whose reading queue includes this edition (newest event per author). */
+/** Pubkeys whose reading queue includes this edition (newest event per author). Public tags only. */
 export function readingQueueAuthorsForEdition(
   events: Event[],
   publication: Event,

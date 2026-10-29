@@ -11,6 +11,8 @@
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import { warmNavEvent } from '$lib/nav-warm';
   import { cardMeta } from '$lib/metadata';
+  import { wikiSpecHeroThumbUrl } from '$lib/cover';
+  import { coverPlaceholderUrl } from '$lib/cover-fallback';
 
   interface Props {
     event: Event;
@@ -25,26 +27,61 @@
   const summary = $derived(cardMeta(event).summary);
   const relative = $derived(formatRelativeTime(event.created_at));
   const absolute = $derived(formatAbsoluteTime(event.created_at));
+  const remoteThumb = $derived(wikiSpecHeroThumbUrl(event));
+  const placeholder = $derived(coverPlaceholderUrl(event));
+  let remoteBroken = $state(false);
+
+  $effect(() => {
+    void event.id;
+    void remoteThumb;
+    remoteBroken = false;
+  });
+
+  const thumb = $derived(
+    remoteThumb && !remoteBroken ? remoteThumb : placeholder
+  );
+  const isGenerated = $derived(!remoteThumb || remoteBroken);
 </script>
 
-<li class="wiki-list-row">
+<li class="wiki-list-row wiki-list-row-has-thumb">
   <a
-    class="wiki-list-title"
+    class="wiki-list-thumb"
+    class:wiki-list-thumb-generated={isGenerated}
     href={href}
     use:link
     onclick={() => warmNavEvent(event)}
-  >{title}</a>
-  {#if summary}
-    <p class="wiki-list-blurb muted">{summary}</p>
-  {/if}
-  <div class="wiki-list-meta muted">
-    <span class="wiki-list-kind">{kind}</span>
-    {#if d}
-      <span class="wiki-list-d">{d}</span>
+    tabindex="-1"
+    aria-hidden="true"
+  >
+    <img
+      src={thumb}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onerror={() => {
+        if (remoteThumb && !remoteBroken) remoteBroken = true;
+      }}
+    />
+  </a>
+  <div class="wiki-list-body">
+    <a
+      class="wiki-list-title"
+      href={href}
+      use:link
+      onclick={() => warmNavEvent(event)}
+    >{title}</a>
+    {#if summary}
+      <p class="wiki-list-blurb muted">{summary}</p>
     {/if}
-    <UserBadge pubkey={event.pubkey} />
-    <time datetime={new Date(event.created_at * 1000).toISOString()} title={absolute}
-      >{relative}</time
-    >
+    <div class="wiki-list-meta muted">
+      <span class="wiki-list-kind">{kind}</span>
+      {#if d}
+        <span class="wiki-list-d">{d}</span>
+      {/if}
+      <UserBadge pubkey={event.pubkey} />
+      <time datetime={new Date(event.created_at * 1000).toISOString()} title={absolute}
+        >{relative}</time
+      >
+    </div>
   </div>
 </li>

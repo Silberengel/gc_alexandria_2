@@ -42,7 +42,7 @@
     textHighlightsFromEvents,
     seedHighlightProfile
   } from '$lib/text-highlights';
-  import { sectionHeroImageUrl } from '$lib/cover';
+  import { wikiSpecHeroThumbUrl } from '$lib/cover';
   import type { Event } from 'nostr-tools';
   import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
   import { attachReaderPenSelect } from '$lib/reader-pen-select';
@@ -345,8 +345,8 @@
       appHandlers: responses.appHandlers ?? []
     };
   });
-  /** Only strip an early body image when the header actually paints the `image` tag. */
-  const dedupeHeaderHero = $derived(!!event && !!sectionHeroImageUrl(event));
+  /** Strip the early body image when the header paints it as a hero. */
+  const dedupeHeaderHero = $derived(!!event && !!wikiSpecHeroThumbUrl(event));
   const hideBody = $derived(
     !!event && (isWikiDeference(event) || isDeferralPlaceholderContent(event.content))
   );

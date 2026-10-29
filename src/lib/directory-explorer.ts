@@ -32,6 +32,8 @@ export type DirectoryExplorerEntry = {
   relayHint?: string;
   /** Display name (tag label, title, d, or kind fallback). */
   label: string;
+  /** Owner-only: membership lived in encrypted content. */
+  private?: boolean;
 };
 
 function isEventIdHex(value: string | undefined): boolean {
@@ -70,56 +72,72 @@ function slugLabel(d: string): string {
   return d.replace(/-/g, ' ').trim() || d;
 }
 
+function pushExplorerTag(
+  out: DirectoryExplorerEntry[],
+  tag: string[],
+  index: number,
+  isPrivate: boolean
+): number {
+  if (tag[0] === 'a' && tag[1]) {
+    const coord = tag[1].trim();
+    const parsed = parseEventCoordinate(coord);
+    if (!parsed) return index;
+    if (out.some((e) => e.coordinate === coord)) return index;
+    const isFolder = parsed.kind === KIND.DIRECTORY;
+    const label =
+      tagHumanLabel(tag) ||
+      (parsed.d ? slugLabel(parsed.d) : '') ||
+      kindDescription(parsed.kind);
+    const eventId = isEventIdHex(tag[3])
+      ? tag[3]!.toLowerCase()
+      : isEventIdHex(tag[2])
+        ? tag[2]!.toLowerCase()
+        : undefined;
+    const relayHint = isRelayUrl(tag[2]) ? tag[2] : undefined;
+    out.push({
+      key: `a:${index}:${coord}`,
+      role: isFolder ? 'folder' : 'file',
+      kind: parsed.kind,
+      coordinate: coord,
+      eventId,
+      relayHint,
+      label,
+      private: isPrivate || undefined
+    });
+    return index + 1;
+  }
+  if (tag[0] === 'e' && tag[1] && isEventIdHex(tag[1])) {
+    const eventId = tag[1].toLowerCase();
+    if (out.some((e) => e.eventId === eventId && !e.coordinate)) return index;
+    const relayHint = isRelayUrl(tag[2]) ? tag[2] : undefined;
+    const label = tagHumanLabel(tag) || `Note ${eventId.slice(0, 8)}…`;
+    out.push({
+      key: `e:${index}:${eventId}`,
+      role: 'file',
+      kind: null,
+      eventId,
+      relayHint,
+      label,
+      private: isPrivate || undefined
+    });
+    return index + 1;
+  }
+  return index;
+}
+
 /**
  * Ordered children of a kind 30045 directory (NKBIP-04): every `a` / `e` tag.
  * Nested 30045s are folders; all other pointers are files/references.
+ * Pass decrypted private tags for the owner view.
  */
-export function directoryExplorerEntries(dir: Pick<Event, 'tags'>): DirectoryExplorerEntry[] {
+export function directoryExplorerEntries(
+  dir: Pick<Event, 'tags'>,
+  privateTags: string[][] = []
+): DirectoryExplorerEntry[] {
   const out: DirectoryExplorerEntry[] = [];
   let i = 0;
-  for (const tag of dir.tags) {
-    if (tag[0] === 'a' && tag[1]) {
-      const coord = tag[1].trim();
-      const parsed = parseEventCoordinate(coord);
-      if (!parsed) continue;
-      const isFolder = parsed.kind === KIND.DIRECTORY;
-      const label =
-        tagHumanLabel(tag) ||
-        (parsed.d ? slugLabel(parsed.d) : '') ||
-        kindDescription(parsed.kind);
-      const eventId = isEventIdHex(tag[3])
-        ? tag[3]!.toLowerCase()
-        : isEventIdHex(tag[2])
-          ? tag[2]!.toLowerCase()
-          : undefined;
-      const relayHint = isRelayUrl(tag[2]) ? tag[2] : undefined;
-      out.push({
-        key: `a:${i}:${coord}`,
-        role: isFolder ? 'folder' : 'file',
-        kind: parsed.kind,
-        coordinate: coord,
-        eventId,
-        relayHint,
-        label
-      });
-      i += 1;
-      continue;
-    }
-    if (tag[0] === 'e' && tag[1] && isEventIdHex(tag[1])) {
-      const eventId = tag[1].toLowerCase();
-      const relayHint = isRelayUrl(tag[2]) ? tag[2] : undefined;
-      const label = tagHumanLabel(tag) || `Note ${eventId.slice(0, 8)}…`;
-      out.push({
-        key: `e:${i}:${eventId}`,
-        role: 'file',
-        kind: null,
-        eventId,
-        relayHint,
-        label
-      });
-      i += 1;
-    }
-  }
+  for (const tag of dir.tags) i = pushExplorerTag(out, tag, i, false);
+  for (const tag of privateTags) i = pushExplorerTag(out, tag, i, true);
   return out;
 }
 

@@ -11,7 +11,8 @@ import {
   readerSectionHeroFullUrl,
   readerSectionHeroUrl,
   sectionHeroImageUrl,
-  stripEarlyDuplicateHeroImage
+  stripEarlyDuplicateHeroImage,
+  wikiSpecHeroThumbUrl
 } from './cover';
 
 function ev(tags: string[][], id = 'a'.repeat(64)): Event {
@@ -78,6 +79,30 @@ describe('sectionHeroImageUrl', () => {
     const event = ev([]);
     event.content = '![plate](https://example.com/from-content.jpg)';
     expect(sectionHeroImageUrl(event)).toBeUndefined();
+  });
+});
+
+describe('wikiSpecHeroThumbUrl', () => {
+  it('uses image, then content, then imeta — never Gutenberg from d', () => {
+    expect(
+      wikiSpecHeroThumbUrl(
+        ev([['image', 'https://example.com/tag.jpg'], ['d', 'pg141-mansfield-park']])
+      )
+    ).toBe('https://example.com/tag.jpg');
+
+    const fromContent = ev([['d', 'ocicat']]);
+    fromContent.kind = KIND.WIKI;
+    fromContent.content = '![cat](https://example.com/body.jpg)';
+    expect(wikiSpecHeroThumbUrl(fromContent)).toBe('https://example.com/body.jpg');
+
+    const fromImeta = ev([
+      ['d', 'smp-park'],
+      ['imeta', 'url https://blossom.example/a.jpg', 'm image/jpeg']
+    ]);
+    fromImeta.kind = KIND.WIKI;
+    expect(wikiSpecHeroThumbUrl(fromImeta)).toBe('https://blossom.example/a.jpg');
+
+    expect(wikiSpecHeroThumbUrl(ev([['d', 'pg141-mansfield-park']]))).toBeUndefined();
   });
 });
 

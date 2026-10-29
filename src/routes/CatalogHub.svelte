@@ -18,6 +18,7 @@
     pickRandomCatalogPage,
     type CatalogHubKind
   } from '$lib/catalog-hub';
+  import { KIND } from '$lib/constants';
   import {
     DEFAULT_AUTHOR_RESULT_SCOPE,
     filterEventsByAuthorScope,
@@ -219,6 +220,16 @@
         {randomBusy ? 'Picking…' : `Read random ${singular}`}
       </button>
     </nav>
+    {#if kind === KIND.LONG_FORM}
+      <p class="muted wiki-hub-create-hint">
+        To create a magazine or serial article, use
+        <a
+          href="https://decentnewsroom.com/magazine/wizard/setup"
+          target="_blank"
+          rel="noopener noreferrer">DecentNewsroom</a
+        >.
+      </p>
+    {/if}
   </div>
 
   <section class="wiki-hub-recent" aria-labelledby="catalog-recent-heading">

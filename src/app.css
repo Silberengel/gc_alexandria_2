@@ -7493,6 +7493,19 @@ a.embed-event-line:focus-visible {
   padding-left: 1.35rem;
   font-size: 0.92em;
 }
+.shelf-private-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+  padding: 0.2rem 0.15rem;
+}
+.shelf-private-toggle input {
+  margin: 0;
+}
 .menu-item-static {
   padding: 0.35rem 0.75rem;
   font-size: 0.85em;
@@ -8699,8 +8712,71 @@ mark.text-highlight.highlight-flash,
 .reader-edition-hero-generated .section-hero img {
   object-position: center top;
 }
+/* Publications: portrait plate showing the entire cover beside the title. */
+.reader-edition-hero-book.reading-cover {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.25rem;
+  padding: 1rem 1.1rem 1.05rem;
+  overflow: visible;
+  background: color-mix(in srgb, var(--paper-dark) 35%, var(--surface-2));
+}
+.reader-edition-hero-book.reading-cover::after {
+  display: none;
+}
+.reader-edition-hero-book .section-hero {
+  flex: 0 0 auto;
+  width: min(11.5rem, 42vw);
+  height: auto !important;
+  aspect-ratio: 2 / 3;
+  border-radius: 0.35rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-soft);
+}
+.reader-edition-hero-book .section-hero-zoom {
+  height: 100%;
+}
+.reader-edition-hero-book .section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.reading-body .reader-edition-hero-book .section-hero img:not(.content-emoji):not(.userbadge-avatar),
+.reader-section .reader-edition-hero-book .section-hero img:not(.content-emoji):not(.userbadge-avatar) {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+}
+.reader-edition-hero-book .reader-edition-hero-meta {
+  position: static;
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 0.15rem 0 0.1rem;
+  background: none;
+  color: inherit;
+  text-shadow: none;
+}
+.reader-edition-hero-book .reader-edition-hero-meta .section-heading {
+  color: var(--text) !important;
+  text-shadow: none;
+  font-size: clamp(1.15rem, 3vw, 1.55rem);
+}
+.reader-edition-hero-book .reader-edition-hero-meta .edition-reader-meta,
+.reader-edition-hero-book .reader-edition-hero-meta .edition-reader-authors,
+.reader-edition-hero-book .reader-edition-hero-meta .edition-reader-publisher,
+.reader-edition-hero-book .reader-edition-hero-meta .muted,
+.reader-edition-hero-book .reader-edition-hero-meta .edition-inline-link,
+.reader-edition-hero-book .reader-edition-hero-meta .userbadge,
+.reader-edition-hero-book .reader-edition-hero-meta .userbadge span {
+  color: var(--ink-soft) !important;
+  text-shadow: none;
+}
+.reader-edition-hero-book .reader-edition-hero-meta .edition-inline-link:hover {
+  color: var(--accent) !important;
+}
 /* Reading-page cover: bookplate fade, not the info-page cinematic veil. */
-.reading-cover::after {
+.reading-cover:not(.reader-edition-hero-book)::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -8708,12 +8784,12 @@ mark.text-highlight.highlight-flash,
   pointer-events: none;
   background: linear-gradient(to bottom, transparent 45%, rgb(35 25 20 / 75%) 100%);
 }
-.reading-cover .reader-edition-hero-meta {
+.reading-cover:not(.reader-edition-hero-book) .reader-edition-hero-meta {
   background: none;
   padding: 1.15rem 1.1rem 0.8rem;
   z-index: 2;
 }
-.reading-cover .reader-edition-hero-meta .section-heading {
+.reading-cover:not(.reader-edition-hero-book) .reader-edition-hero-meta .section-heading {
   font-size: clamp(0.98rem, 2.4vw, 1.18rem);
   font-weight: 650;
   letter-spacing: 0.008em;
@@ -9600,6 +9676,24 @@ a.user-status-line:hover {
 .reading-track-action:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.reading-track-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+.reading-track-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.reading-track-private input {
+  margin: 0;
 }
 .reading-track-hint {
   margin: 0.35rem 0;
@@ -10830,7 +10924,22 @@ button.directory-explorer-link {
 .wiki-hub-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.45rem;
+}
+.wiki-hub-create-hint {
+  margin: 0.45rem 0 0;
+  max-width: 28rem;
+  font-size: var(--text-meta);
+  line-height: 1.35;
+}
+.wiki-hub-create-hint a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+.wiki-hub-create-hint a:hover {
+  color: var(--accent);
 }
 .wiki-hub-section-head {
   display: flex;
@@ -10902,11 +11011,72 @@ button.directory-explorer-link {
   background: var(--paper-light);
 }
 .wiki-list-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
   padding: 0.7rem 0.85rem;
   border-top: 1px solid color-mix(in srgb, var(--rule) 45%, transparent);
+  min-width: 0;
 }
 .wiki-list-row:first-child {
   border-top: 0;
+}
+@media (min-width: 900px) {
+  .wiki-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent;
+  }
+  .wiki-list-row,
+  .wiki-list-row:first-child {
+    border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+    border-radius: 0.45rem;
+    background: var(--paper-light);
+  }
+}
+.wiki-list-thumb {
+  /* Articles / wiki / spec: landscape hero crop. */
+  flex: 0 0 5.25rem;
+  width: 5.25rem;
+  height: 3.55rem;
+  margin: 0.1rem 0 0;
+  border-radius: 0.3rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+.wiki-list-thumb-book {
+  /* Publications: full 2∶3 book plate, uncropped. */
+  flex: 0 0 4.35rem;
+  width: 4.35rem;
+  height: calc(4.35rem * 3 / 2);
+  align-self: flex-start;
+}
+.wiki-list-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+.wiki-list-thumb-book img {
+  object-fit: contain;
+  object-position: center center;
+}
+.wiki-list-thumb-generated img {
+  object-position: center center;
+}
+.wiki-list-thumb-book.wiki-list-thumb-generated img {
+  object-fit: cover;
+}
+.wiki-list-body {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .wiki-list-title {
   display: inline-block;

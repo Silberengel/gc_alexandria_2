@@ -14,9 +14,11 @@
   import {
     createFolderInParent,
     deleteFolderFromParent,
+    directoryPrivateMembershipTags,
     removeMemberFromDirectory,
     renameFolderInParent
   } from '$lib/bookshelf-actions';
+  import { session } from '$lib/stores/session';
   import {
     directoryChildCounts,
     directoryChildHref,
@@ -68,6 +70,8 @@
   let renamingFolder = $state(false);
   let renameInput: HTMLInputElement | undefined = $state();
   let selectAllInput: HTMLInputElement | undefined = $state();
+  /** Decrypted private a/e tags for the open folder (owner only). */
+  let cwdPrivateTags = $state<string[][]>([]);
 
   const prefs = $derived($directoryBrowserPrefs);
   const colWidth = $derived({
@@ -87,6 +91,23 @@
   });
 
   const cwd = $derived(stack.length ? stack[stack.length - 1]! : root);
+
+  $effect(() => {
+    const folder = cwd;
+    const pk = $session.pubkey?.toLowerCase() ?? '';
+    if (!folder || readOnly || !pk || folder.pubkey.toLowerCase() !== pk) {
+      cwdPrivateTags = [];
+      return;
+    }
+    let cancelled = false;
+    void directoryPrivateMembershipTags(folder).then((tags) => {
+      if (!cancelled) cwdPrivateTags = tags;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
   const pathSegments = $derived(
     stack.map((ev) => ({
       event: ev,
@@ -112,12 +133,13 @@
   };
 
   const listing = $derived.by((): ListingRow[] => {
-    return directoryExplorerEntries(cwd).map((entry) => {
+    return directoryExplorerEntries(cwd, cwdPrivateTags).map((entry) => {
       const resolvedHit = Object.prototype.hasOwnProperty.call(resolved, entry.key)
         ? resolved[entry.key]
         : undefined;
       const hit = resolvedHit ?? undefined;
       const missing = resolvedHit === null;
+      const privSuffix = entry.private ? ' · Private' : '';
       if (entry.role === 'folder') {
         const counts = hit ? directoryChildCounts(hit) : null;
         const folders = counts?.folders ?? null;
@@ -134,7 +156,7 @@
           events,
           objects: folders != null && events != null ? folders + events : null,
           missing,
-          kindLine: missing ? 'Missing folder' : 'Folder',
+          kindLine: (missing ? 'Missing folder' : 'Folder') + privSuffix,
           iconClass: missing ? 'is-folder is-missing' : 'is-folder',
           entry,
           event: hit
@@ -152,7 +174,9 @@
         events: null,
         objects: null,
         missing,
-        kindLine: missing ? `Missing ${directoryEntryKindLine(entry)}` : directoryEntryKindLine(entry),
+        kindLine:
+          (missing ? `Missing ${directoryEntryKindLine(entry)}` : directoryEntryKindLine(entry)) +
+          privSuffix,
         iconClass: missing
           ? `${directoryEntryIconClass(entry)} is-missing`
           : directoryEntryIconClass(entry),

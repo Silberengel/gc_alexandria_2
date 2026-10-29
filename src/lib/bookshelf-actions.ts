@@ -7,6 +7,7 @@ import {
   allocateUniqueFolderDTag,
   canPublishBookshelfReplacement,
   createBookshelfDirectoryDraft,
+  createBookshelfDirectoryDraftParts,
   createEmptyBookshelfDirectoryDraft,
   directoryContainsPublication,
   directoryCoordinateFromEvent,
@@ -17,7 +18,6 @@ import {
   membershipTargetFromRef,
   rewriteDirectoryDTag,
   slugifyBookshelfDTag,
-  togglePublicationInDirectoryTags,
   type BookshelfShelfOption
 } from './bookshelf';
 import { deletionDraft } from './drafts';
@@ -28,10 +28,61 @@ import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { cacheDeleteEvent } from './nostr/cache';
 import { SessionTtlCache } from './session-ttl-cache';
+import { contentForPrivateTags, decryptPrivateTagsDetailed } from './private-tags';
 import { signAndPublish, type PublishFeedbackOpts } from './sign';
 
 /** Bookshelf flows toast once at the UI layer (DirectoryBrowser / callers). */
 const QUIET: PublishFeedbackOpts = { quiet: true };
+
+const directoryPrivateCache = new SessionTtlCache<{
+  tags: string[][];
+  couldDecrypt: boolean;
+  content: string;
+}>(5 * 60 * 1000, 120);
+
+async function loadDirectoryPrivateTags(
+  event: Event | null | undefined
+): Promise<{ tags: string[][]; couldDecrypt: boolean; content: string }> {
+  if (!event) return { tags: [], couldDecrypt: true, content: '' };
+  const key = `priv:${event.id}`;
+  return directoryPrivateCache.getOrLoad(key, async () => {
+    const detailed = await decryptPrivateTagsDetailed(event);
+    return {
+      tags: detailed.tags,
+      couldDecrypt: detailed.couldDecrypt,
+      content: event.content ?? ''
+    };
+  });
+}
+
+async function publishDirectoryParts(
+  parts: { kind: number; tags: string[][]; privateTags: string[][] },
+  previous: Event | null | undefined
+): Promise<Event | null> {
+  const prevPriv = previous ? await loadDirectoryPrivateTags(previous) : null;
+  let content = '';
+  try {
+    content = await contentForPrivateTags({
+      privateTags: parts.privateTags,
+      previousContent: previous?.content ?? '',
+      couldDecryptPrevious: prevPriv?.couldDecrypt ?? true
+    });
+  } catch {
+    return null;
+  }
+  const published = await signAndPublish(
+    { kind: parts.kind, content, tags: parts.tags },
+    QUIET
+  );
+  if (published) {
+    directoryPrivateCache.set(`priv:${published.id}`, {
+      tags: parts.privateTags,
+      couldDecrypt: true,
+      content: published.content ?? ''
+    });
+  }
+  return published;
+}
 
 /** Replaceable directory lookups — avoid re-REQ on every Directory/bookshelf open. */
 const directoryByDCache = new SessionTtlCache<Event | null>(5 * 60 * 1000, 120);
@@ -84,6 +135,7 @@ function invalidateDirectoryCaches(pubkey: string): void {
   const pk = pubkey.toLowerCase();
   directoryByDCache.invalidate(`dir:${pk}:`);
   homeDirectoriesCache.invalidate(`home:${pk}`);
+  directoryPrivateCache.invalidate('priv:');
 }
 
 /**
@@ -186,12 +238,16 @@ export async function loadBookshelfState(
   };
   const shelves = listBookshelfShelfOptions(root, resolve);
   const membershipCoords = new Set<string>();
-  for (const shelf of shelves) {
-    const ev = shelf.event ?? resolve(shelf.coordinate);
-    if (ev && directoryContainsPublication(ev, publication)) {
-      membershipCoords.add(shelf.coordinate);
-    }
-  }
+  await Promise.all(
+    shelves.map(async (shelf) => {
+      const ev = shelf.event ?? resolve(shelf.coordinate);
+      if (!ev) return;
+      const priv = await loadDirectoryPrivateTags(ev);
+      if (directoryContainsPublication(ev, publication, priv.tags)) {
+        membershipCoords.add(shelf.coordinate);
+      }
+    })
+  );
   return { root, nestedByCoord, shelves, membershipCoords, rootConfirmed: true };
 }
 
@@ -199,7 +255,8 @@ export async function toggleBookshelfShelf(
   pubkey: string,
   publication: Event,
   shelf: BookshelfShelfOption,
-  state: BookshelfState
+  state: BookshelfState,
+  opts?: { private?: boolean }
 ): Promise<BookshelfState | { error: string }> {
   const existing =
     shelf.event ??
@@ -217,13 +274,17 @@ export async function toggleBookshelfShelf(
     return { error: 'Bookshelf not ready' };
   }
 
-  const draft = createBookshelfDirectoryDraft(
+  const existingPriv = await loadDirectoryPrivateTags(existing);
+  const wasMember = directoryContainsPublication(existing ?? { tags: [] }, publication, existingPriv.tags);
+  const parts = createBookshelfDirectoryDraftParts(
     existing,
+    existingPriv.tags,
     shelf.d || MY_BOOK_COLLECTION_D_TAG,
-    publication
+    publication,
+    { addAsPrivate: !wasMember && opts?.private === true }
   );
-  if ('error' in draft) return { error: 'Bookshelf is full' };
-  const published = await signAndPublish(draft, QUIET);
+  if ('error' in parts) return { error: 'Bookshelf is full' };
+  const published = await publishDirectoryParts(parts, existing);
   if (!published) return { error: 'Publish failed' };
   invalidateDirectoryCaches(pubkey);
   directoryByDCache.set(directoryCacheKey(pubkey, directoryDTag(published) || shelf.d), published);
@@ -248,7 +309,12 @@ export async function toggleBookshelfShelf(
   next.membershipCoords = new Set();
   for (const s of next.shelves) {
     const ev = s.event ?? resolve(s.coordinate);
-    if (ev && directoryContainsPublication(ev, publication)) {
+    if (!ev) continue;
+    const priv =
+      ev.id === published.id
+        ? { tags: parts.privateTags }
+        : await loadDirectoryPrivateTags(ev);
+    if (directoryContainsPublication(ev, publication, priv.tags)) {
       next.membershipCoords.add(s.coordinate);
     }
   }
@@ -375,7 +441,8 @@ export async function createFolderInParent(
 /** Add (or no-op if already present) a member event under `parent`. */
 export async function addMemberToDirectory(
   parent: Event,
-  member: Event
+  member: Event,
+  opts?: { private?: boolean }
 ): Promise<Event | { error: string }> {
   if (parent.kind !== KIND.DIRECTORY) return { error: 'Not a folder' };
   if (
@@ -384,17 +451,20 @@ export async function addMemberToDirectory(
   ) {
     return { error: 'Cannot add a folder to itself' };
   }
-  if (directoryContainsPublication(parent, member)) return parent;
+  const existingPriv = await loadDirectoryPrivateTags(parent);
+  if (directoryContainsPublication(parent, member, existingPriv.tags)) return parent;
   if (!canPublishBookshelfReplacement(parent, false)) {
     return { error: 'Folder not ready' };
   }
-  const draft = createBookshelfDirectoryDraft(
+  const parts = createBookshelfDirectoryDraftParts(
     parent,
+    existingPriv.tags,
     directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
-    member
+    member,
+    { addAsPrivate: opts?.private === true && member.kind !== KIND.DIRECTORY }
   );
-  if ('error' in draft) return { error: 'Folder is full' };
-  const published = await signAndPublish(draft, QUIET);
+  if ('error' in parts) return { error: 'Folder is full' };
+  const published = await publishDirectoryParts(parts, parent);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
   invalidateDirectoryCaches(parent.pubkey);
@@ -420,18 +490,18 @@ export async function removeMemberFromDirectory(
   if (!canPublishBookshelfReplacement(parent, false)) {
     return { error: 'Folder not ready' };
   }
-  const draft = createBookshelfDirectoryDraft(
+  const existingPriv = await loadDirectoryPrivateTags(parent);
+  if (!directoryContainsPublication(parent, target, existingPriv.tags)) {
+    return parent;
+  }
+  const parts = createBookshelfDirectoryDraftParts(
     parent,
+    existingPriv.tags,
     directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
     target
   );
-  if ('error' in draft) return { error: 'Folder is full' };
-  // createBookshelfDirectoryDraft toggles — if it was present, tags omit it (added=false path).
-  // If it was absent, tags would add it; guard that case.
-  if (!directoryContainsPublication(parent, target)) {
-    return parent;
-  }
-  const published = await signAndPublish(draft, QUIET);
+  if ('error' in parts) return { error: 'Folder is full' };
+  const published = await publishDirectoryParts(parts, parent);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
   invalidateDirectoryCaches(parent.pubkey);
@@ -440,6 +510,14 @@ export async function removeMemberFromDirectory(
     published
   );
   return published;
+}
+
+/** Decrypt private membership tags for an owned directory (cached). */
+export async function directoryPrivateMembershipTags(
+  event: Event | null | undefined
+): Promise<string[][]> {
+  const loaded = await loadDirectoryPrivateTags(event);
+  return loaded.tags;
 }
 
 /**

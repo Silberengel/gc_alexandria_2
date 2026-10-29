@@ -16,11 +16,12 @@
     contentHeroThumbUrl,
     coverFullImageUrl,
     coverImageUrl,
-    sectionHeroFullImageUrl,
-    sectionHeroImageUrl
+    wikiSpecHeroFullUrl,
+    wikiSpecHeroThumbUrl
   } from '$lib/cover';
   import { coverPlaceholderUrl, coverTitle } from '$lib/cover-fallback';
   import { isLibraryCopyPubkey } from '$lib/hex';
+  import { isRemoteImageMissing } from '$lib/image-reachable';
   import { isAllowedHref } from '$lib/markup';
   import { offersVerseStyling } from '$lib/bible-verse';
   import { openMediaViewer } from '$lib/stores/media-viewer';
@@ -59,6 +60,8 @@
   const showWikiAliases = $derived(isWikiOrSpec);
 
   let wikiAliases = $state<WikiAliasLink[]>([]);
+  /** Soft-404 / decode failures — hide the remote hero without waiting on confirm. */
+  let brokenHeroUrl = $state('');
 
   $effect(() => {
     const ev = event;
@@ -97,18 +100,64 @@
   const remoteCover = $derived(contentHero ?? coverImageUrl(event));
   const fullCover = $derived(contentHeroFull ?? coverFullImageUrl(event) ?? remoteCover);
   const generatedCover = $derived(coverPlaceholderUrl(event));
-  /** Wiki/spec: only an explicit `image` tag — never Gutenberg, body scrape, or SVG plate. */
-  const wikiSpecTaggedHero = $derived(isWikiOrSpec ? sectionHeroImageUrl(event) : undefined);
-  const wikiSpecTaggedHeroFull = $derived(
-    isWikiOrSpec ? (sectionHeroFullImageUrl(event) ?? wikiSpecTaggedHero) : undefined
-  );
-  const showReadingHero = $derived(isLongForm || !!wikiSpecTaggedHero);
+  /** Wiki/spec remote hero — `image`, body, or imeta (placeholder fills gaps). */
+  const wikiSpecHero = $derived(isWikiOrSpec ? wikiSpecHeroThumbUrl(event) : undefined);
+  const wikiSpecHeroFull = $derived(isWikiOrSpec ? wikiSpecHeroFullUrl(event) : undefined);
+  const remoteBroken = $derived(Boolean(remoteCover && remoteCover === brokenHeroUrl));
+  const liveRemoteCover = $derived(remoteBroken ? undefined : remoteCover);
+  const wikiSpecBroken = $derived(Boolean(wikiSpecHero && wikiSpecHero === brokenHeroUrl));
+  const liveWikiSpecHero = $derived(wikiSpecBroken ? undefined : wikiSpecHero);
+  /**
+   * Full-bleed landscape hero for articles + wiki/spec.
+   * Publications keep the portrait side cover (books are vertical plates).
+   */
+  const showReadingHero = $derived(isLongForm || isWikiOrSpec);
   const heroSrc = $derived(
-    isLongForm ? remoteCover || generatedCover : wikiSpecTaggedHero || ''
+    isWikiOrSpec
+      ? liveWikiSpecHero || generatedCover
+      : isLongForm
+        ? liveRemoteCover || generatedCover
+        : ''
   );
-  const heroFull = $derived(isLongForm ? fullCover : wikiSpecTaggedHeroFull);
-  const showGeneratedHero = $derived(isLongForm && !remoteCover);
+  const heroFull = $derived(
+    isWikiOrSpec
+      ? liveWikiSpecHero
+        ? wikiSpecHeroFull
+        : generatedCover
+      : isLongForm
+        ? liveRemoteCover
+          ? fullCover
+          : generatedCover
+        : undefined
+  );
+  const showGeneratedHero = $derived(
+    (isLongForm && !liveRemoteCover) || (isWikiOrSpec && !liveWikiSpecHero)
+  );
   const heroTitle = $derived(meta.titles[0] || coverTitle(event));
+  const probeUrl = $derived(
+    isWikiOrSpec ? wikiSpecHero || '' : isLongForm ? remoteCover || '' : ''
+  );
+
+  $effect(() => {
+    const url = probeUrl.trim();
+    const editionId = event.id;
+    brokenHeroUrl = '';
+    if (!url) return;
+    let cancelled = false;
+    void isRemoteImageMissing(url).then((missing) => {
+      if (cancelled || event.id !== editionId) return;
+      if (missing) brokenHeroUrl = url;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  function markHeroBroken(url: string): void {
+    const key = url.trim();
+    if (!key || brokenHeroUrl === key) return;
+    brokenHeroUrl = key;
+  }
 
   function scrollToRatings(): void {
     document.getElementById('edition-ratings')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -283,7 +332,14 @@
     <div class="reader-edition-hero" class:reader-edition-hero-generated={showGeneratedHero}>
       <figure class="section-hero">
         <button class="section-hero-zoom" type="button" title="View cover" onclick={openHero}>
-          <img src={heroSrc} alt="" loading="eager" />
+          <img
+            src={heroSrc}
+            alt=""
+            loading="eager"
+            onerror={() => {
+              if (probeUrl) markHeroBroken(probeUrl);
+            }}
+          />
         </button>
       </figure>
       <div class="reader-edition-hero-meta">
@@ -359,7 +415,7 @@
     class="edition-header"
     class:edition-header-wiki={event.kind === KIND.WIKI}
     class:edition-header-spec={event.kind === KIND.SPEC}
-    class:edition-header-text-only={isWikiOrSpec}
+    class:edition-header-text-only={isWikiOrSpec && !liveWikiSpecHero}
   >
     <div class="edition-hero">
       {#if !isWikiOrSpec}

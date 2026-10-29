@@ -38,12 +38,28 @@ describe('reading queue', () => {
     ];
     const draft = readingQueueDraft(entries);
     expect(draft.kind).toBe(KIND.READING_QUEUE);
+    expect(draft.privateTags).toEqual([]);
     expect(draft.tags.filter((t) => t[0] === 'a')).toHaveLength(2);
     const parsed = parseReadingQueue(ev(draft.tags));
     expect(parsed).toHaveLength(2);
     expect(parsed[0]).toMatchObject({ pos: 2, total: 10, sectionId: 'd'.repeat(64), updated: 100 });
     expect(parsed[0]?.a).toContain('book-one');
     expect(parsed[1]).toMatchObject({ pos: 0, total: 5, updated: 50 });
+    expect(parsed[1]?.a).toContain('book-two');
+  });
+
+  it('puts private books in privateTags and merges them on parse', () => {
+    const entries: ReadingQueueEntry[] = [
+      { a: a1, pos: 1, total: 4 },
+      { a: a2, pos: 0, total: 5, private: true, updated: 9 }
+    ];
+    const draft = readingQueueDraft(entries);
+    expect(draft.tags.filter((t) => t[0] === 'book')).toHaveLength(1);
+    expect(draft.privateTags.filter((t) => t[0] === 'book')).toHaveLength(1);
+    const parsed = parseReadingQueue(ev(draft.tags), draft.privateTags);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0]?.a).toContain('book-one');
+    expect(parsed[1]).toMatchObject({ private: true, pos: 0, total: 5 });
     expect(parsed[1]?.a).toContain('book-two');
   });
 

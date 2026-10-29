@@ -61,6 +61,45 @@ function imetaImageUrl(event: Event): string | undefined {
   return undefined;
 }
 
+/** First NIP-92 imeta still (no Gutenberg / `image` tag). */
+export function imetaCoverFullImageUrl(event: Event): string | undefined {
+  return imetaImageUrl(event);
+}
+
+/** Thumb rewrite of {@link imetaCoverFullImageUrl}. */
+export function imetaCoverImageUrl(event: Event): string | undefined {
+  const full = imetaImageUrl(event);
+  return full ? toNostrBuildThumbUrl(full) : undefined;
+}
+
+/**
+ * Wiki/spec hero thumb: explicit `image`, first body image, then imeta.
+ * No generated plate and no Gutenberg guess from the `d` tag.
+ */
+export function wikiSpecHeroThumbUrl(
+  event: Event,
+  sections: Event[] = []
+): string | undefined {
+  return (
+    sectionHeroImageUrl(event) ??
+    contentHeroThumbUrl(event, sections) ??
+    imetaCoverImageUrl(event)
+  );
+}
+
+/** Full-size wiki/spec hero for the media viewer. */
+export function wikiSpecHeroFullUrl(
+  event: Event,
+  sections: Event[] = []
+): string | undefined {
+  return (
+    sectionHeroFullImageUrl(event) ??
+    contentHeroFullUrl(event, sections) ??
+    imetaCoverFullImageUrl(event) ??
+    wikiSpecHeroThumbUrl(event, sections)
+  );
+}
+
 /** Full-resolution cover URL (no nostr.build thumb rewrite). */
 export function coverFullImageUrl(event: Event): string | undefined {
   const image = firstTag(event, 'image')?.trim();

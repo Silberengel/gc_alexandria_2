@@ -154,28 +154,82 @@ function membershipItemCount(tags: readonly string[][]): number {
   return tags.filter((t) => t[0] === 'a' || t[0] === 'e').length;
 }
 
+/** Effective tags for membership checks (public + decrypted private a/e). */
+export function directoryEffectiveTags(
+  directory: Pick<Event, 'tags'>,
+  privateTags: string[][] = []
+): string[][] {
+  if (!privateTags.length) return directory.tags;
+  const memberships = privateTags.filter((t) => t[0] === 'a' || t[0] === 'e');
+  if (!memberships.length) return directory.tags;
+  return [...directory.tags, ...memberships];
+}
+
 export function directoryContainsPublicationCoordinate(
   directory: Pick<Event, 'tags'>,
-  coordinate: string
+  coordinate: string,
+  privateTags: string[][] = []
 ): boolean {
   const needle = coordinate.trim();
   if (!needle) return false;
-  return directory.tags.some((t) => t[0] === 'a' && (t[1]?.trim() ?? '') === needle);
+  return directoryEffectiveTags(directory, privateTags).some(
+    (t) => t[0] === 'a' && (t[1]?.trim() ?? '') === needle
+  );
 }
 
 export function directoryContainsPublication(
   directory: Pick<Event, 'tags'>,
-  publication: Pick<Event, 'kind' | 'pubkey' | 'tags' | 'id'>
+  publication: Pick<Event, 'kind' | 'pubkey' | 'tags' | 'id'>,
+  privateTags: string[][] = []
 ): boolean {
+  const tags = directoryEffectiveTags(directory, privateTags);
   const coordinate = bookshelfPublicationCoordinate(publication);
-  if (directoryContainsPublicationCoordinate(directory, coordinate)) return true;
+  if (tags.some((t) => t[0] === 'a' && (t[1]?.trim() ?? '') === coordinate)) return true;
   const id = publication.id?.toLowerCase();
   if (!id) return false;
-  return directory.tags.some(
+  return tags.some(
     (t) =>
       (t[0] === 'e' && t[1]?.toLowerCase() === id) ||
       (t[0] === 'a' && t[3]?.toLowerCase() === id)
   );
+}
+
+/** Stable key for a membership tag (for private vs public split). */
+export function directoryMembershipKey(tag: string[]): string | null {
+  if (tag[0] === 'a' && tag[1]?.trim()) return `a:${tag[1].trim()}`;
+  if (tag[0] === 'e' && isEventIdHex(tag[1])) return `e:${tag[1]!.toLowerCase()}`;
+  return null;
+}
+
+/**
+ * Split working tags into Android-safe public tags + private membership rows.
+ * `d` always public; `title` (if any) stays public; a/e go private when keyed.
+ */
+export function splitDirectoryTags(
+  allTags: string[][],
+  privateKeys: ReadonlySet<string>
+): { publicTags: string[][]; privateTags: string[][] } {
+  const publicTags: string[][] = [];
+  const privateTags: string[][] = [];
+  for (const tag of filterAndroidSafeTags(allTags)) {
+    const key = directoryMembershipKey(tag);
+    if (key && privateKeys.has(key)) {
+      privateTags.push(tag);
+      continue;
+    }
+    publicTags.push(tag);
+  }
+  return { publicTags, privateTags };
+}
+
+/** Keys of a/e tags currently stored as private. */
+export function privateMembershipKeys(privateTags: string[][]): Set<string> {
+  const keys = new Set<string>();
+  for (const tag of privateTags) {
+    const key = directoryMembershipKey(tag);
+    if (key) keys.add(key);
+  }
+  return keys;
 }
 
 export type ToggleBookshelfMembershipResult =
@@ -225,15 +279,70 @@ export function directoryDraft(
   return { kind: KIND.DIRECTORY, content, tags };
 }
 
+export type DirectoryDraftParts = {
+  kind: number;
+  tags: string[][];
+  privateTags: string[][];
+  added: boolean;
+};
+
+/**
+ * Toggle membership using public + private tags, then split again.
+ * When `addAsPrivate` and the item is newly added, it lands in privateTags.
+ */
+export function createBookshelfDirectoryDraftParts(
+  existing: Pick<Event, 'tags'> | null | undefined,
+  existingPrivateTags: string[][],
+  d: string,
+  membershipTarget: Pick<Event, 'id' | 'kind' | 'pubkey' | 'tags'>,
+  opts?: { relayHint?: string; addAsPrivate?: boolean }
+): DirectoryDraftParts | { error: 'full' } {
+  const relayHint = opts?.relayHint ?? '';
+  const addAsPrivate = opts?.addAsPrivate === true;
+  const merged: Pick<Event, 'tags'> = {
+    tags: directoryEffectiveTags(existing ?? { tags: [] }, existingPrivateTags)
+  };
+  const toggled = togglePublicationInDirectoryTags(merged, d, membershipTarget, relayHint);
+  if (!toggled.ok) return { error: 'full' };
+  const keys = privateMembershipKeys(existingPrivateTags);
+  const coord = bookshelfPublicationCoordinate(membershipTarget);
+  const aKey = `a:${coord}`;
+  const eKey = isEventIdHex(membershipTarget.id)
+    ? `e:${membershipTarget.id.toLowerCase()}`
+    : null;
+  if (toggled.added) {
+    if (addAsPrivate) {
+      keys.add(aKey);
+      if (eKey) keys.add(eKey);
+    } else {
+      keys.delete(aKey);
+      if (eKey) keys.delete(eKey);
+    }
+  } else {
+    // Removed — drop from private set.
+    keys.delete(aKey);
+    if (eKey) keys.delete(eKey);
+  }
+  const { publicTags, privateTags } = splitDirectoryTags(toggled.tags, keys);
+  return {
+    kind: KIND.DIRECTORY,
+    tags: publicTags,
+    privateTags,
+    added: toggled.added
+  };
+}
+
 export function createBookshelfDirectoryDraft(
   existing: Pick<Event, 'tags'> | null | undefined,
   d: string,
   membershipTarget: Pick<Event, 'id' | 'kind' | 'pubkey' | 'tags'>,
   relayHint = ''
 ): { kind: number; content: string; tags: string[][] } | { error: 'full' } {
-  const toggled = togglePublicationInDirectoryTags(existing, d, membershipTarget, relayHint);
-  if (!toggled.ok) return { error: 'full' };
-  return directoryDraft(toggled.tags);
+  const parts = createBookshelfDirectoryDraftParts(existing, [], d, membershipTarget, {
+    relayHint
+  });
+  if ('error' in parts) return { error: 'full' };
+  return directoryDraft(parts.tags);
 }
 
 /** Empty nested shelf (no title — Android rejects it). */
@@ -270,23 +379,34 @@ export type DirectoryChildRef = {
   isFolder: boolean;
   parentLabel?: string;
   parentD?: string;
+  /** Owner-only: membership lived in encrypted content. */
+  private?: boolean;
 };
 
 /** Children of a 30045: nested directories (kind 30045) and publication memberships. */
-export function directoryChildrenFromEvent(dir: Pick<Event, 'tags'>): DirectoryChildRef[] {
+export function directoryChildrenFromEvent(
+  dir: Pick<Event, 'tags'>,
+  privateTags: string[][] = []
+): DirectoryChildRef[] {
   const out: DirectoryChildRef[] = [];
-  for (const tag of dir.tags) {
-    if (tag[0] !== 'a' || !tag[1]) continue;
+  const seen = new Set<string>();
+  const push = (tag: string[], isPrivate: boolean): void => {
+    if (tag[0] !== 'a' || !tag[1]) return;
+    if (seen.has(tag[1])) return;
+    seen.add(tag[1]);
     const parsed = parseAddress(tag[1]);
-    if (!parsed) continue;
+    if (!parsed) return;
     const isFolder = parsed.kind === KIND.DIRECTORY;
     out.push({
       coordinate: tag[1],
       identifier: parsed.d,
       isFolder,
-      parentD: parsed.d
+      parentD: parsed.d,
+      private: isPrivate || undefined
     });
-  }
+  };
+  for (const tag of dir.tags) push(tag, false);
+  for (const tag of privateTags) push(tag, true);
   return out;
 }
 

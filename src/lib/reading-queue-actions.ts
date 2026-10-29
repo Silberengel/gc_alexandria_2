@@ -8,12 +8,13 @@ import { myReadLabel, readLabelsForPublication } from './read-marks';
 import {
   findQueueEntry,
   moveReadingEntryToFront,
+  parseReadingQueue,
   readingQueueDraft,
-  readingQueueFromMetadata,
   removeReadingEntry,
   upsertReadingEntry,
   type ReadingQueueEntry
 } from './reading-queue';
+import { contentForPrivateTags, decryptPrivateTagsDetailed } from './private-tags';
 import { coordinatesOverlap } from './publication-coordinate';
 import { signAndPublish, isSignInFlight } from './sign';
 import { session } from './stores/session';
@@ -39,9 +40,47 @@ export type PendingReadingProgress = {
 
 export const pendingReadingProgress = writable<PendingReadingProgress | null>(null);
 
-function currentEntries(): ReadingQueueEntry[] {
-  if (get(readingPrefs).localOnly) return get(localReadingQueue);
-  return readingQueueFromMetadata(session.getMetadata());
+/**
+ * Owner reading queue with private books decrypted (public-only until first refresh).
+ * Prefer this over parsing metadata tags alone.
+ */
+export const ownReadingQueueEntries = writable<ReadingQueueEntry[]>([]);
+
+let ownQueueRefreshGen = 0;
+let lastQueueDecrypt: {
+  eventId: string;
+  content: string;
+  couldDecrypt: boolean;
+} | null = null;
+
+/** Reload owner queue from local store or decrypt kind 16374. */
+export async function refreshOwnReadingQueue(): Promise<ReadingQueueEntry[]> {
+  const gen = ++ownQueueRefreshGen;
+  if (get(readingPrefs).localOnly) {
+    const local = get(localReadingQueue);
+    if (gen === ownQueueRefreshGen) ownReadingQueueEntries.set(local);
+    return local;
+  }
+  const event = latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  if (!event) {
+    lastQueueDecrypt = null;
+    if (gen === ownQueueRefreshGen) ownReadingQueueEntries.set([]);
+    return [];
+  }
+  const detailed = await decryptPrivateTagsDetailed(event);
+  if (gen !== ownQueueRefreshGen) return get(ownReadingQueueEntries);
+  lastQueueDecrypt = {
+    eventId: event.id,
+    content: event.content ?? '',
+    couldDecrypt: detailed.couldDecrypt
+  };
+  const entries = parseReadingQueue(event, detailed.tags);
+  ownReadingQueueEntries.set(entries);
+  return entries;
+}
+
+async function currentEntries(): Promise<ReadingQueueEntry[]> {
+  return refreshOwnReadingQueue();
 }
 
 function sessionOk(): boolean {
@@ -55,13 +94,40 @@ async function publishEntries(
 ): Promise<Event | null | 'local'> {
   if (get(readingPrefs).localOnly) {
     localReadingQueue.replace(entries);
+    ownReadingQueueEntries.set(entries);
     return 'local';
   }
+  const draft = readingQueueDraft(entries);
+  const prev = latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
+  const prevSame =
+    prev && lastQueueDecrypt && lastQueueDecrypt.eventId === prev.id ? lastQueueDecrypt : null;
+  let content = '';
+  try {
+    content = await contentForPrivateTags({
+      privateTags: draft.privateTags,
+      previousContent: prev?.content ?? '',
+      couldDecryptPrevious: prevSame?.couldDecrypt ?? true
+    });
+  } catch {
+    return null;
+  }
   // Progress flushes are quiet; explicit track/stop pass a successMessage.
-  return signAndPublish(readingQueueDraft(entries), {
-    quiet: opts?.quiet ?? !opts?.successMessage,
-    successMessage: opts?.successMessage
-  });
+  const published = await signAndPublish(
+    { kind: draft.kind, content, tags: draft.tags },
+    {
+      quiet: opts?.quiet ?? !opts?.successMessage,
+      successMessage: opts?.successMessage
+    }
+  );
+  if (published) {
+    lastQueueDecrypt = {
+      eventId: published.id,
+      content: published.content ?? '',
+      couldDecrypt: true
+    };
+    ownReadingQueueEntries.set(entries);
+  }
+  return published;
 }
 
 /**
@@ -189,13 +255,14 @@ async function publishProgressNow(opts: {
   sectionId?: string;
 }): Promise<Event | null | 'local'> {
   const a = eventAddress(opts.publication);
-  const cur = findQueueEntry(currentEntries(), a);
+  const base = await currentEntries();
+  const cur = findQueueEntry(base, a);
   if (!cur) return null;
   // Scroll must not move tracked progress backward (metadata / reread).
   if (opts.pos < cur.pos) {
     if (opts.total > cur.total) {
       return publishEntries(
-        upsertReadingEntry(currentEntries(), {
+        upsertReadingEntry(base, {
           ...cur,
           total: Math.max(opts.total, cur.total, 1),
           updated: Math.floor(Date.now() / 1000)
@@ -219,9 +286,10 @@ async function publishProgressNow(opts: {
     pos,
     total: Math.max(opts.total, cur.total, 1),
     sectionId: opts.sectionId ?? cur.sectionId,
-    updated: Math.floor(Date.now() / 1000)
+    updated: Math.floor(Date.now() / 1000),
+    private: cur.private
   };
-  return publishEntries(upsertReadingEntry(currentEntries(), next));
+  return publishEntries(upsertReadingEntry(base, next));
 }
 
 export async function trackReadingPublication(opts: {
@@ -229,6 +297,8 @@ export async function trackReadingPublication(opts: {
   pos: number;
   total: number;
   sectionId?: string;
+  /** When true, book tags go in NIP-44-encrypted content. */
+  private?: boolean;
 }): Promise<Event | null | 'local'> {
   if (!sessionOk()) return null;
   const { publication, pos, total, sectionId } = opts;
@@ -236,13 +306,15 @@ export async function trackReadingPublication(opts: {
   clearProgressTimer();
   clearPendingIntent();
   const a = eventAddress(publication);
-  const existing = findQueueEntry(currentEntries(), a);
-  const entries = upsertReadingEntry(currentEntries(), {
+  const base = await currentEntries();
+  const existing = findQueueEntry(base, a);
+  const entries = upsertReadingEntry(base, {
     a,
     pos: existing ? Math.max(existing.pos, pos) : pos,
     total,
     sectionId: sectionId ?? existing?.sectionId,
-    updated: Math.floor(Date.now() / 1000)
+    updated: Math.floor(Date.now() / 1000),
+    private: opts.private ?? existing?.private
   });
   return publishEntries(entries, { successMessage: 'Added to reading queue.' });
 }
@@ -251,7 +323,7 @@ export async function stopTrackingPublication(publication: Event): Promise<Event
   if (!sessionOk()) return null;
   clearProgressTimer();
   clearPendingIntent();
-  const entries = removeReadingEntry(currentEntries(), eventAddress(publication));
+  const entries = removeReadingEntry(await currentEntries(), eventAddress(publication));
   return publishEntries(entries, { successMessage: 'Removed from reading queue.' });
 }
 
@@ -269,7 +341,7 @@ export async function syncReadingProgress(opts: {
 }): Promise<Event | null | 'local'> {
   if (!sessionOk()) return null;
   const a = eventAddress(opts.publication);
-  const cur = findQueueEntry(currentEntries(), a);
+  const cur = findQueueEntry(await currentEntries(), a);
   if (!cur) return null;
 
   const pendingFloor =
@@ -337,15 +409,17 @@ export async function resetReadingProgress(opts: {
   clearProgressTimer();
   clearPendingIntent();
   const a = eventAddress(publication);
-  const existing = findQueueEntry(currentEntries(), a);
+  const base = await currentEntries();
+  const existing = findQueueEntry(base, a);
   if (!existing) return null;
   return publishEntries(
-    upsertReadingEntry(currentEntries(), {
+    upsertReadingEntry(base, {
       a,
       pos: 0,
       total: Math.max(total, existing.total, 1),
       sectionId: undefined,
-      updated: Math.floor(Date.now() / 1000)
+      updated: Math.floor(Date.now() / 1000),
+      private: existing.private
     }),
     { successMessage: 'Reading progress reset.' }
   );
@@ -354,7 +428,7 @@ export async function resetReadingProgress(opts: {
 export async function promoteReadingToFront(editionAddress: string): Promise<Event | null | 'local'> {
   if (!sessionOk()) return null;
   await flushReadingProgress();
-  const entries = moveReadingEntryToFront(currentEntries(), editionAddress);
+  const entries = moveReadingEntryToFront(await currentEntries(), editionAddress);
   return publishEntries(entries);
 }
 
@@ -367,9 +441,10 @@ export async function publishLocalReadingQueueToRelays(): Promise<Event | null> 
   await flushReadingProgress();
   const entries = get(localReadingQueue);
   if (!entries.length) return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
-  return signAndPublish(readingQueueDraft(entries), {
+  const published = await publishEntries(entries, {
     successMessage: 'Reading queue published to relays.'
   });
+  return published === 'local' ? null : published;
 }
 
 /**
@@ -404,7 +479,7 @@ export async function finishTrackedPublication(
   }
 
   // Snapshot after awaits so shift detection and the published removal use the same list.
-  const before = currentEntries();
+  const before = await currentEntries();
   const idx = before.findIndex((e) => !!findQueueEntry([e], a));
   const shiftedAddress =
     idx >= 0 && idx < concurrent && before.length > concurrent

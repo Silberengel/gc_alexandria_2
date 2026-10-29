@@ -105,23 +105,27 @@
         >Highlight + note</button
       >
     {/if}
-    {#if onReply}
-      <button
-        type="button"
-        class="btn"
-        onpointerdown={(e) => runPointerAction(e, onReply)}
-        onclick={(e) => runClickAction(e, onReply)}>Reply</button
-      >
-    {/if}
-    {#if onInk}
-      <button
-        type="button"
-        class="btn"
-        onpointerdown={(e) => runPointerAction(e, onInk)}
-        onclick={(e) => runClickAction(e, onInk)}>Ink note</button
-      >
-    {/if}
   </div>
+  {#if onReply || onInk}
+    <div class="sel-actions sel-actions-secondary">
+      {#if onReply}
+        <button
+          type="button"
+          class="btn"
+          onpointerdown={(e) => runPointerAction(e, onReply)}
+          onclick={(e) => runClickAction(e, onReply)}>Reply</button
+        >
+      {/if}
+      {#if onInk}
+        <button
+          type="button"
+          class="btn"
+          onpointerdown={(e) => runPointerAction(e, onInk)}
+          onclick={(e) => runClickAction(e, onInk)}>Ink note</button
+        >
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -184,6 +188,9 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+  }
+  .sel-actions-secondary {
+    margin-top: -0.1rem;
   }
   .sel-actions .btn {
     touch-action: manipulation;

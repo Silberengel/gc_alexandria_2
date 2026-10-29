@@ -26,6 +26,8 @@
 
   let busy = $state(false);
   let errorHint = $state('');
+  /** Encrypt this book into kind-16374 content instead of public tags. */
+  let trackPrivate = $state(false);
 
   const addr = $derived(eventAddress(publication));
   const entries = $derived($viewerReadingEntries);
@@ -43,6 +45,7 @@
   });
   const behindTracked = $derived(!!entry && entry.pos > 0);
   const bunker = $derived($session.signerType === 'bunker');
+  const localOnly = $derived($readingPrefs.localOnly);
 
   async function track(): Promise<void> {
     if (busy) return;
@@ -61,7 +64,13 @@
           return;
         }
       }
-      const published = await trackReadingPublication({ publication, pos, total, sectionId });
+      const published = await trackReadingPublication({
+        publication,
+        pos,
+        total,
+        sectionId,
+        private: trackPrivate && !localOnly
+      });
       if (!published) {
         errorHint = bunker
           ? 'Could not publish. Approve the request in Amber (keep this tab open), then try again.'
@@ -129,7 +138,8 @@
     </div>
     <div class="reading-track-meta">
       <span class="reading-track-status">
-        {percent}% · {inActive ? 'In rotation' : 'Up next'}
+        {percent}% · {inActive ? 'In rotation' : 'Up next'}{#if entry?.private}
+          · Private{/if}
       </span>
       <div class="reading-track-actions">
         <button class="reading-track-action" type="button" disabled={busy} onclick={() => void stop()}>
@@ -152,9 +162,17 @@
     Sign in to track reading
   </button>
 {:else}
-  <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
-    {busy && bunker ? 'Waiting for Amber…' : 'Track reading'}
-  </button>
+  <div class="reading-track-start">
+    <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
+      {busy && bunker ? 'Waiting for Amber…' : 'Track reading'}
+    </button>
+    {#if !localOnly}
+      <label class="reading-track-private" title="Keep this book encrypted in reading-queue content">
+        <input type="checkbox" bind:checked={trackPrivate} disabled={busy} />
+        Priv
+      </label>
+    {/if}
+  </div>
   {#if bunker && !busy}
     <aside class="reading-track-help" aria-label="Tracking help">
       <p>Amber will ask you to approve publishing your reading queue.</p>

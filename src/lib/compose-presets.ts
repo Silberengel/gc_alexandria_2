@@ -73,20 +73,26 @@ export function hasContentField(kind: number): boolean {
 
 /**
  * Body textarea — hide for empty/json encodings and for kinds whose content is
- * app-built ciphertext (NIP-51 private tags, NIP-37 draft relays). Those still
- * publish non-empty content; the composer must not clear it.
+ * app-built ciphertext (NIP-51 private tags, NIP-37 draft relays, directories,
+ * reading queues, …). Those still publish non-empty content; the composer must not clear it.
  */
 export function showContentBox(kind: number): boolean {
   const def = getKind(kind);
-  const handler = def?.handler ?? '';
+  if (!def) return false;
+  if (def.content?.role === 'private_tags' || def.content?.role === 'unused') {
+    return false;
+  }
+  const handler = def.handler ?? '';
   if (
     kind === 10013 ||
     handler === 'nip37_private_relay_list' ||
-    handler.startsWith('nip51_')
+    handler.startsWith('nip51_') ||
+    handler === 'reading_queue' ||
+    handler === 'nkbip04_directory'
   ) {
     return false;
   }
-  const encoding = def?.content?.encoding;
+  const encoding = def.content?.encoding;
   if (!encoding || encoding === 'empty' || encoding === 'json') return false;
   return true;
 }

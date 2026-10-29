@@ -92,6 +92,8 @@ describe('composePickerGroups', () => {
     expect(showContentBox(KIND.MUTE)).toBe(false);
     expect(showContentBox(KIND.CONTACT_LIST)).toBe(false);
     expect(showContentBox(10013)).toBe(false);
+    expect(showContentBox(KIND.DIRECTORY)).toBe(false);
+    expect(showContentBox(KIND.READING_QUEUE)).toBe(false);
     expect(showContentBox(KIND.TEXT_NOTE)).toBe(true);
   });
 });
