@@ -19,9 +19,11 @@
     compact?: boolean;
     /** Avatar only — no display name (live-room strips, etc.). */
     avatarOnly?: boolean;
+    /** Static face for menus — not a profile link. */
+    plain?: boolean;
   }
 
-  let { pubkey, compact = false, avatarOnly = false }: Props = $props();
+  let { pubkey, compact = false, avatarOnly = false, plain = false }: Props = $props();
 
   let name = $state('');
   let picture = $state('');
@@ -143,39 +145,49 @@
   });
 </script>
 
+{#snippet face()}
+  {#if !compact || avatarOnly}
+    {#if displayPicture && !pictureFailed}
+      <img
+        class="userbadge-avatar"
+        src={displayPicture}
+        alt=""
+        onerror={() => {
+          pictureFailed = true;
+        }}
+      />
+    {:else}
+      <svg class="userbadge-avatar userbadge-anon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="12" fill="currentColor" opacity="0.18" />
+        <circle cx="12" cy="9" r="3.4" fill="currentColor" />
+        <path d="M5.2 19.2c1.4-3.1 3.8-4.6 6.8-4.6s5.4 1.5 6.8 4.6" fill="currentColor" />
+      </svg>
+    {/if}
+  {/if}
+  {#if !avatarOnly}
+    <span>{name || '…'}</span>
+  {/if}
+{/snippet}
+
 {#if pubkey && !muted}
-  <a
-    class="userbadge"
-    class:userbadge-avatar-only={avatarOnly}
-    href={`#/p/${npub || pubkey}`}
-    use:link
-    title={avatarOnly ? name || npub || pubkey : undefined}
-    aria-label={avatarOnly ? name || npub || 'Profile' : undefined}
-    onpointerdown={() => {
-      const meta = memoryFindMetadata(pubkey);
-      if (meta) rememberEvents([meta]);
-    }}
-  >
-    {#if !compact || avatarOnly}
-      {#if displayPicture && !pictureFailed}
-        <img
-          class="userbadge-avatar"
-          src={displayPicture}
-          alt=""
-          onerror={() => {
-            pictureFailed = true;
-          }}
-        />
-      {:else}
-        <svg class="userbadge-avatar userbadge-anon" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="12" fill="currentColor" opacity="0.18" />
-          <circle cx="12" cy="9" r="3.4" fill="currentColor" />
-          <path d="M5.2 19.2c1.4-3.1 3.8-4.6 6.8-4.6s5.4 1.5 6.8 4.6" fill="currentColor" />
-        </svg>
-      {/if}
-    {/if}
-    {#if !avatarOnly}
-      <span>{name || '…'}</span>
-    {/if}
-  </a>
+  {#if plain}
+    <span class="userbadge" class:userbadge-avatar-only={avatarOnly}>
+      {@render face()}
+    </span>
+  {:else}
+    <a
+      class="userbadge"
+      class:userbadge-avatar-only={avatarOnly}
+      href={`#/p/${npub || pubkey}`}
+      use:link
+      title={avatarOnly ? name || npub || pubkey : undefined}
+      aria-label={avatarOnly ? name || npub || 'Profile' : undefined}
+      onpointerdown={() => {
+        const meta = memoryFindMetadata(pubkey);
+        if (meta) rememberEvents([meta]);
+      }}
+    >
+      {@render face()}
+    </a>
+  {/if}
 {/if}

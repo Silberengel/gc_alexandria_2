@@ -15,6 +15,7 @@
   import { session } from '$lib/stores/session';
   import { showNotice } from '$lib/stores/toast';
   import DrawingEditor from './DrawingEditor.svelte';
+  import MentionControl from './MentionControl.svelte';
 
   interface Props {
     value?: string;
@@ -192,7 +193,7 @@
     void submit();
   }}
 >
-  <textarea bind:value rows="3" {placeholder} onpaste={onPaste}></textarea>
+  <MentionControl mode="prose" multiline rows={3} bind:value {placeholder} onpaste={onPaste} />
   {#if previewHtml}
     <div class="compose-preview">
       <p class="compose-preview-label muted">Preview</p>

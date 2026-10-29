@@ -62,6 +62,9 @@ describe('identity cache', () => {
     const second = await import('./identity-cache');
     expect(second.cachedIdentityEvent(KIND.RELAY_LIST, pk)?.tags).toEqual([['r', 'wss://new.example']]);
     expect(second.cachedIdentityEvent(KIND.METADATA, pk)?.content).toBe('{"name":"Ada"}');
+    expect(second.cachedIdentityEvents(KIND.METADATA).map((event) => event.content)).toEqual([
+      '{"name":"Ada"}'
+    ]);
     expect(second.cachedIdentityEvent(KIND.PAYMENT, pk)?.tags).toEqual([['lud16', 'ada@example.com']]);
     expect(second.cachedViewerIdentity(pk)).toHaveLength(3);
     second.rememberIdentityEvent(

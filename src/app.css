@@ -10887,6 +10887,10 @@ button.directory-explorer-link {
   align-items: stretch;
   gap: 0.5rem;
 }
+.directory-owner-row .mention-host {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
 .directory-owner-input {
   flex: 1 1 14rem;
   min-width: 0;

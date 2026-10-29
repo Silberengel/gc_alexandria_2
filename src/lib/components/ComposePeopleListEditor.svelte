@@ -5,6 +5,7 @@
     type PeopleRow
   } from '$lib/compose-people-list';
   import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
+  import MentionControl from './MentionControl.svelte';
 
   interface Props {
     value?: string;
@@ -65,15 +66,13 @@
   {#each rows as row, i}
     <div class="people-block">
       <div class="tag-row people-row">
-        <input
-          type="text"
+        <MentionControl
+          mode="npub"
           class="mono people-pubkey"
           value={row.pubkey}
-          placeholder="npub / hex"
-          aria-label={`Follow pubkey ${i + 1}`}
-          autocomplete="off"
-          spellcheck="false"
-          oninput={(e) => setField(i, 'pubkey', e.currentTarget.value)}
+          placeholder="npub / hex or @name"
+          ariaLabel={`Follow pubkey ${i + 1}`}
+          onValue={(next) => setField(i, 'pubkey', next)}
         />
         <input
           type="url"
@@ -139,6 +138,10 @@
   .people-row input {
     padding: 0.35rem 0.55rem;
     font-size: 0.9rem;
+    min-width: 0;
+  }
+  .people-row :global(.mention-host) {
+    flex: 2 1 12rem;
     min-width: 0;
   }
   .people-pubkey {

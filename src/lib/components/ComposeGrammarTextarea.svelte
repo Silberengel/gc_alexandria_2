@@ -1,6 +1,13 @@
 <script lang="ts">
   import { scrubClipboardTextPaste } from '$lib/clean-url';
   import type { GrammarIssue } from '$lib/compose-grammar';
+  import {
+    attachMentionField,
+    MENTION_UI_IDLE,
+    type MentionFieldBinding,
+    type MentionUiState
+  } from '$lib/mention-field';
+  import MentionHost from './MentionHost.svelte';
 
   interface Props {
     value?: string;
@@ -46,6 +53,21 @@
 
   let wrapEl = $state<HTMLDivElement | null>(null);
   let taEl = $state<HTMLTextAreaElement | null>(null);
+  let mentionUi = $state<MentionUiState>(MENTION_UI_IDLE);
+  let mentionBinding: MentionFieldBinding | null = null;
+
+  function attachMentions(node: HTMLTextAreaElement) {
+    mentionBinding = attachMentionField(node, {
+      mode: 'prose',
+      onState: (next) => {
+        mentionUi = next;
+      }
+    });
+    return () => {
+      mentionBinding?.destroy();
+      mentionBinding = null;
+    };
+  }
   let mirrorEl = $state<HTMLDivElement | null>(null);
   let active = $state<GrammarIssue | null>(null);
   let popTop = $state(0);
@@ -225,21 +247,30 @@
 
 <div class="grammar-field" class:fill bind:this={wrapEl}>
   <div class="grammar-mirror" bind:this={mirrorEl} aria-hidden="true">{@html mirrorHtml}</div>
-  <textarea
-    bind:this={taEl}
-    bind:value
-    {rows}
-    {placeholder}
-    id={id || undefined}
-    class="grammar-textarea"
-    spellcheck="false"
-    onselect={onSelectOrClick}
-    onclick={onSelectOrClick}
-    onkeyup={onSelectOrClick}
-    onpaste={handlePaste}
-    ondrop={onDrop}
-  ></textarea>
-  {#if active && enabled}
+  <MentionHost
+    ui={mentionUi}
+    placement={fill ? 'over' : 'below'}
+    {fill}
+    onChoose={(index) => mentionBinding?.choose(index)}
+    onHover={(index) => mentionBinding?.setIndex(index)}
+  >
+    <textarea
+      {@attach attachMentions}
+      bind:this={taEl}
+      bind:value
+      {rows}
+      {placeholder}
+      id={id || undefined}
+      class="grammar-textarea"
+      spellcheck="false"
+      onselect={onSelectOrClick}
+      onclick={onSelectOrClick}
+      onkeyup={onSelectOrClick}
+      onpaste={handlePaste}
+      ondrop={onDrop}
+    ></textarea>
+  </MentionHost>
+  {#if active && enabled && !mentionUi.open}
     <div class="grammar-popover" style:top="{popTop}px" style:left="{popLeft}px" role="dialog">
       {#if active.message}
         <p class="grammar-popover-msg">{active.message}</p>
@@ -265,6 +296,10 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+  }
+  .grammar-field.fill :global(.mention-host) {
+    flex: 1 1 auto;
     min-height: 0;
   }
   .grammar-field.fill .grammar-textarea {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
+  import MentionControl from './MentionControl.svelte';
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -310,12 +311,14 @@
       </div>
       <label class="muted">
         Review (optional)
-        <textarea
+        <MentionControl
+          mode="prose"
+          multiline
           bind:value={review}
-          rows="3"
+          rows={3}
           placeholder="Write a short review"
           onpaste={onReviewPaste}
-        ></textarea>
+        />
       </label>
       <div class="rating-actions">
         <button class="btn btn-primary" type="button" disabled={mineStars < 1 || busy} onclick={() => void submit()}

@@ -26,6 +26,12 @@ describe('insertMention', () => {
     expect(edit?.value).toBe(`See nostr:${npub} soon`);
     expect(edit?.selectionStart).toBe(`See nostr:${npub}`.length);
   });
+
+  it('writes a bare npub into an npub field', () => {
+    const npub = 'npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq';
+    const edit = insertMention('@ada', 0, 4, npub, 'npub');
+    expect(edit?.value).toBe(npub);
+  });
 });
 
 describe('mentionRank', () => {
@@ -40,6 +46,8 @@ describe('mentionRank', () => {
     expect(mentionRank('npub1example', fields)).toBe(100);
     expect(mentionRank('ada@example.com', fields)).toBe(95);
     expect(mentionRank('ada', fields)).toBe(90);
+    expect(mentionRank('ada', { ...fields, name: '', displayName: '' })).toBe(85);
+    expect(mentionRank('boss', { ...fields, petnames: ['Boss'] })).toBe(92);
     expect(mentionRank('love', fields)).toBe(40);
     expect(mentionRank('missing', fields)).toBe(0);
   });

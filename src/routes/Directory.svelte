@@ -5,6 +5,7 @@
   import DirectoryBrowser from '$lib/components/DirectoryBrowser.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import MentionControl from '$lib/components/MentionControl.svelte';
   import { MY_BOOK_COLLECTION_D_TAG, ROOT_DIRECTORY_D_TAG } from '$lib/bookshelf';
   import { ensureUserHomeDirectories, loadUserDirectoryRoot } from '$lib/bookshelf-actions';
   import { hexPubkey } from '$lib/metadata';
@@ -167,14 +168,12 @@
     <form class="directory-owner-form" onsubmit={submitOwner}>
       <label class="directory-owner-label" for="directory-owner-input">Owner</label>
       <div class="directory-owner-row">
-        <input
+        <MentionControl
           id="directory-owner-input"
-          type="text"
+          mode="npub"
           class="directory-owner-input"
           bind:value={ownerInput}
           placeholder={signedIn ? 'Your npub (default) or another pubkey' : 'npub or hex pubkey'}
-          autocomplete="off"
-          spellcheck="false"
         />
         <button class="btn btn-primary" type="submit">Open</button>
         {#if signedIn && !viewingSelf}

@@ -105,6 +105,20 @@ export function cachedIdentityEvent(kind: number, pubkey: string): Event | null 
   return events[coord(kind, pubkey)] ?? null;
 }
 
+/** Every stored replaceable of one kind (profiles, contact lists, …). */
+export function cachedIdentityEvents(kind: number): Event[] {
+  if (!KINDS.has(kind)) return [];
+  load();
+  const prefix = `${kind}:`;
+  const out: Event[] = [];
+  for (const key of order) {
+    if (!key.startsWith(prefix)) continue;
+    const event = events[key];
+    if (event && event.kind === kind) out.push(event);
+  }
+  return out;
+}
+
 export function clearIdentityCache(): void {
   loaded = true;
   persisted = true;

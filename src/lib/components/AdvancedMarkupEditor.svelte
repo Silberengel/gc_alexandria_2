@@ -14,8 +14,6 @@
     protectNostrRefsForMarkup,
     type InlineBodyBlock
   } from '$lib/nostr-refs';
-  import { activeMention, insertMention, type MentionCandidate } from '$lib/mention';
-  import { searchMentions } from '$lib/mention-search';
   import { editMarkup, editMedia, type MarkupTool, type MediaFile, type SourceEdit } from '$lib/markup-editor';
   import { scrubTrackingUrlsInText } from '$lib/clean-url';
   import {
@@ -117,17 +115,7 @@
   let uploadError = $state('');
   let caret = { start: 0, end: 0 };
   let mediaInput = $state<HTMLInputElement | undefined>(undefined);
-  let mention = $state<{ start: number; query: string } | null>(null);
-  let mentionHits = $state<MentionCandidate[]>([]);
-  let mentionBusy = $state(false);
-  let mentionIndex = $state(0);
   let texMenuOpen = $state(false);
-  /** Latest mention list for listeners registered once on the textarea. */
-  const mentionGate = {
-    open: false,
-    hits: [] as MentionCandidate[],
-    index: 0
-  };
 
   const adoc = $derived(format === 'asciidoc');
   const tools: { id: MarkupTool; label: string; title: string }[] = $derived(
@@ -262,12 +250,6 @@
     document.body.style.overflow = 'hidden';
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (mentionGate.open) {
-        event.preventDefault();
-        mention = null;
-        mentionHits = [];
-        return;
-      }
       event.preventDefault();
       onClose?.();
     };
@@ -280,36 +262,6 @@
 
   $effect(() => {
     sourceEl?.focus();
-  });
-
-  $effect(() => {
-    mentionGate.open = mention !== null;
-    mentionGate.hits = mentionHits;
-    mentionGate.index = mentionIndex;
-  });
-
-  $effect(() => {
-    const current = mention;
-    if (!current || current.query.trim().length < 1) {
-      mentionHits = [];
-      mentionBusy = false;
-      return;
-    }
-    const q = current.query;
-    let cancelled = false;
-    mentionBusy = true;
-    const timer = setTimeout(() => {
-      void searchMentions(q).then((hits) => {
-        if (cancelled) return;
-        mentionHits = hits;
-        mentionBusy = false;
-        mentionIndex = 0;
-      });
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
   });
 
   $effect(() => {
@@ -366,33 +318,7 @@
 
     const rememberCaret = () => {
       caret = { start: source.selectionStart ?? 0, end: source.selectionEnd ?? 0 };
-      syncMention(source);
     };
-    const onSourceKeyDown = (event: KeyboardEvent) => {
-      if (!mentionGate.open) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        mention = null;
-        mentionHits = [];
-        return;
-      }
-      const hits = mentionGate.hits;
-      if (!hits.length) return;
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        mentionIndex = (mentionGate.index + 1) % hits.length;
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        mentionIndex = (mentionGate.index - 1 + hits.length) % hits.length;
-      } else if (event.key === 'Enter' || event.key === 'Tab') {
-        const hit = hits[mentionGate.index];
-        if (!hit) return;
-        event.preventDefault();
-        void chooseMention(hit);
-      }
-    };
-    source.addEventListener('keydown', onSourceKeyDown);
     source.addEventListener('keyup', rememberCaret);
     source.addEventListener('mouseup', rememberCaret);
     source.addEventListener('select', rememberCaret);
@@ -404,7 +330,6 @@
     preview.addEventListener('auxclick', keepPreviewHere, true);
     return () => {
       cancelAnimationFrame(release);
-      source.removeEventListener('keydown', onSourceKeyDown);
       source.removeEventListener('keyup', rememberCaret);
       source.removeEventListener('mouseup', rememberCaret);
       source.removeEventListener('select', rememberCaret);
@@ -443,33 +368,6 @@
   function runTex(mode: 'tex-inline' | 'tex-display') {
     texMenuOpen = false;
     runTool(mode);
-  }
-
-  function syncMention(el: HTMLTextAreaElement) {
-    if (el.selectionStart !== el.selectionEnd) {
-      mention = null;
-      return;
-    }
-    const active = activeMention(el.value, el.selectionStart ?? 0);
-    if (!active) {
-      mention = null;
-      return;
-    }
-    if (mention && mention.start === active.start && mention.query === active.query) return;
-    mention = active;
-    mentionIndex = 0;
-  }
-
-  async function chooseMention(hit: MentionCandidate) {
-    const current = mention;
-    const el = sourceEl;
-    if (!current || !el) return;
-    const end = el.selectionStart ?? current.start + 1 + current.query.length;
-    const edit = insertMention(el.value, current.start, end, hit.npub);
-    mention = null;
-    mentionHits = [];
-    if (!edit) return;
-    await applyEdit(edit);
   }
 
   function openMediaPicker() {
@@ -736,32 +634,6 @@
         <p class="advanced-upload-error" role="alert">{uploadError}</p>
       {/if}
       <div class="advanced-source-body">
-        {#if mention}
-          <div class="mention-popover" role="listbox" aria-label="People">
-            {#if !mention.query.trim()}
-              <p class="mention-hint">Type a name, NIP-05, or npub</p>
-            {:else if mentionBusy && mentionHits.length === 0}
-              <p class="mention-hint">Searching…</p>
-            {:else if mentionHits.length === 0}
-              <p class="mention-hint">No one found</p>
-            {:else}
-              {#each mentionHits as hit, i (hit.pubkey)}
-                <button
-                  type="button"
-                  role="option"
-                  class="mention-option"
-                  class:active={i === mentionIndex}
-                  aria-selected={i === mentionIndex}
-                  onmousedown={(event) => event.preventDefault()}
-                  onclick={() => void chooseMention(hit)}
-                >
-                  <span class="mention-title">{hit.title}</span>
-                  <span class="mention-detail">{hit.detail}</span>
-                </button>
-              {/each}
-            {/if}
-          </div>
-        {/if}
         <ComposeGrammarTextarea
           bind:value={content}
           bind:element={sourceEl}
@@ -1041,57 +913,6 @@
     display: flex;
     flex-direction: column;
     padding: 0 0.75rem;
-  }
-  .mention-popover {
-    position: absolute;
-    z-index: 4;
-    top: 0.35rem;
-    left: 0.75rem;
-    right: 0.75rem;
-    max-height: min(16rem, 50%);
-    overflow: auto;
-    padding: 0.3rem;
-    border: 1px solid color-mix(in srgb, var(--rule) 78%, transparent);
-    border-radius: 0.45rem;
-    background: var(--paper-light);
-    box-shadow: var(--shadow-soft, 0 4px 16px rgb(0 0 0 / 12%));
-  }
-  .mention-hint {
-    margin: 0;
-    padding: 0.35rem 0.45rem;
-    color: var(--ink-soft);
-    font-family: var(--ui-font);
-    font-size: 0.85rem;
-  }
-  .mention-option {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.05rem;
-    width: 100%;
-    margin: 0;
-    padding: 0.35rem 0.45rem;
-    text-align: left;
-    font: inherit;
-    color: inherit;
-    background: transparent;
-    border: none;
-    border-radius: 0.3rem;
-    cursor: pointer;
-  }
-  .mention-option.active,
-  .mention-option:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  .mention-title {
-    font-family: var(--ui-font);
-    font-size: 0.92rem;
-  }
-  .mention-detail {
-    color: var(--ink-soft);
-    font-family: var(--ui-font);
-    font-size: 0.75rem;
-    word-break: break-all;
   }
   .advanced-source-body :global(.grammar-field) {
     flex: 1 1 auto;

@@ -13,6 +13,7 @@
   } from '$lib/publication-asciidoc-split';
   import type { PublishProgress } from '$lib/publication-publish';
   import { KIND } from '$lib/constants';
+  import MentionControl from './MentionControl.svelte';
 
   interface Props {
     source?: string;
@@ -41,7 +42,7 @@
     onApplyIdeal
   }: Props = $props();
 
-  let sourceEl = $state<HTMLTextAreaElement | null>(null);
+  let sourceEl = $state<HTMLTextAreaElement | HTMLInputElement | null>(null);
   let idealNote = $state('');
   /** Snapshot of source/depth when `idealNote` was set — clear the note once either drifts. */
   let idealNoteAt = $state<{ source: string; depth: PublicationIndexDepth } | null>(null);
@@ -277,14 +278,18 @@
   <div class="pub-split-panes">
     <section class="pub-split-pane" aria-label="AsciiDoc source">
       <div class="pub-split-pane-label">AsciiDoc</div>
-      <textarea
-        bind:this={sourceEl}
+      <MentionControl
+        mode="prose"
+        multiline
+        fill
+        placement="over"
         class="pub-split-source"
+        bind:element={sourceEl}
         bind:value={source}
         disabled={publishing}
         placeholder={'== Chapter one\n\nBody…\n\n== Chapter two\n\n…'}
         spellcheck="true"
-      ></textarea>
+      />
     </section>
     <section class="pub-split-pane" aria-label="Publication structure">
       <div class="pub-split-pane-label">Publication tree</div>
@@ -389,6 +394,10 @@
     text-transform: uppercase;
     padding: 0.35rem 0.65rem;
     border-bottom: 1px solid color-mix(in srgb, var(--rule, #ccc) 50%, transparent);
+  }
+  .pub-split-pane :global(.mention-host.fill) {
+    flex: 1 1 auto;
+    min-height: 0;
   }
   .pub-split-source {
     flex: 1;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import MentionControl from '$lib/components/MentionControl.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -91,7 +92,7 @@
     <form class="card contact-form" onsubmit={submit}>
       <label>Subject<input type="text" bind:value={subject} required onpaste={onSubjectPaste} /></label>
       <label style="display:block;margin-top:1rem"
-        >Body<textarea rows="8" bind:value={body} required onpaste={onBodyPaste}></textarea></label
+        >Body<MentionControl mode="prose" multiline rows={8} bind:value={body} required onpaste={onBodyPaste} /></label
       >
       {#if sending}<LoadingHint message="Sending…" compact />{/if}
       {#if error}<p class="contact-form-error">{error}</p>{/if}

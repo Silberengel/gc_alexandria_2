@@ -56,6 +56,7 @@
   import ComposeMuteListEditor from '$lib/components/ComposeMuteListEditor.svelte';
   import ComposeDirectoryMembersEditor from '$lib/components/ComposeDirectoryMembersEditor.svelte';
   import ComposeTextUserBadges from '$lib/components/ComposeTextUserBadges.svelte';
+  import MentionControl from '$lib/components/MentionControl.svelte';
   import ComposeKind0Editor from '$lib/components/ComposeKind0Editor.svelte';
   import { fieldHoldsPubkeys } from '$lib/compose-field-pubkeys';
   import {
@@ -2889,11 +2890,13 @@
                       >{field.label}{#if field.required}*{/if}</span
                     >
                     {#if field.widget === 'textarea' || field.multiline}
-                      <textarea
-                        rows="3"
+                      <MentionControl
+                        mode={fieldHoldsPubkeys(field) ? 'npub' : 'prose'}
+                        multiline
+                        rows={3}
                         bind:value={values[field.id]}
                         onpaste={(e) => onFieldPaste(field.id, e)}
-                      ></textarea>
+                      />
                     {:else if field.widget === 'select'}
                       {@const opts = fieldOptions(field)}
                       {#if opts.length > 0 && opts.length <= 4}
@@ -2932,6 +2935,14 @@
                         onchange={(e) => {
                           values[field.id] = e.currentTarget.checked ? 'true' : '';
                         }}
+                      />
+                    {:else if fieldHoldsPubkeys(field)}
+                      <MentionControl
+                        mode="npub"
+                        bind:value={values[field.id]}
+                        onpaste={(e) => onFieldPaste(field.id, e)}
+                        onblur={() => normalizePointerCatalogField(field)}
+                        onchange={() => normalizePointerCatalogField(field)}
                       />
                     {:else}
                       <input
@@ -2995,14 +3006,16 @@
                     onDrop={(event) => void onBodyDrop(event)}
                   />
                 {:else}
-                  <textarea
+                  <MentionControl
                     id="compose-body-plain"
-                    rows="10"
+                    mode="prose"
+                    multiline
+                    rows={10}
                     bind:value={content}
                     placeholder={contentMeta?.placeholder ?? ''}
                     onpaste={(event) => void onBodyPaste(event)}
                     ondrop={(event) => void onBodyDrop(event)}
-                  ></textarea>
+                  />
                 {/if}
                 {#if kind !== 9802}
                   <div class="compose-grammar-tools">

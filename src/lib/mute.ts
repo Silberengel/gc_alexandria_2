@@ -254,8 +254,11 @@ export function latestReplaceable(events: Event[], kind: number): Event | null {
   return pickLatestReplaceable(events, kind);
 }
 
-export function followPubkeysFromMetadata(events: Event[]): Set<string> {
-  const out = new Set<string>();
+export type FollowContact = { pubkey: string; petname: string };
+
+/** Pubkeys on the contact list and follow sets, with a NIP-02 petname when one was set. */
+export function followContactsFromMetadata(events: Event[]): FollowContact[] {
+  const byPk = new Map<string, FollowContact>();
   const contact = pickLatestReplaceable(events, KIND.CONTACT_LIST);
   // Addressable follow sets: one winner per d (prune keeps latest per coord).
   // Skip deprecated 30000 d=mute — those are mute lists, not follows.
@@ -271,10 +274,20 @@ export function followPubkeysFromMetadata(events: Event[]): Set<string> {
   for (const event of [contact, ...followSets.values()]) {
     if (!event) continue;
     for (const tag of event.tags) {
-      if (tag[0] === 'p' && tag[1] && HEX64.test(tag[1])) {
-        out.add(tag[1].toLowerCase());
+      if (tag[0] !== 'p' || !tag[1] || !HEX64.test(tag[1])) continue;
+      const pubkey = tag[1].toLowerCase();
+      const petname = (tag[3] ?? '').trim();
+      const prev = byPk.get(pubkey);
+      if (!prev) {
+        byPk.set(pubkey, { pubkey, petname });
+        continue;
       }
+      if (!prev.petname && petname) prev.petname = petname;
     }
   }
-  return out;
+  return [...byPk.values()];
+}
+
+export function followPubkeysFromMetadata(events: Event[]): Set<string> {
+  return new Set(followContactsFromMetadata(events).map((row) => row.pubkey));
 }

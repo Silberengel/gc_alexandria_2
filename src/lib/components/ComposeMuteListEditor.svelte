@@ -6,6 +6,7 @@
     type MuteTagName
   } from '$lib/compose-mute-list';
   import ComposeTextUserBadges from './ComposeTextUserBadges.svelte';
+  import MentionControl from './MentionControl.svelte';
 
   interface Props {
     value?: string;
@@ -97,16 +98,27 @@
             <option value={opt.value}>{opt.label}</option>
           {/each}
         </select>
-        <input
-          type="text"
-          class:mono={row.tag === 'p' || row.tag === 'e'}
-          value={row.value}
-          placeholder={placeholderFor(row.tag)}
-          aria-label={`Mute value ${i + 1}`}
-          autocomplete="off"
-          spellcheck="false"
-          oninput={(e) => setValue(i, e.currentTarget.value)}
-        />
+        {#if row.tag === 'p'}
+          <MentionControl
+            mode="npub"
+            class="mono"
+            value={row.value}
+            placeholder={placeholderFor(row.tag)}
+            ariaLabel={`Mute value ${i + 1}`}
+            onValue={(next) => setValue(i, next)}
+          />
+        {:else}
+          <input
+            type="text"
+            class:mono={row.tag === 'e'}
+            value={row.value}
+            placeholder={placeholderFor(row.tag)}
+            aria-label={`Mute value ${i + 1}`}
+            autocomplete="off"
+            spellcheck="false"
+            oninput={(e) => setValue(i, e.currentTarget.value)}
+          />
+        {/if}
         <label class="mute-private" title="Private (encrypted in content)">
           <input
             type="checkbox"
@@ -166,6 +178,10 @@
     max-width: 7.5rem;
     padding: 0.3rem 0.35rem;
     font-size: 0.85rem;
+  }
+  .mute-row :global(.mention-host) {
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .mute-row input[type='text'] {
     flex: 1 1 auto;

@@ -3,6 +3,7 @@
   import { untrack } from 'svelte';
   import { link, location, push, querystring, replace } from 'svelte-spa-router';
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import MentionControl from '$lib/components/MentionControl.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
@@ -1571,7 +1572,7 @@
             <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
               <label>
                 Note on highlight
-                <textarea rows="3" bind:value={notePromptText} placeholder="Your note…"></textarea>
+                <MentionControl mode="prose" multiline rows={3} bind:value={notePromptText} placeholder="Your note…" />
               </label>
               <div class="compose-actions">
                 <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
@@ -1589,7 +1590,7 @@
             <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
               <label>
                 Reply
-                <textarea rows="3" bind:value={replyDraftText} placeholder="Your reply…"></textarea>
+                <MentionControl mode="prose" multiline rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
               </label>
               <div class="compose-actions">
                 <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
@@ -1660,14 +1661,16 @@
       }}
     >
       <label class="feed-note-label" for="feed-note-draft">Post a note</label>
-      <textarea
+      <MentionControl
         id="feed-note-draft"
-        rows="3"
+        mode="prose"
+        multiline
+        rows={3}
         bind:value={noteDraft}
         placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
         disabled={notePosting || !signedIn}
         onpaste={onNotePaste}
-      ></textarea>
+      />
       <div class="compose-actions">
         {#if signedIn}
           <button
