@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { createPointerArm } from '$lib/pointer-activate';
+
   interface Props {
     quote: string;
     /** When true, tray sits as a bottom sheet (narrow phones). */
@@ -33,24 +35,16 @@
    * text selection (which unmounts this tray and kills the synthetic click
    * on many touch/stylus browsers, e.g. Samsung). Keyboard still uses click.
    */
-  let armedPointerId: number | null = null;
+  const arm = createPointerArm();
 
   function runPointerAction(e: PointerEvent, fn: (() => void) | undefined): void {
     if (!fn) return;
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    armedPointerId = e.pointerId;
-    fn();
+    arm.run(e, fn);
   }
 
   function runClickAction(e: MouseEvent, fn: (() => void) | undefined): void {
     if (!fn) return;
-    if (armedPointerId != null) {
-      e.preventDefault();
-      e.stopPropagation();
-      armedPointerId = null;
-      return;
-    }
-    fn();
+    arm.absorbClick(e, fn);
   }
 </script>
 

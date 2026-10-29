@@ -5,6 +5,7 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish } from '$lib/sign';
+  import { showNotice } from '$lib/stores/toast';
   import { publicationLabelDraft, deletionDraft } from '$lib/drafts';
   import {
     extractNip32LabelValues,
@@ -226,11 +227,14 @@
       const existing = myLabels.filter((e) => labelEventHasSlug(e, slug));
       if (existing.length) {
         for (const label of existing) {
-          await signAndPublish(deletionDraft(label));
+          await signAndPublish(deletionDraft(label), { quiet: true });
         }
         mine = mine.filter((e) => !existing.includes(e));
+        showNotice('Removed from shelf.', true);
       } else {
-        const signed = await signAndPublish(publicationLabelDraft(publication, slug));
+        const signed = await signAndPublish(publicationLabelDraft(publication, slug), {
+          successMessage: `Added to ${slug} shelf.`
+        });
         if (signed) mine = [...mine, signed];
       }
     } finally {

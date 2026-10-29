@@ -196,14 +196,17 @@ export async function migrateDeprecatedNip51List(
     import('./sign'),
     import('./drafts')
   ]);
-  const standard = await signAndPublish({
-    kind: standardKind,
-    content,
-    tags
-  });
+  const standard = await signAndPublish(
+    {
+      kind: standardKind,
+      content,
+      tags
+    },
+    { quiet: true }
+  );
   if (!standard) return { ok: false, error: 'Could not publish the standard list.' };
 
-  const deleted = await signAndPublish(deletionDraft(deprecated));
+  const deleted = await signAndPublish(deletionDraft(deprecated), { quiet: true });
   if (!deleted) {
     return {
       ok: false,

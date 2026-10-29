@@ -59,6 +59,8 @@ html, body {
   overflow: hidden;
   font-family: var(--ui-font);
   color: var(--text);
+  /* Double-tap zoom was shoving TopBar/footer off the visual viewport on tablets. */
+  touch-action: manipulation;
 }
 
 body {
@@ -121,6 +123,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 /* Only this panel scrolls — header and footer stay put. */
@@ -3375,6 +3378,9 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  /* Stylus drag-select is handled in reader-pen-select.ts. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 /* Nested reading panes keep the book measure; the page shell uses --max-page. */
 .reading-body:not(main.shell) {
@@ -7738,9 +7744,9 @@ a.embed-event-line:focus-visible {
 }
 .reader-layout .reading-body.mark-mode,
 .reading-body.mark-mode {
+  /* Finger drag selects instead of scrolling while Mark is on. */
   touch-action: none;
-  user-select: text;
-  -webkit-user-select: text;
+  cursor: text;
 }
 
 .reader-sel-host:not(.sheet) {

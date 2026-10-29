@@ -42,6 +42,8 @@
   const HOVER_OPEN_MS = 280;
   const HOVER_CLOSE_MS = 200;
   const LONG_PRESS_MS = 480;
+  /** Pen rests/slows easily — don't steal the like tap. */
+  const PEN_LONG_PRESS_MS = 900;
   const LIKER_CAP = 24;
   const PANEL_W = 220;
 
@@ -186,11 +188,12 @@
     if (e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
     if (!canShowLikers) return;
     clearLongPress();
+    const delay = e.pointerType === 'pen' ? PEN_LONG_PRESS_MS : LONG_PRESS_MS;
     longPressTimer = setTimeout(() => {
       longPressTimer = null;
       suppressClick = true;
       openLikers();
-    }, LONG_PRESS_MS);
+    }, delay);
   }
 
   function onPointerUp(): void {
@@ -238,7 +241,9 @@
         if (!wrote) {
           revert(previousExtras, previousHidden);
           showNotice('The unlike was signed, but no relay accepted it.');
+          return;
         }
+        showNotice('Like removed.', true);
         return;
       }
 
@@ -252,7 +257,9 @@
       if (!wrote) {
         revert(previousExtras, previousHidden);
         showNotice('The like was signed, but no relay accepted it.');
+        return;
       }
+      showNotice('Liked.', true);
     } finally {
       pending = false;
     }

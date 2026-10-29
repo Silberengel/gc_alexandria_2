@@ -4,6 +4,7 @@ import {
   applyPwaUpdate,
   pwaUpdateAvailable,
   remoteBuildIsNewer,
+  scrubPwaCacheBustParam,
   setPwaUpdateSWForTests
 } from './pwa';
 import { APP_BUILD, APP_VERSION } from './constants';
@@ -27,6 +28,34 @@ function stubReloadEnv() {
   });
   return { replace, reload };
 }
+
+describe('scrubPwaCacheBustParam', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('strips _pwa from the address bar and keeps the hash route', () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal('location', {
+      href: 'https://gc-alexandria.imwald.eu/?_pwa=1793288457082#/'
+    });
+    vi.stubGlobal('history', { state: null, replaceState });
+    scrubPwaCacheBustParam();
+    expect(replaceState).toHaveBeenCalledOnce();
+    expect(replaceState.mock.calls[0]?.[2]).toBe('/#/');
+  });
+
+  it('is a no-op when _pwa is absent', () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal('location', {
+      href: 'https://gc-alexandria.imwald.eu/#/feed'
+    });
+    vi.stubGlobal('history', { state: null, replaceState });
+    scrubPwaCacheBustParam();
+    expect(replaceState).not.toHaveBeenCalled();
+  });
+});
 
 describe('remoteBuildIsNewer', () => {
   it('detects a different build stamp even when semver matches', () => {

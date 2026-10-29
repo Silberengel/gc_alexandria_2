@@ -13,8 +13,9 @@ import { pickLatestReplaceable, pruneToLatestReplaceables } from './nostr/replac
 import { uniqueRelayUrls } from './nostr/mailboxes';
 import { relayPool } from './nostr/pool';
 import { writeStack } from './nostr/selector';
-import { signUnsigned, consumeSignFailure } from './sign';
+import { signUnsigned, consumeSignFailure, publishSigned } from './sign';
 import { session } from './stores/session';
+import { showPublishResult } from './stores/toast';
 
 const DRAFT_TTL_SEC = 90 * 24 * 60 * 60;
 const RELAY_URL = /^wss?:\/\//i;
@@ -182,7 +183,12 @@ export async function publishPrivateRelayList(urls: string[]): Promise<Event | n
   if (!signed) {
     throw new Error(consumeSignFailure() ?? 'Could not sign the private relay list.');
   }
-  await session.publish(signed);
+  const wrote = await publishSigned(signed);
+  if (!wrote) {
+    showPublishResult(false);
+    return null;
+  }
+  showPublishResult(true, 'Draft relay list published.');
   return signed;
 }
 

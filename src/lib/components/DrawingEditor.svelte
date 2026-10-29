@@ -77,10 +77,13 @@
   let activePointerId = $state<number | null>(null);
   /** True after a stylus tip has contacted this board — finger/palm must not ink. */
   let stylusSeen = false;
+  /** Expire stylusSeen so finger can ink again after pen idle. */
+  let stylusSeenUntil = 0;
   /** Stylus tip is currently down on the canvas. */
   let penContact = false;
   /** Ignore touch/mouse briefly after pen lift (palm often lands on lift). */
   let palmGuardUntil = 0;
+  const STYLUS_SEEN_MS = 12_000;
   let busy = $state(false);
   let error = $state('');
   let altText = $state('');
@@ -207,6 +210,7 @@
     if (!open) {
       restoredForOpen = false;
       stylusSeen = false;
+      stylusSeenUntil = 0;
       penContact = false;
       palmGuardUntil = 0;
       return;
@@ -219,6 +223,7 @@
     previewUrl = null;
     previewBlob = null;
     stylusSeen = false;
+    stylusSeenUntil = 0;
     penContact = false;
     palmGuardUntil = 0;
     clearBackground({ persist: false });
@@ -270,19 +275,11 @@
   });
 
   /**
-   * Full-screen draw on tablets: pinching / double-tap / focus-zoom was scaling the
-   * page under the overlay and trapping the viewport on a corner. Lock scale while
-   * maximized; restore the original meta on exit.
+   * Full-screen draw: freeze document scroll under the overlay. Global viewport
+   * lock (installViewportLock) already blocks pinch/double-tap zoom.
    */
   $effect(() => {
     if (!open || !fullScreen || typeof document === 'undefined') return;
-    const meta = document.querySelector('meta[name="viewport"]');
-    const prevContent = meta?.getAttribute('content') ?? '';
-    meta?.setAttribute(
-      'content',
-      'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
-    );
-
     const html = document.documentElement;
     const body = document.body;
     const prevHtmlOverflow = html.style.overflow;
@@ -291,36 +288,11 @@
     html.style.overflow = 'hidden';
     body.style.overflow = 'hidden';
     body.style.touchAction = 'none';
-
-    const blockPinch = (e: TouchEvent): void => {
-      if (e.touches.length > 1) e.preventDefault();
-    };
-    const blockGesture = (e: Event): void => {
-      e.preventDefault();
-    };
-    // Non-passive so preventDefault actually stops Safari/Chrome pinch-zoom.
-    document.addEventListener('touchmove', blockPinch, { passive: false });
-    document.addEventListener('gesturestart', blockGesture, { passive: false });
-    document.addEventListener('gesturechange', blockGesture, { passive: false });
-    document.addEventListener('gestureend', blockGesture, { passive: false });
-
-    // Snap back if the page was already zoomed before entering full screen.
     window.scrollTo(0, 0);
-
     return () => {
-      if (meta) {
-        meta.setAttribute(
-          'content',
-          prevContent || 'width=device-width, initial-scale=1.0'
-        );
-      }
       html.style.overflow = prevHtmlOverflow;
       body.style.overflow = prevBodyOverflow;
       body.style.touchAction = prevBodyTouch;
-      document.removeEventListener('touchmove', blockPinch);
-      document.removeEventListener('gesturestart', blockGesture);
-      document.removeEventListener('gesturechange', blockGesture);
-      document.removeEventListener('gestureend', blockGesture);
     };
   });
 
@@ -488,13 +460,15 @@
   /** Palm / resting hand must not leave dots while a stylus is in use. */
   function shouldIgnorePointer(e: PointerEvent): boolean {
     if (e.pointerType === 'pen') return false;
+    const penActive = penContact || Date.now() < palmGuardUntil;
+    const stylusSession = stylusSeen && Date.now() < stylusSeenUntil;
     if (e.pointerType === 'touch') {
-      if (stylusSeen || penContact || Date.now() < palmGuardUntil) return true;
+      if (stylusSession || penActive) return true;
       // Fat contact before any stylus tip ≈ palm or wrist.
       if (e.width >= 22 || e.height >= 22) return true;
     }
     // Some drivers report palm as mouse while the pen is in range or just lifted.
-    if (e.pointerType === 'mouse' && (penContact || Date.now() < palmGuardUntil)) {
+    if (e.pointerType === 'mouse' && penActive) {
       return true;
     }
     return false;
@@ -521,6 +495,7 @@
     }
     if (e.pointerType === 'pen') {
       stylusSeen = true;
+      stylusSeenUntil = Date.now() + STYLUS_SEEN_MS;
       penContact = true;
       palmGuardUntil = 0;
       // Stylus wins over an in-progress palm/finger smear.
@@ -611,6 +586,7 @@
       penContact = false;
       // Palm often settles as the tip lifts — keep rejecting touch for a beat.
       palmGuardUntil = Date.now() + 700;
+      stylusSeenUntil = Date.now() + STYLUS_SEEN_MS;
     }
   }
 

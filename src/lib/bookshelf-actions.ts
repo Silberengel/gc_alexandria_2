@@ -28,7 +28,10 @@ import { memoryFindByAddress, rememberEvents } from './nostr/event-memory';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { cacheDeleteEvent } from './nostr/cache';
 import { SessionTtlCache } from './session-ttl-cache';
-import { signAndPublish } from './sign';
+import { signAndPublish, type PublishFeedbackOpts } from './sign';
+
+/** Bookshelf flows toast once at the UI layer (DirectoryBrowser / callers). */
+const QUIET: PublishFeedbackOpts = { quiet: true };
 
 /** Replaceable directory lookups — avoid re-REQ on every Directory/bookshelf open. */
 const directoryByDCache = new SessionTtlCache<Event | null>(5 * 60 * 1000, 120);
@@ -116,7 +119,7 @@ async function ensureUserHomeDirectoriesUncached(pk: string): Promise<UserHomeDi
       byD.set(d, existing);
       return existing;
     }
-    const published = await signAndPublish(createEmptyBookshelfDirectoryDraft(d));
+    const published = await signAndPublish(createEmptyBookshelfDirectoryDraft(d), QUIET);
     if (!published) {
       throw new Error(`Could not create /${d}`);
     }
@@ -133,7 +136,7 @@ async function ensureUserHomeDirectoriesUncached(pk: string): Promise<UserHomeDi
   if (!directoryContainsPublication(root, books)) {
     const draft = createBookshelfDirectoryDraft(root, ROOT_DIRECTORY_D_TAG, books);
     if (!('error' in draft)) {
-      const published = await signAndPublish(draft);
+      const published = await signAndPublish(draft, QUIET);
       if (published) {
         rememberEvents([published]);
         byD.set(ROOT_DIRECTORY_D_TAG, published);
@@ -220,7 +223,7 @@ export async function toggleBookshelfShelf(
     publication
   );
   if ('error' in draft) return { error: 'Bookshelf is full' };
-  const published = await signAndPublish(draft);
+  const published = await signAndPublish(draft, QUIET);
   if (!published) return { error: 'Publish failed' };
   invalidateDirectoryCaches(pubkey);
   directoryByDCache.set(directoryCacheKey(pubkey, directoryDTag(published) || shelf.d), published);
@@ -264,13 +267,13 @@ export async function addNewBookshelf(
     return { error: 'Bookshelf not ready' };
   }
   const emptyDraft = createEmptyBookshelfDirectoryDraft(d);
-  const nested = await signAndPublish(emptyDraft);
+  const nested = await signAndPublish(emptyDraft, QUIET);
   if (!nested) return { error: 'Publish failed' };
 
   let rootEv = state.root ?? (await fetchDirectoryByD(pubkey, MY_BOOK_COLLECTION_D_TAG));
   const linkDraft = createBookshelfDirectoryDraft(rootEv, MY_BOOK_COLLECTION_D_TAG, nested);
   if ('error' in linkDraft) return { error: 'Bookshelf is full' };
-  rootEv = await signAndPublish(linkDraft);
+  rootEv = await signAndPublish(linkDraft, QUIET);
   if (!rootEv) return { error: 'Publish failed' };
 
   const withBook = createBookshelfDirectoryDraft(
@@ -280,7 +283,7 @@ export async function addNewBookshelf(
   );
   let updatedNested = nested;
   if (!('error' in withBook)) {
-    const published = await signAndPublish(withBook);
+    const published = await signAndPublish(withBook, QUIET);
     if (published) updatedNested = published;
   }
 
@@ -348,7 +351,7 @@ export async function createFolderInParent(
     return { error: 'Folder not ready' };
   }
 
-  const nested = await signAndPublish(createEmptyBookshelfDirectoryDraft(d));
+  const nested = await signAndPublish(createEmptyBookshelfDirectoryDraft(d), QUIET);
   if (!nested) return { error: 'Could not create folder' };
 
   const linkDraft = createBookshelfDirectoryDraft(
@@ -357,7 +360,7 @@ export async function createFolderInParent(
     nested
   );
   if ('error' in linkDraft) return { error: 'Folder is full' };
-  const nextParent = await signAndPublish(linkDraft);
+  const nextParent = await signAndPublish(linkDraft, QUIET);
   if (!nextParent) return { error: 'Could not link folder' };
   rememberEvents([nested, nextParent]);
   invalidateDirectoryCaches(parent.pubkey);
@@ -391,7 +394,7 @@ export async function addMemberToDirectory(
     member
   );
   if ('error' in draft) return { error: 'Folder is full' };
-  const published = await signAndPublish(draft);
+  const published = await signAndPublish(draft, QUIET);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
   invalidateDirectoryCaches(parent.pubkey);
@@ -428,7 +431,7 @@ export async function removeMemberFromDirectory(
   if (!directoryContainsPublication(parent, target)) {
     return parent;
   }
-  const published = await signAndPublish(draft);
+  const published = await signAndPublish(draft, QUIET);
   if (!published) return { error: 'Publish failed' };
   rememberEvents([published]);
   invalidateDirectoryCaches(parent.pubkey);
@@ -461,7 +464,7 @@ export async function deleteFolderFromParent(
   const unlinked = await removeMemberFromDirectory(parent, { event: folder });
   if ('error' in unlinked) return unlinked;
 
-  const deleted = await signAndPublish(deletionDraft(folder));
+  const deleted = await signAndPublish(deletionDraft(folder), QUIET);
   if (deleted) {
     rememberDeletedTarget(folder, deleted);
     void cacheDeleteEvent(folder.id).catch(() => {});
@@ -507,7 +510,7 @@ export async function renameFolderInParent(
     return { folder, parent };
   }
 
-  const rewritten = await signAndPublish(rewriteDirectoryDTag(folder, nextD));
+  const rewritten = await signAndPublish(rewriteDirectoryDTag(folder, nextD), QUIET);
   if (!rewritten) return { error: 'Could not create renamed folder' };
 
   const parentD = directoryDTag(parent) || ROOT_DIRECTORY_D_TAG;
@@ -515,10 +518,10 @@ export async function renameFolderInParent(
   if (!unlinked.ok) return { error: 'Folder is full' };
   const relinked = togglePublicationInDirectoryTags({ tags: unlinked.tags }, parentD, rewritten);
   if (!relinked.ok) return { error: 'Folder is full' };
-  const nextParent = await signAndPublish(directoryDraft(relinked.tags));
+  const nextParent = await signAndPublish(directoryDraft(relinked.tags), QUIET);
   if (!nextParent) return { error: 'Could not update parent folder' };
 
-  const deleted = await signAndPublish(deletionDraft(folder));
+  const deleted = await signAndPublish(deletionDraft(folder), QUIET);
   if (deleted) {
     rememberDeletedTarget(folder, deleted);
     void cacheDeleteEvent(folder.id).catch(() => {});

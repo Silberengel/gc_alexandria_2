@@ -565,8 +565,12 @@
             class:advanced-tool-underline={tool.id === 'underline'}
             title={tool.title}
             aria-label={tool.title}
+            onpointerdown={(event) => {
+              event.preventDefault();
+              runTool(tool.id);
+            }}
             onmousedown={(event) => event.preventDefault()}
-            onclick={() => runTool(tool.id)}
+            onclick={(event) => event.preventDefault()}
           >
             {tool.label}
           </button>
@@ -582,8 +586,12 @@
                   role="menuitem"
                   class="advanced-tex-option"
                   title="Inline math: $E = mc^2$"
+                  onpointerdown={(event) => {
+                    event.preventDefault();
+                    runTex('tex-inline');
+                  }}
                   onmousedown={(event) => event.preventDefault()}
-                  onclick={() => runTex('tex-inline')}
+                  onclick={(event) => event.preventDefault()}
                 >
                   <span class="advanced-tex-option-label">Inline</span>
                   <code class="advanced-tex-option-sample">$E = mc^2$</code>
@@ -593,8 +601,12 @@
                   role="menuitem"
                   class="advanced-tex-option"
                   title={'Display math: $$x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$$'}
+                  onpointerdown={(event) => {
+                    event.preventDefault();
+                    runTex('tex-display');
+                  }}
                   onmousedown={(event) => event.preventDefault()}
-                  onclick={() => runTex('tex-display')}
+                  onclick={(event) => event.preventDefault()}
                 >
                   <span class="advanced-tex-option-label">Display</span>
                   <code class="advanced-tex-option-sample">$$…$$</code>
@@ -610,8 +622,12 @@
           title="Upload media — or paste a file / image URL"
           aria-label="Upload media"
           disabled={uploading || !onUploadMedia}
+          onpointerdown={(event) => {
+            event.preventDefault();
+            openMediaPicker();
+          }}
           onmousedown={(event) => event.preventDefault()}
-          onclick={openMediaPicker}
+          onclick={(event) => event.preventDefault()}
         >
           {#if uploading}
             <span class="jump-busy-spinner" aria-hidden="true"></span>

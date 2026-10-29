@@ -51,6 +51,7 @@ async function clearServiceWorkersAndCaches(): Promise<void> {
  * query so index.html / hashed assets cannot stick from HTTP or bfcache.
  *
  * Prefer this over `location.reload()` — reload often reuses a cached shell.
+ * The `_pwa` query is stripped again on the next boot ({@link scrubPwaCacheBustParam}).
  */
 export async function forceCleanReload(): Promise<void> {
   await clearServiceWorkersAndCaches();
@@ -69,6 +70,27 @@ export async function forceCleanReload(): Promise<void> {
       /* ignore */
     }
   }, 2_000);
+}
+
+/**
+ * Remove the one-shot `_pwa=` cache-bust query from the address bar after a
+ * clean reload has already loaded fresh assets. Keeps the hash route intact.
+ */
+export function scrubPwaCacheBustParam(): void {
+  if (typeof globalThis === 'undefined' || !('location' in globalThis)) return;
+  try {
+    const loc = globalThis.location as Location;
+    const hist = (globalThis as typeof globalThis & { history?: History }).history;
+    if (!hist?.replaceState) return;
+    const url = new URL(loc.href);
+    if (!url.searchParams.has('_pwa')) return;
+    url.searchParams.delete('_pwa');
+    const search = url.searchParams.toString();
+    const next = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+    hist.replaceState(hist.state, '', next);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -143,6 +165,7 @@ function startVersionWatch(): void {
  * Skipped in dev so HMR is not intercepted.
  */
 export function registerPwa(): void {
+  scrubPwaCacheBustParam();
   startVersionWatch();
   // Open (and migrate) the manuscript IDB on boot so schema bumps apply even
   // before Compose mounts — same origin DB survives SW updates.

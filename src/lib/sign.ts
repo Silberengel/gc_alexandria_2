@@ -1,7 +1,8 @@
 import type { Event } from 'nostr-tools';
 import { scrubTrackingInEventPartial } from './clean-url';
-import { ALEXANDRIA_CLIENT } from './constants';
+import { ALEXANDRIA_CLIENT, KIND } from './constants';
 import { assertReadyToSign } from './kind-compose';
+import { kindDescription } from './kind-label';
 import { cacheGetEvent } from './nostr/cache';
 import { memoryGetEvent } from './nostr/event-memory';
 import { ingestEvent } from './nostr/verify';
@@ -9,6 +10,59 @@ import { session } from './stores/session';
 import { showNotice, showPublishResult } from './stores/toast';
 import { Nip07Signer } from './signers/nip07';
 import type { BunkerSigner } from './signers/bunker';
+
+/** Toast behavior for {@link signAndPublish} / {@link publishComment}. */
+export type PublishFeedbackOpts = {
+  /** Skip toast — caller shows its own, or this is background (presence / progress). */
+  quiet?: boolean;
+  /** Override the success toast copy. */
+  successMessage?: string;
+};
+
+function publishSuccessCopy(kind: number, override?: string): string {
+  if (override) return override;
+  switch (kind) {
+    case KIND.HIGHLIGHT:
+      return 'Highlight published.';
+    case KIND.COMMENT:
+      return 'Comment published.';
+    case KIND.REACTION:
+      return 'Reaction published.';
+    case KIND.RATING:
+      return 'Rating published.';
+    case KIND.DELETION:
+      return 'Deletion published.';
+    case KIND.REPOST:
+    case KIND.GENERIC_REPOST:
+      return 'Repost published.';
+    case KIND.TEXT_NOTE:
+      return 'Note published.';
+    case KIND.LABEL:
+      return 'Label published.';
+    case KIND.READING_QUEUE:
+      return 'Reading queue updated.';
+    case KIND.DIRECTORY:
+      return 'Folder published.';
+    case KIND.ROOM_PRESENCE:
+      return 'Joined the room.';
+    case KIND.LIVE_CHAT:
+      return 'Chat message published.';
+    case KIND.PUBLIC_MESSAGE:
+      return 'Message published.';
+    default:
+      return `${kindDescription(kind)} published.`;
+  }
+}
+
+function notifyPublishOutcome(
+  ok: boolean,
+  kind: number,
+  opts?: PublishFeedbackOpts
+): void {
+  if (opts?.quiet) return;
+  if (ok) showPublishResult(true, publishSuccessCopy(kind, opts?.successMessage));
+  else showPublishResult(false);
+}
 
 /** Strip every `client` tag, then append `["client", "Alexandria"]`. */
 export function withClientTag(tags: string[][]): string[][] {
@@ -169,38 +223,61 @@ export async function publishSigned(event: Event): Promise<boolean> {
   }
 }
 
-export async function signAndPublish(partial: {
-  kind: number;
-  content: string;
-  tags: string[][];
-}): Promise<Event | null> {
+/**
+ * Sign and publish. Always shows a success/failure toast unless `quiet`.
+ * Returns null when signing fails (or when every relay rejects and we do not
+ * keep a local-only adoption path — see below).
+ */
+export async function signAndPublish(
+  partial: {
+    kind: number;
+    content: string;
+    tags: string[][];
+  },
+  opts?: PublishFeedbackOpts
+): Promise<Event | null> {
   const signed = await signUnsigned(partial);
-  if (!signed) return null;
-  // session.publish adopts locally before relays; always treat a successful sign as adopted.
-  await publishSigned(signed);
+  if (!signed) {
+    if (!opts?.quiet) {
+      showNotice(consumeSignFailure() ?? 'Could not sign this.');
+    }
+    return null;
+  }
+  // session.publish adopts locally before relays; treat a successful sign as adopted
+  // for UI paint, but toast failure when no relay accepted.
+  const wrote = await publishSigned(signed);
+  notifyPublishOutcome(wrote, signed.kind, opts);
   return signed;
 }
 
 /**
  * Sign a comment, publish it, and return the cached copy when at least one relay writes.
- * Shows a success or failure toast. Returns null when signing or every relay fails.
+ * Shows a success or failure toast unless `quiet`. Returns null when signing or every relay fails.
  */
-export async function publishComment(partial: {
-  kind: number;
-  content: string;
-  tags: string[][];
-}): Promise<Event | null> {
+export async function publishComment(
+  partial: {
+    kind: number;
+    content: string;
+    tags: string[][];
+  },
+  opts?: PublishFeedbackOpts
+): Promise<Event | null> {
   const signed = await signUnsigned(partial);
   if (!signed) {
-    showNotice(consumeSignFailure() ?? 'Could not sign this.');
+    if (!opts?.quiet) {
+      showNotice(consumeSignFailure() ?? 'Could not sign this.');
+    }
     return null;
   }
   const wrote = await publishSigned(signed);
   if (!wrote) {
-    showPublishResult(false);
+    notifyPublishOutcome(false, signed.kind, opts);
     return null;
   }
   const cached = (await cacheGetEvent(signed.id)) ?? memoryGetEvent(signed.id) ?? signed;
-  showPublishResult(true);
+  notifyPublishOutcome(true, signed.kind, {
+    ...opts,
+    successMessage: opts?.successMessage ?? publishSuccessCopy(signed.kind)
+  });
   return cached;
 }

@@ -45,9 +45,16 @@
           class:active={i === ui.index}
           aria-selected={i === ui.index}
           data-i={i}
+          onpointerdown={(event) => {
+            // Keep focus in the composer; fire on down so stylus doesn't lose click.
+            event.preventDefault();
+            onChoose(i);
+          }}
           onmousedown={(event) => event.preventDefault()}
           onmouseenter={() => onHover(i)}
-          onclick={() => onChoose(i)}
+          onclick={(event) => {
+            event.preventDefault();
+          }}
         >
           <UserBadge pubkey={hit.pubkey} plain />
           {#if detail(hit)}

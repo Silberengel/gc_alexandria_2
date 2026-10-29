@@ -19,7 +19,8 @@
   const sno = $derived(tryParseSno(content));
   let canvasEl = $state<HTMLCanvasElement | null>(null);
   let frameEl = $state<HTMLDivElement | null>(null);
-  let box = $state(size);
+  /** Fill mode: measured frame edge. Seeded once; ResizeObserver updates it. */
+  let box = $state(320);
   let view = $state<SnoViewState>({ yaw: 0.6, pitch: 0.35, distance: 12, target: [0, 0, 0] });
   let dragging = $state(false);
   let lastX = 0;

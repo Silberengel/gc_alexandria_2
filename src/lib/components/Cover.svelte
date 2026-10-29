@@ -7,6 +7,7 @@
   import { isRemoteImageMissing, peekImageMissing } from '$lib/image-reachable';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
   import { openMediaViewer } from '$lib/stores/media-viewer';
+  import { createPointerArm } from '$lib/pointer-activate';
 
   interface Props {
     event: Event;
@@ -113,19 +114,27 @@
     };
   });
 
-  function stopNav(e: globalThis.Event): void {
-    e.preventDefault();
-    e.stopPropagation();
-  }
+  const coverArm = createPointerArm();
 
-  function enlarge(e: MouseEvent): void {
+  function enlarge(): void {
     if (!canEnlarge || !enlargeUrl) return;
-    stopNav(e);
     openMediaViewer({
       url: enlargeUrl,
       title: titleText,
       href: openHref
     });
+  }
+
+  function onCoverPointerDown(e: PointerEvent): void {
+    // Stop parent card/link navigation without cancelling the pen gesture
+    // (preventDefault-only + click is unreliable for stylus).
+    e.stopPropagation();
+    coverArm.run(e, enlarge);
+  }
+
+  function onCoverClick(e: MouseEvent): void {
+    e.stopPropagation();
+    coverArm.absorbClick(e, enlarge);
   }
 </script>
 
@@ -137,12 +146,12 @@
     tabindex="0"
     title="View cover"
     aria-label={`View cover: ${label}`}
-    onpointerdown={stopNav}
-    onclick={enlarge}
+    onpointerdown={onCoverPointerDown}
+    onclick={onCoverClick}
     onkeydown={(e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
-      enlarge(e as unknown as MouseEvent);
+      enlarge();
     }}
   >
     <img

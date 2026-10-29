@@ -32,10 +32,12 @@
     scrubProseText,
     SHARE_TRACKER_WARNING
   } from '$lib/clean-url';
-  import { consumeSignFailure, isSignInFlight, publishComment, signAndPublish } from '$lib/sign';
+  import { isSignInFlight, publishComment, signAndPublish } from '$lib/sign';
   import { showNotice } from '$lib/stores/toast';
   import { articleHighlightDraft, commentDraft } from '$lib/drafts';
   import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
+  import { attachReaderPenSelect } from '$lib/reader-pen-select';
+  import { hasNonEmptySelection } from '$lib/pointer-activate';
   import {
     emptyWorkResponses,
     eventsPointingAtId,
@@ -724,14 +726,10 @@
         content,
         tags
       });
-      if (!signed) {
-        showNotice(consumeSignFailure() ?? 'Could not post this note.');
-        return;
-      }
+      if (!signed) return; // signAndPublish already toasted
       rememberEvents([signed]);
       clearNoteDraft();
       items = mergeFeedPosts(untrack(() => items), [signed]);
-      showNotice('Posted.', true);
     } finally {
       notePosting = false;
     }
@@ -825,6 +823,12 @@
   let threadSelDraft = $state<{ quote: string; context?: string } | null>(null);
   let keepThreadSelDraft = false;
   let markMode = $state(false);
+  $effect(() => {
+    const root = threadArticlePane;
+    if (!root || typeof window === 'undefined') return;
+    void markMode;
+    return attachReaderPenSelect(root, { markMode: () => markMode });
+  });
   let inkOpen = $state(false);
   let inkQuote = $state<string | null>(null);
   let notePromptOpen = $state(false);
@@ -937,7 +941,6 @@
       notePromptOpen = false;
       notePromptText = '';
       window.getSelection()?.removeAllRanges();
-      showNotice('Highlight saved.', true);
     }
   }
 
@@ -988,7 +991,7 @@
       threadSelDraft = null;
       keepThreadSelDraft = false;
       window.getSelection()?.removeAllRanges();
-      showNotice('Ink note posted.', true);
+      // publishComment already toasts success.
     }
   }
 
@@ -1196,6 +1199,8 @@
   function openThreadForEvent(item: Event, e: MouseEvent, restoreId: string): void {
     const target = e.target;
     if (!(target instanceof Element)) return;
+    // Stylus/text select in the preview must not navigate on lift.
+    if (hasNonEmptySelection(target.closest('.feed-hit, .feed-row, article, li') ?? target)) return;
     /* Directory listing indicators: whole card opens the OP thread. */
     if (target.closest('.directory-explorer-header-only')) {
       armListRestore(restoreId);
@@ -1604,7 +1609,9 @@
           if (cancelled) return;
         }
         if (isSignInFlight()) return;
-        const signed = await signAndPublish(roomPresenceDraft(activity, { relayHint }));
+        const signed = await signAndPublish(roomPresenceDraft(activity, { relayHint }), {
+          quiet: true
+        });
         if (cancelled || !signed) return;
         selfPresence = signed;
       } catch {

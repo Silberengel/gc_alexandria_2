@@ -84,6 +84,8 @@
   } from '$lib/comment-drafts';
   import { commentDraft, highlightDraft } from '$lib/drafts';
   import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
+  import { attachReaderPenSelect } from '$lib/reader-pen-select';
+  import { createPointerArm } from '$lib/pointer-activate';
   import DrawingEditor from '$lib/components/DrawingEditor.svelte';
   import { inkMarginChipsFromEvents } from '$lib/ink-margin';
   import { publicationCoordinateLookupKeys, coordinatesOverlap } from '$lib/publication-coordinate';
@@ -101,7 +103,6 @@
   import { publishComment, signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { showNotice } from '$lib/stores/toast';
   import { loadResume, saveResume } from '$lib/resume';
   import {
     flushReadingProgress,
@@ -345,8 +346,9 @@
   } | null>(null);
   /** Skip one empty selectionchange after pointerdown on ToC / FAB. */
   let keepHighlightDraft = false;
-  /** Mark mode: prefer selection drag over scroll on touch. */
+  /** Mark mode: finger/mouse drag selects (stylus always selects). */
   let markMode = $state(false);
+  const markArm = createPointerArm();
   let selectionSheet = $state(false);
   let inkOpen = $state(false);
   /** Frozen when Ink note opens — survives selection/tray teardown. */
@@ -366,6 +368,14 @@
     sync();
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
+  });
+
+  $effect(() => {
+    const root = readingPane;
+    if (!root || typeof window === 'undefined') return;
+    // Re-bind when markMode flips so the closure sees current mode.
+    void markMode;
+    return attachReaderPenSelect(root, { markMode: () => markMode });
   });
 
   function isMarkupKind(kind: number): boolean {
@@ -2954,7 +2964,9 @@
       const t = e.target;
       if (!(t instanceof Element)) return;
       // Opening / using ToC chrome or the selection tray must not drop a captured quote.
-      if (t.closest('.toc, .toc-fab, .sel-tray, .reader-sel-host')) keepHighlightDraft = true;
+      if (t.closest('.toc, .toc-fab, .sel-tray, .reader-sel-host, .reader-mini-dialog, .draw-overlay')) {
+        keepHighlightDraft = true;
+      }
     };
     document.addEventListener('selectionchange', onSel);
     document.addEventListener('pointerdown', onPointer, true);
@@ -3511,7 +3523,7 @@
       readerHighlightDraft = null;
       keepHighlightDraft = false;
       window.getSelection()?.removeAllRanges();
-      showNotice('Ink note posted.', true);
+      // publishComment already toasts success.
     }
   }
 
@@ -3786,10 +3798,13 @@
                   class="toc-create-highlight"
                   type="button"
                   class:active={markMode}
-                  title="Mark mode — drag to select text for highlight or ink"
+                  title="Mark mode — drag with finger to select (stylus always selects; double-tap a word)"
                   aria-pressed={markMode}
-                  onpointerdown={(e) => e.preventDefault()}
-                  onclick={() => (markMode = !markMode)}
+                  onpointerdown={(e) => {
+                    keepHighlightDraft = true;
+                    markArm.run(e, () => (markMode = !markMode));
+                  }}
+                  onclick={(e) => markArm.absorbClick(e, () => (markMode = !markMode))}
                 >
                   {markMode ? 'Marking…' : 'Mark'}
                 </button>

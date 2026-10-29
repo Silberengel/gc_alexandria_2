@@ -2088,17 +2088,15 @@
           return;
         }
         const partial = shortNoteEditDraft(shortNoteEditSource, text);
-        const signed = await signAndPublish(partial);
+        const signed = await signAndPublish(partial, { successMessage: 'Edit published.' });
         if (!signed) {
           formError = consumeSignFailure() ?? 'Could not sign or publish.';
-          showPublishResult(false);
           return;
         }
         const editedNote = shortNoteEditSource;
         ingestShortNoteEdit(signed, editedNote);
         deleteComposeDraft($session.pubkey, KIND.TEXT_NOTE);
         refreshDraftList();
-        showNotice('Edit published.', true);
         shortNoteEditSource = null;
         appliedIntentKey = null;
         content = '';
@@ -2121,7 +2119,6 @@
           const signed = await publishPrivateRelayList(urls);
           if (!signed) {
             formError = consumeSignFailure() ?? 'Could not sign or publish.';
-            showPublishResult(false);
             return;
           }
         } catch (err) {
@@ -2131,7 +2128,6 @@
         }
         deleteComposeDraft($session.pubkey, kind);
         refreshDraftList();
-        showNotice('Draft relay list published.', true);
         bumpPreview();
         return;
       }
@@ -2274,7 +2270,6 @@
       const signed = await signAndPublish(partial);
       if (!signed) {
         formError = consumeSignFailure() ?? 'Could not sign or publish.';
-        showPublishResult(false);
         return;
       }
       if (kind === KIND.MUTE) {
@@ -2293,7 +2288,6 @@
       }
       deleteComposeDraft($session.pubkey, kind);
       refreshDraftList();
-      showNotice('Published.', true);
       content = showBody ? '' : content;
       if (!isMetadataComposeKind(kind)) {
         values = emptyValuesFor(kind);

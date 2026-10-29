@@ -1,6 +1,7 @@
 /**
  * Shelf scrollbar is hidden. Remap wheel/trackpad to horizontal scroll,
- * and allow click-drag with the mouse.
+ * and allow click-drag with the mouse (not stylus — pen micro-jitter was
+ * suppressing cover taps).
  */
 export function shelfWheel(node: HTMLElement) {
   const maxScrollLeft = () => Math.max(0, node.scrollWidth - node.clientWidth);
@@ -36,6 +37,8 @@ export function shelfWheel(node: HTMLElement) {
 
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
+    // Finger uses native pan-x; stylus taps covers — only mouse drags the shelf.
+    if (e.pointerType !== 'mouse') return;
     if (maxScrollLeft() <= 1) return;
     dragging = true;
     moved = false;

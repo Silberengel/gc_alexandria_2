@@ -49,12 +49,19 @@ function sessionOk(): boolean {
 }
 
 /** Persist queue: local store when Settings → local-only, else kind 16374. */
-async function publishEntries(entries: ReadingQueueEntry[]): Promise<Event | null | 'local'> {
+async function publishEntries(
+  entries: ReadingQueueEntry[],
+  opts?: { successMessage?: string; quiet?: boolean }
+): Promise<Event | null | 'local'> {
   if (get(readingPrefs).localOnly) {
     localReadingQueue.replace(entries);
     return 'local';
   }
-  return signAndPublish(readingQueueDraft(entries));
+  // Progress flushes are quiet; explicit track/stop pass a successMessage.
+  return signAndPublish(readingQueueDraft(entries), {
+    quiet: opts?.quiet ?? !opts?.successMessage,
+    successMessage: opts?.successMessage
+  });
 }
 
 /**
@@ -237,7 +244,7 @@ export async function trackReadingPublication(opts: {
     sectionId: sectionId ?? existing?.sectionId,
     updated: Math.floor(Date.now() / 1000)
   });
-  return publishEntries(entries);
+  return publishEntries(entries, { successMessage: 'Added to reading queue.' });
 }
 
 export async function stopTrackingPublication(publication: Event): Promise<Event | null | 'local'> {
@@ -245,7 +252,7 @@ export async function stopTrackingPublication(publication: Event): Promise<Event
   clearProgressTimer();
   clearPendingIntent();
   const entries = removeReadingEntry(currentEntries(), eventAddress(publication));
-  return publishEntries(entries);
+  return publishEntries(entries, { successMessage: 'Removed from reading queue.' });
 }
 
 /**
@@ -339,7 +346,8 @@ export async function resetReadingProgress(opts: {
       total: Math.max(total, existing.total, 1),
       sectionId: undefined,
       updated: Math.floor(Date.now() / 1000)
-    })
+    }),
+    { successMessage: 'Reading progress reset.' }
   );
 }
 
@@ -359,7 +367,9 @@ export async function publishLocalReadingQueueToRelays(): Promise<Event | null> 
   await flushReadingProgress();
   const entries = get(localReadingQueue);
   if (!entries.length) return latestReplaceable(session.getMetadata(), KIND.READING_QUEUE);
-  return signAndPublish(readingQueueDraft(entries));
+  return signAndPublish(readingQueueDraft(entries), {
+    successMessage: 'Reading queue published to relays.'
+  });
 }
 
 /**
@@ -386,7 +396,9 @@ export async function finishTrackedPublication(
       get(session).pubkey
     ) ?? undefined;
   if (!readEvent) {
-    const signed = await signAndPublish(publicationLabelDraft(publication, 'read'));
+    const signed = await signAndPublish(publicationLabelDraft(publication, 'read'), {
+      successMessage: 'Marked as read.'
+    });
     if (!signed) return { ok: false };
     readEvent = signed;
   }

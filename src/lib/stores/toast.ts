@@ -22,11 +22,15 @@ function present(ok: boolean, message: string, ms: number): void {
 }
 
 /** Green check when a relay accepted the event; red X when none did. */
-export function showPublishResult(ok: boolean): void {
-  present(ok, ok ? 'Successfully published.' : 'Failed to published.', 4200);
+export function showPublishResult(ok: boolean, message?: string): void {
+  present(
+    ok,
+    message ?? (ok ? 'Successfully published.' : 'Failed to publish.'),
+    4200
+  );
 }
 
-/** A short status line, used when signing fails before anything is published. */
+/** A short status line (signing failures, custom publish copy, non-publish status). */
 export function showNotice(message: string, ok = false): void {
-  present(ok, message, 7000);
+  present(ok, message, ok ? 4200 : 7000);
 }

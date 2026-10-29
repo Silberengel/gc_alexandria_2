@@ -63,7 +63,9 @@
     busy = true;
     try {
       if (mine) {
-        const signed = await signAndPublish(deletionDraft(mine));
+        const signed = await signAndPublish(deletionDraft(mine), {
+          successMessage: 'Marked unread.'
+        });
         if (signed) local = local.filter((e) => e.id !== mine.id);
         return;
       }
@@ -84,7 +86,10 @@
         });
         return;
       }
-      const signed = await signAndPublish(publicationLabelDraft(publication, NIP32_READ_LABEL));
+      const signed = await signAndPublish(
+        publicationLabelDraft(publication, NIP32_READ_LABEL),
+        { successMessage: 'Marked as read.' }
+      );
       if (signed) absorbRead(signed);
     } finally {
       busy = false;

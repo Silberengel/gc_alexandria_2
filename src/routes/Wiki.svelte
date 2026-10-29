@@ -45,6 +45,7 @@
   import { sectionHeroImageUrl } from '$lib/cover';
   import type { Event } from 'nostr-tools';
   import SelectionActionTray from '$lib/components/SelectionActionTray.svelte';
+  import { attachReaderPenSelect } from '$lib/reader-pen-select';
   import DrawingEditor from '$lib/components/DrawingEditor.svelte';
   import {
     deleteThreadDraft,
@@ -56,7 +57,6 @@
   import { publishComment, signAndPublish } from '$lib/sign';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { showNotice } from '$lib/stores/toast';
   import { inkMarginChipsFromEvents } from '$lib/ink-margin';
 
   interface Props {
@@ -81,6 +81,12 @@
   /** Hold quote when tray chrome / follow-up UI clears the browser selection. */
   let keepWikiSelDraft = false;
   let markMode = $state(false);
+  $effect(() => {
+    const root = articlePane;
+    if (!root || typeof window === 'undefined') return;
+    void markMode;
+    return attachReaderPenSelect(root, { markMode: () => markMode });
+  });
   let inkOpen = $state(false);
   /** Quote frozen when Ink note opens — survives selection/tray teardown. */
   let inkQuote = $state<string | null>(null);
@@ -184,7 +190,6 @@
       notePromptOpen = false;
       notePromptText = '';
       window.getSelection()?.removeAllRanges();
-      showNotice('Highlight saved.', true);
     }
   }
 
@@ -231,7 +236,7 @@
       wikiSelDraft = null;
       keepWikiSelDraft = false;
       window.getSelection()?.removeAllRanges();
-      showNotice('Ink note posted.', true);
+      // publishComment already toasts success.
     }
   }
 

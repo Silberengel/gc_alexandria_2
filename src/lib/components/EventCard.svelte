@@ -23,6 +23,7 @@
   import { eventHref } from '$lib/listing-table';
   import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
+  import { hasNonEmptySelection } from '$lib/pointer-activate';
   import { withReaderQuote } from '$lib/reader-share-url';
   import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from '$lib/relative-time';
   import type { LivePresencePerson } from '$lib/live-chat';
@@ -103,6 +104,13 @@
       target?.closest?.(
         'video, audio, .live-stream-player, .event-imeta-btn, .event-more-menu, button, a'
       )
+    ) {
+      return;
+    }
+    // Don't navigate after a stylus/text selection inside the card.
+    if (
+      e instanceof MouseEvent &&
+      hasNonEmptySelection(target?.closest?.('.event-card, article, .card') ?? target)
     ) {
       return;
     }
