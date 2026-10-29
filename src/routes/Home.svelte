@@ -321,9 +321,9 @@
       return;
     }
     // Do not compete with refreshLanding for relay slots — that stalled every page.
-    // Defer only when My shelf is already painted — otherwise fold lists in parallel
-    // with refreshLanding so signed-in shelves do not wait on the 8s shelf race.
-    if (loadInFlight && hasViewerBoundCovers()) {
+    // Never compete with refreshLanding for pool slots — parallel merge stampeded
+    // resolveShelfPublications and left social feed REQs on dead first-tranche hosts.
+    if (loadInFlight) {
       mergeAgain = true;
       console.info(LOG, 'mergeViewerShelves deferred until landing idle');
       return;
@@ -512,6 +512,8 @@
       });
       console.info(LOG, 'refreshLanding done', {
         shelves: live.shelves.map((s) => `${s.id}:${s.events.length}`).join(', '),
+        highlights: live.highlights?.length ?? 0,
+        comments: live.comments?.length ?? 0,
         ratings: live.ratings?.length ?? 0
       });
       if (session.getPubkey() === identity) apply(live, true);

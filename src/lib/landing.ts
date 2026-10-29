@@ -35,6 +35,7 @@ import {
   documentStack,
   highlightStack,
   publicationSearchStack,
+  socialSearchStack,
   socialStack,
   viewerOutboxStack
 } from './nostr/selector';
@@ -604,8 +605,75 @@ const RATING_FILTERS: Filter[] = [
   { kinds: [KIND.RATING], '#m': [...PUBLICATION_RATING_MARKS], limit: 100 }
 ];
 
+const LANDING_FEED_FILTERS: Filter[] = [
+  ...COMMENT_FILTERS,
+  ...HIGHLIGHT_FILTERS,
+  ...RATING_FILTERS
+];
+
 function landingRatings(...lists: Event[][]): Event[] {
   return newestRatingPerPublication(mergeEvents(...lists)).slice(0, LANDING_FEED_LIMIT);
+}
+
+function dedupeRelayUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of urls) {
+    const key = url.replace(/\/+$/, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(url);
+  }
+  return out;
+}
+
+/**
+ * One combined REQ for comments/highlights/ratings so we do not fill all three
+ * pool slots before shelves can run. When the first tranche of hosts is dead
+ * (common: theforest / citadel / nostr.land), markRelayFailed cools them and a
+ * second pass reaches sovbit / wine / pipe / personal relays.
+ */
+async function queryLandingFeeds(): Promise<{
+  comments: Event[];
+  highlights: Event[];
+  ratings: Event[];
+}> {
+  const relays = dedupeRelayUrls([
+    ...highlightStack(),
+    ...socialStack(),
+    ...socialSearchStack()
+  ]);
+  const run = (includeCooling: boolean): Promise<Event[]> =>
+    relayPool.query(relays, LANDING_FEED_FILTERS, 6_000, 6, undefined, {
+      priority: true,
+      includeCooling
+    });
+
+  let batch = await run(false);
+  if (!batch.length) {
+    console.info('[alexandria:landing] feed query empty — retrying next relay tranche');
+    batch = await run(false);
+  }
+  if (!batch.length) {
+    console.info('[alexandria:landing] feed query still empty — retrying cooled relays');
+    batch = await run(true);
+  }
+
+  const comments: Event[] = [];
+  const highlights: Event[] = [];
+  const ratings: Event[] = [];
+  for (const event of batch) {
+    if (event.kind === KIND.COMMENT) comments.push(event);
+    else if (event.kind === KIND.HIGHLIGHT) highlights.push(event);
+    else if (event.kind === KIND.RATING) ratings.push(event);
+  }
+  console.info('[alexandria:landing] feed query', {
+    comments: comments.length,
+    highlights: highlights.length,
+    ratings: ratings.length,
+    relaysTried: Math.min(6, relays.length)
+  });
+  return { comments, highlights, ratings };
 }
 
 async function fillShelfPublicationsLocally(
@@ -1199,11 +1267,8 @@ export async function refreshLanding(
 
   // Membership + social feeds are WSS only — Mercury indexes document kinds only.
   const membershipPromise = fetchShelfMembershipEvents();
-  const feedWsPromise = Promise.all([
-    relayPool.query(socialStack(), COMMENT_FILTERS, 4000),
-    relayPool.query(highlightStack(), HIGHLIGHT_FILTERS, 4000),
-    relayPool.query(socialStack(), RATING_FILTERS, 4000)
-  ]);
+  // One priority feed query (not three parallel REQs) so shelf resolve keeps pool slots.
+  const feedWsPromise = queryLandingFeeds();
 
   const [pubsResult, wikiResult] = await Promise.allSettled([
     mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
@@ -1294,15 +1359,15 @@ export async function refreshLanding(
   );
   void shelvesPromise.then(applyShelfPack);
 
-  const [commWs, highWs, rateWs] = await feedWsPromise;
+  const feedWs = await feedWsPromise;
 
   comments = newestCommentPerWork(
-    mergeEvents(commWs, cacheOk ? (cached?.comments ?? []) : [])
+    mergeEvents(feedWs.comments, cacheOk ? (cached?.comments ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
   highlights = newestHighlightPerAddress(
-    mergeEvents(highWs, cacheOk ? (cached?.highlights ?? []) : [])
+    mergeEvents(feedWs.highlights, cacheOk ? (cached?.highlights ?? []) : [])
   ).slice(0, LANDING_FEED_LIMIT);
-  ratings = landingRatings(rateWs, cacheOk ? (cached?.ratings ?? []) : []);
+  ratings = landingRatings(feedWs.ratings, cacheOk ? (cached?.ratings ?? []) : []);
   paint(snapshot());
 
   // Hydrate work titles as soon as feeds arrive — do not wait on the 8s shelf race
