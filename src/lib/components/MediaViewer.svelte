@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { closeMediaViewer, mediaViewer, stepMediaViewer } from '$lib/stores/media-viewer';
+  import SnoViewer from './SnoViewer.svelte';
 
   const MIN_ZOOM = 1;
   const MAX_ZOOM = 4;
@@ -13,6 +14,7 @@
   let status = $state('');
   let dragOrigin = { x: 0, y: 0, ox: 0, oy: 0 };
 
+  const isSno = $derived(!!$mediaViewer.sno);
   const slideCount = $derived($mediaViewer.urls.length);
   const isSlideshow = $derived(slideCount > 1);
   const slideLabel = $derived(
@@ -47,6 +49,8 @@
         if ($mediaViewer.urls.length < 2) return;
         e.preventDefault();
         stepMediaViewer(e.key === 'ArrowLeft' ? -1 : 1);
+      } else if ($mediaViewer.sno) {
+        return;
       } else if (e.key === '+' || e.key === '=') {
         e.preventDefault();
         bumpZoom(ZOOM_STEP);
@@ -194,19 +198,23 @@
       role="dialog"
       tabindex="-1"
       aria-modal="true"
-      aria-label={$mediaViewer.title
-        ? isSlideshow
-          ? `${$mediaViewer.title} (${slideLabel})`
-          : `Image: ${$mediaViewer.title}`
-        : isSlideshow
-          ? `Image gallery ${slideLabel}`
-          : 'Image'}
+      aria-label={isSno
+        ? $mediaViewer.title
+          ? `3D object: ${$mediaViewer.title}`
+          : '3D object'
+        : $mediaViewer.title
+          ? isSlideshow
+            ? `${$mediaViewer.title} (${slideLabel})`
+            : `Image: ${$mediaViewer.title}`
+          : isSlideshow
+            ? `Image gallery ${slideLabel}`
+            : 'Image'}
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
     >
       <header class="media-viewer-toolbar">
         <p class="media-viewer-title">
-          {$mediaViewer.title || (isSlideshow ? 'Gallery' : 'Image')}
+          {$mediaViewer.title || (isSno ? '3D object' : isSlideshow ? 'Gallery' : 'Image')}
           {#if isSlideshow}
             <span class="media-viewer-count muted">{slideLabel}</span>
           {/if}
@@ -230,21 +238,23 @@
               >›</button
             >
           {/if}
-          <button class="btn media-viewer-btn" type="button" title="Zoom out (−)" onclick={() => bumpZoom(-ZOOM_STEP)}
-            >−</button
-          >
-          <button class="btn media-viewer-btn" type="button" title="Reset zoom (0)" onclick={resetView}
-            >{Math.round(zoom * 100)}%</button
-          >
-          <button class="btn media-viewer-btn" type="button" title="Zoom in (+)" onclick={() => bumpZoom(ZOOM_STEP)}
-            >+</button
-          >
-          <button class="btn media-viewer-btn" type="button" title="Download" onclick={() => void download()}
-            >Download</button
-          >
-          <button class="btn media-viewer-btn" type="button" title="Share or copy link" onclick={() => void shareOrCopy()}
-            >Share</button
-          >
+          {#if !isSno}
+            <button class="btn media-viewer-btn" type="button" title="Zoom out (−)" onclick={() => bumpZoom(-ZOOM_STEP)}
+              >−</button
+            >
+            <button class="btn media-viewer-btn" type="button" title="Reset zoom (0)" onclick={resetView}
+              >{Math.round(zoom * 100)}%</button
+            >
+            <button class="btn media-viewer-btn" type="button" title="Zoom in (+)" onclick={() => bumpZoom(ZOOM_STEP)}
+              >+</button
+            >
+            <button class="btn media-viewer-btn" type="button" title="Download" onclick={() => void download()}
+              >Download</button
+            >
+            <button class="btn media-viewer-btn" type="button" title="Share or copy link" onclick={() => void shareOrCopy()}
+              >Share</button
+            >
+          {/if}
           <button
             class="btn media-viewer-btn media-viewer-close"
             type="button"
@@ -260,6 +270,11 @@
         <p class="media-viewer-status muted" aria-live="polite">{status}</p>
       {/if}
       <div class="media-viewer-stage-wrap">
+        {#if isSno && $mediaViewer.sno}
+          <div class="media-viewer-stage media-viewer-stage-sno" role="region" aria-label="3D object">
+            <SnoViewer content={$mediaViewer.sno.content} name={$mediaViewer.sno.name} fill />
+          </div>
+        {:else}
         {#if isSlideshow}
           <button
             class="media-viewer-nav media-viewer-nav-prev"
@@ -303,6 +318,7 @@
           >
             <span aria-hidden="true">›</span>
           </button>
+        {/if}
         {/if}
       </div>
       {#if slideAlt}

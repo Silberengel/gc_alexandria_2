@@ -49,7 +49,8 @@ export function nostrRefPlaceholder(index: number): string {
 const PLACEHOLDER_RE = /ZZNOSTRREF(\d+)ZZ/g;
 
 export function decodeNostrBech32(token: string): RefSegment | null {
-  const bech32 = token.replace(/^nostr:/i, '');
+  let bech32 = token.trim();
+  while (/^nostr:/i.test(bech32)) bech32 = bech32.slice(6);
   try {
     const decoded = nip19.decode(bech32);
     if (decoded.type === 'nsec') return null;

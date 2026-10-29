@@ -5,7 +5,7 @@
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import { signAndPublish } from '$lib/sign';
   import { ratingDraft } from '$lib/drafts';
   import { eventAddress } from '$lib/nostr/verify';
@@ -162,7 +162,7 @@
       return;
     }
     if (mineStars < 1) return;
-    review = scrubTrackingUrlsInText(review);
+    review = scrubProseText(review);
     busy = true;
     try {
       const signed = await signAndPublish(ratingDraft(publication, mineStars, review));

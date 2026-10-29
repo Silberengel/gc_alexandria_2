@@ -15,7 +15,7 @@
     type InlineBodyBlock
   } from '$lib/nostr-refs';
   import { editMarkup, editMedia, type MarkupTool, type MediaFile, type SourceEdit } from '$lib/markup-editor';
-  import { scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubProseText } from '$lib/clean-url';
   import {
     fetchRemoteMediaFile,
     looksLikeMediaUrl,
@@ -447,7 +447,7 @@
     }
 
     if (text && /https?:\/\//i.test(text)) {
-      const scrubbed = scrubTrackingUrlsInText(text);
+      const scrubbed = scrubProseText(text);
       if (scrubbed !== text) {
         event.preventDefault();
         await insertTextAtCaret(scrubbed);

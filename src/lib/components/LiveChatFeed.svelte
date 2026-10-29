@@ -14,7 +14,7 @@
   import { formatAbsoluteTime, formatChatTime } from '$lib/relative-time';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import { publishComment } from '$lib/sign';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { trust } from '$lib/stores/trust';
@@ -88,7 +88,7 @@
       openLoginDialog();
       return;
     }
-    const body = scrubTrackingUrlsInText(text).trim();
+    const body = scrubProseText(text).trim();
     if (!body || posting) return;
     text = body;
     posting = true;

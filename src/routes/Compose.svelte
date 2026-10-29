@@ -153,7 +153,11 @@
     uploadToBlossomServers,
     imetaTagFromUpload
   } from '$lib/blossom';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import {
+    scrubClipboardTextPaste,
+    scrubProseText,
+    scrubTrackingUrlsInText
+  } from '$lib/clean-url';
   import {
     fetchRemoteMediaFile,
     looksLikeMediaUrl,
@@ -1835,11 +1839,19 @@
     }
   }
 
-  function onFieldPaste(fieldId: string, event: ClipboardEvent): void {
-    scrubClipboardTextPaste(event, (scrubbed, start, end) => {
-      const cur = values[fieldId] ?? '';
-      values[fieldId] = cur.slice(0, start) + scrubbed + cur.slice(end);
-    });
+  function onFieldPaste(
+    fieldId: string,
+    event: ClipboardEvent,
+    style: 'prefixed' | 'bare' = 'prefixed'
+  ): void {
+    scrubClipboardTextPaste(
+      event,
+      (scrubbed, start, end) => {
+        const cur = values[fieldId] ?? '';
+        values[fieldId] = cur.slice(0, start) + scrubbed + cur.slice(end);
+      },
+      style
+    );
   }
 
   function normalizePointerCatalogField(field: { id: string; tag?: string }): void {
@@ -1886,24 +1898,22 @@
       }
     }
 
-    if (text && /https?:\/\//i.test(text)) {
-      const scrubbed = scrubTrackingUrlsInText(text);
-      if (scrubbed !== text) {
-        event.preventDefault();
-        const el = event.currentTarget;
-        if (!(el instanceof HTMLTextAreaElement)) {
-          content = content ? `${content}${scrubbed}` : scrubbed;
-          return;
-        }
-        const start = el.selectionStart ?? 0;
-        const end = el.selectionEnd ?? start;
-        content = content.slice(0, start) + scrubbed + content.slice(end);
-        queueMicrotask(() => {
-          el.focus();
-          const at = start + scrubbed.length;
-          el.setSelectionRange(at, at);
-        });
+    const scrubbed = scrubProseText(text);
+    if (scrubbed !== text) {
+      event.preventDefault();
+      const el = event.currentTarget;
+      if (!(el instanceof HTMLTextAreaElement)) {
+        content = content ? `${content}${scrubbed}` : scrubbed;
+        return;
       }
+      const start = el.selectionStart ?? 0;
+      const end = el.selectionEnd ?? start;
+      content = content.slice(0, start) + scrubbed + content.slice(end);
+      queueMicrotask(() => {
+        el.focus();
+        const at = start + scrubbed.length;
+        el.setSelectionRange(at, at);
+      });
     }
   }
 
@@ -2895,7 +2905,8 @@
                         multiline
                         rows={3}
                         bind:value={values[field.id]}
-                        onpaste={(e) => onFieldPaste(field.id, e)}
+                        onpaste={(e) =>
+                          onFieldPaste(field.id, e, fieldHoldsPubkeys(field) ? 'bare' : 'prefixed')}
                       />
                     {:else if field.widget === 'select'}
                       {@const opts = fieldOptions(field)}
@@ -2940,7 +2951,7 @@
                       <MentionControl
                         mode="npub"
                         bind:value={values[field.id]}
-                        onpaste={(e) => onFieldPaste(field.id, e)}
+                        onpaste={(e) => onFieldPaste(field.id, e, 'bare')}
                         onblur={() => normalizePointerCatalogField(field)}
                         onchange={() => normalizePointerCatalogField(field)}
                       />

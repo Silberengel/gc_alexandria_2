@@ -1,18 +1,25 @@
 import { get, writable } from 'svelte/store';
 import {
-  BUILTIN_FEED_TABS,
+  CORE_FEED_TABS,
   DEFAULT_FEED_TAB_ORDER,
   encodeKindFeedTab,
+  isCoreFeedTab,
   isFeedTab,
   isKindFeedTab,
+  isOptionalBuiltinFeedTab,
+  isRemovableFeedTab,
   normalizeFeedTabCustomName,
-  type FeedTab
+  type FeedTab,
+  type OptionalBuiltinFeedTab
 } from '$lib/feed';
 
 const STORAGE_KEY = 'alexandria-feed-tab-order';
 const LABELS_KEY = 'alexandria-feed-tab-labels';
 
-/** Keep every built-in tab once; keep valid kind tabs; drop junk. */
+/**
+ * Keep Follows / Notifications once; keep optional built-ins and kind tabs the
+ * user still has; drop junk. Original Posts / Replies stay absent when removed.
+ */
 export function normalizeFeedTabOrder(raw: unknown): FeedTab[] {
   const seen = new Set<string>();
   const out: FeedTab[] = [];
@@ -22,7 +29,7 @@ export function normalizeFeedTabOrder(raw: unknown): FeedTab[] {
     seen.add(entry);
     out.push(entry);
   }
-  for (const tab of BUILTIN_FEED_TABS) {
+  for (const tab of CORE_FEED_TABS) {
     if (seen.has(tab)) continue;
     seen.add(tab);
     out.push(tab);
@@ -146,11 +153,18 @@ function createFeedTabOrderStore() {
       setLabel(tab, name, order);
       return tab;
     },
+    /** Put Original Posts / Replies back on the strip after the user removed them. */
+    addOptionalBuiltin(tab: OptionalBuiltinFeedTab): FeedTab | null {
+      if (!isOptionalBuiltinFeedTab(tab)) return null;
+      const cur = get(store);
+      if (cur.includes(tab)) return tab;
+      return persistOrder([...cur, tab]).includes(tab) ? tab : null;
+    },
     setTabName(tab: FeedTab, name: string | null | undefined): void {
       setLabel(tab, name, get(store));
     },
     remove(tab: FeedTab): void {
-      if (BUILTIN_FEED_TABS.includes(tab as (typeof BUILTIN_FEED_TABS)[number])) return;
+      if (!isRemovableFeedTab(tab) || isCoreFeedTab(tab)) return;
       const order = persistOrder(get(store).filter((t) => t !== tab));
       persistLabels(get(labelsStore), order);
     }

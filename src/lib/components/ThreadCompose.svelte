@@ -1,20 +1,16 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import {
     deleteThreadDraft,
     loadThreadDraft,
     saveThreadDraft
   } from '$lib/comment-drafts';
   import { KIND } from '$lib/constants';
-  import {
-    expandCustomEmojiPlaceholders,
-    prepareContentWithEmojis
-  } from '$lib/emoji-content';
-  import { renderWithFallback } from '$lib/markup';
   import { session } from '$lib/stores/session';
   import { showNotice } from '$lib/stores/toast';
   import DrawingEditor from './DrawingEditor.svelte';
+  import EventBody from './EventBody.svelte';
   import MentionControl from './MentionControl.svelte';
 
   interface Props {
@@ -49,12 +45,25 @@
   }: Props = $props();
 
   let showPreview = $state(false);
-  let previewHtml = $state('');
   let drawOpen = $state(false);
   let hydratedScope = $state('');
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   const drawDraftScope = $derived(draftScope ? `draw:${draftScope}` : '');
+  /** Same EventBody path as Compose preview — expands nostr: refs, media, embeds. */
+  const previewEvent = $derived.by((): Event | null => {
+    if (!showPreview || !value.trim()) return null;
+    const pubkey = $session.pubkey || '0'.repeat(64);
+    return {
+      id: '',
+      pubkey,
+      sig: '',
+      kind: asKind1Reply ? KIND.TEXT_NOTE : KIND.COMMENT,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: imetaTags.map((row) => [...row]),
+      content: value
+    };
+  });
 
   function onPaste(event: ClipboardEvent): void {
     scrubClipboardTextPaste(event, (scrubbed, start, end) => {
@@ -88,7 +97,7 @@
   }
 
   async function submit(): Promise<void> {
-    const scrubbed = scrubTrackingUrlsInText(value);
+    const scrubbed = scrubProseText(value);
     if (scrubbed !== value) value = scrubbed;
     const result = await onSubmit();
     if (result === false) return;
@@ -152,37 +161,7 @@
   });
 
   $effect(() => {
-    const text = value;
-    const kind = asKind1Reply ? KIND.TEXT_NOTE : KIND.COMMENT;
-    const open = showPreview;
-    const pubkey = $session.pubkey;
-    if (!text.trim() || !open) {
-      previewHtml = '';
-      if (!text.trim()) showPreview = false;
-      return;
-    }
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      const draft: Event | null = pubkey
-        ? {
-            id: '',
-            pubkey,
-            sig: '',
-            kind,
-            created_at: 0,
-            tags: imetaTags.map((row) => [...row]),
-            content: text
-          }
-        : null;
-      void prepareContentWithEmojis(text, draft).then(async ({ text: ready, slots }) => {
-        const html = expandCustomEmojiPlaceholders(await renderWithFallback(kind, ready), slots);
-        if (!cancelled) previewHtml = html;
-      });
-    }, 160);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    if (!value.trim() && showPreview) showPreview = false;
   });
 </script>
 
@@ -194,10 +173,10 @@
   }}
 >
   <MentionControl mode="prose" multiline rows={3} bind:value {placeholder} onpaste={onPaste} />
-  {#if previewHtml}
+  {#if previewEvent}
     <div class="compose-preview">
       <p class="compose-preview-label muted">Preview</p>
-      <div class="event-body">{@html previewHtml}</div>
+      <EventBody event={previewEvent} showEmbeds />
     </div>
   {/if}
   {#if offerKind1}

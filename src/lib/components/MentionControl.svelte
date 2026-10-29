@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { scrubClipboardTextPaste } from '$lib/clean-url';
   import {
     attachMentionField,
     MENTION_UI_IDLE,
@@ -68,6 +69,20 @@
     onValue?.(node.value);
   }
 
+  /** Parent paste first (media); otherwise scrub trackers and normalize bech32. */
+  function handlePaste(event: ClipboardEvent): void {
+    onpaste?.(event);
+    if (event.defaultPrevented) return;
+    scrubClipboardTextPaste(
+      event,
+      (scrubbed, start, end) => {
+        value = value.slice(0, start) + scrubbed + value.slice(end);
+        onValue?.(value);
+      },
+      mode === 'npub' ? 'bare' : 'prefixed'
+    );
+  }
+
   function attach(node: HTMLInputElement | HTMLTextAreaElement) {
     element = node;
     binding = attachMentionField(node, {
@@ -105,7 +120,7 @@
       aria-label={ariaLabel || undefined}
       bind:value
       oninput={typed}
-      onpaste={onpaste}
+      onpaste={handlePaste}
       ondrop={ondrop}
       {onblur}
       {onchange}
@@ -124,7 +139,7 @@
       aria-label={ariaLabel || undefined}
       bind:value
       oninput={typed}
-      onpaste={onpaste}
+      onpaste={handlePaste}
       ondrop={ondrop}
       {onblur}
       {onchange}

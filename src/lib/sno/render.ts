@@ -5,10 +5,46 @@ export type SnoViewState = {
   yaw: number;
   pitch: number;
   distance: number;
+  /** Orbit center. The mesh bounds, not the origin. */
+  target: [number, number, number];
 };
 
+/** Bounding sphere of the vertex positions. `extent` is only a grid hint. */
+export function snoFrame(sno: SnoObject): { center: [number, number, number]; radius: number } {
+  const n = sno.vertices.length;
+  if (!n) return { center: [0, 0, 0], radius: 1 };
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  const pts: Array<[number, number, number]> = [];
+  for (let i = 0; i < n; i++) {
+    const p = snoPosition(sno, i);
+    pts.push(p);
+    minX = Math.min(minX, p[0]);
+    minY = Math.min(minY, p[1]);
+    minZ = Math.min(minZ, p[2]);
+    maxX = Math.max(maxX, p[0]);
+    maxY = Math.max(maxY, p[1]);
+    maxZ = Math.max(maxZ, p[2]);
+  }
+  const center: [number, number, number] = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+  let radius = 0;
+  for (const p of pts) {
+    radius = Math.max(radius, Math.hypot(p[0] - center[0], p[1] - center[1], p[2] - center[2]));
+  }
+  return { center, radius: Math.max(radius, 0.75) };
+}
+
 export function defaultView(sno: SnoObject): SnoViewState {
-  return { yaw: 0.6, pitch: 0.35, distance: Math.max(6, sno.extent * 2.4) };
+  const frame = snoFrame(sno);
+  // project() uses focal length 0.42 × canvas. This distance puts the bounding
+  // sphere across about 62% of the square at every spin angle. `extent` is only
+  // the lattice hint and must not park the camera.
+  const distance = (2 * frame.radius * 0.42) / 0.62;
+  return { yaw: 0.6, pitch: 0.35, distance, target: frame.center };
 }
 
 function project(
@@ -19,15 +55,19 @@ function project(
   width: number,
   height: number
 ): { x: number; y: number; z: number } {
+  const target = view.target ?? [0, 0, 0];
+  const px = x - target[0];
+  const py = y - target[1];
+  const pz = z - target[2];
   const cy = Math.cos(view.yaw);
   const sy = Math.sin(view.yaw);
   const cp = Math.cos(view.pitch);
   const sp = Math.sin(view.pitch);
   // yaw around Y, then pitch around X
-  const x1 = x * cy + z * sy;
-  const z1 = -x * sy + z * cy;
-  const y2 = y * cp - z1 * sp;
-  const z2 = y * sp + z1 * cp;
+  const x1 = px * cy + pz * sy;
+  const z1 = -px * sy + pz * cy;
+  const y2 = py * cp - z1 * sp;
+  const z2 = py * sp + z1 * cp;
   const dist = view.distance;
   const f = Math.min(width, height) * 0.42;
   const depth = z2 + dist;
@@ -37,6 +77,35 @@ function project(
     y: height / 2 - y2 * scale,
     z: depth
   };
+}
+
+function projectedBounds(
+  sno: SnoObject,
+  view: SnoViewState,
+  size: number
+): { minX: number; minY: number; maxX: number; maxY: number; cx: number; cy: number } {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < sno.vertices.length; i++) {
+    const [x, y, z] = snoPosition(sno, i);
+    const p = project(x, y, z, view, size, size);
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  if (!Number.isFinite(minX)) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0, cx: size / 2, cy: size / 2 };
+  }
+  return { minX, minY, maxX, maxY, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+}
+
+/** Longest screen-space axis of the mesh, in CSS pixels. */
+export function meshScreenSpan(sno: SnoObject, view: SnoViewState, size: number): number {
+  const box = projectedBounds(sno, view, size);
+  return Math.max(box.maxX - box.minX, box.maxY - box.minY);
 }
 
 function uniqueEdges(faces: Array<[number, number, number]>): Array<[number, number]> {

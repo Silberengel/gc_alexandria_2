@@ -33,13 +33,19 @@ describe('feedTabOrder', () => {
       'follows',
       'notifications'
     ]);
+    // Optional built-ins stay gone; core tabs are forced back.
+    expect(normalizeFeedTabOrder(['follows', 'kind:1'])).toEqual([
+      'follows',
+      'kind:1',
+      'notifications'
+    ]);
     feedTabOrder.set(['follows', 'original', 'replies', 'notifications']);
     feedTabOrder.reorder(0, 2);
     expect(get(feedTabOrder).slice(0, 3)).toEqual(['original', 'replies', 'follows']);
     expect(localStorage.getItem('alexandria-feed-tab-order')).toContain('original');
   });
 
-  it('adds and removes kind tabs', async () => {
+  it('adds and removes kind tabs and optional built-ins', async () => {
     const { feedTabOrder } = await import('./feed-tab-order');
     feedTabOrder.set(['follows', 'original', 'replies', 'notifications']);
     expect(feedTabOrder.addKind(30023)).toBe('kind:30023');
@@ -57,6 +63,15 @@ describe('feedTabOrder', () => {
     expect(feedTabOrder.labels.get()['kind:1+7+1111']).toBeUndefined();
     feedTabOrder.remove('follows');
     expect(get(feedTabOrder)).toContain('follows');
+    feedTabOrder.remove('notifications');
+    expect(get(feedTabOrder)).toContain('notifications');
+    feedTabOrder.remove('original');
+    feedTabOrder.remove('replies');
+    expect(get(feedTabOrder)).toEqual(['follows', 'notifications']);
+    expect(feedTabOrder.addOptionalBuiltin('original')).toBe('original');
+    expect(get(feedTabOrder)).toContain('original');
+    expect(feedTabOrder.addOptionalBuiltin('replies')).toBe('replies');
+    expect(get(feedTabOrder)).toEqual(['follows', 'notifications', 'original', 'replies']);
   });
 
   it('reorders by full-order indices so hidden tabs keep their slots', async () => {

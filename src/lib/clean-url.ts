@@ -1,3 +1,5 @@
+import { nip19 } from 'nostr-tools';
+
 /**
  * Query keys that commonly identify the clicker / sharer / campaign.
  * Keep this list defensive — unknown `utm_*` / analytics prefixes are stripped too.
@@ -118,19 +120,63 @@ export function scrubTrackingUrlsInText(text: string): string {
 }
 
 /**
+ * Valid npub / nprofile / note / nevent / naddr tokens, with any run of `nostr:`
+ * prefixes. Skip matches glued to a path (`/npub1…`) so njump-style URLs stay put.
+ * Does not touch `nsec` (secret keys).
+ */
+const NOSTR_BECH32_IN_TEXT =
+  /(?<![\w/])((?:nostr:)+)?(n(?:pub|profile|addr|event|ote)1[02-9ac-hj-np-z]+)/gi;
+
+export type NostrBech32Style = 'prefixed' | 'bare';
+
+/**
+ * Collapse `nostr:nostr:…` and preface bare bech32 with a single `nostr:`
+ * (`prefixed`, for prose) or strip to the bech32 alone (`bare`, for npub fields).
+ */
+export function normalizeNostrBech32InText(
+  text: string,
+  style: NostrBech32Style = 'prefixed'
+): string {
+  return text.replace(NOSTR_BECH32_IN_TEXT, (match, _prefixes: string | undefined, bech32: string) => {
+    try {
+      const decoded = nip19.decode(bech32);
+      if (
+        decoded.type !== 'npub' &&
+        decoded.type !== 'nprofile' &&
+        decoded.type !== 'note' &&
+        decoded.type !== 'nevent' &&
+        decoded.type !== 'naddr'
+      ) {
+        return match;
+      }
+    } catch {
+      return match;
+    }
+    return style === 'bare' ? bech32 : `nostr:${bech32}`;
+  });
+}
+
+/** Tracker scrub + single `nostr:` on bech32 — for note/comment/prose bodies. */
+export function scrubProseText(text: string): string {
+  return normalizeNostrBech32InText(scrubTrackingUrlsInText(text), 'prefixed');
+}
+
+/**
  * Scrub trackers from event content and from any tag cell that is an http(s) URL
  * (imeta, r, source, …). Used as the last gate before signing/publishing.
+ * Content also gets a single `nostr:` on bare bech32 (never stacked prefixes).
  */
 export function scrubTrackingInEventPartial<
   T extends { content: string; tags: string[][] }
 >(partial: T): T {
   return {
     ...partial,
-    content: scrubTrackingUrlsInText(partial.content ?? ''),
+    content: scrubProseText(partial.content ?? ''),
     tags: partial.tags.map((tag) =>
       tag.map((cell, i) => {
         if (i === 0 || typeof cell !== 'string') return cell;
         // Bare URL cells (r, source, …) and values that embed URLs (imeta).
+        // Do not prefix bech32 here — p/e/q tag values are not prose.
         return scrubTrackingUrlsInText(cell);
       })
     )
@@ -138,16 +184,21 @@ export function scrubTrackingInEventPartial<
 }
 
 /**
- * If clipboard plain text contains trackers in URLs, prevent the default paste
- * and insert the scrubbed text at the caret. Returns true when it handled paste.
+ * If clipboard plain text needs URL tracker scrubbing or bech32 `nostr:`
+ * normalization, prevent the default paste and insert the scrubbed text at the
+ * caret. Returns true when it handled paste.
  */
 export function scrubClipboardTextPaste(
   event: ClipboardEvent,
-  apply: (scrubbed: string, start: number, end: number) => void
+  apply: (scrubbed: string, start: number, end: number) => void,
+  style: NostrBech32Style = 'prefixed'
 ): boolean {
   const text = event.clipboardData?.getData('text/plain') ?? '';
-  if (!text || !/https?:\/\//i.test(text)) return false;
-  const scrubbed = scrubTrackingUrlsInText(text);
+  if (!text) return false;
+  const scrubbed =
+    style === 'bare'
+      ? normalizeNostrBech32InText(scrubTrackingUrlsInText(text), 'bare')
+      : scrubProseText(text);
   if (scrubbed === text) return false;
   event.preventDefault();
   const el = event.currentTarget;

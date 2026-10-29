@@ -17,11 +17,14 @@ import {
   feedThreadPath,
   feedThreadPathFromId,
   feedThreadRootPointer,
+  isCoreFeedTab,
   isFeedInteractionEvent,
   isFeedReplyRow,
   isNotificationForViewer,
   isFeedRepost,
+  isOptionalBuiltinFeedTab,
   isOriginalPost,
+  isRemovableFeedTab,
   isRepliesTimelineEvent,
   isTopLevelWebComment,
   keepFeedPosts,
@@ -311,6 +314,19 @@ describe('kind feed tabs', () => {
     expect(feedTabLabel('kind:1', '  Media hits  ')).toBe('Media hits');
     expect(feedTabLabel('kind:1', '   ')).toBe('Kind 1');
     expect(feedTabLabel('follows', 'Nope')).toBe('Follows');
+  });
+
+  it('marks optional built-ins removable and core tabs fixed', () => {
+    expect(isCoreFeedTab('follows')).toBe(true);
+    expect(isCoreFeedTab('notifications')).toBe(true);
+    expect(isCoreFeedTab('original')).toBe(false);
+    expect(isOptionalBuiltinFeedTab('original')).toBe(true);
+    expect(isOptionalBuiltinFeedTab('replies')).toBe(true);
+    expect(isRemovableFeedTab('original')).toBe(true);
+    expect(isRemovableFeedTab('replies')).toBe(true);
+    expect(isRemovableFeedTab('kind:1')).toBe(true);
+    expect(isRemovableFeedTab('follows')).toBe(false);
+    expect(isRemovableFeedTab('notifications')).toBe(false);
   });
 });
 

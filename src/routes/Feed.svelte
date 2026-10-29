@@ -24,7 +24,7 @@
     localRoomPresence,
     roomPresenceDraft
   } from '$lib/live-chat';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import { consumeSignFailure, isSignInFlight, publishComment, signAndPublish } from '$lib/sign';
   import { showNotice } from '$lib/stores/toast';
   import { articleHighlightDraft, commentDraft } from '$lib/drafts';
@@ -69,6 +69,9 @@
     eventMatchesThreadTarget,
     isFeedInteractionEvent,
     isKindFeedTab,
+    isOptionalBuiltinFeedTab,
+    isRemovableFeedTab,
+    OPTIONAL_BUILTIN_FEED_TABS,
     feedThreadPath,
     feedThreadPathFromId,
     fetchFeedThreadTarget,
@@ -152,18 +155,28 @@
   const followAuthorsKey = $derived(feedFollowAuthors(metadataEvents, $muteState).join('\n'));
   const hasFollows = $derived(followAuthorsKey.length > 0);
   /**
-   * Author-scoped feed: Original / Replies only.
-   * Follows needs a signed-in contact list; Notifications needs a session.
-   * While session metadata is still loading, keep Follows visible so a deep link
-   * is not bounced before the contact list arrives.
+   * Author-scoped feed: Original / Replies only (even if the user hid them on
+   * the home strip). Follows needs a signed-in contact list; Notifications needs
+   * a session. While session metadata is still loading, keep Follows visible so
+   * a deep link is not bounced before the contact list arrives.
    */
-  const visibleFeedTabs = $derived(
-    $feedTabOrder.filter((tab) => {
-      if (feedAuthor) return tab === 'original' || tab === 'replies';
+  const visibleFeedTabs = $derived.by(() => {
+    if (feedAuthor) {
+      const preferred = $feedTabOrder.filter((tab) => tab === 'original' || tab === 'replies');
+      const missing = OPTIONAL_BUILTIN_FEED_TABS.filter((tab) => !preferred.includes(tab));
+      return [...preferred, ...missing];
+    }
+    return $feedTabOrder.filter((tab) => {
       if (tab === 'notifications') return signedIn;
       if (tab === 'follows') return signedIn && (hasFollows || $session.loading);
       return true;
-    })
+    });
+  });
+  /** Optional built-ins the user removed — offered again in the + picker. */
+  const missingOptionalBuiltins = $derived(
+    feedAuthor
+      ? []
+      : OPTIONAL_BUILTIN_FEED_TABS.filter((tab) => !$feedTabOrder.includes(tab))
   );
   const defaultFeedTab = $derived(visibleFeedTabs[0] ?? 'original');
   const feedTab = $derived.by(() => {
@@ -345,12 +358,22 @@
     if (tab) setFeedTab(tab);
   }
 
-  function removeKindTab(tab: FeedTab, e: MouseEvent): void {
+  function removeTab(tab: FeedTab, e: MouseEvent): void {
     e.stopPropagation();
     e.preventDefault();
-    if (!isKindFeedTab(tab)) return;
+    if (!isRemovableFeedTab(tab)) return;
+    // Author profiles always need Original / Replies; only hide them on the home strip.
+    if (feedAuthor && isOptionalBuiltinFeedTab(tab)) return;
+    const next = visibleFeedTabs.find((t) => t !== tab) ?? 'follows';
+    const wasActive = feedTab === tab;
     feedTabOrder.remove(tab);
-    if (feedTab === tab) setFeedTab('original');
+    if (wasActive) setFeedTab(next);
+  }
+
+  function restoreOptionalBuiltin(tab: (typeof OPTIONAL_BUILTIN_FEED_TABS)[number]): void {
+    const restored = feedTabOrder.addOptionalBuiltin(tab);
+    kindPickerOpen = false;
+    if (restored) setFeedTab(restored);
   }
 
   $effect(() => {
@@ -589,7 +612,7 @@
   }
 
   async function postNote(): Promise<void> {
-    const content = scrubTrackingUrlsInText(noteDraft).trim();
+    const content = scrubProseText(noteDraft).trim();
     if (!content || notePosting) return;
     if (!$session.pubkey) {
       openLoginDialog();
@@ -1723,12 +1746,12 @@
             onclick={() => onTabClick(tab)}
           >
             <span class="feed-tab-label">{feedTabLabel(tab, $feedTabLabels[tab])}</span>
-            {#if isKindFeedTab(tab)}
+            {#if isRemovableFeedTab(tab) && !(feedAuthor && isOptionalBuiltinFeedTab(tab))}
               <span
                 class="feed-tab-remove"
                 role="presentation"
-                title="Remove kind tab"
-                onclick={(e) => removeKindTab(tab, e)}>×</span
+                title={isKindFeedTab(tab) ? 'Remove kind tab' : `Remove ${feedTabLabel(tab)}`}
+                onclick={(e) => removeTab(tab, e)}>×</span
               >
             {/if}
           </button>
@@ -1742,12 +1765,26 @@
             disabled={!!pointer}
             aria-expanded={kindPickerOpen}
             aria-haspopup="true"
-            aria-label="Add kind tab"
-            title="Add kind tab"
+            aria-label="Add feed tab"
+            title="Add feed tab"
             onclick={toggleKindPicker}
           >+</button>
           {#if kindPickerOpen}
-            <div class="feed-kind-picker" role="group" aria-label="Kinds for new tab">
+            <div class="feed-kind-picker" role="group" aria-label="Add a feed tab">
+              {#if missingOptionalBuiltins.length}
+                <p class="feed-kind-picker-hint muted">Restore a built-in view</p>
+                <ul class="feed-kind-picker-list">
+                  {#each missingOptionalBuiltins as tab (tab)}
+                    <li>
+                      <button
+                        class="btn feed-kind-picker-restore"
+                        type="button"
+                        onclick={() => restoreOptionalBuiltin(tab)}
+                      >{feedTabLabel(tab)}</button>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
               <p class="feed-kind-picker-hint muted">Select kinds for a custom feed tab</p>
               <label class="feed-kind-picker-name">
                 <span class="muted">Tab name</span>
@@ -2315,6 +2352,12 @@
   }
   .feed-kind-picker-row span {
     min-width: 0;
+  }
+  .feed-kind-picker-restore {
+    width: 100%;
+    justify-content: flex-start;
+    font-size: 0.78rem;
+    padding: 0.28rem 0.45rem;
   }
   .feed-kind-picker-actions {
     display: flex;

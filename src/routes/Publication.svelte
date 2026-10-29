@@ -75,7 +75,7 @@
     type WorkResponses
   } from '$lib/comments';
   import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
-  import { scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubProseText } from '$lib/clean-url';
   import {
     deleteThreadDraft,
     loadThreadDraft,
@@ -3390,7 +3390,7 @@
       return;
     }
     const a = eventAddress(section);
-    const text = scrubTrackingUrlsInText(sectionCommentText[a] ?? '').trim();
+    const text = scrubProseText(sectionCommentText[a] ?? '').trim();
     if (!text) return;
     const published = await publishComment(commentDraft(section, text));
     if (!published) return;

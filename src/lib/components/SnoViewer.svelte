@@ -6,20 +6,45 @@
   interface Props {
     content: string;
     name?: string;
-    /** CSS pixel size of the canvas. */
+    /** CSS pixel size of the canvas. Ignored when `fill` is set. */
     size?: number;
+    /** Size the canvas to the parent frame. */
+    fill?: boolean;
+    /** Click without dragging opens a larger view. */
+    onOpen?: () => void;
   }
 
-  let { content, name = '', size = 320 }: Props = $props();
+  let { content, name = '', size = 320, fill = false, onOpen }: Props = $props();
 
   const sno = $derived(tryParseSno(content));
   let canvasEl = $state<HTMLCanvasElement | null>(null);
-  let view = $state<SnoViewState>({ yaw: 0.6, pitch: 0.35, distance: 12 });
+  let frameEl = $state<HTMLDivElement | null>(null);
+  let box = $state(size);
+  let view = $state<SnoViewState>({ yaw: 0.6, pitch: 0.35, distance: 12, target: [0, 0, 0] });
   let dragging = $state(false);
   let lastX = 0;
   let lastY = 0;
+  let pressX = 0;
+  let pressY = 0;
+  let dragged = false;
   let raf = 0;
   let auto = $state(true);
+
+  const drawSize = $derived(fill ? box : size);
+
+  $effect(() => {
+    if (!fill) return;
+    const el = frameEl;
+    if (!el) return;
+    const measure = () => {
+      const next = Math.floor(Math.min(el.clientWidth, el.clientHeight));
+      if (next > 1) box = next;
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   $effect(() => {
     if (sno) view = defaultView(sno);
@@ -31,8 +56,8 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = typeof window !== 'undefined' ? Math.min(2, window.devicePixelRatio || 1) : 1;
-    const w = size;
-    const h = size;
+    const w = drawSize;
+    const h = drawSize;
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
       canvas.width = w * dpr;
       canvas.height = h * dpr;
@@ -56,14 +81,19 @@
 
   function onPointerDown(e: PointerEvent): void {
     dragging = true;
-    auto = false;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    dragged = false;
+    pressX = lastX = e.clientX;
+    pressY = lastY = e.clientY;
     canvasEl?.setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e: PointerEvent): void {
     if (!dragging) return;
+    if (Math.hypot(e.clientX - pressX, e.clientY - pressY) > 5) {
+      dragged = true;
+      auto = false;
+    }
+    if (!dragged) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
     lastX = e.clientX;
@@ -76,23 +106,39 @@
   }
 
   function onPointerUp(): void {
+    const open = !!onOpen && !dragged;
     dragging = false;
+    if (open) onOpen();
+  }
+
+  function onCanvasKey(e: KeyboardEvent): void {
+    if (!onOpen) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    onOpen();
   }
 </script>
 
 {#if sno}
-  <figure class="sno-viewer">
+  <figure class="sno-viewer" class:fill>
+    <div class="sno-frame" bind:this={frameEl}>
     <canvas
       bind:this={canvasEl}
       class="sno-canvas"
-      style:width={`${size}px`}
-      style:height={`${size}px`}
-      aria-label={name || sno.name || '3D object'}
+      class:can-open={!!onOpen}
+      style:width={`${drawSize}px`}
+      style:height={`${drawSize}px`}
+      aria-label={onOpen ? `Enlarge ${name || sno.name || '3D object'}` : name || sno.name || '3D object'}
+      role={onOpen ? 'button' : undefined}
+      tabindex={onOpen ? 0 : undefined}
+      title={onOpen ? 'Enlarge' : undefined}
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
       onpointercancel={onPointerUp}
+      onkeydown={onCanvasKey}
     ></canvas>
+    </div>
     <figcaption class="sno-caption muted">
       {name || sno.name}
       <span class="sno-meta"> · {sno.vertices.length} vertices · {sno.mode}</span>
@@ -110,6 +156,23 @@
     margin: 0.4rem 0 0.6rem;
     max-width: 100%;
   }
+  .sno-viewer.fill {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    margin: 0;
+  }
+  .sno-frame {
+    min-width: 0;
+    min-height: 0;
+  }
+  .sno-viewer.fill .sno-frame {
+    flex: 1 1 auto;
+    display: grid;
+    place-items: center;
+  }
   .sno-canvas {
     display: block;
     max-width: 100%;
@@ -117,6 +180,9 @@
     touch-action: none;
     cursor: grab;
     background: #151a24;
+  }
+  .sno-canvas.can-open {
+    cursor: zoom-in;
   }
   .sno-canvas:active {
     cursor: grabbing;

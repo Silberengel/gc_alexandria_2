@@ -42,7 +42,7 @@
   import MeetingRoomCard from './MeetingRoomCard.svelte';
   import RoomPresenceCard from './RoomPresenceCard.svelte';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
-  import { openMediaViewer } from '$lib/stores/media-viewer';
+  import { openMediaViewer, openSnoMediaViewer } from '$lib/stores/media-viewer';
   import { webBookmarkHrefFromD, webBookmarkUrl } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import WikiMergeCard from './WikiMergeCard.svelte';
@@ -189,6 +189,12 @@
 
   function openImageGallery(url: string): void {
     openMediaViewer({ url, urls: imageUrls, alts: imageAlts });
+  }
+
+  function openSno(): void {
+    if (!displayEvent) return;
+    const label = displayEvent.tags.find((t) => t[0] === 'name')?.[1] ?? '';
+    openSnoMediaViewer({ content: displayEvent.content, name: label });
   }
 
   /** Failed remote loads — show a readable alt fallback instead of black UA broken-image text. */
@@ -547,6 +553,7 @@
     <SnoViewer
       content={event.content}
       name={event.tags.find((t) => t[0] === 'name')?.[1] ?? ''}
+      onOpen={openSno}
     />
   {:else if isHighlightEvent}
     {#if displayEvent}

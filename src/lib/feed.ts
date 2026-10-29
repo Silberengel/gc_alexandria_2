@@ -200,9 +200,18 @@ export const FEED_FILTER_KINDS: readonly number[] = Object.freeze(
   ].sort((a, b) => a - b)
 );
 
-/** Fixed feed views (always present in the tab strip). */
+/**
+ * Always-on strip tabs. Users can hide Original Posts / Replies and replace them
+ * with kind filters; Follows and Notifications stay.
+ */
+export const CORE_FEED_TABS = ['follows', 'notifications'] as const;
+/** Optional built-ins — present by default, removable from the strip. */
+export const OPTIONAL_BUILTIN_FEED_TABS = ['original', 'replies'] as const;
+/** All named built-ins (core + optional). Order matches the default strip. */
 export const BUILTIN_FEED_TABS = ['follows', 'original', 'replies', 'notifications'] as const;
 export type BuiltinFeedTab = (typeof BUILTIN_FEED_TABS)[number];
+export type CoreFeedTab = (typeof CORE_FEED_TABS)[number];
+export type OptionalBuiltinFeedTab = (typeof OPTIONAL_BUILTIN_FEED_TABS)[number];
 
 /**
  * Built-in tabs plus user-added kind filters.
@@ -219,6 +228,8 @@ export const DEFAULT_FEED_TAB_ORDER: FeedTab[] = [
 ];
 
 const BUILTIN_FEED_TAB_SET = new Set<string>(BUILTIN_FEED_TABS);
+const CORE_FEED_TAB_SET = new Set<string>(CORE_FEED_TABS);
+const OPTIONAL_BUILTIN_FEED_TAB_SET = new Set<string>(OPTIONAL_BUILTIN_FEED_TABS);
 
 const KIND_FEED_TAB_RE = /^kind:\d+(\+\d+)*$/;
 
@@ -258,6 +269,19 @@ export function feedTabKind(tab: FeedTab): number | null {
 
 export function isFeedTab(raw: string): raw is FeedTab {
   return BUILTIN_FEED_TAB_SET.has(raw) || isKindFeedTab(raw);
+}
+
+export function isCoreFeedTab(tab: string): tab is CoreFeedTab {
+  return CORE_FEED_TAB_SET.has(tab);
+}
+
+export function isOptionalBuiltinFeedTab(tab: string): tab is OptionalBuiltinFeedTab {
+  return OPTIONAL_BUILTIN_FEED_TAB_SET.has(tab);
+}
+
+/** Kind tabs and optional built-ins can leave the strip; Follows / Notifications cannot. */
+export function isRemovableFeedTab(tab: string): boolean {
+  return isKindFeedTab(tab) || isOptionalBuiltinFeedTab(tab);
 }
 
 export function parseFeedTab(raw: string | null | undefined): FeedTab {

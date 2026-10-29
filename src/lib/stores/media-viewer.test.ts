@@ -4,6 +4,7 @@ import {
   closeMediaViewer,
   mediaViewer,
   openMediaViewer,
+  openSnoMediaViewer,
   stepMediaViewer
 } from './media-viewer';
 
@@ -11,7 +12,7 @@ describe('mediaViewer slideshow', () => {
   beforeEach(() => {
     closeMediaViewer();
     // closeMediaViewer may try history.back; force a clean empty state.
-    mediaViewer.set({ open: false, url: '', urls: [], alts: [], index: 0, title: '' });
+    mediaViewer.set({ open: false, url: '', urls: [], alts: [], index: 0, title: '', sno: null });
   });
 
   it('opens a single image without a multi-slide list', () => {
@@ -69,5 +70,16 @@ describe('mediaViewer slideshow', () => {
     expect(state.index).toBe(1);
     expect(state.alts).toEqual(['First photo', 'Second photo']);
     expect(state.alts[state.index]).toBe('Second photo');
+  });
+
+  it('opens a 3D object and clears it when an image opens', () => {
+    openSnoMediaViewer({ content: '{"v":2}', name: 'AJ FU' });
+    expect(get(mediaViewer).open).toBe(true);
+    expect(get(mediaViewer).sno).toEqual({ content: '{"v":2}', name: 'AJ FU' });
+    expect(get(mediaViewer).urls).toEqual([]);
+
+    openMediaViewer({ url: 'https://cdn.example/a.jpg' });
+    expect(get(mediaViewer).sno).toBeNull();
+    expect(get(mediaViewer).url).toBe('https://cdn.example/a.jpg');
   });
 });

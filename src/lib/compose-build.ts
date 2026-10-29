@@ -8,7 +8,7 @@ import { kind0SavePayload } from './compose-kind0';
 import { buildDirectoryMemberTags } from './compose-directory-members';
 import { buildMuteListPayload } from './compose-mute-list';
 import { buildPListTags } from './compose-people-list';
-import { scrubTrackingUrlsInText } from './clean-url';
+import { scrubProseText, scrubTrackingUrlsInText } from './clean-url';
 import { KIND } from './constants';
 import { withMarkupTag } from './markup';
 import { withClientTag } from './sign';
@@ -118,7 +118,7 @@ export function buildComposePartial(state: ComposeFormState): {
 
   if (kind === 0) {
     const payload = kind0SavePayload(state.kind0Tags ?? []);
-    content = scrubTrackingUrlsInText(payload.contentJson);
+    content = scrubProseText(payload.contentJson);
     tags = [...payload.orderedTags];
     if (freeformTags?.length) {
       for (const row of freeformTags) {
@@ -176,7 +176,7 @@ export function buildComposePartial(state: ComposeFormState): {
     } else {
       content = state.content?.trim() ? state.content : String(values.content ?? '');
     }
-    content = scrubTrackingUrlsInText(content);
+    content = scrubProseText(content);
     tags = buildTagsForKind(kind, values, {
       app: 'alexandria',
       content,

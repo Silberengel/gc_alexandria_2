@@ -6,7 +6,7 @@
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { CONTACT_A_TAG, KIND, REPO_OWNER_HEX } from '$lib/constants';
   import { GITCITADEL_HEX } from '$lib/hex';
-  import { scrubClipboardTextPaste, scrubTrackingUrlsInText } from '$lib/clean-url';
+  import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import { signAndPublish } from '$lib/sign';
   import { nip19 } from 'nostr-tools';
 
@@ -38,8 +38,8 @@
     success = '';
     issueHref = '';
     if (!$session.pubkey) return;
-    subject = scrubTrackingUrlsInText(subject);
-    body = scrubTrackingUrlsInText(body);
+    subject = scrubProseText(subject);
+    body = scrubProseText(body);
     if (!subject.trim() || !body.trim()) {
       error = 'Subject and body are required.';
       return;

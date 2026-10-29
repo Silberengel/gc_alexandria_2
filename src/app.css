@@ -10172,6 +10172,16 @@ a.user-status-line:hover {
 .media-viewer-stage-zoom:active {
   cursor: grabbing;
 }
+.media-viewer-stage-sno {
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 0.85rem 0.5rem;
+}
+.media-viewer-stage-sno .sno-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
 .media-viewer-nav {
   appearance: none;
   border: 0;

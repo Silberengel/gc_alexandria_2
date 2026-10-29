@@ -12,6 +12,8 @@ export type MediaViewerState = {
   title: string;
   /** Optional in-app hash path (e.g. publication). */
   href?: string;
+  /** Kind 33331 payload. When set, the viewer draws the mesh instead of an image. */
+  sno: { content: string; name: string } | null;
 };
 
 const empty: MediaViewerState = {
@@ -20,7 +22,8 @@ const empty: MediaViewerState = {
   urls: [],
   alts: [],
   index: 0,
-  title: ''
+  title: '',
+  sno: null
 };
 
 export const mediaViewer = writable<MediaViewerState>({ ...empty });
@@ -98,9 +101,36 @@ export function openMediaViewer(opts: {
     index,
     url: list[index]!,
     title: (opts.title ?? '').trim(),
-    href: opts.href?.trim() || undefined
+    href: opts.href?.trim() || undefined,
+    sno: null
   });
   // Keep the previous history entry so Close / Back restores the same page.
+  if (!alreadyOpen && !historyPushed) {
+    try {
+      history.pushState({ alexandriaMediaViewer: true }, '');
+      historyPushed = true;
+    } catch {
+      historyPushed = false;
+    }
+  }
+}
+
+/** Open a kind 33331 mesh in the media viewer. */
+export function openSnoMediaViewer(opts: { content: string; name?: string }): void {
+  const content = opts.content ?? '';
+  if (!content.trim()) return;
+  ensurePopStateListener();
+  const alreadyOpen = get(mediaViewer).open;
+  const name = (opts.name ?? '').trim();
+  mediaViewer.set({
+    open: true,
+    url: '',
+    urls: [],
+    alts: [],
+    index: 0,
+    title: name,
+    sno: { content, name }
+  });
   if (!alreadyOpen && !historyPushed) {
     try {
       history.pushState({ alexandriaMediaViewer: true }, '');
