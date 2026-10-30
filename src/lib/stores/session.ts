@@ -260,17 +260,40 @@ function createSessionStore() {
       }
 
       // Phase 2: full lists — social + document stacks now prepend inbox/outbox.
+      // Priority: landing stampede would otherwise shed these (empty Reading now /
+      // My shelf) under background "no free slot → []".
       const outboxSocial = viewerOutboxStack();
-      const [docResult, socialResult, profileResult, outboxShelf] =
+      const readingQueueFilter = {
+        authors: [pubkey],
+        kinds: [KIND.READING_QUEUE],
+        limit: 2
+      };
+      const [docResult, socialResult, profileResult, outboxShelf, readingQueueResult] =
         await Promise.allSettled([
           relayPool.query(
             documentStack(),
             [listFilter, { authors: [pubkey], kinds: [KIND.DIRECTORY], limit: 40 }],
-            4000
+            4000,
+            4,
+            undefined,
+            { priority: true }
           ),
-          relayPool.query(socialStack(), [socialFilter, shelfFilter], 4000),
-          relayPool.query(profileStack(), [profileFilter], 4000),
-          relayPool.query(outboxSocial, [shelfFilter], 4000, 2)
+          relayPool.query(socialStack(), [socialFilter, shelfFilter], 4000, 4, undefined, {
+            priority: true
+          }),
+          relayPool.query(profileStack(), [profileFilter], 4000, 4, undefined, {
+            priority: true
+          }),
+          relayPool.query(outboxSocial, [shelfFilter], 4000, 2, undefined, { priority: true }),
+          // Dedicated 16374 — must not lose to a fat multi-kind shelf batch.
+          relayPool.query(
+            [...socialStack(), ...outboxSocial],
+            [readingQueueFilter],
+            4000,
+            4,
+            undefined,
+            { priority: true }
+          )
         ]);
       const doc = docResult.status === 'fulfilled' ? docResult.value : [];
       const social = socialResult.status === 'fulfilled' ? socialResult.value : [];
@@ -280,8 +303,17 @@ function createSessionStore() {
         (SHELF_LOGIN_KINDS as readonly number[]).includes(e.kind)
       );
       const outboxLists = outboxShelf.status === 'fulfilled' ? outboxShelf.value : [];
+      const readingQueues =
+        readingQueueResult.status === 'fulfilled' ? readingQueueResult.value : [];
       const byId = new Map<string, Event>();
-      for (const e of [...bootEvents, ...doc, ...social, ...profiles, ...outboxLists]) {
+      for (const e of [
+        ...bootEvents,
+        ...doc,
+        ...social,
+        ...profiles,
+        ...outboxLists,
+        ...readingQueues
+      ]) {
         byId.set(e.id, e);
       }
       let merged = [...byId.values()];
