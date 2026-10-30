@@ -1,4 +1,4 @@
-import { KIND, NIP32_READ_LABEL } from './constants';
+import { DOCUMENT_SEARCH_RELAYS, KIND, NIP32_READ_LABEL, SOCIAL_RELAYS } from './constants';
 import { isReadLabelSlug } from './nip32';
 import { countReadPublications } from './read-marks';
 import { fetchBrainstormNip50Events } from './brainstorm-search';
@@ -859,6 +859,19 @@ function bookshelfDirectoryAuthors(npubOrHex?: string): string[] {
   return me ? [me] : [];
 }
 
+/**
+ * Hard library hosts for kind-30045 shelves. Must not depend on the viewer's
+ * GitCitadel / Outboxes toggles — curated guides live here even when personal
+ * stacks omit them. Never put flaky third-party outbox URLs (nostr21, sovbit)
+ * ahead of these.
+ */
+function libraryBookshelfRelays(): string[] {
+  return [
+    ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+    ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+  ];
+}
+
 /** Newest matching kind-30045 for a bookshelf slug (optional author scope). */
 export async function fetchBookshelfDirectory(
   d: string,
@@ -875,24 +888,30 @@ export async function fetchBookshelfDirectory(
   };
   // Kind 30045 is not a Mercury document kind — documentStack alone often misses
   // shelves that live on social hosts (theforest) / curator outboxes.
-  const base = [...new Set([...socialStack(), ...documentStack()])];
-  // Keep library hosts ahead of flaky third-party sockets (e.g. nostr21) so a
-  // small maxRelays still reaches the shelf.
-  const libraryFirst = base.filter((u) =>
-    /theforest|thecitadel|mercury-relay/i.test(u)
-  );
-  let preferred: string[] = [...libraryFirst];
+  const library = libraryBookshelfRelays();
+  const base = [...new Set([...library, ...socialStack(), ...documentStack()])];
+  let outbox: string[] = [];
   const curator = authors[0];
   if (curator && foreignRelaysAllowed()) {
     try {
-      preferred = [...(await authorOutbox(curator)).slice(0, 4), ...preferred];
+      // After library hosts — curator NIP-65 lists often lead with dead sockets.
+      outbox = (await authorOutbox(curator))
+        .filter((u) => !/nostr21|sovbit/i.test(u))
+        .slice(0, 4);
     } catch {
-      /* stay on social + document */
+      /* stay on library + stacks */
     }
   }
-  const scope = withPreferredRelays(base, preferred, 8, 5);
+  const preferred = [...library, ...outbox];
+  const scope = withPreferredRelays(base, preferred, 4, 6);
   const dirs = pruneToLatestReplaceables(
-    mergeById(await relayPool.query(scope.relays, [filter], 12_000, scope.maxRelays))
+    mergeById(
+      await relayPool.query(scope.relays, [filter], 12_000, Math.min(scope.maxRelays, 8), undefined, {
+        // Shelves must still resolve when GitCitadel preset / Outboxes are off.
+        bypassConstrain: true,
+        includeCooling: true
+      })
+    )
   ).filter((e) => e.kind === KIND.DIRECTORY);
   if (!dirs.length) return null;
   if (authors.length) {

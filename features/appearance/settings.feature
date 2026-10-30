@@ -41,3 +41,4 @@ Feature: Appearance
     And when that toggle is on, Track / progress / Stop write only to this browser and do not publish kind 16374
     And when that toggle is turned off again, the on-device queue is published as kind 16374 before leaving local-only
     And that local-only choice persists in this browser
+    And when signed in I see Relays: your lists plus Alexandria's library hosts are always on, and Outboxes is a toggle

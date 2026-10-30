@@ -232,39 +232,28 @@
       <header class="settings-panel-head">
         <h2>Relays</h2>
         <p class="muted">
-          Saved in this browser. With Outboxes off, reads and publishes stay on your relays,
-          plus GitCitadel's if that is on. Missing user relays fall back to theforest.
+          Saved in this browser. Your lists and Alexandria's library hosts are always used
+          together. With Outboxes off, other people's relays stay off. Missing user relays fall
+          back to theforest.
         </p>
       </header>
       <div class="settings-relay-fixed">
         <span class="settings-toggle-text">
-          <span class="settings-toggle-title">My own relay lists</span>
+          <span class="settings-toggle-title">Your relays and Alexandria's</span>
           <span class="muted">
-            Always on. Your inbox, outbox, favorites, and local relays. If you have none,
-            Alexandria uses theforest.
+            Always on. Your inbox, outbox, favorites, and local relays, plus the hosts Alexandria
+            ships with (theforest, thecitadel, Mercury, and the rest). If you have none of your
+            own, Alexandria still uses those library hosts.
           </span>
         </span>
         <span class="settings-relay-always">Always on</span>
       </div>
-      <label class="settings-toggle" class:settings-toggle-on={$relayPrefs.gitcitadel}>
-        <span class="settings-toggle-text">
-          <span class="settings-toggle-title">GitCitadel's favorite relays</span>
-          <span class="muted">
-            Relays Alexandria ships with, including thecitadel, theforest, and Mercury.
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={$relayPrefs.gitcitadel}
-          onchange={(e) => relayPrefs.setGitcitadel((e.target as HTMLInputElement).checked)}
-        />
-      </label>
       <label class="settings-toggle" class:settings-toggle-on={$relayPrefs.outboxes}>
         <span class="settings-toggle-text">
           <span class="settings-toggle-title">Outboxes</span>
           <span class="muted">
             Other people's relays: their write relays on a profile and their read relays when you
-            open or answer a thread. Off leaves only your relays, plus GitCitadel's if that is on.
+            open or answer a thread. Off leaves only your relays plus Alexandria's library hosts.
             Signed-out sessions keep this on.
           </span>
         </span>

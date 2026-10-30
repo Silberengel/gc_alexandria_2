@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools';
-import { GITCITADEL_CURATOR_NPUB, KIND } from './constants';
+import { DOCUMENT_SEARCH_RELAYS, GITCITADEL_CURATOR_NPUB, KIND, SOCIAL_RELAYS } from './constants';
 import { GITCITADEL_CURATOR_HEX } from './hex';
 import { directoryChildrenFromEvent, directoryDTag } from './bookshelf';
 import { isNewerReplaceable } from './nostr/replaceable';
@@ -138,8 +138,15 @@ export function starterGuideCoordinate(d: string): string {
 export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
   const dTags = allStarterGuideDTags();
   try {
+    // Guides are on theforest / thecitadel — do not rely on documentStack alone
+    // (GitCitadel preset off, or a small cap that lands on dead third-party hosts).
+    const library = [
+      ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+      ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u)),
+      ...documentStack()
+    ];
     const events = await relayPool.query(
-      documentStack(),
+      [...new Set(library)],
       [
         {
           kinds: [KIND.DIRECTORY],
@@ -148,8 +155,10 @@ export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
           limit: Math.min(40, dTags.length + 5)
         }
       ],
-      2_500,
-      3
+      5_000,
+      4,
+      undefined,
+      { bypassConstrain: true, includeCooling: true }
     );
     if (events.length) rememberEvents(events);
     const live = starterGuideChipsFromDirectories(events);

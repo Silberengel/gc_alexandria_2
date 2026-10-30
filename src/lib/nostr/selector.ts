@@ -142,11 +142,12 @@ function viewerListedNostrLand(): boolean {
 }
 
 /**
- * GitCitadel preset relays. Forced on when signed out; when signed in, follows Settings.
+ * Alexandria's shipped library relays (theforest, thecitadel, Mercury, …).
+ * Always on — merged with the viewer's own lists. Signed-out sessions always
+ * used them; signed-in no longer has a Settings toggle to turn them off.
  */
 export function gitcitadelReadsAllowed(): boolean {
-  if (!ctx.signedIn) return true;
-  return relayPrefs.get().gitcitadel;
+  return true;
 }
 
 /**
@@ -160,9 +161,9 @@ export function foreignRelaysAllowed(): boolean {
 
 /**
  * Drop every relay this session is not allowed to dial.
- * Signed out: all three types on — URLs are not filtered here.
- * Signed in, Outboxes off: the viewer's lists, plus GitCitadel's when that toggle is on.
- * An empty viewer list falls back to theforest.
+ * Signed out: Outboxes on — URLs are not filtered here.
+ * Signed in, Outboxes off: the viewer's lists plus Alexandria's shipped library hosts.
+ * An empty viewer list still keeps those library hosts (and falls back to theforest for writes).
  * Signed in, Outboxes on: callers may also pass one author's inbox or outbox.
  * Those URLs are not rewritten here. Note-hunt relays are separate ({@link socialSearchStack}).
  */

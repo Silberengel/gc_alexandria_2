@@ -22,17 +22,27 @@ describe('relay prefs', () => {
     vi.resetModules();
   });
 
-  it('defaults both sources on and keeps the choice after a fresh load', async () => {
+  it('keeps library hosts always on and persists outboxes', async () => {
     const first = await import('./relay-prefs');
     expect(first.relayPrefs.get()).toEqual({ gitcitadel: true, outboxes: true });
     first.relayPrefs.setGitcitadel(false);
     first.relayPrefs.setOutboxes(false);
+    expect(first.relayPrefs.get()).toEqual({ gitcitadel: true, outboxes: false });
     expect(mem.get('alexandria-relay-prefs')).toBe(
-      JSON.stringify({ gitcitadel: false, outboxes: false })
+      JSON.stringify({ gitcitadel: true, outboxes: false })
     );
 
     vi.resetModules();
     const second = await import('./relay-prefs');
-    expect(second.relayPrefs.get()).toEqual({ gitcitadel: false, outboxes: false });
+    expect(second.relayPrefs.get()).toEqual({ gitcitadel: true, outboxes: false });
+  });
+
+  it('migrates older gitcitadel:false localStorage back on', async () => {
+    mem.set('alexandria-relay-prefs', JSON.stringify({ gitcitadel: false, outboxes: true }));
+    const mod = await import('./relay-prefs');
+    expect(mod.relayPrefs.get()).toEqual({ gitcitadel: true, outboxes: true });
+    expect(mem.get('alexandria-relay-prefs')).toBe(
+      JSON.stringify({ gitcitadel: true, outboxes: true })
+    );
   });
 });

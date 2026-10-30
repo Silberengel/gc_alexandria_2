@@ -7,7 +7,7 @@
   import EventsTable from '$lib/components/EventsTable.svelte';
   import { listingDensity } from '$lib/stores/listing-density';
   import { listingPageSize } from '$lib/listing-table';
-  import { KIND, READING_CONCURRENT_DEFAULT } from '$lib/constants';
+  import { DOCUMENT_SEARCH_RELAYS, KIND, READING_CONCURRENT_DEFAULT, SOCIAL_RELAYS } from '$lib/constants';
   import { relayPool } from '$lib/nostr/pool';
   import { authorMailboxes, withPreferredRelays } from '$lib/nostr/mailboxes';
   import { documentStack, foreignRelaysAllowed, profileStack, socialStack } from '$lib/nostr/selector';
@@ -814,14 +814,37 @@
               /* stay on our relays */
             }
             if (cancelled) return;
-            const hits = await queryAuthored(
-              [...new Set([...socialStack(), ...documentStack()])],
+            // Prefer forest/citadel + author outbox; bypass constrain so GitCitadel-off
+            // viewers still see public bookmark lists on library hosts.
+            const libraryHosts = [
+              ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+              ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+            ];
+            const bookmarkBase = [
+              ...libraryHosts,
+              ...authorOutbox,
+              ...socialStack(),
+              ...documentStack()
+            ];
+            const bookmarkScope = withPreferredRelays(
+              [...new Set(bookmarkBase)],
+              [
+                ...libraryHosts,
+                ...authorOutbox.filter((u) => !/nostr21|sovbit/i.test(u)).slice(0, 4)
+              ],
+              4,
+              6
+            );
+            const hits = await relayPool.query(
+              bookmarkScope.relays,
               [
                 { kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 8 },
                 { kinds: [KIND.BOOKMARK_SET], authors: [nextPk], limit: 80 }
               ],
-              8000,
-              5
+              10_000,
+              Math.min(bookmarkScope.maxRelays, 8),
+              undefined,
+              { bypassConstrain: true, includeCooling: true }
             );
             if (cancelled) return;
             const own = get(session).pubkey?.toLowerCase() === nextPk.toLowerCase();

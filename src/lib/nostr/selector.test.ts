@@ -48,8 +48,7 @@ describe('nostr.land aggregator', () => {
     expect(stack[aggrAt]).toBe(AGGR_RELAY);
   });
 
-  it('signed out, treats all three relay types as on', () => {
-    // Own lists N/A; GitCitadel preset and Outboxes are forced on.
+  it('signed out, treats library hosts and Outboxes as on', () => {
     expect(constrainRelays(['wss://thecitadel.nostr1.com', 'wss://random.example'])).toEqual([
       'wss://thecitadel.nostr1.com',
       'wss://random.example'
@@ -58,7 +57,7 @@ describe('nostr.land aggregator', () => {
     expect(documentStack().some((u) => u.includes('thecitadel.nostr1.com'))).toBe(true);
   });
 
-  it('signed in with outboxes off, keeps only the viewer list unless GitCitadel is on', () => {
+  it('signed in with outboxes off, keeps viewer lists plus Alexandria library hosts', () => {
     setSelectorContext({
       signedIn: true,
       viewerPubkey: 'a'.repeat(64),
@@ -68,37 +67,24 @@ describe('nostr.land aggregator', () => {
       local: []
     });
     relayPrefs.setOutboxes(false);
-    relayPrefs.setGitcitadel(false);
-    expect(
-      constrainRelays([
-        'wss://thecitadel.nostr1.com',
-        'wss://relay.damus.io',
-        'wss://someone.example',
-        'wss://mine.example/',
-        'wss://write.example'
-      ])
-    ).toEqual(['wss://mine.example/', 'wss://write.example']);
-    expect(documentStack()).not.toContain('wss://thecitadel.nostr1.com');
-    expect(documentStack()).toContain('wss://mine.example');
-    expect(socialSearchStack()).toEqual([]);
-
-    relayPrefs.setGitcitadel(true);
-    expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
     const kept = constrainRelays([
       'wss://thecitadel.nostr1.com',
       'wss://relay.damus.io',
       'wss://someone.example',
-      'wss://mine.example'
+      'wss://mine.example/',
+      'wss://write.example'
     ]);
     expect(kept).toContain('wss://thecitadel.nostr1.com');
-    expect(kept).toContain('wss://mine.example');
+    expect(kept).toContain('wss://mine.example/');
+    expect(kept).toContain('wss://write.example');
     expect(kept).not.toContain('wss://relay.damus.io');
     expect(kept).not.toContain('wss://someone.example');
     expect(documentStack().some((u) => u.includes('thecitadel.nostr1.com'))).toBe(true);
     expect(documentStack()).toContain('wss://mine.example');
+    expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
   });
 
-  it('uses popular relays for missing notes only when the GitCitadel preset is on', () => {
+  it('uses popular relays for missing notes alongside the social stack', () => {
     setSelectorContext({
       signedIn: true,
       inbox: [],
@@ -106,14 +92,11 @@ describe('nostr.land aggregator', () => {
       favorites: [],
       local: []
     });
-    relayPrefs.setGitcitadel(false);
-    expect(socialSearchStack()).toEqual([]);
-    relayPrefs.setGitcitadel(true);
     expect(socialSearchStack()).toEqual(expect.arrayContaining([...SOCIAL_SEARCH_RELAYS]));
     expect(socialStack().some((u) => u.includes('primus.nostr1.com'))).toBe(false);
   });
 
-  it('does not add the nostr.land aggregator when GitCitadel relays are off', () => {
+  it('adds the nostr.land aggregator when the viewer lists nostr.land', () => {
     setSelectorContext({
       signedIn: true,
       inbox: ['wss://nostr.land'],
@@ -121,12 +104,11 @@ describe('nostr.land aggregator', () => {
       favorites: [],
       local: []
     });
-    relayPrefs.setGitcitadel(false);
-    expect(socialStack().some((u) => u.includes('aggr.nostr.land'))).toBe(false);
+    expect(socialStack().some((u) => u.includes('aggr.nostr.land'))).toBe(true);
     expect(socialStack()).toContain('wss://nostr.land');
   });
 
-  it('falls back to theforest when the signed-in viewer has no relays', () => {
+  it('keeps library hosts when the signed-in viewer has no personal relays', () => {
     setSelectorContext({
       signedIn: true,
       viewerPubkey: 'a'.repeat(64),
@@ -135,19 +117,19 @@ describe('nostr.land aggregator', () => {
       favorites: [],
       local: []
     });
-    relayPrefs.setGitcitadel(false);
     relayPrefs.setOutboxes(false);
-    expect(socialStack()).toEqual(['wss://theforest.nostr1.com']);
-    expect(documentStack()).toEqual(['wss://theforest.nostr1.com']);
+    expect(socialStack().some((u) => u.includes('theforest'))).toBe(true);
+    expect(documentStack().some((u) => u.includes('thecitadel'))).toBe(true);
     expect(viewerOutboxStack()).toEqual(['wss://theforest.nostr1.com']);
     expect(writeStack()).toEqual(['wss://theforest.nostr1.com']);
-    expect(
-      constrainRelays([
-        'wss://thecitadel.nostr1.com',
-        'wss://theforest.nostr1.com',
-        'wss://relay.damus.io'
-      ])
-    ).toEqual(['wss://theforest.nostr1.com']);
+    const kept = constrainRelays([
+      'wss://thecitadel.nostr1.com',
+      'wss://theforest.nostr1.com',
+      'wss://relay.damus.io'
+    ]);
+    expect(kept).toContain('wss://thecitadel.nostr1.com');
+    expect(kept).toContain('wss://theforest.nostr1.com');
+    expect(kept).not.toContain('wss://relay.damus.io');
   });
 
   it('keeps social search relays off the default social stack', () => {
