@@ -889,6 +889,8 @@ export async function publicationsFromBookshelfDirectory(
 ): Promise<Event[]> {
   if (!dir) return [];
   const t = publicationTargetsFromDirectory(dir);
+  // a- and e-tag memberships share one directory budget (MAX_BOOKSHELF_DIRECTORY_ITEMS).
+  // Fetch both up to that cap — a lower e-id slice would truncate valid shelves.
   const byAddr = await fetchByAddresses(
     [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS)
   );
