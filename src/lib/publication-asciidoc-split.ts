@@ -92,6 +92,29 @@ function utf8Bytes(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
+/**
+ * Drop AsciiDoc document header / title-page / abstract so the splitter starts
+ * at the first indexable section (`==` or deeper). Compose title/tags own the book meta.
+ */
+export function stripAsciiDocBeforeFirstSection(source: string): string {
+  const normalized = source.replace(/\r\n/g, '\n');
+  if (!normalized.trim()) return normalized;
+  const lines = normalized.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const h = parseAsciiDocHeading(lines[i]!);
+    if (h && h.level >= 2) {
+      return lines.slice(i).join('\n').replace(/^\n+/, '');
+    }
+  }
+  // No section heading — drop a lone `=` document title if present, else keep body.
+  const withoutDocTitle = lines.filter((line, idx) => {
+    if (idx !== 0) return true;
+    const h = parseAsciiDocHeading(line);
+    return !(h && h.level === 1);
+  });
+  return withoutDocTitle.join('\n').replace(/^\n+/, '');
+}
+
 /** Parse `== Title` … `====== Title` (not a lone `=`). */
 export function parseAsciiDocHeading(
   line: string
@@ -617,10 +640,16 @@ export function exposeStructureForIdealSplit(
     rootTitle: string;
     rootDTag?: string;
     maxIndexLevel?: PublicationIndexDepth;
+    /** When true (republish), never raise index depth for oversized leaves. */
+    lockIndexDepth?: boolean;
   }
 ): { source: string; maxIndexLevel: PublicationIndexDepth } {
   let depth = clampIndexDepth(opts.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
   let text = source.replace(/\r\n/g, '\n');
+
+  if (opts.lockIndexDepth) {
+    return { source: text, maxIndexLevel: depth };
+  }
 
   while (depth < 4) {
     const parsed = parsePublicationAsciiDoc(text, { ...opts, maxIndexLevel: depth });
@@ -646,9 +675,11 @@ export function applyIdealPublicationSplit(
     rootTitle: string;
     rootDTag?: string;
     maxIndexLevel?: PublicationIndexDepth;
+    lockIndexDepth?: boolean;
   }
 ): IdealSplitApplyResult {
   const depthBefore = clampIndexDepth(opts.maxIndexLevel ?? DEFAULT_INDEX_DEPTH);
+  const lockDepth = opts.lockIndexDepth === true;
   const report: IdealSplitReport = {
     splitTitles: [],
     sectionsAdded: 0,
@@ -660,7 +691,7 @@ export function applyIdealPublicationSplit(
   let working = exposed.source;
   let depth = exposed.maxIndexLevel;
   let maxIndexLevel = depth;
-  report.depthRaised = depth > depthBefore;
+  report.depthRaised = !lockDepth && depth > depthBefore;
 
   const parsed = parsePublicationAsciiDoc(working, {
     rootTitle: opts.rootTitle,
@@ -676,6 +707,27 @@ export function applyIdealPublicationSplit(
   // Process from deepest / later lines first so line offsets stay stable when rewriting via serialize.
   const round = parsed;
 
+  function replaceWithSiblingSections(
+    leaf: PublicationSplitNode,
+    parent: PublicationSplitNode,
+    parts: string[],
+    level: number
+  ): void {
+    const idx = parent.children.indexOf(leaf);
+    if (idx < 0) return;
+    const replacements: PublicationSplitNode[] = parts.map((content, i) => ({
+      level,
+      title: `Section ${i + 1}`,
+      dTag: '',
+      kind: KIND.SECTION,
+      content,
+      children: [],
+      sourceLine: leaf.sourceLine,
+      contentBytes: utf8Bytes(content)
+    }));
+    parent.children.splice(idx, 1, ...replacements);
+  }
+
   function splitLeafInTree(leaf: PublicationSplitNode, parent: PublicationSplitNode): void {
     const parts = packParagraphsToLimit(leaf.content);
     if (parts.length <= 1 && utf8Bytes(parts[0] ?? '') <= MAX_LEAF_BYTES) return;
@@ -683,26 +735,20 @@ export function applyIdealPublicationSplit(
     report.splitTitles.push(leaf.title);
     report.sectionsAdded += parts.length;
 
-    if (leaf.level >= 4) {
-      // Replace this leaf with sibling ==== Section N under the same parent.
-      const idx = parent.children.indexOf(leaf);
-      if (idx < 0) return;
-      const replacements: PublicationSplitNode[] = parts.map((content, i) => ({
-        level: 4,
-        title: `Section ${i + 1}`,
-        dTag: '',
-        kind: KIND.SECTION,
-        content,
-        children: [],
-        sourceLine: leaf.sourceLine,
-        contentBytes: utf8Bytes(content)
-      }));
-      parent.children.splice(idx, 1, ...replacements);
+    // At max outline level — or when depth is locked on republish — pack as siblings.
+    if (leaf.level >= 4 || (lockDepth && leaf.level >= depth)) {
+      replaceWithSiblingSections(leaf, parent, parts, leaf.level);
       return;
     }
 
     const childLevel = (leaf.level + 1) as 3 | 4;
-    if (childLevel > depth) depth = clampIndexDepth(childLevel);
+    if (childLevel > depth) {
+      if (lockDepth) {
+        replaceWithSiblingSections(leaf, parent, parts, leaf.level);
+        return;
+      }
+      depth = clampIndexDepth(childLevel);
+    }
 
     leaf.children = parts.map((content, i) => ({
       level: childLevel,
@@ -744,8 +790,8 @@ export function applyIdealPublicationSplit(
   );
 
   working = serializePublicationTree(round.root);
-  maxIndexLevel = depth;
-  report.depthRaised = maxIndexLevel > depthBefore;
+  maxIndexLevel = lockDepth ? depthBefore : depth;
+  report.depthRaised = !lockDepth && maxIndexLevel > depthBefore;
 
   // Ghosts after apply should be empty if successful; keep report from this pass.
   report.ghosts = previewIdealSplitGhosts(working, {

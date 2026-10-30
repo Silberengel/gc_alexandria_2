@@ -1331,15 +1331,52 @@ export function feedThreadRootPointer(event: Event): string | null {
  *    open threads skip the bare-`/feed` rewrite.
  * 4. `/feed?tab=T&thread=P` — thread while preserving list tab T for close.
  * 5. `comment=` / `author=` — reply focus / profile-scoped list; orthogonal.
- * 6. Legacy `/feed/:id` — redirect to `?thread=` only (FeedThreadRedirect).
+ * 6. `since=` / `kind=` / `q=` — list filters (lookback, kind number, text); omitted when
+ *    at defaults (24h / all kinds / empty text) so refresh keeps the active filter.
+ * 7. Legacy `/feed/:id` — redirect to `?thread=` only (FeedThreadRedirect).
  *
  * Replies open the OP as `thread=` and focus with `comment=`; OPs open themselves.
  */
-export type FeedListOpts = { author?: string | null };
+export type FeedListOpts = {
+  author?: string | null;
+  /** Lookback window id; default (`24h`) is omitted from the URL. */
+  since?: NotificationLookbackId | null;
+  /** Kind number as decimal text; empty / invalid → omitted. */
+  kind?: string | number | null;
+  /** Free-text content filter; empty → omitted. */
+  q?: string | null;
+};
 
 function appendFeedAuthor(q: URLSearchParams, author?: string | null): void {
   const hex = author?.trim().toLowerCase();
   if (hex && /^[0-9a-f]{64}$/.test(hex)) q.set('author', hex);
+}
+
+/** Kind filter from `?kind=` — empty string means all kinds. */
+export function parseFeedKindParam(raw: string | null | undefined): string {
+  const t = (raw ?? '').trim();
+  return /^\d+$/.test(t) ? t : '';
+}
+
+/**
+ * Write or clear list-filter query keys. Safe on a fresh or existing `URLSearchParams`
+ * (deletes restore defaults).
+ */
+export function applyFeedListFilters(q: URLSearchParams, opts: FeedListOpts): void {
+  const since = opts.since != null ? parseNotificationLookback(opts.since) : DEFAULT_NOTIFICATION_LOOKBACK;
+  if (since !== DEFAULT_NOTIFICATION_LOOKBACK) q.set('since', since);
+  else q.delete('since');
+
+  const kind =
+    opts.kind != null && String(opts.kind).trim() !== ''
+      ? parseFeedKindParam(String(opts.kind))
+      : '';
+  if (kind) q.set('kind', kind);
+  else q.delete('kind');
+
+  const text = (opts.q ?? '').trim();
+  if (text) q.set('q', text);
+  else q.delete('q');
 }
 
 /** Write `tab=`. Thread builders pass `omitDefault` so `original` stays off the URL. */
@@ -1378,6 +1415,7 @@ export function feedThreadPath(
       q.set('thread', targetPointer);
       appendFeedTab(q, tab, { omitDefault: true });
       appendFeedAuthor(q, opts.author);
+      applyFeedListFilters(q, opts);
       return `/feed?${q.toString()}`;
     }
   }
@@ -1392,6 +1430,7 @@ export function feedThreadPath(
   }
   appendFeedTab(q, tab, { omitDefault: true });
   appendFeedAuthor(q, opts.author);
+  applyFeedListFilters(q, opts);
   return `/feed?${q.toString()}`;
 }
 
@@ -1405,6 +1444,7 @@ export function feedThreadPathFromId(
   q.set('thread', feedThreadPointerFromId(id));
   appendFeedTab(q, tab, { omitDefault: true });
   appendFeedAuthor(q, opts.author);
+  applyFeedListFilters(q, opts);
   return `/feed?${q.toString()}`;
 }
 
@@ -1413,6 +1453,7 @@ export function feedListPath(tab: FeedTab = 'original', opts: FeedListOpts = {})
   const q = new URLSearchParams();
   appendFeedTab(q, tab);
   appendFeedAuthor(q, opts.author);
+  applyFeedListFilters(q, opts);
   return `/feed?${q.toString()}`;
 }
 

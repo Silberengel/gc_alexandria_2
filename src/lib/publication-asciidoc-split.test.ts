@@ -10,7 +10,8 @@ import {
   parseAsciiDocHeading,
   parsePublicationAsciiDoc,
   previewIdealSplitGhosts,
-  serializePublicationTree
+  serializePublicationTree,
+  stripAsciiDocBeforeFirstSection
 } from './publication-asciidoc-split';
 
 describe('parseAsciiDocHeading', () => {
@@ -19,6 +20,47 @@ describe('parseAsciiDocHeading', () => {
     expect(parseAsciiDocHeading('=== Sec')).toEqual({ level: 3, title: 'Sec' });
     expect(parseAsciiDocHeading('= Title')).toEqual({ level: 1, title: 'Title' });
     expect(parseAsciiDocHeading('not a heading')).toBeNull();
+  });
+});
+
+describe('stripAsciiDocBeforeFirstSection', () => {
+  it('drops document header, title page, and abstract before the first ==', () => {
+    const src = `= Interior Castle or The Mansions
+St. Teresa of Avila
+:doctype: book
+:toc:
+:author: St. Teresa of Avila
+
+ifdef::backend-epub3[]
+image::https://example.com/cover.jpg[Cover,250]
+endif::[]
+
+[abstract]
+____
+A summary of the book.
+____
+
+== Title Page
+
+Title: The Interior Castle
+
+== Dedication
+
+To the martyrs.
+`;
+    const stripped = stripAsciiDocBeforeFirstSection(src);
+    expect(stripped.startsWith('== Title Page')).toBe(true);
+    expect(stripped).not.toContain(':doctype: book');
+    expect(stripped).not.toContain('[abstract]');
+    expect(stripped).toContain('== Dedication');
+  });
+
+  it('keeps source that already starts at ==', () => {
+    const src = `== Chapter One
+
+Body.
+`;
+    expect(stripAsciiDocBeforeFirstSection(src)).toBe(src);
   });
 });
 
@@ -238,6 +280,54 @@ ${chapter}
       maxIndexLevel: applied.maxIndexLevel
     });
     expect(parsed.oversizeLeaves).toHaveLength(0);
+  });
+
+  it('keeps Index depth when lockIndexDepth is set (republish)', () => {
+    const big = `${'word '.repeat(12_000)}\n\n${'more '.repeat(12_000)}`;
+    expect(new TextEncoder().encode(big).length).toBeGreaterThan(MAX_LEAF_BYTES);
+    const src = `== Huge\n\n${big}\n`;
+    const applied = applyIdealPublicationSplit(src, {
+      rootTitle: 'Book',
+      rootDTag: 'book',
+      maxIndexLevel: 2,
+      lockIndexDepth: true
+    });
+    expect(applied.maxIndexLevel).toBe(2);
+    expect(applied.report.depthRaised).toBe(false);
+    // Sibling == Section N at the locked depth — not === under the chapter.
+    expect(applied.source).toMatch(/^== Section 1/m);
+    expect(applied.source).not.toContain('=== Section');
+    const parsed = parsePublicationAsciiDoc(applied.source, {
+      rootTitle: 'Book',
+      rootDTag: 'book',
+      maxIndexLevel: 2
+    });
+    expect(parsed.oversizeLeaves).toHaveLength(0);
+    expect(parsed.root.children.every((c) => c.level === 2)).toBe(true);
+  });
+
+  it('does not raise depth for folded nested chapters when locked', () => {
+    const chapter = `${'word '.repeat(3_000)}\n\n${'more '.repeat(3_000)}`;
+    const src = `== The Sixth Mansions
+
+=== Chapter I
+
+${chapter}
+
+=== Chapter II
+
+${chapter}
+`;
+    const applied = applyIdealPublicationSplit(src, {
+      rootTitle: 'Book',
+      rootDTag: 'book',
+      maxIndexLevel: 2,
+      lockIndexDepth: true
+    });
+    expect(applied.maxIndexLevel).toBe(2);
+    expect(applied.report.depthRaised).toBe(false);
+    // Without raising depth, === stays folded; Ideal packs the oversize == mansion into siblings.
+    expect(applied.source).toMatch(/^== Section /m);
   });
 
   it('previews ghosts before apply', () => {

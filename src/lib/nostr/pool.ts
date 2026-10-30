@@ -83,10 +83,6 @@ class RelayPool {
     // auth-required: close/publish via onauth in subscribeMap / publish.
   });
   private signedIn = false;
-  /**
-   * Cap parallel query() calls (each may fan out to many relays).
-   * Keep this high enough that wiki/profile loads are not queued behind landing feeds.
-   */
   private activeQueries = 0;
   private queryWaiters: Array<() => void> = [];
   /** Identical in-flight REQs share one Promise (social + comments often overlap). */
@@ -94,10 +90,14 @@ class RelayPool {
   private relayFailedUntil = new Map<string, number>();
   /** At most one REQ in flight per host (outboxes like pipe.imwald.eu are 12 msg/min). */
   private relayTurn = new Map<string, Promise<void>>();
-  /** Waiters + in-flight per host — skip further REQs when the host is already backed up. */
+  /** Queued + in-flight REQs per host (see MAX_RELAY_QUEUE_DEPTH). */
   private relayQueueDepth = new Map<string, number>();
-  private static readonly MAX_PARALLEL_QUERIES = 3;
-  /** Max queued+active REQs per relay URL before later queries skip that host. */
+  /**
+   * Cap concurrent live REQs (slot held only while the WebSocket REQ runs —
+   * not while queued for a per-host turn).
+   */
+  private static readonly MAX_PARALLEL_QUERIES = 4;
+  /** Queued+active REQs per host before later queries skip that host. */
   private static readonly MAX_RELAY_QUEUE_DEPTH = 2;
   /** Background work gives up the slot wait; priority keeps waiting. */
   private static readonly SLOT_WAIT_MS = 15_000;
@@ -136,8 +136,8 @@ class RelayPool {
   private async withRelayTurn(url: string, fn: () => Promise<Event[]>): Promise<Event[]> {
     const key = this.relayKey(url);
     const depth = this.relayQueueDepth.get(key) ?? 0;
-    // Don't chain onto a backed-up host — that holds global query slots for minutes
-    // and then trips 12 msg/min rate limits (pipe.imwald.eu).
+    // Don't chain onto a backed-up host — trips 12 msg/min rate limits (pipe.imwald.eu).
+    // Slot is acquired inside `fn` (see queryRelay), so waiting on `prev` is cheap.
     if (depth >= RelayPool.MAX_RELAY_QUEUE_DEPTH) return [];
     this.relayQueueDepth.set(key, depth + 1);
     const prev = this.relayTurn.get(key) ?? Promise.resolve();
@@ -162,45 +162,70 @@ class RelayPool {
    * One WebSocket REQ (all filters) per relay. CLOSE the sub when done so the
    * next query cannot stack REQ ids (sovbit/wine "too many concurrent REQs").
    * Do not close the WebSocket itself — that is what Firefox logs as interrupted.
+   *
+   * Per-host turn wait happens *before* the global query slot, so a backed-up
+   * outbox no longer parks a slot for the full attempt timeout.
+   *
    * @param ignoreCooling Retry even when the host is in a soft-fail cooldown
    *   (advanced search / feed paths that already opted into includeCooling).
    */
+  private runRelayReq(url: string, filters: Filter[], maxWait: number): Promise<Event[]> {
+    return new Promise((resolve) => {
+      const collected: Event[] = [];
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          void closer.close('done');
+        } catch {
+          /* ignore */
+        }
+        resolve(collected);
+      };
+      const closer = this.pool.subscribeMap(
+        filters.map((filter) => ({ url, filter })),
+        {
+          maxWait,
+          onevent: (event: Event) => {
+            collected.push(event);
+          },
+          oneose: finish,
+          onclose: finish,
+          ...(this.authHandler ? { onauth: this.authHandler } : {})
+        }
+      );
+      setTimeout(finish, maxWait);
+    });
+  }
+
   private queryRelay(
     url: string,
     filters: Filter[],
     maxWait: number,
-    ignoreCooling = false
+    ignoreCooling = false,
+    priority = false
   ): Promise<Event[]> {
-    return this.withRelayTurn(url, () => {
-      if (!ignoreCooling && this.relayCoolingDown(url)) return Promise.resolve([] as Event[]);
+    return this.withRelayTurn(url, async () => {
+      if (!ignoreCooling && this.relayCoolingDown(url)) return [] as Event[];
       if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
-      return new Promise((resolve) => {
-        const events: Event[] = [];
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          try {
-            void closer.close('done');
-          } catch {
-            /* ignore */
-          }
-          resolve(events);
-        };
-        const closer = this.pool.subscribeMap(
-          filters.map((filter) => ({ url, filter })),
-          {
-            maxWait,
-            onevent: (event: Event) => {
-              events.push(event);
-            },
-            oneose: finish,
-            onclose: finish,
-            ...(this.authHandler ? { onauth: this.authHandler } : {})
-          }
+
+      // Host turn is already held. Never wait long for a global slot here —
+      // that used to park the outbox and cascade into 15s background sheds.
+      if (priority) {
+        const events = await this.withQuerySlot(
+          () => this.runRelayReq(url, filters, maxWait),
+          true,
+          5_000
         );
-        setTimeout(finish, maxWait);
-      });
+        return events ?? [];
+      }
+      if (!this.tryAcquireQuerySlot(false)) return [];
+      try {
+        return await this.runRelayReq(url, filters, maxWait);
+      } finally {
+        this.releaseQuerySlot();
+      }
     });
   }
 
@@ -216,50 +241,76 @@ class RelayPool {
     this.authHandler = handler;
   }
 
+  private querySlotLimit(priority: boolean): number {
+    return priority
+      ? RelayPool.MAX_PARALLEL_QUERIES + 2
+      : RelayPool.MAX_PARALLEL_QUERIES;
+  }
+
+  private releaseQuerySlot(): void {
+    this.activeQueries = Math.max(0, this.activeQueries - 1);
+    const free = Math.max(0, RelayPool.MAX_PARALLEL_QUERIES + 2 - this.activeQueries);
+    for (let n = 0; n < free && this.queryWaiters.length; n += 1) {
+      this.queryWaiters.shift()?.();
+    }
+  }
+
+  /** Non-blocking: take a slot if one is free. Used for background REQs that already hold a host turn. */
+  private tryAcquireQuerySlot(priority: boolean): boolean {
+    if (this.activeQueries >= this.querySlotLimit(priority)) return false;
+    this.activeQueries++;
+    return true;
+  }
+
   /**
    * Acquire a global query slot. Priority may use two extra slots.
-   * Background queries that wait longer than {@link SLOT_WAIT_MS} are shed
-   * (return null) instead of exceeding the cap — the old "continue anyway"
-   * path let activeQueries grow without bound and then hammered slow relays.
+   * When called while a per-host turn is held, pass a short `maxWaitMs` so a
+   * saturated pool cannot park that outbox for {@link SLOT_WAIT_MS}.
    */
   private async withQuerySlot<T>(
     fn: () => Promise<T>,
-    priority = false
+    priority = false,
+    maxWaitMs = RelayPool.SLOT_WAIT_MS
   ): Promise<T | null> {
-    const limit = priority
-      ? RelayPool.MAX_PARALLEL_QUERIES + 2
-      : RelayPool.MAX_PARALLEL_QUERIES;
+    const limit = this.querySlotLimit(priority);
+    const waitCap = priority ? Math.min(maxWaitMs, RelayPool.SLOT_WAIT_MS * 2) : maxWaitMs;
     const waitStarted = Date.now();
     let warned = false;
     while (this.activeQueries >= limit) {
       const waited = Date.now() - waitStarted;
-      if (!priority && waited > RelayPool.SLOT_WAIT_MS) {
-        console.warn('[alexandria:pool] shed background query after 15s slot wait');
+      if (waited > waitCap) {
+        if (priority) {
+          console.warn('[alexandria:pool] shed priority query after slot wait');
+        } else {
+          console.warn('[alexandria:pool] shed background query after 15s slot wait');
+        }
         return null;
       }
-      // Priority used to wait forever and could leave profile "Loading…" hung.
-      if (priority && waited > RelayPool.SLOT_WAIT_MS * 2) {
-        console.warn('[alexandria:pool] shed priority query after 30s slot wait');
-        return null;
-      }
-      if (priority && waited > RelayPool.SLOT_WAIT_MS && !warned) {
+      if (priority && waited > Math.min(3_000, waitCap / 2) && !warned) {
         console.warn('[alexandria:pool] priority query still waiting for a slot');
         warned = true;
       }
+      // Register one waiter per wait cycle and remove it on settle — the old
+      // push-every-400ms path left dozens of stale wakeups per shed.
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 400);
-        this.queryWaiters.push(() => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timer);
+          const i = this.queryWaiters.indexOf(finish);
+          if (i >= 0) this.queryWaiters.splice(i, 1);
           resolve();
-        });
+        };
+        const timer = setTimeout(finish, 400);
+        this.queryWaiters.push(finish);
       });
     }
     this.activeQueries++;
     try {
       return await fn();
     } finally {
-      this.activeQueries--;
-      this.queryWaiters.shift()?.();
+      this.releaseQuerySlot();
     }
   }
 
@@ -267,8 +318,8 @@ class RelayPool {
    * Never throws — dead relays return [].
    * Hits up to `maxRelays` in parallel and optionally streams merges via `onBatch`
    * as each relay answers (callers can paint before the slowest EOSE).
-   * Pass `priority: true` for navigation (wiki/publication) so Home background work
-   * cannot hold the last slots for minutes.
+   * Pass `priority: true` for navigation (wiki/publication/feed) so background
+   * extras yield slots; background REQs skip a busy host instead of waiting 15s.
    * Identical in-flight queries are coalesced (shared Promise); late `onBatch` after
    * the soft timeout is ignored.
    */
@@ -307,13 +358,22 @@ class RelayPool {
       }
 
       const ignoreCooling = opts?.includeCooling === true;
-      const job = this.withQuerySlot(async () => {
+      const priority = opts?.priority === true;
+      // Slot is per live REQ inside queryRelay — not around this whole fan-out —
+      // so waiting on a per-host turn cannot starve the pool for 15s+.
+      const job = (async () => {
         const byId = new Map<string, Event>();
         const attemptMs = Math.min(timeoutMs, RelayPool.RELAY_ATTEMPT_MS);
         await Promise.all(
           wssRelays.map(async (url) => {
             try {
-              const batch = await this.queryRelay(url, cleanFilters, attemptMs, ignoreCooling);
+              const batch = await this.queryRelay(
+                url,
+                cleanFilters,
+                attemptMs,
+                ignoreCooling,
+                priority
+              );
               for (const event of batch) {
                 const v = ingestEvent(event);
                 if (!v) continue;
@@ -341,7 +401,7 @@ class RelayPool {
           /* cache write must not fail the read path */
         }
         return events;
-      }, opts?.priority === true).then((events) => events ?? []);
+      })();
 
       if (coalesceKey) {
         this.inflight.set(coalesceKey, job);

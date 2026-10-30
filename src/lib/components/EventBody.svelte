@@ -169,12 +169,23 @@
   /**
    * NIP-92 imeta tags plus bare image/video/audio URLs in the content.
    * Cover `image` tags for article kinds are only in the header — omit them here.
+   * Parent {@link dedupeHeroUrls} always win (nested sections that copy an index
+   * plate must not dump that cover into every leaf body).
    */
   const media = $derived.by(() => {
     if (hideMedia || !displayEvent) return [];
-    const items = uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
-    if (!dedupeHeroImage || !isContentHeroKind(sourceKind) || !heroUrls.length) return items;
-    return items.filter((item) => !heroUrls.some((hero) => sameMedia(item.url, hero)));
+    let items = uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
+    const parentCovers = dedupeHeroUrls.map((u) => u.trim()).filter(Boolean);
+    if (parentCovers.length) {
+      items = items.filter((item) => !parentCovers.some((hero) => sameMedia(item.url, hero)));
+    }
+    if (dedupeHeroImage && isContentHeroKind(sourceKind)) {
+      const own = eventHeroImageUrls(displayEvent);
+      if (own.length) {
+        items = items.filter((item) => !own.some((hero) => sameMedia(item.url, hero)));
+      }
+    }
+    return items;
   });
   const images = $derived(media.filter((item) => item.type === 'image'));
   const imageUrls = $derived(images.map((item) => item.url));

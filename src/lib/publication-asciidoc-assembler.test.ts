@@ -5,6 +5,7 @@ import {
   assemblePublicationAsciidoc,
   exportCoverImageUrl,
   indexPublicationEvents,
+  inferPublicationIndexDepth,
   orderedPublicationRefsFromIndex
 } from './publication-asciidoc-assembler';
 import { coverPlaceholderUrl } from './cover-fallback';
@@ -74,6 +75,7 @@ describe('assemblePublicationAsciidoc', () => {
     expect(assembled.content).toContain('[abstract]');
     expect(assembled.content).toContain('== Introduction');
     expect(assembled.content).toContain('Hello world.');
+    expect(assembled.indexDepth).toBe(2);
   });
 
   it('embeds identifier metadata', () => {
@@ -108,6 +110,37 @@ describe('assemblePublicationAsciidoc', () => {
     expect(assembled.content).toContain(':goodreads: 211822142');
     expect(assembled.content).toContain(':keywords: fiction');
     expect(assembled.content).toContain(':lang: en');
+  });
+});
+
+describe('inferPublicationIndexDepth', () => {
+  it('returns 3 when a nested 30040 holds sections', () => {
+    const chapterCoord = `30040:${PK}:mansion-1`;
+    const sectionCoord = `30041:${PK}:ch-1`;
+    const root = indexEvent('castle', [chapterCoord]);
+    const mansion: Event = {
+      id: 'm'.repeat(64),
+      kind: KIND.PUBLICATION,
+      pubkey: PK,
+      created_at: 90,
+      content: '',
+      tags: [
+        ['d', 'mansion-1'],
+        ['title', 'First Mansion'],
+        ['a', sectionCoord]
+      ],
+      sig: 'c'.repeat(128)
+    };
+    const section = sectionEvent('ch-1', 'Chapter I', 'Body.');
+    const fetched = new Map<string, Event>();
+    indexPublicationEvents(fetched, [root, mansion, section]);
+    const byAddress = new Map<string, Event>([
+      [`30040:${PK}:castle`, root],
+      [chapterCoord, mansion],
+      [sectionCoord, section]
+    ]);
+    expect(inferPublicationIndexDepth(root, fetched, byAddress)).toBe(3);
+    expect(assemblePublicationAsciidoc(root, fetched, byAddress).indexDepth).toBe(3);
   });
 });
 

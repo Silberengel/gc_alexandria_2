@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
   import { link, location, push, querystring, replace } from 'svelte-spa-router';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
@@ -78,7 +79,6 @@
   } from '$lib/zaps';
   import {
     collectNewFeedEvents,
-    DEFAULT_NOTIFICATION_LOOKBACK,
     feedEventsWatermark,
     feedFollowAuthors,
     feedListPath,
@@ -106,7 +106,10 @@
     loadNotifications,
     NOTIFICATION_LOOKBACK_OPTIONS,
     notificationLookbackSeconds,
+    applyFeedListFilters,
     parseFeedAuthorParam,
+    parseFeedKindParam,
+    parseNotificationLookback,
     parseFeedTab,
     parseFeedThreadParam,
     parseFeedThreadTarget,
@@ -293,14 +296,14 @@
     if (feedTabParam == null || feedTabParam === '') {
       // Quiet rewrite — must not create a Back step of bare `/feed`.
       skipNextNavTrack();
-      void replace(feedListPath(first, { author: feedAuthor }));
+      void replace(feedListPath(first, feedNavOpts({ author: feedAuthor })));
       return;
     }
     if (feedAuthor) return;
     if (feedTab === 'follows' && signedIn && $session.loading) return;
     if (visibleFeedTabs.includes(feedTab)) return;
     skipNextNavTrack();
-    void replace(feedListPath(first));
+    void replace(feedListPath(first, feedNavOpts()));
   });
 
   function setFeedTab(next: FeedTab): void {
@@ -318,7 +321,7 @@
     boostFetchQueued = {};
     listSettled = false;
     listLoading = true;
-    void replace(feedListPath(next, { author: feedAuthor }));
+    void replace(feedListPath(next, feedNavOpts({ author: feedAuthor })));
   }
 
   function reorderFeedTab(fromTab: FeedTab, toTab: FeedTab): void {
@@ -551,11 +554,68 @@
     return () => document.removeEventListener('keydown', onKey);
   });
 
-  /** Client-side list filters on the normal feed (hidden on author-scoped profiles). */
-  let feedLookback = $state<NotificationLookbackId>(DEFAULT_NOTIFICATION_LOOKBACK);
+  /**
+   * List filters live in the query string (`since` / `kind` / `q`) so refresh and
+   * tab/thread navigation keep them. Lookback + kind are URL-derived; text uses a
+   * local draft kept in sync both ways.
+   */
+  const feedLookback = $derived.by(() =>
+    parseNotificationLookback(feedQuery.get('since'))
+  );
   /** Empty string = all kinds; otherwise a kind number as decimal text. */
-  let feedKindFilter = $state('');
-  let feedTextFilter = $state('');
+  const feedKindFilter = $derived.by(() => parseFeedKindParam(feedQuery.get('kind')));
+  /** Seed from the current URL so refresh keeps `q` before effects run. */
+  let feedTextFilter = $state(
+    new URLSearchParams(get(querystring) ?? '').get('q') ?? ''
+  );
+  $effect(() => {
+    const urlQ = feedQuery.get('q') ?? '';
+    if (urlQ !== feedTextFilter) feedTextFilter = urlQ;
+  });
+  $effect(() => {
+    const text = feedTextFilter;
+    const q = new URLSearchParams($querystring ?? '');
+    if ((q.get('q') ?? '') === text) return;
+    applyFeedListFilters(q, {
+      since: parseNotificationLookback(q.get('since')),
+      kind: parseFeedKindParam(q.get('kind')),
+      q: text
+    });
+    const qs = q.toString();
+    void replace(qs ? `/feed?${qs}` : '/feed');
+  });
+
+  function feedNavOpts(extra: { author?: string | null } = {}) {
+    return {
+      author: extra.author !== undefined ? extra.author : feedAuthor,
+      since: feedLookback,
+      kind: feedKindFilter,
+      q: feedTextFilter
+    };
+  }
+
+  function setFeedLookback(next: NotificationLookbackId): void {
+    const q = new URLSearchParams($querystring ?? '');
+    applyFeedListFilters(q, {
+      since: next,
+      kind: feedKindFilter,
+      q: feedTextFilter
+    });
+    const qs = q.toString();
+    void replace(qs ? `/feed?${qs}` : '/feed');
+  }
+
+  function setFeedKindFilter(next: string): void {
+    const q = new URLSearchParams($querystring ?? '');
+    applyFeedListFilters(q, {
+      since: feedLookback,
+      kind: next,
+      q: feedTextFilter
+    });
+    const qs = q.toString();
+    void replace(qs ? `/feed?${qs}` : '/feed');
+  }
+
   let items = $state<Event[]>([]);
   /** Lookback last fetched for the current tab — change → relay requery. */
   let fetchedLookback = $state<NotificationLookbackId | null>(null);
@@ -1272,7 +1332,7 @@
   function feedOpenPath(item: Event): string {
     const href = eventHref(item);
     if (href) return href.startsWith('#') ? href.slice(1) : href;
-    return feedThreadPath(item, feedTab, { author: feedAuthor });
+    return feedThreadPath(item, feedTab, feedNavOpts());
   }
 
   /** Stash the thread OP (not just the clicked row) for the thread pane seed. */
@@ -1324,8 +1384,8 @@
       if (fromMem) warmNavEvent(fromMem);
     }
     const path = warm
-      ? feedThreadPath(warm, feedTab, { author: feedAuthor })
-      : feedThreadPathFromId(targetId, feedTab, { author: feedAuthor });
+      ? feedThreadPath(warm, feedTab, feedNavOpts())
+      : feedThreadPathFromId(targetId, feedTab, feedNavOpts());
     void push(path);
     if (!path.includes('comment=')) {
       queueMicrotask(() => appScrollTo({ top: 0, left: 0, behavior: 'auto' }));
@@ -1951,18 +2011,28 @@
         void postNote();
       }}
     >
-      <div class="feed-note-head">
-        <label class="feed-note-label" for="feed-note-draft">Post a note</label>
-        {#if signedIn}
-          <button
-            class="btn feed-note-preview-btn"
-            type="button"
-            disabled={notePosting || (!notePreviewing && !noteDraft.trim() && !pendingImeta.length)}
-            aria-pressed={notePreviewing}
-            onclick={() => (notePreviewing = !notePreviewing)}
-          >{notePreviewing ? 'Edit' : 'Preview'}</button>
-        {/if}
-      </div>
+      <ProseGrammarField
+        id="feed-note-draft"
+        label="Post a note"
+        rows={3}
+        bind:value={noteDraft}
+        placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
+        disabled={notePosting || !signedIn}
+        hideBody={notePreviewing}
+        onPaste={onNotePaste}
+      >
+        {#snippet headActions()}
+          {#if signedIn}
+            <button
+              class="btn feed-note-preview-btn"
+              type="button"
+              disabled={notePosting || (!notePreviewing && !noteDraft.trim() && !pendingImeta.length)}
+              aria-pressed={notePreviewing}
+              onclick={() => (notePreviewing = !notePreviewing)}
+            >{notePreviewing ? 'Edit' : 'Preview'}</button>
+          {/if}
+        {/snippet}
+      </ProseGrammarField>
       {#if notePreviewing}
         <div class="compose-preview feed-note-preview" aria-live="polite">
           {#if noteDraft.trim() || pendingImeta.length}
@@ -1973,15 +2043,6 @@
             <p class="muted">Nothing to preview yet.</p>
           {/if}
         </div>
-      {:else}
-        <ProseGrammarField
-          id="feed-note-draft"
-          rows={3}
-          bind:value={noteDraft}
-          placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
-          disabled={notePosting || !signedIn}
-          onPaste={onNotePaste}
-        />
       {/if}
       {#if proseHasShareTrackers(noteDraft)}
         <p class="feed-note-track-warn muted">{SHARE_TRACKER_WARNING}</p>
@@ -2166,10 +2227,12 @@
           <select
             id="feed-filter-since"
             class="page-filter feed-filter-since-select"
-            bind:value={feedLookback}
+            value={feedLookback}
             disabled={!!pointer}
             title="Since"
             aria-label="Since"
+            onchange={(e) =>
+              setFeedLookback(parseNotificationLookback(e.currentTarget.value))}
           >
             {#each NOTIFICATION_LOOKBACK_OPTIONS as opt (opt.id)}
               <option value={opt.id}>{opt.label}</option>
@@ -2181,10 +2244,11 @@
           <select
             id="feed-filter-kind"
             class="page-filter feed-filter-kind-select"
-            bind:value={feedKindFilter}
+            value={feedKindFilter}
             disabled={!!pointer}
             title="Kind"
             aria-label="Kind"
+            onchange={(e) => setFeedKindFilter(e.currentTarget.value)}
           >
             <option value="">All kinds</option>
             {#each feedKindOptions as opt (opt.kind)}
@@ -2352,8 +2416,8 @@
             {@const target = boostTargets[row.targetId]}
             {@const threadHref = `#${
               target
-                ? feedThreadPath(target, feedTab, { author: feedAuthor })
-                : feedThreadPathFromId(row.targetId, feedTab, { author: feedAuthor })
+                ? feedThreadPath(target, feedTab, feedNavOpts())
+                : feedThreadPathFromId(row.targetId, feedTab, feedNavOpts())
             }`}
             <li
               class="card feed-row feed-row-boost"
@@ -2492,22 +2556,10 @@
     margin: 0 0 1rem;
     max-width: none;
   }
-  .feed-note-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-  .feed-note-label {
-    font-family: var(--ui-font);
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--ink-soft);
-  }
   .feed-note-preview-btn {
     flex: 0 0 auto;
-    min-height: 1.85rem;
-    padding: 0.2rem 0.7rem;
+    min-height: 1.65rem;
+    padding: 0.15rem 0.6rem;
     font-size: 0.78rem;
   }
   .feed-note-preview-btn[aria-pressed='true'] {

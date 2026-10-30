@@ -10,8 +10,10 @@ import {
   feedTabLabel,
   feedEventsWatermark,
   feedFollowAuthors,
+  applyFeedListFilters,
   feedAuthorRepliesPath,
   feedListPath,
+  parseFeedKindParam,
   feedRelayGroups,
   feedInteractionTargetPointer,
   feedThreadPath,
@@ -410,6 +412,43 @@ describe('feedAuthorRepliesPath', () => {
     expect(feedListPath('follows')).toBe('/feed?tab=follows');
     expect(feedListPath('kind:1')).toBe('/feed?tab=kind%3A1');
     expect(feedListPath('original')).toBe('/feed?tab=original');
+  });
+});
+
+describe('feed list filter query params', () => {
+  it('omits default lookback and empty kind/text', () => {
+    expect(feedListPath('original', { since: DEFAULT_NOTIFICATION_LOOKBACK })).toBe(
+      '/feed?tab=original'
+    );
+    expect(feedListPath('original', { since: '1w', kind: '1', q: 'hello' })).toBe(
+      '/feed?tab=original&since=1w&kind=1&q=hello'
+    );
+    expect(parseFeedKindParam('1')).toBe('1');
+    expect(parseFeedKindParam('nope')).toBe('');
+    expect(parseFeedKindParam(null)).toBe('');
+  });
+
+  it('applyFeedListFilters clears defaults on an existing query', () => {
+    const q = new URLSearchParams('tab=follows&since=1w&kind=1&q=x');
+    applyFeedListFilters(q, { since: DEFAULT_NOTIFICATION_LOOKBACK, kind: '', q: '' });
+    expect(q.toString()).toBe('tab=follows');
+  });
+
+  it('thread paths carry list filters', () => {
+    const note = {
+      id: '1'.repeat(64),
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'a'.repeat(64),
+      created_at: 1,
+      tags: [] as string[][],
+      content: '',
+      sig: 'c'.repeat(128)
+    };
+    const path = feedThreadPath(note, 'follows', { since: '1w', kind: 1, q: 'hi' });
+    expect(path).toContain('since=1w');
+    expect(path).toContain('kind=1');
+    expect(path).toContain('q=hi');
+    expect(path).toContain('tab=follows');
   });
 });
 

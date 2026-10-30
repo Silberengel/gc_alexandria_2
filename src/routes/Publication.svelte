@@ -385,13 +385,26 @@
   }
 
   const addr = $derived(event ? eventAddress(event) : '');
-  /** Publication cover URLs — nested bodies strip early images that repeat this plate. */
+  /**
+   * Cover URLs for the edition and painted indexes — nested bodies strip
+   * `image` tags / early content that repeat any of these plates.
+   */
   const publicationHeroUrls = $derived.by(() => {
     if (!event) return [];
-    const urls = eventHeroImageUrls(event);
+    const bag: string[] = [...eventHeroImageUrls(event)];
     const fromContent = contentHeroFullUrl(event, sections);
-    if (!fromContent) return urls;
-    return [...new Set([...urls, fromContent, contentHeroThumbUrl(event, sections)].filter((u): u is string => Boolean(u)))];
+    if (fromContent) {
+      bag.push(fromContent);
+      const thumb = contentHeroThumbUrl(event, sections);
+      if (thumb) bag.push(thumb);
+    }
+    if (scopedPaintIndex && scopedPaintIndex.id !== event.id) {
+      bag.push(...eventHeroImageUrls(scopedPaintIndex));
+    }
+    for (const section of sections) {
+      if (section.kind === KIND.PUBLICATION) bag.push(...eventHeroImageUrls(section));
+    }
+    return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
   });
   const visibleRatings = $derived(filterPageEvents(newestRatingPerAuthor(ratings, addr, $muteState), pageFilter));
   const ratingAgg = $derived(aggregateRating(visibleRatings));

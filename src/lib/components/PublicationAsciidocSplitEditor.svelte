@@ -18,6 +18,8 @@
   interface Props {
     source?: string;
     maxIndexLevel?: PublicationIndexDepth;
+    /** When true (30040 republish), Ideal packs siblings instead of raising depth. */
+    lockIndexDepth?: boolean;
     rootTitle?: string;
     rootDTag?: string;
     publishing?: boolean;
@@ -32,6 +34,7 @@
   let {
     source = $bindable(''),
     maxIndexLevel = $bindable<PublicationIndexDepth>(2),
+    lockIndexDepth = false,
     rootTitle = 'Untitled',
     rootDTag = '',
     publishing = false,
@@ -64,10 +67,13 @@
     exposeStructureForIdealSplit(source, {
       rootTitle,
       rootDTag: rootDTag || undefined,
-      maxIndexLevel
+      maxIndexLevel,
+      lockIndexDepth
     })
   );
-  const idealDepthRaised = $derived(idealExpose.maxIndexLevel > maxIndexLevel);
+  const idealDepthRaised = $derived(
+    !lockIndexDepth && idealExpose.maxIndexLevel > maxIndexLevel
+  );
   const idealDepthLabel = $derived(
     idealExpose.maxIndexLevel <= 2
       ? '== chapters'
@@ -131,7 +137,8 @@
     const result = applyIdealPublicationSplit(source, {
       rootTitle,
       rootDTag: rootDTag || undefined,
-      maxIndexLevel
+      maxIndexLevel,
+      lockIndexDepth
     });
     source = result.source;
     maxIndexLevel = result.maxIndexLevel;
@@ -221,7 +228,9 @@
         type="button"
         class="btn btn-primary"
         disabled={publishing}
-        title="Raise index depth to expose nested headings, then insert Section 1…N under any leaf still over 50 KiB"
+        title={lockIndexDepth
+          ? 'Insert Section 1…N under oversize leaves at the current Index depth (depth locked from republish)'
+          : 'Raise index depth to expose nested headings, then insert Section 1…N under any leaf still over 50 KiB'}
         onclick={applyIdeal}
       >
         Apply ideal split
@@ -277,9 +286,9 @@
 
   <div class="pub-split-panes">
     <section class="pub-split-pane" aria-label="AsciiDoc source">
-      <div class="pub-split-pane-label">AsciiDoc</div>
       <ProseGrammarField
         fill
+        label="AsciiDoc"
         bind:element={sourceEl}
         bind:value={source}
         disabled={publishing}
@@ -393,6 +402,17 @@
   .pub-split-pane :global(.prose-grammar-field) {
     flex: 1 1 auto;
     min-height: 0;
+  }
+  .pub-split-pane :global(.prose-grammar-head) {
+    padding: 0.35rem 0.65rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--rule, #ccc) 50%, transparent);
+  }
+  .pub-split-pane :global(.prose-grammar-label) {
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: inherit;
   }
   .pub-split-pane :global(.grammar-textarea) {
     flex: 1;

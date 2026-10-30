@@ -440,10 +440,32 @@ export function eventHeroImageUrls(event: Event): string[] {
 }
 
 /**
+ * Cover URLs from the edition and every painted index that appears above
+ * `section` in document order — used to suppress repeated plates on children.
+ */
+export function paintedAncestorHeroUrls(
+  section: Event,
+  edition: Event | null | undefined,
+  painted: Event[] = []
+): string[] {
+  const bag: string[] = [];
+  if (edition) bag.push(...eventHeroImageUrls(edition));
+  for (const ev of painted) {
+    if (ev.id === section.id) break;
+    if (ev.kind === KIND.PUBLICATION) bag.push(...eventHeroImageUrls(ev));
+  }
+  return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
+}
+
+function matchesAnyHeroUrl(hero: string, candidates: string[]): boolean {
+  return candidates.some((u) => heroUrlsMatch(u, hero));
+}
+
+/**
  * Hero for a reading-pane section. Nested indexes/sections that repeat the
- * top-level edition image are omitted — that double-hero is redundant.
- * Edition root falls back to the first content image, then the same cover
- * sources as {@link coverImageUrl} (image / imeta / Gutenberg).
+ * edition or a painted index above them are omitted — that double-hero is
+ * redundant. Edition root falls back to the first content image, then the same
+ * cover sources as {@link coverImageUrl} (image / imeta / Gutenberg).
  */
 export function readerSectionHeroUrl(
   section: Event,
@@ -455,8 +477,8 @@ export function readerSectionHeroUrl(
   const hero = sectionHeroImageUrl(section);
   if (hero) {
     if (!edition || section.id === edition.id) return hero;
-    const top = sectionHeroImageUrl(edition) ?? contentHeroThumbUrl(edition, sections) ?? coverImageUrl(edition);
-    if (top && heroUrlsMatch(top, hero)) return undefined;
+    const ancestors = paintedAncestorHeroUrls(section, edition, sections);
+    if (matchesAnyHeroUrl(hero, ancestors)) return undefined;
     return hero;
   }
   const isOp = !edition || section.id === edition.id;
@@ -478,9 +500,8 @@ export function readerSectionHeroFullUrl(
   const explicit = sectionHeroFullImageUrl(section);
   if (explicit) {
     if (!edition || section.id === edition.id) return explicit;
-    const top =
-      sectionHeroFullImageUrl(edition) ?? contentHeroFullUrl(edition, sections) ?? coverFullImageUrl(edition);
-    if (top && heroUrlsMatch(top, explicit)) return undefined;
+    const ancestors = paintedAncestorHeroUrls(section, edition, sections);
+    if (matchesAnyHeroUrl(explicit, ancestors)) return undefined;
     return explicit;
   }
   const isOp = !edition || section.id === edition.id;

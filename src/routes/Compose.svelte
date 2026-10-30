@@ -18,6 +18,7 @@
   import ComposePublicationSectionsEditor from '$lib/components/ComposePublicationSectionsEditor.svelte';
   import {
     DEFAULT_INDEX_DEPTH,
+    stripAsciiDocBeforeFirstSection,
     type PublicationIndexDepth
   } from '$lib/publication-asciidoc-split';
   import {
@@ -261,6 +262,8 @@
   /** Stable `updatedAt` for the optimistic Drafts book row (avoids sort churn). */
   let publicationManuscriptListedAt = $state(0);
   let publicationIndexDepth = $state<PublicationIndexDepth>(DEFAULT_INDEX_DEPTH);
+  /** When true (republish from Copy), Ideal must not raise Index depth. */
+  let publicationLockIndexDepth = $state(false);
   let publicationSplitOpen = $state(false);
   /**
    * Root 30040 from Copy/Replace (`?copy=`). Link-mode draft stays as today;
@@ -879,6 +882,7 @@
     publicationManuscriptListedAt = row.updatedAt;
     // IDB depth is authoritative after Ideal / splitter edits; tab shell can lag.
     publicationIndexDepth = clampManuscriptIndexDepth(row.maxIndexLevel);
+    publicationLockIndexDepth = false;
     editorMarkup = 'asciidoc';
     activeDraftD = row.dTag || values.d?.trim() || null;
     draftListOpen = false;
@@ -1135,6 +1139,7 @@
     publicationManuscriptId = null;
     publicationManuscriptListedAt = 0;
     publicationIndexDepth = DEFAULT_INDEX_DEPTH;
+    publicationLockIndexDepth = false;
     publicationSplitOpen = false;
     publicationCopyRoot = null;
     assemblingPublication = false;
@@ -1422,7 +1427,10 @@
     try {
       const assembled = await assemblePublicationDocument(root);
       publicationSectionsMode = 'split';
-      publicationAsciiDoc = assembled.content;
+      // Drop book header / title page / abstract — splitter starts at first ==.
+      publicationAsciiDoc = stripAsciiDocBeforeFirstSection(assembled.content);
+      publicationIndexDepth = assembled.indexDepth;
+      publicationLockIndexDepth = true;
       publicationManuscriptId = null;
       publicationManuscriptListedAt = 0;
       clearSplitPublishFailureState();
@@ -3198,15 +3206,31 @@
                   <label class="compose-content-label" for={kind === 9802 ? 'compose-body-plain' : 'compose-body'}>
                     {contentMeta?.label ?? 'Content'}{#if contentMeta?.required}*{/if}
                   </label>
-                  {#if markupFormat}
-                    <button
-                      type="button"
-                      class="btn compose-advanced-btn"
-                      onclick={() => (advancedOpen = true)}
-                    >
-                      Advanced Editor
-                    </button>
-                  {/if}
+                  <div class="compose-content-head-actions">
+                    {#if grammarEligible}
+                      <label class="compose-grammar-check">
+                        <input type="checkbox" bind:checked={grammarOn} />
+                        <span>Grammar{#if grammarOn && grammarBusy}…{/if}</span>
+                      </label>
+                      <label class="compose-grammar-lang">
+                        <span class="visually-hidden">Language</span>
+                        <select bind:value={grammarLang} disabled={!grammarOn} aria-label="Language">
+                          {#each grammarLangChoices as opt (opt.languageToolCode)}
+                            <option value={opt.languageToolCode}>{opt.label}</option>
+                          {/each}
+                        </select>
+                      </label>
+                    {/if}
+                    {#if markupFormat}
+                      <button
+                        type="button"
+                        class="compose-advanced-link"
+                        onclick={() => (advancedOpen = true)}
+                      >
+                        Advanced
+                      </button>
+                    {/if}
+                  </div>
                 </div>
                 <!-- Unmounted while the advanced editor is open so this field cannot overwrite that draft. -->
                 {#if advancedOpen}
@@ -3227,22 +3251,6 @@
                 {/if}
                 {#if proseHasShareTrackers(content)}
                   <p class="compose-track-warn muted">{SHARE_TRACKER_WARNING}</p>
-                {/if}
-                {#if grammarEligible}
-                  <div class="compose-grammar-tools">
-                    <label class="compose-grammar-check">
-                      <input type="checkbox" bind:checked={grammarOn} />
-                      <span>Grammar{#if grammarOn && grammarBusy}…{/if}</span>
-                    </label>
-                    <label class="compose-grammar-lang">
-                      <span class="visually-hidden">Language</span>
-                      <select bind:value={grammarLang} disabled={!grammarOn} aria-label="Language">
-                        {#each grammarLangChoices as opt (opt.languageToolCode)}
-                          <option value={opt.languageToolCode}>{opt.label}</option>
-                        {/each}
-                      </select>
-                    </label>
-                  </div>
                 {/if}
               </div>
             {/if}
@@ -3458,6 +3466,7 @@
   <PublicationAsciidocSplitEditor
     bind:source={publicationAsciiDoc}
     bind:maxIndexLevel={publicationIndexDepth}
+    lockIndexDepth={publicationLockIndexDepth}
     rootTitle={values.title || 'Untitled'}
     rootDTag={values.d || ''}
     publishing={posting}
@@ -3810,10 +3819,37 @@
   .compose-content-label {
     font: inherit;
   }
+  .compose-content-head-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem 0.55rem;
+    min-width: 0;
+    color: color-mix(in srgb, currentColor 55%, transparent);
+    font-size: 0.82rem;
+    line-height: 1.2;
+  }
   .compose-advanced-btn {
     flex: 0 0 auto;
     padding: 0.28rem 0.65rem;
     font-size: 0.82rem;
+  }
+  .compose-advanced-link {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.12em;
+  }
+  .compose-advanced-link:hover {
+    color: inherit;
   }
   .compose-advanced-open {
     margin: 0;
@@ -3839,14 +3875,6 @@
     line-height: 1.35;
     color: color-mix(in srgb, #b45309 55%, var(--ink-soft));
   }
-  .compose-grammar-tools {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.55rem 0.85rem;
-    align-items: center;
-    color: color-mix(in srgb, currentColor 52%, transparent);
-    font-size: 0.78rem;
-  }
   .compose-grammar-check {
     display: inline-flex;
     align-items: center;
@@ -3857,22 +3885,32 @@
   .compose-grammar-check input {
     width: auto;
     margin: 0;
-    transform: scale(0.9);
-    transform-origin: center left;
     accent-color: color-mix(in srgb, currentColor 55%, transparent);
   }
   .compose-grammar-lang select {
+    appearance: none;
     width: auto;
-    min-width: 6.5rem;
-    max-width: 9rem;
-    padding: 0.15rem 0.35rem;
-    font-size: 0.78rem;
+    min-width: 4.5rem;
+    max-width: 7.5rem;
+    margin: 0;
+    padding: 0.15rem 0.2rem;
+    font: inherit;
+    font-size: inherit;
+    line-height: inherit;
     color: inherit;
     background: transparent;
-    border-color: color-mix(in srgb, currentColor 22%, transparent);
+    border: none;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    cursor: pointer;
+  }
+  .compose-grammar-lang select:hover:not(:disabled),
+  .compose-grammar-lang select:focus-visible {
+    color: inherit;
+    border-bottom-color: color-mix(in srgb, currentColor 55%, transparent);
   }
   .compose-grammar-lang select:disabled {
-    opacity: 0.55;
+    opacity: 0.45;
+    cursor: default;
   }
   .compose-actions {
     display: flex;

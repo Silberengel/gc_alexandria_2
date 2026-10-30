@@ -552,7 +552,23 @@
 
   <div class="advanced-split">
     <section class="advanced-pane advanced-source" aria-label="Source">
-      <div class="advanced-pane-label">Source</div>
+      <div class="advanced-pane-head">
+        <div class="advanced-pane-label">Source</div>
+        <div class="advanced-grammar">
+          <label class="advanced-grammar-check">
+            <input type="checkbox" bind:checked={grammarOn} />
+            <span>Grammar{#if grammarOn && grammarBusy}…{/if}</span>
+          </label>
+          <label class="advanced-grammar-lang">
+            <span class="visually-hidden">Language</span>
+            <select bind:value={grammarLang} disabled={!grammarOn} aria-label="Language">
+              {#each langChoices as opt (opt.languageToolCode)}
+                <option value={opt.languageToolCode}>{opt.label}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+      </div>
       <div class="advanced-tools-bar">
       <div class="advanced-tools" role="toolbar" aria-label="Markup">
         {#each tools as tool (tool.id)}
@@ -664,24 +680,12 @@
           onDrop={(event) => void onSourceDrop(event)}
         />
       </div>
-      <div class="advanced-grammar">
-        <label class="advanced-grammar-check">
-          <input type="checkbox" bind:checked={grammarOn} />
-          <span>Grammar{#if grammarOn && grammarBusy}…{/if}</span>
-        </label>
-        <label>
-          <span class="visually-hidden">Language</span>
-          <select bind:value={grammarLang} disabled={!grammarOn} aria-label="Language">
-            {#each langChoices as opt (opt.languageToolCode)}
-              <option value={opt.languageToolCode}>{opt.label}</option>
-            {/each}
-          </select>
-        </label>
-      </div>
     </section>
 
     <section class="advanced-pane advanced-preview-pane" aria-label="Preview">
-      <div class="advanced-pane-label">Preview</div>
+      <div class="advanced-pane-head">
+        <div class="advanced-pane-label">Preview</div>
+      </div>
       <div class="advanced-preview" bind:this={previewEl}>
         {#if showPreview}
           <div class="event-body advanced-preview-prose">
@@ -912,9 +916,17 @@
     font-family: var(--ui-font);
     font-size: 0.85rem;
   }
+  .advanced-pane-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.2rem 0.55rem 0 0.55rem;
+  }
   .advanced-pane-label {
     flex: 0 0 auto;
-    padding: 0.35rem 0.9rem 0.15rem;
+    padding: 0.15rem 0.35rem;
     font-family: var(--ui-font);
     font-size: 0.72rem;
     font-weight: 650;
@@ -940,15 +952,14 @@
     line-height: 1.55;
   }
   .advanced-grammar {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
-    gap: 0.55rem 0.85rem;
     align-items: center;
-    flex: 0 0 auto;
-    padding: 0.4rem 0.9rem 0.55rem;
-    color: color-mix(in srgb, currentColor 52%, transparent);
+    gap: 0.35rem 0.55rem;
     font-family: var(--ui-font);
-    font-size: 0.78rem;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    color: color-mix(in srgb, currentColor 55%, transparent);
   }
   .advanced-grammar-check {
     display: inline-flex;
@@ -962,18 +973,30 @@
     margin: 0;
     accent-color: color-mix(in srgb, currentColor 55%, transparent);
   }
-  .advanced-grammar select {
+  .advanced-grammar-lang select {
+    appearance: none;
     width: auto;
-    min-width: 6.5rem;
-    max-width: 9rem;
-    padding: 0.15rem 0.35rem;
-    font-size: 0.78rem;
+    min-width: 4.5rem;
+    max-width: 7.5rem;
+    margin: 0;
+    padding: 0.15rem 0.2rem;
+    font: inherit;
+    font-size: inherit;
+    line-height: inherit;
     color: inherit;
     background: transparent;
-    border-color: color-mix(in srgb, currentColor 22%, transparent);
+    border: none;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    cursor: pointer;
   }
-  .advanced-grammar select:disabled {
-    opacity: 0.55;
+  .advanced-grammar-lang select:hover:not(:disabled),
+  .advanced-grammar-lang select:focus-visible {
+    color: inherit;
+    border-bottom-color: color-mix(in srgb, currentColor 55%, transparent);
+  }
+  .advanced-grammar-lang select:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .advanced-preview {
     flex: 1 1 auto;

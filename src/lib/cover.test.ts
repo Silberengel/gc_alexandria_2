@@ -8,6 +8,7 @@ import {
   eventHeroImageUrls,
   isContentHeroKind,
   gutenbergCoverUrl,
+  paintedAncestorHeroUrls,
   readerSectionHeroFullUrl,
   readerSectionHeroUrl,
   sectionHeroImageUrl,
@@ -15,12 +16,12 @@ import {
   wikiSpecHeroThumbUrl
 } from './cover';
 
-function ev(tags: string[][], id = 'a'.repeat(64)): Event {
+function ev(tags: string[][], id = 'a'.repeat(64), kind: number = KIND.PUBLICATION): Event {
   return {
     id,
     pubkey: 'b'.repeat(64),
     created_at: 1,
-    kind: 30040,
+    kind,
     tags,
     content: '',
     sig: 'c'.repeat(128)
@@ -195,6 +196,49 @@ describe('readerSectionHeroUrl', () => {
       '2'.repeat(64)
     );
     expect(readerSectionHeroUrl(leaf, root)).toBeUndefined();
+  });
+
+  it('hides a verse/section that repeats the painted chapter index plate', () => {
+    const plate = 'https://example.com/judges-ch1.jpg';
+    const root = ev([['title', 'Bible']], '1'.repeat(64));
+    const chapter = ev(
+      [
+        ['image', plate],
+        ['title', 'Judges Chapter 1'],
+        ['type', 'bible']
+      ],
+      '2'.repeat(64)
+    );
+    const verse = ev(
+      [
+        ['image', plate],
+        ['title', '1:1'],
+        ['type', 'bible']
+      ],
+      '3'.repeat(64),
+      KIND.SECTION
+    );
+    const painted = [chapter, verse];
+    expect(paintedAncestorHeroUrls(verse, root, painted)).toContain(plate);
+    // Bible verses skip the hero figure entirely.
+    expect(readerSectionHeroUrl(verse, root, painted)).toBeUndefined();
+    // Non-bible leaf with the same plate as the painted chapter is also suppressed.
+    const leaf = ev([['image', plate], ['title', '1']], '4'.repeat(64), KIND.SECTION);
+    expect(readerSectionHeroUrl(leaf, root, [chapter, leaf])).toBeUndefined();
+  });
+
+  it('keeps a nested hero that differs from edition and chapter', () => {
+    const root = ev([['image', 'https://example.com/edition.jpg'], ['title', 'Book']], '1'.repeat(64));
+    const chapter = ev(
+      [['image', 'https://example.com/chapter.jpg'], ['title', 'Ch 1']],
+      '2'.repeat(64)
+    );
+    const leaf = ev(
+      [['image', 'https://example.com/unique.jpg'], ['title', 'Aside']],
+      '3'.repeat(64),
+      KIND.SECTION
+    );
+    expect(readerSectionHeroUrl(leaf, root, [chapter, leaf])).toBe('https://example.com/unique.jpg');
   });
 
   it('uses Gutenberg / cover sources on the edition root when image is absent', () => {

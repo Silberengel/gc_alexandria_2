@@ -8,6 +8,7 @@ import {
   type EditionMetadata,
   type PublicationIdentifier
 } from './publication-metadata';
+import type { PublicationIndexDepth } from './publication-asciidoc-split';
 import { eventAddress, firstTag } from './nostr/verify';
 
 const MAX_NEST_DEPTH = 8;
@@ -18,6 +19,11 @@ export type AssembledPublicationAsciidoc = {
   title: string;
   author: string;
   image: string;
+  /**
+   * Deepest outline level used by nested 30040/30041 events (`==`…`====`).
+   * Used when reopening a published index into the AsciiDoc splitter.
+   */
+  indexDepth: PublicationIndexDepth;
 };
 
 export type PublicationSectionRef =
@@ -223,6 +229,51 @@ function resolveRefEvent(
   return fetched.get(ref.eventId);
 }
 
+function clampAssembledIndexDepth(level: number): PublicationIndexDepth {
+  if (level >= 4) return 4;
+  if (level >= 3) return 3;
+  return 2;
+}
+
+/**
+ * Deepest AsciiDoc heading level that the event tree would emit (`==` = 2 … `====` = 4).
+ * Matches appendIndexBody: root children start at level 2.
+ */
+export function inferPublicationIndexDepth(
+  rootIndex: Event,
+  fetched: Map<string, Event>,
+  eventsByAddress: Map<string, Event>
+): PublicationIndexDepth {
+  let deepest = 2;
+
+  function walk(index: Event, headingLevel: number): void {
+    if (headingLevel > MAX_NEST_DEPTH + 1) return;
+    for (const ref of orderedPublicationRefsFromIndex(index)) {
+      if (ref.type === 'a') {
+        if (ref.kind === KIND.PUBLICATION) {
+          const child =
+            eventsByAddress.get(ref.coordinate) ?? resolveRefEvent(ref, fetched, eventsByAddress);
+          if (!child) continue;
+          if (headingLevel > deepest) deepest = headingLevel;
+          walk(child, headingLevel + 1);
+        } else if (
+          ref.kind === KIND.SECTION ||
+          ref.kind === KIND.WIKI ||
+          ref.kind === KIND.SPEC ||
+          ref.kind === KIND.LONG_FORM
+        ) {
+          if (headingLevel > deepest) deepest = headingLevel;
+        }
+      } else if (headingLevel > deepest) {
+        deepest = headingLevel;
+      }
+    }
+  }
+
+  walk(rootIndex, 2);
+  return clampAssembledIndexDepth(deepest);
+}
+
 function appendIndexBody(
   index: Event,
   eventsByAddress: Map<string, Event>,
@@ -350,8 +401,9 @@ export function assemblePublicationAsciidoc(
   appendIndexBody(rootIndex, eventsByAddress, fetched, 2, bodyParts);
 
   const content = `${header.join('\n')}\n\n${bodyParts.join('\n')}`.trimEnd() + '\n';
+  const indexDepth = inferPublicationIndexDepth(rootIndex, fetched, eventsByAddress);
 
-  return { content, title, author, image };
+  return { content, title, author, image, indexDepth };
 }
 
 /** Register events into id + address maps for assembly. */
