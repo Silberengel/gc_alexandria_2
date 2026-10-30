@@ -816,7 +816,12 @@
         ></video>
       {:else if item.type === 'audio'}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <audio class="event-imeta" src={src} controls onerror={() => markMediaBroken(item)}
+        <audio
+          class="event-imeta"
+          src={src}
+          controls
+          preload="metadata"
+          onerror={() => markMediaBroken(item)}
         ></audio>
       {:else}
         {@const alt = item.alt?.trim() || ''}
