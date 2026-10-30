@@ -158,7 +158,7 @@ export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
       5_000,
       4,
       undefined,
-      { bypassConstrain: true, includeCooling: true }
+      { bypassConstrain: true, includeCooling: true, priority: true }
     );
     if (events.length) rememberEvents(events);
     const live = starterGuideChipsFromDirectories(events);

@@ -101,7 +101,10 @@ async function fetchDirectoryByD(pubkey: string, d: string): Promise<Event | nul
   }
   return directoryByDCache.getOrLoad(key, async () => {
     const filter = { kinds: [KIND.DIRECTORY], authors: [pk], '#d': [d], limit: 1 };
-    const hits = await relayPool.query(documentStack(), [filter]);
+    const hits = await relayPool.query(documentStack(), [filter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    });
     const hit = hits[0] ?? null;
     if (hit) rememberEvents([hit]);
     return hit;
@@ -152,7 +155,10 @@ async function ensureUserHomeDirectoriesUncached(pk: string): Promise<UserHomeDi
   const hits = await relayPool.query(
     documentStack(),
     [{ kinds: [KIND.DIRECTORY], authors: [pk], limit: 80 }],
-    5000
+    5000,
+    4,
+    undefined,
+    { priority: true, includeCooling: true }
   );
   rememberEvents(hits);
   const latest = pruneToLatestReplaceables(hits).filter((e) => e.kind === KIND.DIRECTORY);

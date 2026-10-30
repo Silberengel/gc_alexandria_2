@@ -261,8 +261,18 @@ export async function loadWikiRecent(
     const [cachedWikis, cachedSpecs, relayWikis, relaySpecs] = await Promise.all([
       cachedEventsByKind(KIND.WIKI).catch(() => [] as Event[]),
       cachedEventsByKind(KIND.SPEC).catch(() => [] as Event[]),
-      relayPool.query(wikiStack(), [wikiFilter], 4000).catch(() => [] as Event[]),
-      relayPool.query(wikiStack(), [specFilter], 4000).catch(() => [] as Event[])
+      relayPool
+        .query(wikiStack(), [wikiFilter], 4000, 4, undefined, {
+          priority: true,
+          includeCooling: true
+        })
+        .catch(() => [] as Event[]),
+      relayPool
+        .query(wikiStack(), [specFilter], 4000, 4, undefined, {
+          priority: true,
+          includeCooling: true
+        })
+        .catch(() => [] as Event[])
     ]);
     const events = rankWikiRecent(
       [cachedWikis, cachedSpecs, relayWikis, relaySpecs],
@@ -294,7 +304,12 @@ export async function pickRandomWikiPage(): Promise<Event | null> {
   const filter = { kinds: [KIND.WIKI], limit: 60 };
   const [cached, relayHits] = await Promise.all([
     cachedEventsByKind(KIND.WIKI).catch(() => [] as Event[]),
-    relayPool.query(wikiStack(), [filter], 2500).catch(() => [] as Event[])
+    relayPool
+      .query(wikiStack(), [filter], 2500, 4, undefined, {
+        priority: true,
+        includeCooling: true
+      })
+      .catch(() => [] as Event[])
   ]);
   const list = mergeWikiEvents([cached, relayHits]).filter(isWikiHubListingPage);
   if (!list.length) return null;
@@ -328,9 +343,19 @@ async function searchWikiHubUncached(query: string, limit: number): Promise<Even
     : null;
 
   const relaysP = Promise.all([
-    relayPool.query(wikiStack(), [dFilter], 4000).catch(() => [] as Event[]),
+    relayPool
+      .query(wikiStack(), [dFilter], 4000, 4, undefined, {
+        priority: true,
+        includeCooling: true
+      })
+      .catch(() => [] as Event[]),
     titleFilter
-      ? relayPool.query(wikiStack(), [titleFilter], 4000).catch(() => [] as Event[])
+      ? relayPool
+          .query(wikiStack(), [titleFilter], 4000, 4, undefined, {
+            priority: true,
+            includeCooling: true
+          })
+          .catch(() => [] as Event[])
       : Promise.resolve([] as Event[]),
     mercuryFilter(dFilter).catch(() => [] as Event[]),
     titleFilter ? mercuryFilter(titleFilter).catch(() => [] as Event[]) : Promise.resolve([] as Event[])

@@ -617,9 +617,10 @@
       resolving = false;
       listingsLoading = true;
       // Hard ceiling — saturated relay slots must not leave this spinning forever.
+      // Bookmarks/media wait on priority REQs; keep the spinner until those settle.
       listingsTimer = window.setTimeout(() => {
         if (!cancelled) listingsLoading = false;
-      }, 8_000);
+      }, specialListing ? 20_000 : 8_000);
       try {
         npub = nip19.npubEncode(nextPk);
       } catch {
@@ -793,7 +794,7 @@
         filters: Parameters<typeof relayPool.query>[1],
         timeout: number,
         baseMax: number,
-        opts?: { priority?: boolean }
+        opts?: { priority?: boolean; includeCooling?: boolean; bypassConstrain?: boolean }
       ) => {
         const scope = withPreferredRelays(base, authorOutbox, baseMax);
         return relayPool.query(scope.relays, filters, timeout, scope.maxRelays, undefined, opts);
@@ -814,8 +815,8 @@
               /* stay on our relays */
             }
             if (cancelled) return;
-            // Prefer forest/citadel + author outbox; bypass constrain so GitCitadel-off
-            // viewers still see public bookmark lists on library hosts.
+            // Prefer forest/citadel + author outbox; bypass constrain so library hosts
+            // stay reachable. Priority: background REQs shed to [] when the pool is full.
             const libraryHosts = [
               ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
               ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
@@ -833,7 +834,7 @@
                 ...authorOutbox.filter((u) => !/nostr21|sovbit/i.test(u)).slice(0, 4)
               ],
               4,
-              6
+              4
             );
             const hits = await relayPool.query(
               bookmarkScope.relays,
@@ -842,9 +843,9 @@
                 { kinds: [KIND.BOOKMARK_SET], authors: [nextPk], limit: 80 }
               ],
               10_000,
-              Math.min(bookmarkScope.maxRelays, 8),
+              Math.min(bookmarkScope.maxRelays, 6),
               undefined,
-              { bypassConstrain: true, includeCooling: true }
+              { bypassConstrain: true, includeCooling: true, priority: true }
             );
             if (cancelled) return;
             const own = get(session).pubkey?.toLowerCase() === nextPk.toLowerCase();
@@ -872,10 +873,10 @@
             if (ids.length) {
               const listRelays = hits.flatMap((event) => eventSources(event.id));
               const scope = withPreferredRelays(
-                [...new Set([...socialStack(), ...documentStack()])],
-                [...authorOutbox, ...listRelays],
+                [...new Set([...libraryHosts, ...socialStack(), ...documentStack()])],
+                [...libraryHosts, ...listRelays, ...authorOutbox],
                 4,
-                8
+                4
               );
               const chunks: string[][] = [];
               for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
@@ -885,9 +886,9 @@
                     scope.relays,
                     [{ ids: chunk, limit: chunk.length }],
                     8000,
-                    scope.maxRelays,
+                    Math.min(scope.maxRelays, 6),
                     undefined,
-                    { priority: true, includeCooling: true }
+                    { priority: true, includeCooling: true, bypassConstrain: true }
                   )
                 )
               );
@@ -908,14 +909,15 @@
             // Paint notes already on hand. A follow-up fetch must not replace them with misses.
             bookmarkResolved = record;
             if (!missing.length || cancelled) return;
+            const resolveHints = [...libraryHosts, ...authorOutbox];
             const resolved = await resolveBookmarkItems(missing, {
               eventById: (id, relay) =>
                 fetchById(id, {
-                  hintRelays: relay ? [relay, ...authorOutbox] : authorOutbox
+                  hintRelays: relay ? [relay, ...resolveHints] : resolveHints
                 }),
               eventByAddress: (address, relay) =>
                 fetchByAddress(address, {
-                  hintRelays: relay ? [relay, ...authorOutbox] : authorOutbox
+                  hintRelays: relay ? [relay, ...resolveHints] : resolveHints
                 })
             });
             if (cancelled) return;
@@ -939,11 +941,33 @@
                 /* stay on our relays */
               }
               if (cancelled) return;
-              const hits = await queryAuthored(
-                [...new Set([...socialStack(), ...documentStack()])],
+              // Prefer forest/citadel; priority so saturated slots cannot blank the gallery.
+              const libraryHosts = [
+                ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+                ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+              ];
+              const mediaBase = [
+                ...libraryHosts,
+                ...authorOutbox,
+                ...socialStack(),
+                ...documentStack()
+              ];
+              const mediaScope = withPreferredRelays(
+                [...new Set(mediaBase)],
+                [
+                  ...libraryHosts,
+                  ...authorOutbox.filter((u) => !/nostr21|sovbit/i.test(u)).slice(0, 4)
+                ],
+                4,
+                4
+              );
+              const hits = await relayPool.query(
+                mediaScope.relays,
                 [{ kinds: [...PROFILE_MEDIA_KINDS], authors: [nextPk], limit: 120 }],
-                8000,
-                5
+                10_000,
+                Math.min(mediaScope.maxRelays, 6),
+                undefined,
+                { bypassConstrain: true, includeCooling: true, priority: true }
               );
               if (cancelled) return;
               rememberEvents(hits);
@@ -961,23 +985,28 @@
                 const relays = (docKinds as number[]).includes(filterKind)
                   ? documentStack()
                   : [...new Set([...socialStack(), ...documentStack()])];
-                return queryAuthored(relays, [authoredFilter], 8000, 5).then((authored) => {
-                  if (cancelled) return;
-                  const byId = new Map<string, Event>();
-                  for (const e of untrack(() => produced)) {
-                    if (e.kind === filterKind) byId.set(e.id, e);
+                return queryAuthored(relays, [authoredFilter], 8000, 5, { priority: true }).then(
+                  (authored) => {
+                    if (cancelled) return;
+                    const byId = new Map<string, Event>();
+                    for (const e of untrack(() => produced)) {
+                      if (e.kind === filterKind) byId.set(e.id, e);
+                    }
+                    for (const e of authored) byId.set(e.id, e);
+                    produced = pruneToLatestReplaceables([...byId.values()]);
+                    rememberEvents(produced);
                   }
-                  for (const e of authored) byId.set(e.id, e);
-                  produced = pruneToLatestReplaceables([...byId.values()]);
-                  rememberEvents(produced);
-                });
+                );
               })()
             : Promise.all([
-                queryAuthored(documentStack(), [authoredFilter], 8000, 5),
+                queryAuthored(documentStack(), [authoredFilter], 8000, 5, { priority: true }),
                 mercuryFilter(creditedFilter).then(async (m) =>
                   m.length
                     ? m
-                    : relayPool.query(documentStack(), [creditedFilter], 8000, 5)
+                    : relayPool.query(documentStack(), [creditedFilter], 8000, 5, undefined, {
+                        priority: true,
+                        includeCooling: true
+                      })
                 )
               ]).then(([authored, credited]) => {
                 if (cancelled) return;
@@ -1145,7 +1174,10 @@
       const pinboardP = specialListing
         ? Promise.resolve(false)
         : loadPinboard((base, filters, timeout, baseMax) =>
-            queryAuthored(base, filters, timeout, baseMax)
+            queryAuthored(base, filters, timeout, baseMax, {
+              priority: true,
+              includeCooling: true
+            })
           );
 
       await Promise.allSettled([

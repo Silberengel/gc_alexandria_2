@@ -2537,11 +2537,13 @@
                 '#d': [decoded.d],
                 limit: 1
               };
-              fetched =
-                (await Promise.all([
-                  mercuryFilter(filter),
-                  relayPool.query(documentStack(), [filter])
-                ]).then(([m, w]) => m[0] ?? w[0] ?? null));
+              fetched = await Promise.all([
+                mercuryFilter(filter),
+                relayPool.query(documentStack(), [filter], 8000, 4, undefined, {
+                  priority: true,
+                  includeCooling: true
+                })
+              ]).then(([m, w]) => m[0] ?? w[0] ?? null);
             }
           }
           if (cancelled) return;

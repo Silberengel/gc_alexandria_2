@@ -1,5 +1,5 @@
 import type { Event, Filter } from 'nostr-tools';
-import { KIND } from '../constants';
+import { DOCUMENT_SEARCH_RELAYS, KIND, SOCIAL_RELAYS } from '../constants';
 import { isEventDeleted } from '../deletions';
 import { dTagVariants, normalizeDTag } from '../dtag';
 import { preferRicherEvent, publicationSectionCount } from '../metadata';
@@ -17,6 +17,14 @@ import {
   socialStack,
   wikiStack
 } from './selector';
+
+/** theforest / thecitadel — keep ahead of flaky third-party hosts on small caps. */
+function libraryRelayHosts(): string[] {
+  return [
+    ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+    ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+  ];
+}
 
 export type FetchByAddressOpts = {
   /** Skip Mercury HTTP — use document/wiki relays only (citadel-only trees). */
@@ -261,9 +269,10 @@ export async function fetchByAddress(
     // Citadel-only books: skip Mercury so a hung/empty /filter cannot stall the a-tag walk.
     const relaysOnly = opts?.relaysOnly === true || isMercuryUnavailable();
     const relayTimeout = relaysOnly ? 8_000 : 4_000;
-    const primaryHints = foreignRelaysAllowed() ? (opts?.hintRelays ?? []) : [];
+    // Keep tag/naddr hints; constrainRelays drops foreign hosts when Outboxes is off.
+    const primaryHints = opts?.hintRelays ?? [];
     const primaryScope = withPreferredRelays(
-      stackForKind(parsed.kind),
+      [...libraryRelayHosts(), ...stackForKind(parsed.kind)],
       primaryHints,
       isLibraryAddressableKind(parsed.kind) ? 5 : 8,
       4
@@ -276,7 +285,7 @@ export async function fetchByAddress(
           relayTimeout,
           primaryScope.maxRelays,
           undefined,
-          { priority: parsed.kind === KIND.WIKI || parsed.kind === KIND.SPEC }
+          { priority: true, includeCooling: true }
         )
         .then(pick)
     ];
@@ -323,16 +332,20 @@ export async function fetchById(id: string, opts?: FetchByIdOpts): Promise<Event
     if (cached) return hideIfDeleted(cached);
 
     const filter: Filter = { ids: [id.toLowerCase()], limit: 1 };
-    const primaryHints = foreignRelaysAllowed() ? (opts?.hintRelays ?? []) : [];
+    // Keep nevent/tag hints; constrainRelays drops foreign hosts when Outboxes is off.
+    const primaryHints = opts?.hintRelays ?? [];
     const primaryScope = withPreferredRelays(
-      [...documentStack(), ...socialStack()],
+      [...libraryRelayHosts(), ...documentStack(), ...socialStack()],
       primaryHints,
       8,
       4
     );
     let hit: Event | null =
       (
-        await relayPool.query(primaryScope.relays, [filter], 5000, primaryScope.maxRelays)
+        await relayPool.query(primaryScope.relays, [filter], 5000, primaryScope.maxRelays, undefined, {
+          priority: true,
+          includeCooling: true
+        })
       )[0] ?? null;
     if (!hit) {
       hit = await huntFilter(filter, {

@@ -71,7 +71,7 @@ function queryIdentityKey(
   });
 }
 
-class RelayPool {
+export class RelayPool {
   private authHandler: RelayAuthHandler | null = null;
   private pool = new (SimplePool as new (opts?: object) => SimplePool)({
     maxWaitForConnection: 2500,
@@ -97,10 +97,12 @@ class RelayPool {
    * not while queued for a per-host turn).
    */
   private static readonly MAX_PARALLEL_QUERIES = 4;
-  /** Queued+active REQs per host before later queries skip that host. */
+  /** Queued+active REQs per host before later non-priority queries skip that host. */
   private static readonly MAX_RELAY_QUEUE_DEPTH = 2;
   /** Background work gives up the slot wait; priority keeps waiting. */
   private static readonly SLOT_WAIT_MS = 15_000;
+  /** Non-priority: brief wait for a free slot after the fast path misses (no host turn held). */
+  private static readonly BACKGROUND_SLOT_WAIT_MS = 2_500;
   /**
    * Default fan-out per REQ. Parallel across these hosts, but keep the count modest —
    * publication social loads fire several filters at once and large fan-outs trip rate limits.
@@ -133,12 +135,23 @@ class RelayPool {
     this.relayFailedUntil.set(this.relayKey(url), Date.now() + RelayPool.RELAY_FAIL_COOLDOWN_MS);
   }
 
-  private async withRelayTurn(url: string, fn: () => Promise<Event[]>): Promise<Event[]> {
+  /**
+   * Serialize REQs per host. Non-priority sheds when the host queue is already full
+   * (rate-limited outboxes). Priority always enqueues so navigation cannot vanish as [].
+   * `shedValue` is returned when a non-priority caller is refused at max depth.
+   */
+  private async withRelayTurn<T>(
+    url: string,
+    fn: () => Promise<T>,
+    opts: { priority?: boolean; shedValue: T }
+  ): Promise<T> {
     const key = this.relayKey(url);
     const depth = this.relayQueueDepth.get(key) ?? 0;
+    const priority = opts.priority === true;
     // Don't chain onto a backed-up host — trips 12 msg/min rate limits (pipe.imwald.eu).
     // Slot is acquired inside `fn` (see queryRelay), so waiting on `prev` is cheap.
-    if (depth >= RelayPool.MAX_RELAY_QUEUE_DEPTH) return [];
+    // Priority still waits on the chain instead of shedding to [].
+    if (depth >= RelayPool.MAX_RELAY_QUEUE_DEPTH && !priority) return opts.shedValue;
     this.relayQueueDepth.set(key, depth + 1);
     const prev = this.relayTurn.get(key) ?? Promise.resolve();
     let release: () => void = () => {};
@@ -199,34 +212,65 @@ class RelayPool {
     });
   }
 
-  private queryRelay(
+  private async queryRelay(
     url: string,
     filters: Filter[],
     maxWait: number,
     ignoreCooling = false,
     priority = false
   ): Promise<Event[]> {
-    return this.withRelayTurn(url, async () => {
-      if (!ignoreCooling && this.relayCoolingDown(url)) return [] as Event[];
-      if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
+    if (priority) {
+      return this.withRelayTurn(
+        url,
+        async () => {
+          if (!ignoreCooling && this.relayCoolingDown(url)) return [] as Event[];
+          if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
+          const events = await this.withQuerySlot(
+            () => this.runRelayReq(url, filters, maxWait),
+            true,
+            5_000
+          );
+          return events ?? [];
+        },
+        { priority: true, shedValue: [] }
+      );
+    }
 
-      // Host turn is already held. Never wait long for a global slot here —
-      // that used to park the outbox and cascade into 15s background sheds.
-      if (priority) {
-        const events = await this.withQuerySlot(
-          () => this.runRelayReq(url, filters, maxWait),
-          true,
-          5_000
-        );
-        return events ?? [];
-      }
-      if (!this.tryAcquireQuerySlot(false)) return [];
-      try {
-        return await this.runRelayReq(url, filters, maxWait);
-      } finally {
-        this.releaseQuerySlot();
-      }
-    });
+    // Fast path: host turn first, then an immediate slot grab. If the pool is
+    // saturated, leave the turn and wait briefly *without* parking the outbox.
+    type Fast = { status: 'ok'; events: Event[] } | { status: 'busy' };
+    const first = await this.withRelayTurn<Fast>(
+      url,
+      async () => {
+        if (!ignoreCooling && this.relayCoolingDown(url)) return { status: 'ok', events: [] };
+        if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
+        if (!this.tryAcquireQuerySlot(false)) return { status: 'busy' };
+        try {
+          return { status: 'ok', events: await this.runRelayReq(url, filters, maxWait) };
+        } finally {
+          this.releaseQuerySlot();
+        }
+      },
+      { shedValue: { status: 'ok', events: [] } }
+    );
+    if (first.status === 'ok') return first.events;
+
+    const events = await this.withQuerySlot(
+      async () =>
+        this.withRelayTurn(
+          url,
+          async () => {
+            if (!ignoreCooling && this.relayCoolingDown(url)) return [] as Event[];
+            if (ignoreCooling) this.relayFailedUntil.delete(this.relayKey(url));
+            // Global slot already held by withQuerySlot — do not acquire again.
+            return this.runRelayReq(url, filters, maxWait);
+          },
+          { shedValue: [] as Event[] }
+        ),
+      false,
+      RelayPool.BACKGROUND_SLOT_WAIT_MS
+    );
+    return events ?? [];
   }
 
   setSignedIn(signedIn: boolean): void {

@@ -834,7 +834,9 @@ async function resolveShelfPublications(
           relays,
           [{ kinds: [KIND.PUBLICATION], authors: [group.pubkey], '#d': still, limit: still.length }],
           2500,
-          5
+          5,
+          undefined,
+          { priority: true, includeCooling: true }
         );
         for (const event of ws) {
           if (event.kind === KIND.PUBLICATION) putNewest(byAddr, eventAddress(event), event);
@@ -878,12 +880,27 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
   const viewer = session.getPubkey();
   // Do NOT fetch unscoped bookmarks — a few fat 10003s expand into tens of thousands of
   // memberships and starve cover resolve / rate-limit personal outboxes.
+  const navOpts = { priority: true, includeCooling: true } as const;
   const [socialLabels, socialCuratorLabels] = await Promise.allSettled([
-    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 40 }], 2500),
-    relayPool.query(social, [{ kinds: [KIND.LABEL], authors: [curator], limit: 80 }], 2500)
+    relayPool.query(social, [{ kinds: [KIND.LABEL], limit: 40 }], 2500, 4, undefined, navOpts),
+    relayPool.query(
+      social,
+      [{ kinds: [KIND.LABEL], authors: [curator], limit: 80 }],
+      2500,
+      4,
+      undefined,
+      navOpts
+    )
   ]);
   const [dirWs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
-    relayPool.query(document, [{ kinds: [KIND.DIRECTORY], limit: 40 }], 2500),
+    relayPool.query(
+      document,
+      [{ kinds: [KIND.DIRECTORY], limit: 40 }],
+      2500,
+      4,
+      undefined,
+      navOpts
+    ),
     viewer
       ? relayPool.query(
           social,
@@ -894,14 +911,20 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
               limit: 5
             }
           ],
-          2500
+          2500,
+          4,
+          undefined,
+          navOpts
         )
       : Promise.resolve([] as Event[]),
     viewer
       ? relayPool.query(
           document,
           [{ kinds: [KIND.DIRECTORY], authors: [viewer], limit: 40 }],
-          2500
+          2500,
+          4,
+          undefined,
+          navOpts
         )
       : Promise.resolve([] as Event[]),
     viewer
@@ -917,7 +940,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
           3000,
           2,
           undefined,
-          { priority: true }
+          navOpts
         )
       : Promise.resolve([] as Event[])
   ]);

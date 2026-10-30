@@ -354,10 +354,22 @@ async function fetchByIdOrAuthor(hex: string): Promise<Event[]> {
   const [m1, m2, w1, w2, s1, s2] = await Promise.all([
     mercuryFilter({ ...idFilter, kinds: docKinds }),
     mercuryFilter({ ...authorFilter, kinds: docKinds }),
-    relayPool.query(documentStack(), [idFilter]),
-    relayPool.query(documentStack(), [authorFilter]),
-    relayPool.query(socialStack(), [idFilter]),
-    relayPool.query(socialStack(), [authorFilter])
+    relayPool.query(documentStack(), [idFilter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    }),
+    relayPool.query(documentStack(), [authorFilter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    }),
+    relayPool.query(socialStack(), [idFilter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    }),
+    relayPool.query(socialStack(), [authorFilter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    })
   ]);
   const byId = new Map<string, Event>();
   for (const e of [...m1, ...m2, ...w1, ...w2, ...s1, ...s2]) byId.set(e.id, e);
@@ -440,13 +452,42 @@ async function fanOutSearch(
     resolveWikiAliasArticles(q, 100).then((r) => r.targets),
     cacheScanText(q),
     brainstormSearch(q),
-    ...(dFilter ? [relayPool.query(relays, [dFilter])] : []),
-    relayPool.query(relays, [
-      { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [tagSlug], limit: 100 }
-    ]),
-    relayPool.query(relays, [
-      { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [tagSlug], limit: 100 }
-    ]),
+    ...(dFilter
+      ? [
+          relayPool.query(relays, [dFilter], 8000, 4, undefined, {
+            priority: true,
+            includeCooling: true
+          })
+        ]
+      : []),
+    relayPool.query(
+      relays,
+      [
+        {
+          kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM],
+          '#T': [tagSlug],
+          limit: 100
+        }
+      ],
+      8000,
+      4,
+      undefined,
+      { priority: true, includeCooling: true }
+    ),
+    relayPool.query(
+      relays,
+      [
+        {
+          kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM],
+          '#N': [tagSlug],
+          limit: 100
+        }
+      ],
+      8000,
+      4,
+      undefined,
+      { priority: true, includeCooling: true }
+    ),
     ...(dTags.length
       ? [mercuryFilter({ kinds: [KIND.LONG_FORM], '#d': dTags.slice(0, 12), limit: 100 })]
       : []),
@@ -496,9 +537,14 @@ export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult
       author.trim().length >= 2
         ? mercuryWikiSearch({ q: author, limit: 100 })
         : Promise.resolve([] as Event[]),
-      relayPool.query(documentStack(), [
-        { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [slug], limit: 100 }
-      ]),
+      relayPool.query(
+        documentStack(),
+        [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#N': [slug], limit: 100 }],
+        8000,
+        4,
+        undefined,
+        { priority: true, includeCooling: true }
+      ),
       mercuryFilter({ kinds: [KIND.LONG_FORM], '#N': [slug], limit: 100 }),
       brainstormSearch(author)
     ]);
@@ -516,9 +562,14 @@ export async function runTitleSearch(title: string, onUpdate: (r: SearchResult) 
         ? mercuryWikiSearch({ q: title, title, limit: 100 })
         : Promise.resolve([] as Event[]),
       resolveWikiAliasArticles(title, 100).then((r) => r.targets),
-      relayPool.query(documentStack(), [
-        { kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }
-      ]),
+      relayPool.query(
+        documentStack(),
+        [{ kinds: [KIND.PUBLICATION, KIND.WIKI, KIND.SPEC, KIND.LONG_FORM], '#T': [slug], limit: 100 }],
+        8000,
+        4,
+        undefined,
+        { priority: true, includeCooling: true }
+      ),
       mercuryFilter({ kinds: [KIND.LONG_FORM], '#T': [slug], limit: 100 }),
       brainstormSearch(title)
     ]);
@@ -590,7 +641,10 @@ export async function searchByKindTag(kind: string): Promise<Event[]> {
   const filter: Filter = { kinds: [KIND.SPEC, KIND.WIKI], '#k': [value], limit: 100 };
   const [mercury, relays] = await Promise.all([
     mercuryFilter(filter),
-    relayPool.query(documentStack(), [filter])
+    relayPool.query(documentStack(), [filter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    })
   ]);
   // composeSearchResults / searchKindTier lists specs (30817) before wikis (30818).
   return mergeById([...mercury, ...relays]);
@@ -646,7 +700,9 @@ export async function searchByReadingQueue(pubkeyHex: string): Promise<Event[]> 
       socialStack(),
       [{ kinds: [KIND.READING_QUEUE], authors: [hex], limit: 5 }],
       4000,
-      3
+      3,
+      undefined,
+      { priority: true, includeCooling: true }
     );
     const newest = queues.sort((a, b) => b.created_at - a.created_at)[0] ?? null;
     entries = parseReadingQueue(newest);
@@ -740,7 +796,10 @@ export async function runDTagSearch(d: string, onUpdate: (r: SearchResult) => vo
           ? mercuryWikiSearch({ q: slug, d: slug, limit: 100 })
           : Promise.resolve([] as Event[]),
         resolveWikiAliasArticles(slug || d, 100).then((r) => r.targets),
-        relayPool.query(documentStack(), [filter]),
+        relayPool.query(documentStack(), [filter], 8000, 4, undefined, {
+          priority: true,
+          includeCooling: true
+        }),
         mercuryFilter(filter),
         brainstormSearch(slug)
       ]);
@@ -755,7 +814,10 @@ export async function searchByDTag(d: string): Promise<Event[]> {
   const filter: Filter = { kinds: [KIND.PUBLICATION], '#d': [slug], limit: 100 };
   const [m, w] = await Promise.all([
     mercuryFilter(filter),
-    relayPool.query(documentStack(), [filter])
+    relayPool.query(documentStack(), [filter], 8000, 4, undefined, {
+      priority: true,
+      includeCooling: true
+    })
   ]);
   const byId = new Map<string, Event>();
   for (const e of [...m, ...w]) byId.set(e.id, e);
@@ -773,7 +835,10 @@ export async function searchBySubject(t: string): Promise<Event[]> {
 export async function searchByLabel(l: string): Promise<Event[]> {
   if (isReadLabelSlug(l)) return [];
   const filter: Filter = { kinds: [KIND.LABEL], '#l': [l], limit: 100 };
-  const events = await relayPool.query(socialStack(), [filter]);
+  const events = await relayPool.query(socialStack(), [filter], 8000, 4, undefined, {
+    priority: true,
+    includeCooling: true
+  });
   try {
     await refreshDeletionsFor(events);
   } catch {
@@ -790,7 +855,9 @@ export async function searchByReadAuthor(pubkeyHex: string): Promise<Event[]> {
     socialStack(),
     [{ kinds: [KIND.LABEL], authors: [hex], '#l': [NIP32_READ_LABEL], limit: 100 }],
     5000,
-    4
+    4,
+    undefined,
+    { priority: true, includeCooling: true }
   );
   try {
     await refreshDeletionsFor(events);
@@ -909,7 +976,8 @@ export async function fetchBookshelfDirectory(
       await relayPool.query(scope.relays, [filter], 12_000, Math.min(scope.maxRelays, 8), undefined, {
         // Shelves must still resolve when GitCitadel preset / Outboxes are off.
         bypassConstrain: true,
-        includeCooling: true
+        includeCooling: true,
+        priority: true
       })
     )
   ).filter((e) => e.kind === KIND.DIRECTORY);

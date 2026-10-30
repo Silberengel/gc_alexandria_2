@@ -81,7 +81,12 @@ export async function loadCatalogRecent(kind: CatalogHubKind, limit = 50): Promi
     const filter = { kinds: [kind], limit: fetchLimit };
     const [cached, relayHits] = await Promise.all([
       cachedEventsByKind(kind).catch(() => [] as Event[]),
-      relayPool.query(documentStack(), [filter], 4000).catch(() => [] as Event[])
+      relayPool
+        .query(documentStack(), [filter], 4000, 4, undefined, {
+          priority: true,
+          includeCooling: true
+        })
+        .catch(() => [] as Event[])
     ]);
     const events = rankRecent([cached, relayHits], kind, fetchLimit);
     recentByKind.set(kind, { at: Date.now(), fetchLimit, events });
@@ -145,9 +150,24 @@ export async function searchCatalogHub(
 
   const batches: Promise<Event[]>[] = [
     cachedEventsByKind(kind).catch(() => [] as Event[]),
-    relayPool.query(documentStack(), [dFilter], 4000).catch(() => [] as Event[]),
-    relayPool.query(documentStack(), [titleFilter], 4000).catch(() => [] as Event[]),
-    relayPool.query(documentStack(), [searchFilter], 4000).catch(() => [] as Event[])
+    relayPool
+      .query(documentStack(), [dFilter], 4000, 4, undefined, {
+        priority: true,
+        includeCooling: true
+      })
+      .catch(() => [] as Event[]),
+    relayPool
+      .query(documentStack(), [titleFilter], 4000, 4, undefined, {
+        priority: true,
+        includeCooling: true
+      })
+      .catch(() => [] as Event[]),
+    relayPool
+      .query(documentStack(), [searchFilter], 4000, 4, undefined, {
+        priority: true,
+        includeCooling: true
+      })
+      .catch(() => [] as Event[])
   ];
   if (kind === KIND.PUBLICATION && q.length >= 2) {
     batches.push(
