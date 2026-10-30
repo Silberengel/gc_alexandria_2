@@ -38,6 +38,7 @@ Feature: Profile page
     And #hashtags in about link to subject search (#/search?subject=)
     And a GrapeRank badge shows their trusted-assertion score when known
     And when I am signed in and follow them, a Following badge is shown (not on my own profile)
+    And when signed in on someone else's profile I can follow or mute them publicly or privately (and unfollow / unmute)
     And when they have marked editions as read (kind 1985 l=read), a book-and-check icon with that count links to /search?read={npub}
     And when they have a kind 16374 reading queue, Reading now shows progress bars for the active subset (own profile uses Settings N; other profiles use the default of 3) and the queue length
     And when I view my own profile with Keep reading queue on this device only, Reading now uses that local queue instead of relay 16374

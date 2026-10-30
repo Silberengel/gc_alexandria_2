@@ -1107,11 +1107,13 @@ body:has(main.reading-page) .top-bar {
 }
 .about-hero {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   max-height: 16rem;
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
   border-radius: var(--radius);
-  margin: 0.75rem 0 1.25rem;
+  margin: 0.75rem auto 1.25rem;
   border: 1px solid color-mix(in srgb, var(--rule) 65%, transparent);
   box-shadow: var(--shadow-soft);
 }
@@ -1132,6 +1134,13 @@ body:has(main.reading-page) .top-bar {
 .about-page ul,
 .about-page ol {
   padding-left: 1.25rem;
+}
+.about-index-section {
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+}
+.about-index-section .index-card-list {
+  padding-left: 0;
 }
 
 .btn {
@@ -9156,12 +9165,8 @@ mark.text-highlight.highlight-flash,
   gap: 0.85rem;
 }
 .profile-page-compact .profile-about {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  overflow: hidden;
-  max-height: none;
+  max-height: 500px;
+  overflow-y: auto;
   font-size: clamp(1.02rem, 1.9vw, 1.18rem);
 }
 .profile-desk-heading {
@@ -9402,6 +9407,14 @@ a.user-status-line:hover {
 :root.dark .profile-badge-following {
   color: #a8b896;
 }
+.profile-badge-muted {
+  border-color: color-mix(in srgb, #8b2e24 40%, var(--rule));
+  background: color-mix(in srgb, #8b2e24 10%, var(--paper-light));
+  color: color-mix(in srgb, #8b2e24 80%, var(--ink));
+}
+:root.dark .profile-badge-muted {
+  color: #e8a090;
+}
 .profile-about {
   margin: 0.85rem 0 0;
   padding: 0;
@@ -9416,6 +9429,8 @@ a.user-status-line:hover {
   color: var(--ink);
   white-space: pre-wrap;
   max-width: 42rem;
+  max-height: 500px;
+  overflow-y: auto;
 }
 .profile-about a,
 .profile-detail-rich a {

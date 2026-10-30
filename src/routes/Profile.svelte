@@ -17,7 +17,15 @@
   import { cropRenderedUrl } from '$lib/crop-url';
   import { parseKind0, paymentRows, paymentTypeLabel, cropPaymentAddress, aboutHtml } from '$lib/profile-fields';
   import { selectUserStatuses, type UserStatus } from '$lib/nip38-user-status';
-  import { muteState, filterMuted, followPubkeysFromMetadata, latestReplaceable } from '$lib/mute';
+  import { muteState, filterMuted, isMutedAuthor, latestReplaceable } from '$lib/mute';
+  import {
+    readPubkeyRelationState,
+    setFollowRelation,
+    setMuteRelation,
+    type RelationMode,
+    type RelationVisibility
+  } from '$lib/social-relations';
+  import { openLoginDialog } from '$lib/stores/login-ui';
   import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
@@ -133,7 +141,11 @@
   let pageFilter = $state('');
   let producedPage = $state(1);
   let interactedPage = $state(1);
-  let viewerFollows = $state(false);
+  let viewerFollow = $state<RelationMode>(null);
+  let viewerMute = $state<RelationMode>(null);
+  let relationBusy = $state(false);
+  const viewerFollows = $derived(viewerFollow != null);
+  const viewerMutes = $derived(viewerMute != null || (!!pubkey && isMutedAuthor(pubkey, $muteState)));
   let readCount = $state(0);
   let readingEntries = $state<ReadingQueueEntry[]>([]);
   let readingTitles = $state<Map<string, string>>(new Map());
@@ -340,14 +352,55 @@
     const pk = pubkey;
     const viewer = $session.pubkey;
     if (!pk || !viewer || viewer.toLowerCase() === pk.toLowerCase()) {
-      viewerFollows = false;
+      viewerFollow = null;
+      viewerMute = null;
       return;
     }
-    const unsub = session.metadata.subscribe((events) => {
-      viewerFollows = followPubkeysFromMetadata(events).has(pk.toLowerCase());
-    });
-    return unsub;
+    let cancelled = false;
+    const refresh = () => {
+      void readPubkeyRelationState(pk).then((state) => {
+        if (cancelled) return;
+        viewerFollow = state.follow;
+        viewerMute = state.mute;
+      });
+    };
+    refresh();
+    const unsub = session.metadata.subscribe(() => refresh());
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   });
+
+  async function onFollow(mode: RelationVisibility | 'remove'): Promise<void> {
+    if (!pubkey || relationBusy) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    relationBusy = true;
+    try {
+      const ok = await setFollowRelation(pubkey, mode);
+      if (ok) viewerFollow = mode === 'remove' ? null : mode;
+    } finally {
+      relationBusy = false;
+    }
+  }
+
+  async function onMute(mode: RelationVisibility | 'remove'): Promise<void> {
+    if (!pubkey || relationBusy) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    relationBusy = true;
+    try {
+      const ok = await setMuteRelation(pubkey, mode);
+      if (ok) viewerMute = mode === 'remove' ? null : mode;
+    } finally {
+      relationBusy = false;
+    }
+  }
 
   function omitNested(events: Event[]): Event[] {
     const pubs = events.filter((e) => e.kind === KIND.PUBLICATION);
@@ -1327,10 +1380,17 @@
                 {displayTitle}
               {/if}
             </h2>
-            {#if viewerFollows || readCount > 0}
+            {#if viewerFollows || viewerMutes || readCount > 0}
               <div class="profile-badges">
                 {#if viewerFollows}
-                  <span class="profile-badge profile-badge-following">Following</span>
+                  <span class="profile-badge profile-badge-following"
+                    >{viewerFollow === 'private' ? 'Following privately' : 'Following'}</span
+                  >
+                {/if}
+                {#if viewerMutes}
+                  <span class="profile-badge profile-badge-muted"
+                    >{viewerMute === 'private' ? 'Muted privately' : 'Muted'}</span
+                  >
                 {/if}
                 {#if readCount > 0 && npub && !isKindFiltered}
                   <a
@@ -1354,7 +1414,7 @@
             </div>
           {/if}
         </div>
-        {#if !isKindFiltered && !isSpecialListing && (feedPath || blogPath || bookmarksPath || mediaPath || isOwnProfile)}
+        {#if !isKindFiltered && !isSpecialListing}
           <nav class="profile-side-actions" aria-label="Profile links">
             {#if feedPath}
               <a class="btn profile-card-action" href={`#${feedPath}`} use:link>View feed</a>
@@ -1370,6 +1430,79 @@
             {/if}
             {#if isOwnProfile}
               <a class="btn profile-card-action" href="#/compose?kind=0" use:link>Edit profile</a>
+            {:else}
+              {#if viewerFollows}
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onFollow('remove')}>Unfollow</button
+                >
+                {#if viewerFollow === 'public'}
+                  <button
+                    class="btn profile-card-action"
+                    type="button"
+                    disabled={relationBusy}
+                    onclick={() => void onFollow('private')}>Move follow to private</button
+                  >
+                {:else}
+                  <button
+                    class="btn profile-card-action"
+                    type="button"
+                    disabled={relationBusy}
+                    onclick={() => void onFollow('public')}>Move follow to public</button
+                  >
+                {/if}
+              {:else}
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onFollow('public')}>Follow publicly</button
+                >
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onFollow('private')}>Follow privately</button
+                >
+              {/if}
+              {#if viewerMutes}
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onMute('remove')}>Unmute</button
+                >
+                {#if viewerMute === 'public'}
+                  <button
+                    class="btn profile-card-action"
+                    type="button"
+                    disabled={relationBusy}
+                    onclick={() => void onMute('private')}>Move mute to private</button
+                  >
+                {:else if viewerMute === 'private'}
+                  <button
+                    class="btn profile-card-action"
+                    type="button"
+                    disabled={relationBusy}
+                    onclick={() => void onMute('public')}>Move mute to public</button
+                  >
+                {/if}
+              {:else}
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onMute('public')}>Mute publicly</button
+                >
+                <button
+                  class="btn profile-card-action"
+                  type="button"
+                  disabled={relationBusy}
+                  onclick={() => void onMute('private')}>Mute privately</button
+                >
+              {/if}
             {/if}
           </nav>
         {/if}

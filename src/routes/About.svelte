@@ -1,5 +1,14 @@
 <script lang="ts">
+  import IndexCardList from '$lib/components/IndexCardList.svelte';
   import { APP_VERSION, GITCITADEL_NPUB } from '$lib/constants';
+
+  /** GitCitadel blog index (kind 30040). */
+  const BLOG_NADDR =
+    'naddr1qvzqqqr4tqpzplfq3m5v3u5r0q9f255fdeyz8nyac6lagssx8zy4wugxjs8ajf7pqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5q3qamnwvaz7tmwdaehgu3wd3skueqprdmhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6qppw35x2tt8d96xx6t5v9jx2mpdvfkx7eedvfuj6um5v4kxccfdwcknzw0fh4m';
+
+  /** GitCitadel project documentation index (kind 30040). */
+  const DOCS_NADDR =
+    'naddr1qvzqqqr4tqpzplfq3m5v3u5r0q9f255fdeyz8nyac6lagssx8zy4wugxjs8ajf7pqywhwumn8ghj7mt9wf3h2une94ex2mrp0yhxjmthv9kxgtn9w5q3qamnwvaz7tmwdaehgu3wd3skueqprdmhxue69uhhg6r9vd5hgctyv4kzumn0wd68yvfwvdhk6qpwva5hgcmfw3skgetv94c8ymm2v43hgttyda3h2mt9de6xzarfdahz6cne94ehgetvd3sj6a3dxyqednuw';
 </script>
 
 <main class="shell reading-body about-page">
@@ -30,4 +39,14 @@
     <li>Follow wikilinks inside articles to search by that d-tag.</li>
     <li>Sign in with a Nostr extension when you want to rate, comment, highlight, add lists or bookshelf shelves, or contact GitCitadel.</li>
   </ol>
+
+  <section class="about-index-section" aria-labelledby="about-blog-heading">
+    <h2 id="about-blog-heading">Our blog</h2>
+    <IndexCardList naddr={BLOG_NADDR} />
+  </section>
+
+  <section class="about-index-section" aria-labelledby="about-docs-heading">
+    <h2 id="about-docs-heading">Our Documentation</h2>
+    <IndexCardList naddr={DOCS_NADDR} />
+  </section>
 </main>

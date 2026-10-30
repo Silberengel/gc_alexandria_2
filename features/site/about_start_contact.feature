@@ -10,6 +10,7 @@ Feature: About and Contact
     And I can follow GitHub, Geyser, gitcitadel.com, and the GitCitadel Nostr profile
     And I see the app version when a release version is known
     And I see how to search, open an edition, read, and open a wiki page
+    And I see "Our blog" and "Our Documentation" with publication cards from those indexes
 
   Scenario: Contact lives on About and is signed-in only
     Given I am not signed in
