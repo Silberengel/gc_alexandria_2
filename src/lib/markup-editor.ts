@@ -635,6 +635,20 @@ export function editXref(format: MarkupEditorFormat, source: string, start: numb
   return splice(source, start, end, insert, insert.indexOf('#id') + 1, 'id'.length);
 }
 
+/** Insert an NKBIP-03 `[[citation::mode::nevent]]` macro at the caret (selection replaced). */
+export function editCitation(
+  source: string,
+  start: number,
+  end: number,
+  mode: string,
+  neventOrBech32: string
+): SourceEdit {
+  let id = neventOrBech32.trim();
+  while (id.toLowerCase().startsWith('nostr:')) id = id.slice(6);
+  const insert = `[[citation::${mode}::${id}]]`;
+  return splice(source, start, end, insert, 0, insert.length);
+}
+
 export type MarkupTool =
   | 'title'
   | 'heading'

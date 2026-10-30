@@ -96,6 +96,7 @@
       aria-labelledby="payment-targets-title"
       tabindex="-1"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <div class="payment-targets-head">
         <h2 id="payment-targets-title">Payment targets</h2>

@@ -6,7 +6,9 @@ import {
 import { resolveMarkup } from './markup';
 
 export const COMPOSE_DOCUMENT_PRESETS = [
-  30040, 30818, 30817, 30023, 1, 1068, 1621, 31922, 31923, 30041, 30045
+  30040, 30818, 30817, 30023, 1, 1068, 1621, 31922, 31923, 30041, 30045,
+  /** NKBIP-03 citation events. */
+  30, 31, 32, 33
 ] as const;
 export const COMPOSE_METADATA_KINDS = [
   0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10243

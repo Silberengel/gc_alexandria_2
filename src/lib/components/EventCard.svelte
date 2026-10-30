@@ -200,6 +200,10 @@
         </div>
       {/if}
     </div>
+  {:else if event.kind === KIND.CITATION_INTERNAL || event.kind === KIND.CITATION_WEB || event.kind === KIND.CITATION_HARDCOPY || event.kind === KIND.CITATION_PROMPT}
+    {#await import('./CitationCard.svelte') then mod}
+      <mod.default {event} />
+    {/await}
   {:else if event.kind === KIND.HIGHLIGHT}
     <article class="card note-card">
       {#if showMenu}

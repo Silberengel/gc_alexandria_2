@@ -12,9 +12,31 @@
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
     protectNostrRefsForMarkup,
-    type InlineBodyBlock
+    type InlineBodyBlock,
+    type RefSegment
   } from '$lib/nostr-refs';
-  import { editMarkup, editMedia, type MarkupTool, type MediaFile, type SourceEdit } from '$lib/markup-editor';
+  import {
+    collectCitationFootnotes,
+    collectCitationReferences,
+    formatCitationFull,
+    formatCitationInline,
+    isCitationModeEndOnly,
+    isCitationModeFoot,
+    isCitationModeInline,
+    isCitationModeQuote,
+    parseCitationMeta,
+    type CitationMode
+  } from '$lib/citations';
+  import CitationCite from './CitationCite.svelte';
+  import CitationQuote from './CitationQuote.svelte';
+  import {
+    editCitation,
+    editMarkup,
+    editMedia,
+    type MarkupTool,
+    type MediaFile,
+    type SourceEdit
+  } from '$lib/markup-editor';
   import { scrubProseText } from '$lib/clean-url';
   import {
     fetchRemoteMediaFile,
@@ -22,6 +44,9 @@
     mediaFilesFromDataTransfer
   } from '$lib/media-paste';
   import { diffHasChanges, diffLines, type DiffLine } from '$lib/text-diff';
+  import CitationComposeModal, {
+    type CitationDraftResult
+  } from './CitationComposeModal.svelte';
 
   export type DraftRevisionEntry = {
     created_at: number;
@@ -45,6 +70,12 @@
     /** Blossom upload. Returns the published file so the URL can be inserted as markup. */
     onUploadMedia?: (file: File) => Promise<MediaFile>;
     uploading?: boolean;
+    /**
+     * Publish an NKBIP-03 citation (kinds 30–33) and return a bech32 nevent
+     * for `[[citation::mode::nevent]]` insertion.
+     */
+    onCreateCitation?: (draft: CitationDraftResult) => Promise<{ mode: CitationMode; nevent: string }>;
+    citing?: boolean;
     /** NIP-37 checkpoint chain (oldest → newest) for History diffs. */
     revisionHistory?: DraftRevisionEntry[];
   }
@@ -63,10 +94,15 @@
     onFormat,
     onUploadMedia,
     uploading = false,
+    onCreateCitation,
+    citing = false,
     revisionHistory = []
   }: Props = $props();
 
   let historyOpen = $state(false);
+  let citeOpen = $state(false);
+  let citeInitial = $state('');
+  let citeError = $state('');
 
   type HistoryRevision = {
     index: number;
@@ -111,6 +147,8 @@
   let sourceEl = $state<HTMLTextAreaElement | null>(null);
   let previewEl = $state<HTMLDivElement | null>(null);
   let blocks = $state<InlineBodyBlock[]>([]);
+  /** Expanded html/ref segments (same indices as `block.index` / `resolved`). */
+  let previewSegments = $state<Array<{ type: string } | RefSegment>>([]);
   let resolved = $state<Record<number, NostrEvent | null>>({});
   let uploadError = $state('');
   let caret = { start: 0, end: 0 };
@@ -199,12 +237,25 @@
 
   const langChoices = $derived(grammarLanguageOptions(grammarLang));
   const showPreview = $derived(content.trim().length > 0);
+  const previewFootnotes = $derived(collectCitationFootnotes(previewSegments, resolved));
+  const previewReferences = $derived(collectCitationReferences(previewSegments, resolved));
+  const previewFootBySeg = $derived.by(() => {
+    const map = new Map<number, number>();
+    for (const row of previewFootnotes) map.set(row.segIndex, row.number);
+    return map;
+  });
+  const previewRefBySeg = $derived.by(() => {
+    const map = new Map<number, number>();
+    for (const row of previewReferences) map.set(row.segIndex, row.number);
+    return map;
+  });
 
   $effect(() => {
     const src = content;
     const fmt = format;
     if (!src.trim()) {
       blocks = [];
+      previewSegments = [];
       resolved = {};
       return;
     }
@@ -217,6 +268,7 @@
         const segments = expandNostrRefPlaceholders(rendered, refs);
         if (cancelled) return;
         blocks = coalesceInlineMentions(segments);
+        previewSegments = segments;
         const found: Record<number, NostrEvent | null> = {};
         await Promise.all(
           segments.map(async (seg, index) => {
@@ -368,6 +420,22 @@
   function runTex(mode: 'tex-inline' | 'tex-display') {
     texMenuOpen = false;
     runTool(mode);
+  }
+
+  function openCiteModal() {
+    rememberCaret();
+    const { start, end } = caret;
+    citeInitial = content.slice(start, end).trim();
+    citeError = '';
+    citeOpen = true;
+  }
+
+  async function onCiteSubmit(draft: CitationDraftResult): Promise<void> {
+    if (!onCreateCitation) throw new Error('Sign in to publish citations.');
+    citeError = '';
+    const { mode, nevent } = await onCreateCitation(draft);
+    const { start, end } = caret;
+    await applyEdit(editCitation(content, start, end, mode, nevent));
   }
 
   function openMediaPicker() {
@@ -650,6 +718,25 @@
           {/if}
           <span>{uploading ? 'Uploading…' : 'Media'}</span>
         </button>
+        <button
+          type="button"
+          class="advanced-tool"
+          class:is-busy={citing}
+          title="Publish an NKBIP-03 citation and insert [[citation::…]]"
+          aria-label="Add citation"
+          disabled={citing || !onCreateCitation}
+          onpointerdown={(event) => {
+            event.preventDefault();
+            openCiteModal();
+          }}
+          onmousedown={(event) => event.preventDefault()}
+          onclick={(event) => event.preventDefault()}
+        >
+          {#if citing}
+            <span class="jump-busy-spinner" aria-hidden="true"></span>
+          {/if}
+          <span>{citing ? 'Citing…' : 'Cite'}</span>
+        </button>
         <input
           bind:this={mediaInput}
           type="file"
@@ -664,6 +751,9 @@
       </div>
       {#if uploadError}
         <p class="advanced-upload-error" role="alert">{uploadError}</p>
+      {/if}
+      {#if citeError}
+        <p class="advanced-upload-error" role="alert">{citeError}</p>
       {/if}
       <div class="advanced-source-body">
         <ComposeGrammarTextarea
@@ -697,19 +787,79 @@
                   {#each block.parts as part, pi (pi)}
                     {#if part.type === 'html'}
                       {@html part.html}
+                    {:else if part.type === 'citation'}
+                      {@const flowSeg = previewSegments[part.index]}
+                      {#if flowSeg && flowSeg.type === 'ref'}
+                        <CitationCite
+                          event={resolved[part.index]}
+                          seg={flowSeg as RefSegment}
+                        />
+                      {/if}
                     {:else}
                       <UserBadge pubkey={part.pubkey} compact />
                     {/if}
                   {/each}
                 </p>
-              {:else if resolved[block.index]}
-                <EventCard event={resolved[block.index]!} embedDepth={1} asCard />
-              {:else if resolved[block.index] === null}
-                <p class="muted">This item could not be found.</p>
               {:else}
-                <p class="muted">Opening…</p>
+                {@const citeSeg = previewSegments[block.index]}
+                {@const citeRef =
+                  citeSeg && citeSeg.type === 'ref' ? (citeSeg as RefSegment) : null}
+                {@const hit = resolved[block.index]}
+                {#if citeRef?.citationMode && isCitationModeInline(citeRef.citationMode)}
+                  <CitationCite event={hit} seg={citeRef} />
+                {:else if citeRef?.citationMode && isCitationModeEndOnly(citeRef.citationMode)}
+                  <span class="citation-end-anchor" hidden></span>
+                {:else if citeRef?.citationMode && isCitationModeFoot(citeRef.citationMode)}
+                  {@const footN = previewFootBySeg.get(block.index)}
+                  {#if footN != null}
+                    <sup class="citation-foot-ref"
+                      ><a href={`#adv-citation-foot-${footN}`}>{footN}</a></sup
+                    >
+                  {/if}
+                {:else if citeRef?.citationMode && isCitationModeQuote(citeRef.citationMode) && hit}
+                  <CitationQuote event={hit} noteNumber={previewRefBySeg.get(block.index)} />
+                {:else if hit}
+                  <EventCard event={hit} embedDepth={1} asCard />
+                {:else if hit === null}
+                  <p class="muted">This item could not be found.</p>
+                {:else}
+                  <p class="muted">Opening…</p>
+                {/if}
               {/if}
             {/each}
+            {#if previewFootnotes.length}
+              <aside class="citation-footnotes" aria-label="Footnotes">
+                <ol class="citation-footnotes-list">
+                  {#each previewFootnotes as note (note.number)}
+                    <li id={`adv-citation-foot-${note.number}`}>
+                      {#if note.brief}
+                        {formatCitationInline(parseCitationMeta(note.event))}
+                        {#if previewRefBySeg.has(note.segIndex)}
+                          — see References
+                          <a href={`#adv-citation-ref-${previewRefBySeg.get(note.segIndex)}`}
+                            >[{previewRefBySeg.get(note.segIndex)}]</a
+                          >
+                        {/if}
+                      {:else}
+                        {formatCitationFull(parseCitationMeta(note.event))}
+                      {/if}
+                    </li>
+                  {/each}
+                </ol>
+              </aside>
+            {/if}
+            {#if previewReferences.length}
+              <section class="citation-references" aria-label="References">
+                <h3 class="citation-references-title">References</h3>
+                <ol class="citation-references-list">
+                  {#each previewReferences as row (row.number)}
+                    <li id={`adv-citation-ref-${row.number}`}>
+                      {formatCitationFull(parseCitationMeta(row.event))}
+                    </li>
+                  {/each}
+                </ol>
+              </section>
+            {/if}
           </div>
         {:else}
           <p class="advanced-preview-empty">Nothing to preview yet.</p>
@@ -718,6 +868,20 @@
     </section>
   </div>
 </div>
+
+<CitationComposeModal
+  open={citeOpen}
+  initialContent={citeInitial}
+  onClose={() => (citeOpen = false)}
+  onSubmit={async (draft) => {
+    try {
+      await onCiteSubmit(draft);
+    } catch (err) {
+      citeError = err instanceof Error ? err.message : String(err);
+      throw err;
+    }
+  }}
+/>
 
 <style>
   .advanced-editor {

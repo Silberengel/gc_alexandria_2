@@ -4151,6 +4151,46 @@ a.nostrdown-ref {
   font-size: 0.92em;
   color: var(--ink-soft);
 }
+.event-body .citation-footnotes,
+.reading-body .citation-footnotes,
+.reader-section .citation-footnotes,
+.event-body .citation-references,
+.reading-body .citation-references,
+.reader-section .citation-references {
+  margin-top: 1.35rem;
+  font-size: 0.92em;
+  color: var(--ink-soft);
+}
+.event-body .citation-references-title,
+.reading-body .citation-references-title,
+.reader-section .citation-references-title {
+  margin: 0 0 0.45rem;
+  font-size: 1em;
+  font-weight: 650;
+}
+.event-body .citation-footnotes-list,
+.event-body .citation-references-list,
+.reading-body .citation-footnotes-list,
+.reading-body .citation-references-list,
+.reader-section .citation-footnotes-list,
+.reader-section .citation-references-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.event-body .citation-footnotes-list > li + li,
+.event-body .citation-references-list > li + li,
+.reading-body .citation-footnotes-list > li + li,
+.reading-body .citation-references-list > li + li,
+.reader-section .citation-footnotes-list > li + li,
+.reader-section .citation-references-list > li + li {
+  margin-top: 0.35rem;
+}
+.event-body .citation-foot-ref,
+.reading-body .citation-foot-ref,
+.reader-section .citation-foot-ref {
+  font-size: 0.75em;
+  line-height: 0;
+}
 .reading-body section[role='doc-endnotes'] hr,
 .event-body section[role='doc-endnotes'] hr,
 .reader-section section[role='doc-endnotes'] hr {
@@ -10401,7 +10441,6 @@ a.user-status-line:hover {
   display: block;
   width: 100%;
   height: auto;
-  vertical-align: top;
 }
 .profile-media-tile-w2 .profile-media-tile-btn:not([style*='aspect-ratio']),
 .profile-media-tile-w2 .profile-media-tile-video:not([style*='aspect-ratio']) {

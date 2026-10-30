@@ -1,4 +1,9 @@
 import { nip19 } from 'nostr-tools';
+import {
+  citationModeFromMacro,
+  isCitationModeInline,
+  type CitationMode
+} from './citations';
 
 export type NostrRefKind = 'npub' | 'nprofile' | 'naddr' | 'nevent' | 'note';
 
@@ -20,6 +25,8 @@ export type RefSegment = {
   displayLabel?: string;
   /** Default `block` for bare note/nevent/naddr; nostrdown `ref`/`wiki`/`cite`/`quote` are inline. */
   presentation?: 'inline' | 'block';
+  /** NKBIP-03 `[[citation::mode::…]]` placement mode when peeled from a citation macro. */
+  citationMode?: CitationMode;
 };
 export type ContentSegment = TextSegment | RefSegment;
 
@@ -355,10 +362,17 @@ export function protectNostrRefsForMarkup(content: string): {
     const id = cleanCitationId(m[2] ?? '');
     const ref = decodeNostrBech32(id);
     if (!ref) continue;
+    const citationMode = citationModeFromMacro(m[1]);
+    const inline = isCitationModeInline(citationMode);
     hits.push({
       start: m.index,
       end: m.index + m[0].length,
-      ref: { ...ref, raw: m[0] }
+      ref: {
+        ...ref,
+        raw: m[0],
+        citationMode,
+        presentation: inline ? 'inline' : 'block'
+      }
     });
   }
 
@@ -415,7 +429,11 @@ export function protectNostrRefsForMarkup(content: string): {
   return { text: out, refs };
 }
 
-export type MentionPart = { type: 'html'; html: string } | { type: 'mention'; pubkey: string };
+export type MentionPart =
+  | { type: 'html'; html: string }
+  | { type: 'mention'; pubkey: string }
+  /** NKBIP-03 inline / prompt-inline citation — keep inside the sentence flow. */
+  | { type: 'citation'; index: number };
 
 export type InlineBodyBlock =
   | { type: 'html'; html: string }
@@ -494,7 +512,11 @@ export function coalesceInlineMentions(segments: RenderSegment[]): InlineBodyBlo
     }
     if (isInlineLabeledRef(seg)) {
       if (!flow) flow = [];
-      flow.push({ type: 'html', html: inlineNostrRefHtml(seg) });
+      if (seg.citationMode) {
+        flow.push({ type: 'citation', index });
+      } else {
+        flow.push({ type: 'html', html: inlineNostrRefHtml(seg) });
+      }
       return;
     }
     if ((seg.kind === 'npub' || seg.kind === 'nprofile') && seg.pubkey) {

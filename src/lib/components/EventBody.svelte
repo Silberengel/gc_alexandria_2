@@ -28,6 +28,19 @@
     type ContentSegment,
     type RefSegment
   } from '$lib/nostr-refs';
+  import {
+    collectCitationFootnotes,
+    collectCitationReferences,
+    formatCitationFull,
+    formatCitationInline,
+    isCitationModeEndOnly,
+    isCitationModeFoot,
+    isCitationModeInline,
+    isCitationModeQuote,
+    parseCitationMeta
+  } from '$lib/citations';
+  import CitationCite from './CitationCite.svelte';
+  import CitationQuote from './CitationQuote.svelte';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import {
     expandCustomEmojiPlaceholders,
@@ -259,6 +272,7 @@
       sourceKind === KIND.SPEC ||
       sourceKind === KIND.LONG_FORM ||
       sourceKind === KIND.DJOT ||
+      sourceKind === KIND.ISSUE ||
       sourceKind === KIND.TEXT_NOTE ||
       sourceKind === KIND.PUBLIC_MESSAGE ||
       sourceKind === KIND.COMMENT
@@ -290,6 +304,20 @@
       )
     )
   );
+
+  const citationFootnotes = $derived(collectCitationFootnotes(segments, resolved));
+  const citationReferences = $derived(collectCitationReferences(segments, resolved));
+  const citationFootBySeg = $derived.by(() => {
+    const map = new Map<number, number>();
+    for (const row of citationFootnotes) map.set(row.segIndex, row.number);
+    return map;
+  });
+  const citationRefNumberBySeg = $derived.by(() => {
+    const map = new Map<number, number>();
+    for (const row of citationReferences) map.set(row.segIndex, row.number);
+    return map;
+  });
+
   const loadingLabel = $derived(
     sourceKind === KIND.SECTION || sourceKind === KIND.PUBLICATION
       ? 'Publication is loading...'
@@ -416,7 +444,9 @@
         if (!embeds) return;
         await Promise.all(
           next.map(async (seg, i) => {
-            if (seg.type !== 'ref' || isInlineLabeledRef(seg)) return;
+            if (seg.type !== 'ref') return;
+            // Nostrdown inline links skip fetch; NKBIP-03 citation macros still need the event.
+            if (isInlineLabeledRef(seg) && !seg.citationMode) return;
             found[i] = await fetchRef(seg);
           })
         );
@@ -442,7 +472,8 @@
             return;
           }
           next[i] = seg;
-          if (!embeds || isInlineLabeledRef(seg)) return;
+          if (!embeds) return;
+          if (isInlineLabeledRef(seg) && !seg.citationMode) return;
           found[i] = await fetchRef(seg);
         })
       );
@@ -650,11 +681,46 @@
           {#each block.parts as part, pi (pi)}
             {#if part.type === 'html'}
               {@html part.html}
+            {:else if part.type === 'citation'}
+              {@const flowSeg = segments[part.index]}
+              {#if flowSeg?.type === 'ref'}
+                <CitationCite event={resolved[part.index]} seg={flowSeg} />
+              {/if}
             {:else}
               <UserBadge pubkey={part.pubkey} compact />
             {/if}
           {/each}
         </p>
+      {:else if segments[block.index]?.type === 'ref' && (segments[block.index] as RefSegment).citationMode}
+        {@const citeSeg = segments[block.index] as RefSegment}
+        {@const citeMode = citeSeg.citationMode}
+        {@const citeHit = resolved[block.index]}
+        {#if isCitationModeInline(citeMode)}
+          <CitationCite event={citeHit} seg={citeSeg} />
+        {:else if isCitationModeEndOnly(citeMode)}
+          <span class="citation-end-anchor" id={`citation-seg-${block.index}`} hidden></span>
+        {:else if isCitationModeFoot(citeMode)}
+          {@const footN = citationFootBySeg.get(block.index)}
+          {#if footN != null}
+            <sup class="citation-foot-ref"
+              ><a href={`#citation-foot-${footN}`} id={`citation-foot-ref-${footN}`}>{footN}</a></sup
+            >
+          {/if}
+        {:else if isCitationModeQuote(citeMode)}
+          {#if citeHit}
+            <CitationQuote event={citeHit} noteNumber={citationRefNumberBySeg.get(block.index)} />
+          {:else if citeHit === null}
+            <p class="muted">Cited source could not be found.</p>
+          {:else}
+            <p class="muted">Opening citation…</p>
+          {/if}
+        {:else if citeHit}
+          {@render embedCard(citeHit)}
+        {:else if citeHit === null}
+          <p class="muted">Cited source could not be found.</p>
+        {:else}
+          <p class="muted">Opening citation…</p>
+        {/if}
       {:else if isInlineLabeledRef(segments[block.index]!)}
         {@html inlineNostrRefHtml(segments[block.index] as RefSegment)}
       {:else if !showEmbeds}
@@ -680,6 +746,39 @@
         <p class="muted">Opening…</p>
       {/if}
     {/each}
+    {#if citationFootnotes.length}
+      <aside class="citation-footnotes" aria-label="Footnotes">
+        <ol class="citation-footnotes-list">
+          {#each citationFootnotes as note (note.number)}
+            <li id={`citation-foot-${note.number}`}>
+              {#if note.brief}
+                {formatCitationInline(parseCitationMeta(note.event))}
+                {#if citationRefNumberBySeg.has(note.segIndex)}
+                  — see References
+                  <a href={`#citation-ref-${citationRefNumberBySeg.get(note.segIndex)}`}
+                    >[{citationRefNumberBySeg.get(note.segIndex)}]</a
+                  >
+                {/if}
+              {:else}
+                {formatCitationFull(parseCitationMeta(note.event))}
+              {/if}
+            </li>
+          {/each}
+        </ol>
+      </aside>
+    {/if}
+    {#if citationReferences.length}
+      <section class="citation-references" aria-label="References">
+        <h3 class="citation-references-title">References</h3>
+        <ol class="citation-references-list">
+          {#each citationReferences as row (row.number)}
+            <li id={`citation-ref-${row.number}`}>
+              {formatCitationFull(parseCitationMeta(row.event))}
+            </li>
+          {/each}
+        </ol>
+      </section>
+    {/if}
     {#each extraEmbeds as hit (hit.id)}
       {@render embedCard(hit)}
     {/each}

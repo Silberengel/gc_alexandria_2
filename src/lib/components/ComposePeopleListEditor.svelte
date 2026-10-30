@@ -144,7 +144,7 @@
     flex: 2 1 12rem;
     min-width: 0;
   }
-  .people-pubkey {
+  .people-row :global(.people-pubkey) {
     flex: 2 1 12rem;
     font-family: var(--mono-font, ui-monospace, monospace);
     font-size: 0.82rem;

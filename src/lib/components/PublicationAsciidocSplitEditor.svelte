@@ -13,7 +13,12 @@
   } from '$lib/publication-asciidoc-split';
   import type { PublishProgress } from '$lib/publication-publish';
   import { KIND } from '$lib/constants';
+  import { editCitation } from '$lib/markup-editor';
+  import type { CitationMode } from '$lib/citations';
   import ProseGrammarField from './ProseGrammarField.svelte';
+  import CitationComposeModal, {
+    type CitationDraftResult
+  } from './CitationComposeModal.svelte';
 
   interface Props {
     source?: string;
@@ -29,6 +34,8 @@
     onRetryFailed?: () => void;
     onClose?: () => void;
     onApplyIdeal?: (next: { source: string; maxIndexLevel: PublicationIndexDepth }) => void;
+    onCreateCitation?: (draft: CitationDraftResult) => Promise<{ mode: CitationMode; nevent: string }>;
+    citing?: boolean;
   }
 
   let {
@@ -42,10 +49,33 @@
     missingDTags = [],
     onRetryFailed,
     onClose,
-    onApplyIdeal
+    onApplyIdeal,
+    onCreateCitation,
+    citing = false
   }: Props = $props();
 
   let sourceEl = $state<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  let citeOpen = $state(false);
+  let citeInitial = $state('');
+  let citeRange = $state({ start: 0, end: 0 });
+
+  function openCite(): void {
+    const el = sourceEl;
+    const start =
+      el && 'selectionStart' in el ? (el.selectionStart ?? source.length) : source.length;
+    const end = el && 'selectionEnd' in el ? (el.selectionEnd ?? start) : start;
+    citeRange = { start, end };
+    citeInitial = source.slice(start, end).trim();
+    citeOpen = true;
+  }
+
+  async function onCiteSubmit(draft: CitationDraftResult): Promise<void> {
+    if (!onCreateCitation) throw new Error('Sign in to publish a citation.');
+    const { mode, nevent } = await onCreateCitation(draft);
+    const { start, end } = citeRange;
+    const edit = editCitation(source, start, end, mode, nevent);
+    source = edit.value;
+  }
   let idealNote = $state('');
   /** Snapshot of source/depth when `idealNote` was set — clear the note once either drifts. */
   let idealNoteAt = $state<{ source: string; depth: PublicationIndexDepth } | null>(null);
@@ -293,7 +323,20 @@
         bind:value={source}
         disabled={publishing}
         placeholder={'== Chapter one\n\nBody…\n\n== Chapter two\n\n…'}
-      />
+      >
+        {#snippet headActions()}
+          {#if onCreateCitation}
+            <button
+              type="button"
+              class="pub-split-cite"
+              disabled={publishing || citing}
+              onclick={openCite}
+            >
+              {citing ? 'Citing…' : 'Cite'}
+            </button>
+          {/if}
+        {/snippet}
+      </ProseGrammarField>
     </section>
     <section class="pub-split-pane" aria-label="Publication structure">
       <div class="pub-split-pane-label">Publication tree</div>
@@ -304,7 +347,27 @@
   </div>
 </div>
 
+<CitationComposeModal
+  open={citeOpen}
+  initialContent={citeInitial}
+  onClose={() => (citeOpen = false)}
+  onSubmit={onCiteSubmit}
+/>
+
 <style>
+  .pub-split-cite {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--accent, #8b6914);
+    cursor: pointer;
+  }
+  .pub-split-cite:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
   .pub-split-editor {
     position: fixed;
     inset: 0;

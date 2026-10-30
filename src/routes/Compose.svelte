@@ -75,6 +75,15 @@
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish, signUnsigned, consumeSignFailure, withClientTag } from '$lib/sign';
+  import {
+    buildCitationPartial,
+    citationNevent,
+    type CitationMode
+  } from '$lib/citations';
+  import CitationComposeModal, {
+    type CitationDraftResult
+  } from '$lib/components/CitationComposeModal.svelte';
+  import { editCitation } from '$lib/markup-editor';
   import { showNotice, showPublishResult } from '$lib/stores/toast';
   import {
     composerFieldSpecs,
@@ -86,7 +95,9 @@
     kindMatchesClass,
     kindPickerLabel,
     customFormForClass,
-    isCatalogued
+    isCatalogued,
+    type EventClassId,
+    type FieldDef
   } from '@silberengel/kind-compose-catalog';
   import {
     deleteDraftWrap,
@@ -102,7 +113,6 @@
     type DecryptedCheckpoint,
     type DecryptedDraftWrap
   } from '$lib/nip37';
-  import type { EventClassId, FieldDef } from '@silberengel/kind-compose-catalog';
   import {
     OTHER_KIND_SENTINEL,
     COMPOSE_DOCUMENT_PRESETS,
@@ -1934,6 +1944,49 @@
     return mergeBlossomServers(user);
   }
 
+  let citing = $state(false);
+  let bodyCiteOpen = $state(false);
+  let bodyCiteInitial = $state('');
+  let bodyCiteRange = $state({ start: 0, end: 0 });
+  let bodyTextarea = $state<HTMLTextAreaElement | null>(null);
+
+  async function createCitation(
+    draft: CitationDraftResult
+  ): Promise<{ mode: CitationMode; nevent: string }> {
+    if (!$session.pubkey) {
+      openLoginDialog();
+      throw new Error('Sign in to publish a citation.');
+    }
+    citing = true;
+    try {
+      const partial = buildCitationPartial(draft);
+      const signed = await signAndPublish(partial, {
+        quiet: true,
+        successMessage: 'Citation published.'
+      });
+      if (!signed) throw new Error(consumeSignFailure() || 'Could not publish citation.');
+      return { mode: draft.mode, nevent: citationNevent(signed) };
+    } finally {
+      citing = false;
+    }
+  }
+
+  function openBodyCite(): void {
+    const el = bodyTextarea;
+    const start = el?.selectionStart ?? content.length;
+    const end = el?.selectionEnd ?? start;
+    bodyCiteRange = { start, end };
+    bodyCiteInitial = content.slice(start, end).trim();
+    bodyCiteOpen = true;
+  }
+
+  async function insertCitationFromBody(draft: CitationDraftResult): Promise<void> {
+    const { mode, nevent } = await createCitation(draft);
+    const { start, end } = bodyCiteRange;
+    const edit = editCitation(content, start, end, mode, nevent);
+    content = edit.value;
+  }
+
   async function uploadBlossomFile(file: File): Promise<{ url: string; mime: string; name: string }> {
     if (!$session.pubkey) {
       openLoginDialog();
@@ -3225,6 +3278,14 @@
                       <button
                         type="button"
                         class="compose-advanced-link"
+                        disabled={citing}
+                        onclick={openBodyCite}
+                      >
+                        Cite
+                      </button>
+                      <button
+                        type="button"
+                        class="compose-advanced-link"
                         onclick={() => (advancedOpen = true)}
                       >
                         Advanced
@@ -3239,6 +3300,7 @@
                   <ComposeGrammarTextarea
                     id="compose-body"
                     bind:value={content}
+                    bind:element={bodyTextarea}
                     rows={10}
                     placeholder={contentMeta?.placeholder ?? ''}
                     issues={grammarIssues}
@@ -3458,6 +3520,8 @@
     }}
     onUploadMedia={uploadBlossomFile}
     {uploading}
+    onCreateCitation={createCitation}
+    {citing}
     {revisionHistory}
   />
 {/if}
@@ -3477,8 +3541,17 @@
       publicationSplitOpen = false;
       persistCurrent({ immediateManuscript: true });
     }}
+    onCreateCitation={createCitation}
+    {citing}
   />
 {/if}
+
+<CitationComposeModal
+  open={bodyCiteOpen}
+  initialContent={bodyCiteInitial}
+  onClose={() => (bodyCiteOpen = false)}
+  onSubmit={insertCitationFromBody}
+/>
 
 <PrivateRelayListModal
   open={privateRelayModalOpen}

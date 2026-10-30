@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   editBold,
+  editCitation,
   editCodeBlock,
   editFootnote,
   editHeading,
@@ -108,6 +109,15 @@ describe('markup editor insertions', () => {
       '{source="Hope Is The Thing With Feathers, by Emily Dickinson"}'
     );
     expect(editMarkup('quote', 'djot', '', 0, 0).value).toContain('> ‘Hope’ is the thing with feathers');
+  });
+
+  it('inserts an NKBIP-03 citation macro', () => {
+    expect(editCitation('Hello', 5, 5, 'inline', 'nevent1abc').value).toBe(
+      'Hello[[citation::inline::nevent1abc]]'
+    );
+    expect(editCitation('x', 0, 1, 'end', 'nostr:nevent1xyz').value).toBe(
+      '[[citation::end::nevent1xyz]]'
+    );
   });
 
   it('wraps a selection in a quote with a generic attribution placeholder', () => {

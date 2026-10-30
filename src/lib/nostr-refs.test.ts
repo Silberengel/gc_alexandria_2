@@ -51,6 +51,38 @@ describe('protectNostrRefsForMarkup', () => {
     const { refs } = protectNostrRefsForMarkup(`see [[citation::inline::nostr:${nevent}]] please`);
     expect(refs).toHaveLength(1);
     expect(refs[0]?.raw).toContain('citation::');
+    expect(refs[0]?.citationMode).toBe('inline');
+    expect(refs[0]?.presentation).toBe('inline');
+  });
+
+  it('maps citation modes to presentation', () => {
+    const id = '7'.repeat(64);
+    const nevent = nip19.neventEncode({ id });
+    const quote = protectNostrRefsForMarkup(`[[citation::quote::${nevent}]]`);
+    expect(quote.refs[0]?.citationMode).toBe('quote');
+    expect(quote.refs[0]?.presentation).toBe('block');
+    const foot = protectNostrRefsForMarkup(`[[citation::foot::${nevent}]]`);
+    expect(foot.refs[0]?.citationMode).toBe('foot');
+    expect(foot.refs[0]?.presentation).toBe('block');
+    const footEnd = protectNostrRefsForMarkup(`[[citation::foot-end::${nevent}]]`);
+    expect(footEnd.refs[0]?.citationMode).toBe('foot-end');
+    expect(footEnd.refs[0]?.presentation).toBe('block');
+    const prompt = protectNostrRefsForMarkup(`[[citation::prompt-inline::${nevent}]]`);
+    expect(prompt.refs[0]?.citationMode).toBe('prompt-inline');
+    expect(prompt.refs[0]?.presentation).toBe('inline');
+  });
+
+  it('keeps citation inline macros inside a flow sentence', () => {
+    const id = '8'.repeat(64);
+    const nevent = nip19.neventEncode({ id });
+    const { text, refs } = protectNostrRefsForMarkup(`see [[citation::inline::${nevent}]] here`);
+    const parts = expandNostrRefPlaceholders(`<p>${text}</p>`, refs);
+    const blocks = coalesceInlineMentions(parts);
+    const flow = blocks.find((b) => b.type === 'flow');
+    expect(flow?.type).toBe('flow');
+    if (flow?.type === 'flow') {
+      expect(flow.parts.some((p) => p.type === 'citation')).toBe(true);
+    }
   });
 
   it('peels nostrdown {{ref:nevent|label}} as an inline labeled link, not a bare embed', () => {

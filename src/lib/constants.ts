@@ -233,6 +233,14 @@ export const KIND = {
   VIDEO: 21,
   /** NIP-71 short-form video. */
   SHORT_VIDEO: 22,
+  /** NKBIP-03 internal Nostr citation. */
+  CITATION_INTERNAL: 30,
+  /** NKBIP-03 external web citation. */
+  CITATION_WEB: 31,
+  /** NKBIP-03 hardcopy citation. */
+  CITATION_HARDCOPY: 32,
+  /** NKBIP-03 LLM / prompt citation. */
+  CITATION_PROMPT: 33,
   /** NIP-A0 voice message. */
   VOICE: 1222,
   LONG_FORM: 30023,
@@ -294,6 +302,18 @@ export const KIND = {
   /** NIP-85 Trusted Assertion score for a subject pubkey (`d` tag). */
   NIP85_SCORE: 30382
 } as const;
+
+/** NKBIP-03 citation event kinds (30–33). */
+export const CITATION_KINDS = [
+  KIND.CITATION_INTERNAL,
+  KIND.CITATION_WEB,
+  KIND.CITATION_HARDCOPY,
+  KIND.CITATION_PROMPT
+] as const;
+
+export function isCitationKind(kind: number): boolean {
+  return (CITATION_KINDS as readonly number[]).includes(kind);
+}
 
 export const LOGIN_METADATA_KINDS = [
   KIND.METADATA,

@@ -55,6 +55,7 @@
     }
     errorHint = '';
     if (localOnly) {
+      // track() claims `busy` synchronously before any await.
       void track(false);
       return;
     }
@@ -67,16 +68,16 @@
   }
 
   async function track(asPrivate: boolean): Promise<void> {
-    if (busy) return;
-    if (!$session.pubkey) {
-      openLoginDialog();
-      return;
-    }
-    if (!ready || alreadyRead) return;
+    if (busy || !ready || alreadyRead) return;
+    // Claim the lock before any await so double-clicks cannot start a second publish.
     busy = true;
     errorHint = '';
     choosingVisibility = false;
     try {
+      if (!$session.pubkey) {
+        openLoginDialog();
+        return;
+      }
       if (bunker) {
         const ok = await session.ensureBunkerSigner();
         if (!ok && !session.getSigner()) {
