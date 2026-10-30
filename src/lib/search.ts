@@ -12,7 +12,7 @@ import { rememberEvents } from './nostr/event-memory';
 import { mercuryFilter, mercuryPublicationSearch, mercurySectionSearch, mercuryWikiSearch, mercurySuggest, MERCURY_DOCUMENT_KINDS } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import { relayTagSlug } from './nostr/relay-filters';
-import { documentStack, gitcitadelReadsAllowed, socialStack } from './nostr/selector';
+import { documentStack, foreignRelaysAllowed, gitcitadelReadsAllowed, socialStack } from './nostr/selector';
 import {
   ADVANCED_SEARCH_MAX_RELAYS,
   advancedSearchCacheKey,
@@ -43,6 +43,7 @@ import {
   publicationTargetsFromDirectory,
   publicationsNotInDirectory
 } from './bookshelf';
+import { authorOutbox, withPreferredRelays } from './nostr/mailboxes';
 import { fetchByAddress, fetchByAddresses, fetchByIds } from './nostr/fetch';
 import {
   fetchFollowReadingQueues,
@@ -872,8 +873,26 @@ export async function fetchBookshelfDirectory(
     limit: authors.length ? 5 : 20,
     ...(authors.length ? { authors } : {})
   };
+  // Kind 30045 is not a Mercury document kind — documentStack alone often misses
+  // shelves that live on social hosts (theforest) / curator outboxes.
+  const base = [...new Set([...socialStack(), ...documentStack()])];
+  // Keep library hosts ahead of flaky third-party sockets (e.g. nostr21) so a
+  // small maxRelays still reaches the shelf.
+  const libraryFirst = base.filter((u) =>
+    /theforest|thecitadel|mercury-relay/i.test(u)
+  );
+  let preferred: string[] = [...libraryFirst];
+  const curator = authors[0];
+  if (curator && foreignRelaysAllowed()) {
+    try {
+      preferred = [...(await authorOutbox(curator)).slice(0, 4), ...preferred];
+    } catch {
+      /* stay on social + document */
+    }
+  }
+  const scope = withPreferredRelays(base, preferred, 8, 5);
   const dirs = pruneToLatestReplaceables(
-    mergeById(await relayPool.query(documentStack(), [filter]))
+    mergeById(await relayPool.query(scope.relays, [filter], 12_000, scope.maxRelays))
   ).filter((e) => e.kind === KIND.DIRECTORY);
   if (!dirs.length) return null;
   if (authors.length) {
@@ -892,9 +911,10 @@ export async function publicationsFromBookshelfDirectory(
   // a- and e-tag memberships share one directory budget (MAX_BOOKSHELF_DIRECTORY_ITEMS).
   // Fetch both up to that cap — a lower e-id slice would truncate valid shelves.
   const byAddr = await fetchByAddresses(
-    [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS)
+    [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS),
+    6
   );
-  const byId = await fetchByIds([...t.eventIds].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS));
+  const byId = await fetchByIds([...t.eventIds].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS), 6);
   return preferTopLevelPublications(
     mergeById([
       ...byAddr.filter((e) => e.kind === KIND.PUBLICATION),

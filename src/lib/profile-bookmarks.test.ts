@@ -62,6 +62,16 @@ describe('bookmarkItemsFromTags', () => {
     expect(items).toHaveLength(1);
     expect(items[0]?.key).toBe(`a:30040:${pk}:book`);
   });
+
+  it('drops kind-39701 web bookmark addresses from profile lists', () => {
+    const items = bookmarkItemsFromTags([
+      ['a', `39701:${pk}:https://example.com/page`],
+      ['a', `30040:${pk}:book`],
+      ['e', '1'.repeat(64)]
+    ]);
+    expect(items.map((item) => item.type)).toEqual(['address', 'event']);
+    expect(items[0]).toMatchObject({ address: `30040:${pk}:book` });
+  });
 });
 
 describe('profileBookmarkSections', () => {

@@ -1,5 +1,6 @@
 /**
  * Profile bookmarks: the standard kind-10003 list plus kind-30003 bookmark sets.
+ * Kind-39701 web bookmarks are not profile bookmarks — omit `a` pointers to them.
  */
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
@@ -207,6 +208,8 @@ function eventItem(raw: string, relay?: string): BookmarkItem | null {
 function addressItem(raw: string, relay?: string): BookmarkItem | null {
   const parsed = parseEventCoordinate(raw);
   if (!parsed) return null;
+  // NIP-B0 web bookmarks have their own surface — keep /bookmarks on 10003/30003 only.
+  if (parsed.kind === KIND.WEB_BOOKMARK) return null;
   const address = parsed.d
     ? `${parsed.kind}:${parsed.pubkey}:${parsed.d}`
     : `${parsed.kind}:${parsed.pubkey}`;

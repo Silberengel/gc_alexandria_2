@@ -219,8 +219,10 @@
     if (key === lastKey && (events.length > 0 || loading)) return;
     lastKey = key;
     const runGen = ++searchGen;
-    // Advanced relay dumps are raw NIP-01 hits — don't hide them behind trusted-by-default.
-    resultScope = adv ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE;
+    const bookshelfParam = (params.get('bookshelf') ?? '').trim();
+    // Advanced dumps and curated bookshelves: show members as listed — Grapevine
+    // "trusted" would hide a whole shelf when the curator has no known rank.
+    resultScope = adv || bookshelfParam ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE;
     resetRefine();
     const q = params.get('q') ?? '';
     const subject = params.get('subject') ?? '';
@@ -229,7 +231,7 @@
     const title = params.get('title') ?? '';
     const identifier = params.get('identifier') ?? '';
     const language = params.get('language') ?? '';
-    const bookshelf = params.get('bookshelf') ?? '';
+    const bookshelf = bookshelfParam;
     const d = params.get('d') ?? '';
     const k = params.get('k') ?? '';
     const shelfNpub = params.get('npub') ?? '';
@@ -295,6 +297,19 @@
           const author = (nextAuthorHex || dir?.pubkey || me).toLowerCase();
           if (!bookshelfAuthorHex && author) bookshelfAuthorHex = author;
           onUpdate({ events: shelfEvents, loading: false });
+          // Hydrate ranks after paint so "Trusted" can work without delaying the shelf.
+          const authors = [...new Set(shelfEvents.map((e) => e.pubkey))];
+          if (authors.length) {
+            void (async () => {
+              try {
+                await trustedAssertions.resolveProvider(session.getPubkey());
+                await trustedAssertions.requestScoresAndWait(authors);
+                if (runGen === searchGen) scoresReady += 1;
+              } catch {
+                /* scores optional */
+              }
+            })();
+          }
           if (me && author === me && isOwnMyBookCollectionBookshelf(bookshelf)) {
             publishedOffShelfLoading = true;
             void fetchOwnPublishedNotOnBookshelf(dir, me)
@@ -471,6 +486,13 @@
       return filterPageEvents(mutedOff, pageFilter);
     })()
   );
+
+  const searching = $derived(loading && events.length === 0);
+  const loadingMessage = $derived.by(() => {
+    if (searchKind === 'Bookshelf') return `Loading bookshelf "${searchTerm}"…`;
+    if (searchTerm) return `Searching for "${searchTerm}"…`;
+    return 'Searching…';
+  });
 </script>
 
 <main class="shell shell-wide">
@@ -521,6 +543,9 @@
       </p>
     {/if}
   {/if}
+  {#if searching}
+    <LoadingHint message={loadingMessage} />
+  {/if}
   {#key formResetKey}
     <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
   {/key}
@@ -557,12 +582,11 @@
     onResultScope={(v) => setResultScope(v)}
     onClear={() => {
       resetRefine();
-      setResultScope(DEFAULT_AUTHOR_RESULT_SCOPE);
+      // Bookshelves default to "all" so Clear does not re-hide the shelf.
+      setResultScope(bookshelfSlug ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE);
     }}
   />
-  {#if loading && !events.length}
-    <LoadingHint message="Searching…" />
-  {:else}
+  {#if !searching}
     {#if loading}
       <LoadingHint message="Updating…" />
     {/if}
@@ -578,6 +602,8 @@
       <p class="muted">
         {#if showPublishedOffShelfSection && (publishedOffShelfVisible.length > 0 || publishedOffShelfLoading)}
           Nothing on this shelf yet.
+        {:else if searchKind === 'Bookshelf' && events.length === 0}
+          Could not load this bookshelf, or it has no publications yet.
         {:else if resultScope === 'mine'}
           Nothing here from you.
         {:else if resultScope === 'follows'}
