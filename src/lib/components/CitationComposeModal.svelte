@@ -142,7 +142,9 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="citation-compose-title"
+      tabindex="-1"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
     >
       <header class="citation-compose-head">
         <h2 id="citation-compose-title">Add citation</h2>

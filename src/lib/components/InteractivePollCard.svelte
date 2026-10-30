@@ -164,15 +164,6 @@
 
 {#if pollInfo}
   <div class="poll-card" class:poll-card-summary={!showControls}>
-    {#if !showControls && voteHref}
-      <a
-        class="btn btn-primary poll-card-vote-open"
-        href={voteHref}
-        use:link
-        onclick={() => onVoteOpen?.()}
-      >{expired ? 'View poll' : 'Vote'}</a>
-    {/if}
-
     <div class="poll-card-meta">
       <span class="poll-card-label">Poll</span>
       {#if pollInfo.isMultipleChoice}
@@ -192,6 +183,15 @@
           Ends {formatAbsoluteTime(pollInfo.endsAt)}
         {/if}
       </p>
+    {/if}
+
+    {#if !showControls && voteHref}
+      <a
+        class="btn btn-primary poll-card-vote-open"
+        href={voteHref}
+        use:link
+        onclick={() => onVoteOpen?.()}
+      >{expired ? 'View poll' : 'Vote'}</a>
     {/if}
 
     {#if showControls}
@@ -377,6 +377,6 @@
     justify-self: stretch;
   }
   .poll-card-vote-open {
-    justify-self: start;
+    justify-self: end;
   }
 </style>
