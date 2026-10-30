@@ -312,6 +312,7 @@ export async function loadAuthorFeedWithReplies(
     muted,
     onCache,
     lookbackSeconds: null,
+    queryTimeoutMs: 10_000,
     accept: (event) => isAuthorEvent(event, pk) && isRepliesTimelineEvent(event),
     recall: () => recallAuthorFeedWithReplies(pk),
     askFilters: [],
@@ -340,6 +341,7 @@ export async function loadAuthorFeed(
     muted,
     onCache,
     lookbackSeconds: null,
+    queryTimeoutMs: 10_000,
     accept: (event) => isAuthorEvent(event, pk) && isOriginalPost(event),
     recall: () => recallAuthorFeedPosts(pk),
     askFilters: [],
@@ -355,10 +357,13 @@ export async function loadAuthorFeed(
   });
 }
 
-/** Relays for the Notifications tab: feed relays plus the social stack. */
+/** Relays for the Notifications tab: inbox/favorites first, then social stack. */
 export function notificationRelays(): string[] {
   const { personal, shipped } = feedRelayGroups();
-  return uniqueRelayUrls([...personal, ...shipped, ...socialStack()]);
+  // socialSearchStack() is already empty when GitCitadel reads are off; also skip
+  // when Outboxes is off so public hunt hosts (nos.lol, primus, …) stay off.
+  const hunt = foreignRelaysAllowed() ? socialSearchStack() : [];
+  return uniqueRelayUrls([...personal, ...shipped, ...socialStack(), ...hunt]);
 }
 
 /** Cached events that `#p`-tag the viewer. */
@@ -402,11 +407,12 @@ export async function loadNotifications(
   if (!relays.length) {
     return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
   }
+  // Relays (and normalizeRelayFilters) cap around 100 — request that ceiling.
   const filters = withFeedSince(
-    [{ kinds: [...NOTIFICATION_KINDS], '#p': [pk], limit: since == null ? 200 : 120 }],
+    [{ kinds: [...NOTIFICATION_KINDS], '#p': [pk], limit: 100 }],
     since
   );
-  const queryOpts = { includeCooling: true };
+  const queryOpts = { includeCooling: true, priority: true as const };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
@@ -420,7 +426,7 @@ export async function loadNotifications(
     if (added) paint();
   };
   const hits = await relayPool
-    .query(relays, filters, 8000, Math.min(relays.length, 10), absorb, queryOpts)
+    .query(relays, filters, 8000, Math.min(Math.max(relays.length, 1), 12), absorb, queryOpts)
     .catch(() => [] as Event[]);
   for (const event of hits) {
     if (!isNotificationForViewer(event, pk) || !inWindow(event)) continue;

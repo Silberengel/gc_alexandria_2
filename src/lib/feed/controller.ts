@@ -4,6 +4,7 @@ import type { MuteState } from '../mute';
 import {
   admitPendingVisible,
   beginLookbackChange,
+  beginRelayEpochChange,
   createFeedListState,
   feedFetchKey,
   ingestFeedList,
@@ -77,6 +78,10 @@ export function startFeedListLoad(
   const tabChanged = state.loadedKey !== listKey;
   const lookbackChanged =
     !author && !tabChanged && state.fetchedLookback != null && state.fetchedLookback !== lookback;
+  const relaysChanged =
+    !tabChanged &&
+    state.fetchedRelaysEpoch != null &&
+    state.fetchedRelaysEpoch !== input.feedRelaysEpoch;
 
   let cancelled = false;
 
@@ -95,6 +100,9 @@ export function startFeedListLoad(
     state = resetForTab(state, listKey);
   } else if (lookbackChanged) {
     state = beginLookbackChange(state, lookback, state.fetchedLookback);
+  } else if (relaysChanged) {
+    // Inbox/favorites arrived after a partial social-only paint — merge, don't watermark-drop.
+    state = beginRelayEpochChange(state);
   } else if (!state.items.length && !state.settled) {
     state = { ...state, loading: true };
   }
@@ -103,7 +111,8 @@ export function startFeedListLoad(
   if ((tab === 'notifications' || tab === 'follows') && !input.pubkey) {
     state = markFeedListSettled(
       { ...state, items: [], pendingNew: [], loading: false },
-      lookback
+      lookback,
+      input.feedRelaysEpoch
     );
     emit();
     return {
@@ -130,12 +139,17 @@ export function startFeedListLoad(
     emit();
   };
 
-  if (
-    input.pubkey &&
+  /**
+   * Signed-in inbox/favorites not ready yet — paint cache only; effect re-runs when they land.
+   * Author profile feeds do not wait: they hunt that person's outbox, not the viewer's inbox.
+   */
+  const waitingForPersonal =
+    !author &&
+    !!input.pubkey &&
     input.sessionLoading &&
-    !feedRelayGroups().personal.length &&
-    tab !== 'notifications'
-  ) {
+    !feedRelayGroups().personal.length;
+
+  if (waitingForPersonal) {
     void recallForFeedSource(sourceCtx).then((cached) => {
       if (cancelled || !cached.length) return;
       ingest(cached);
@@ -150,13 +164,28 @@ export function startFeedListLoad(
     };
   }
 
-  if (!tabChanged && !lookbackChanged && state.settled && state.items.length) {
+  // Profile "View feed" must always hit relays — a settled sparse cache of an
+  // inactive author is useless and must not short-circuit the load.
+  if (
+    !author &&
+    !tabChanged &&
+    !lookbackChanged &&
+    !relaysChanged &&
+    state.settled &&
+    state.items.length
+  ) {
     return {
       cancel: () => {
         cancelled = true;
       },
       state
     };
+  }
+
+  if (author && !tabChanged && state.settled) {
+    // Same author URL revisited: wipe the sparse settled list and reload from relays.
+    state = resetForTab(state, listKey);
+    emit();
   }
 
   let timer = 0;
@@ -175,7 +204,7 @@ export function startFeedListLoad(
   });
 
   const markSettled = (): void => {
-    state = markFeedListSettled(state, lookback);
+    state = markFeedListSettled(state, lookback, input.feedRelaysEpoch);
     emit();
   };
 
@@ -190,19 +219,25 @@ export function startFeedListLoad(
         });
         if (cancelled) return;
         ingest(events);
+        // Follows / notifications need personal relays when the viewer has any path to them.
+        // Do not settle a sparse social-only paint while inbox is still empty mid-session —
+        // that used to leave desktop stuck on a handful of rows forever.
         const listsMissing =
-          tab !== 'notifications' && !!input.pubkey && !feedRelayGroups().personal.length;
-        if (state.items.length && !listsMissing) {
+          !author && !!input.pubkey && !feedRelayGroups().personal.length;
+        // Author feeds: keep retrying so slow/missing outbox answers can fill in.
+        if (author) {
+          if (attempt >= 3 || state.items.length >= 40) {
+            markSettled();
+            return;
+          }
+          state = { ...state, loading: true };
+          emit();
+        } else if (state.items.length && !listsMissing) {
           markSettled();
           return;
-        }
-        if (state.items.length) {
+        } else if (state.items.length) {
           state = { ...state, loading: false };
           emit();
-        }
-        if (tab === 'notifications' && state.items.length) {
-          markSettled();
-          return;
         }
       } catch (err: unknown) {
         if (cancelled) return;

@@ -65,6 +65,7 @@ export {
   createFeedListState,
   resetForTab,
   beginLookbackChange,
+  beginRelayEpochChange,
   ingestFeedList,
   admitPendingVisible,
   markFeedListSettled,

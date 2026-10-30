@@ -4,6 +4,7 @@ import { emptyMuteState } from '../mute';
 import { applyFeedView } from './view';
 import {
   admitPendingVisible,
+  beginRelayEpochChange,
   createFeedListState,
   feedFetchKey,
   ingestFeedList,
@@ -75,6 +76,26 @@ describe('fetch key', () => {
     expect(feedFetchKey('replies', null)).toBe('replies:');
     expect(feedControllerFetchKey('replies', null, '1w')).toBe('replies::1w');
     expect(feedControllerFetchKey('replies', null, '1w')).not.toContain('9802');
+  });
+});
+
+describe('relay epoch refresh', () => {
+  it('unsettles so a later fuller inbox merge is not watermark-dropped', () => {
+    const muted = emptyMuteState();
+    let state = createFeedListState();
+    const early = ev({ id: '1', created_at: 300 });
+    state = ingestFeedList(state, [early], muted);
+    state = markFeedListSettled(state, '24h', 0);
+    expect(state.fetchedRelaysEpoch).toBe(0);
+    expect(state.watermark).toBe(300);
+
+    state = beginRelayEpochChange(state);
+    expect(state.settled).toBe(false);
+    const olderMissing = ev({ id: '2', created_at: 100 });
+    const peer = ev({ id: '3', created_at: 250 });
+    state = ingestFeedList(state, [olderMissing, peer], muted);
+    expect(state.items.map((e) => e.id[0]).sort()).toEqual(['1', '2', '3']);
+    expect(state.pendingNew).toHaveLength(0);
   });
 });
 

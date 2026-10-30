@@ -1,7 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { filterMuted, type MuteState } from '../mute';
-import type { NotificationLookbackId } from './lookback';
-import { feedLookbackIsWider } from './lookback';
+import { feedLookbackIsWider, type NotificationLookbackId } from '$lib/feed/lookback';
 
 /** Keep posts already on screen when a load comes back with nothing. */
 export function keepFeedPosts(shown: Event[], incoming: Event[]): Event[] {
@@ -79,6 +78,8 @@ export type FeedListState = {
   error: string;
   /** Last lookback successfully fetched for the current fetch key. */
   fetchedLookback: NotificationLookbackId | null;
+  /** Inbox/favorites epoch last successfully fetched (`null` = never). */
+  fetchedRelaysEpoch: number | null;
   /** `${tab}:${author}` last loaded. */
   loadedKey: string | null;
 };
@@ -92,6 +93,7 @@ export function createFeedListState(): FeedListState {
     loading: true,
     error: '',
     fetchedLookback: null,
+    fetchedRelaysEpoch: null,
     loadedKey: null
   };
 }
@@ -103,6 +105,7 @@ export function resetForTab(state: FeedListState, listKey: string): FeedListStat
     pendingNew: [],
     watermark: 0,
     fetchedLookback: null,
+    fetchedRelaysEpoch: null,
     loadedKey: listKey,
     loading: true,
     settled: false,
@@ -122,6 +125,20 @@ export function beginLookbackChange(
     pendingNew: [],
     error: '',
     watermark: feedLookbackIsWider(next, prevFetched) ? 0 : state.watermark
+  };
+}
+
+/**
+ * Inbox/favorites changed — keep rows on screen but unsettle so the next load
+ * merges into `items` (not New Events / watermark drop of older missing rows).
+ */
+export function beginRelayEpochChange(state: FeedListState): FeedListState {
+  return {
+    ...state,
+    loading: true,
+    settled: false,
+    pendingNew: [],
+    error: ''
   };
 }
 
@@ -171,13 +188,16 @@ export function admitPendingVisible(state: FeedListState, visiblePending: Event[
 
 export function markFeedListSettled(
   state: FeedListState,
-  lookback: NotificationLookbackId
+  lookback: NotificationLookbackId,
+  relaysEpoch?: number | null
 ): FeedListState {
   return {
     ...state,
     loading: false,
     settled: true,
     fetchedLookback: lookback,
+    fetchedRelaysEpoch:
+      relaysEpoch === undefined ? state.fetchedRelaysEpoch : relaysEpoch,
     watermark: Math.max(state.watermark, feedEventsWatermark(state.items))
   };
 }

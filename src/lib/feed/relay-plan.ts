@@ -133,11 +133,13 @@ export function kindFeedFilters(kinds: readonly number[], authors?: string[]): F
 }
 
 export function authorNoteFilters(author: string): Filter[] {
+  // Profile "View feed" — ask for a full page per kind so inactive authors are
+  // not stuck on whatever happened to be in the global feed cache.
   return [
-    { kinds: [KIND.TEXT_NOTE], authors: [author], limit: 40 },
-    { kinds: [KIND.COMMENT], authors: [author], limit: 40 },
-    { kinds: [...FEED_POST_KINDS], authors: [author], limit: 40 },
-    { kinds: [KIND.HIGHLIGHT], authors: [author], limit: 40 },
-    { kinds: [...FEED_REPOST_KINDS], authors: [author], limit: 40 }
+    { kinds: [KIND.TEXT_NOTE], authors: [author], limit: 100 },
+    { kinds: [KIND.COMMENT], authors: [author], limit: 100 },
+    { kinds: [...FEED_POST_KINDS], authors: [author], limit: 100 },
+    { kinds: [KIND.HIGHLIGHT], authors: [author], limit: 100 },
+    { kinds: [...FEED_REPOST_KINDS], authors: [author], limit: 100 }
   ];
 }

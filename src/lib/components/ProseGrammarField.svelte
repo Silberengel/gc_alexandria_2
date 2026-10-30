@@ -201,8 +201,12 @@
     user-select: none;
   }
   .compose-grammar-check input {
+    display: inline-block;
     width: auto;
     margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
     accent-color: color-mix(in srgb, currentColor 55%, transparent);
   }
   .compose-grammar-check:has(input:disabled) {

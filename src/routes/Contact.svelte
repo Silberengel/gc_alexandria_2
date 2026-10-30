@@ -102,9 +102,15 @@
   {#if $session.pubkey}
     <form class="card contact-form" onsubmit={submit}>
       <label>Subject<input type="text" bind:value={subject} required onpaste={onSubjectPaste} /></label>
-      <label style="display:block;margin-top:1rem"
-        >Body<ProseGrammarField rows={8} bind:value={body} required onPaste={onBodyPaste} /></label
-      >
+      <div class="contact-body-field">
+        <ProseGrammarField
+          label="Body"
+          rows={8}
+          bind:value={body}
+          required
+          onPaste={onBodyPaste}
+        />
+      </div>
       {#if sending}<LoadingHint message="Sending…" compact />{/if}
       {#if error}<p class="contact-form-error">{error}</p>{/if}
       {#if success}

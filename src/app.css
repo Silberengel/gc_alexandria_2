@@ -7475,8 +7475,8 @@ a.embed-event-line:focus-visible {
 .contact-actions .btn {
   text-decoration: none;
 }
-.contact-page .card label,
-.contact-form label {
+.contact-page .card > label,
+.contact-form > label {
   display: grid;
   gap: 0.35rem;
   font-family: var(--ui-font);
@@ -7486,6 +7486,9 @@ a.embed-event-line:focus-visible {
 }
 .contact-form {
   margin-top: 1.25rem;
+}
+.contact-body-field {
+  margin-top: 1rem;
 }
 .contact-form-error {
   color: color-mix(in srgb, #8b2e24 85%, var(--ink));
