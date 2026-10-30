@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import { exactEventQuery, normalizeSearchKey } from './search';
-import { searchSnapshotFresh, searchSnapshotMatchesViewer, type SearchSnapshot } from './nostr/cache';
+import {
+  searchSnapshotCacheable,
+  searchSnapshotFresh,
+  searchSnapshotMatchesViewer,
+  type SearchSnapshot
+} from './nostr/cache';
 
 describe('normalizeSearchKey', () => {
   it('folds case and whitespace so repeats hit the same snapshot', () => {
@@ -58,6 +63,9 @@ describe('search snapshot viewer binding', () => {
     expect(searchSnapshotFresh(snap(a, 21 * 60 * 1000), undefined, a)).toBe(false);
     // Empty hits must re-query — do not treat a blank miss as a warm cache.
     expect(searchSnapshotFresh(snap(a, 0, []), 60_000, a)).toBe(false);
+    expect(searchSnapshotCacheable(snap(a, 0, []))).toBe(false);
+    expect(searchSnapshotCacheable(snap(a, 0))).toBe(true);
+    expect(searchSnapshotCacheable(snap(a, 21 * 60 * 1000))).toBe(false);
   });
 });
 describe('identifierHints', () => {

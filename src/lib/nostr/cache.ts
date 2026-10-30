@@ -348,9 +348,39 @@ export function searchSnapshotFresh(
   return Date.now() - snap!.savedAt < ttl;
 }
 
+/** True when a snapshot still belongs in the search cache (non-empty and within TTL). */
+export function searchSnapshotCacheable(
+  snap: SearchSnapshot | null | undefined,
+  ttlMs?: number
+): boolean {
+  if (!snap?.events.length) return false;
+  const ttl = ttlMs ?? SEARCH_SNAPSHOT_TTL_MS;
+  return Date.now() - snap.savedAt < ttl;
+}
+
+export async function cacheDeleteSearchSnapshot(key: string): Promise<void> {
+  searchMemory.delete(key);
+  try {
+    const kept = searchKeyList().filter((k) => k !== key);
+    localStorage.setItem(SEARCH_KEYS_META, JSON.stringify(kept));
+  } catch {
+    /* ignore */
+  }
+  try {
+    const cache = await openCache();
+    await cache.delete(searchSnapshotUrl(key));
+  } catch {
+    /* private mode / unsupported */
+  }
+}
+
 export async function cacheGetSearchSnapshot(key: string): Promise<SearchSnapshot | null> {
   const mem = searchMemory.get(key);
   if (mem) {
+    if (!searchSnapshotCacheable(mem)) {
+      void cacheDeleteSearchSnapshot(key);
+      return null;
+    }
     return {
       savedAt: mem.savedAt,
       events: [...mem.events],
@@ -362,10 +392,12 @@ export async function cacheGetSearchSnapshot(key: string): Promise<SearchSnapsho
     const res = await cache.match(searchSnapshotUrl(key));
     if (!res) return null;
     const snap = ingestSearchSnapshot(await res.json());
-    if (snap) searchMemory.set(key, snap);
-    return snap
-      ? { savedAt: snap.savedAt, events: [...snap.events], viewerPubkey: snap.viewerPubkey }
-      : null;
+    if (!snap || !searchSnapshotCacheable(snap)) {
+      void cacheDeleteSearchSnapshot(key);
+      return null;
+    }
+    searchMemory.set(key, snap);
+    return { savedAt: snap.savedAt, events: [...snap.events], viewerPubkey: snap.viewerPubkey };
   } catch {
     return null;
   }
@@ -376,6 +408,11 @@ export async function cachePutSearchSnapshot(
   events: Event[],
   viewerPubkey?: string | null
 ): Promise<void> {
+  // Never persist empty misses — they used to soft-paint forever-ish and block useful retries.
+  if (!events.length) {
+    await cacheDeleteSearchSnapshot(key);
+    return;
+  }
   const snap: SearchSnapshot = {
     savedAt: Date.now(),
     events: events.slice(0, 100),

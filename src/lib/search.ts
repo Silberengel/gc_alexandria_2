@@ -38,6 +38,7 @@ import { ensureFollowsOfFollows, getFollowsOfFollowsSet } from './follows-of-fol
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { isTopLevel30040, eventAddress } from './nostr/verify';
 import {
+  MAX_BOOKSHELF_DIRECTORY_ITEMS,
   MY_BOOK_COLLECTION_D_TAG,
   publicationTargetsFromDirectory,
   publicationsNotInDirectory
@@ -888,8 +889,10 @@ export async function publicationsFromBookshelfDirectory(
 ): Promise<Event[]> {
   if (!dir) return [];
   const t = publicationTargetsFromDirectory(dir);
-  const byAddr = await fetchByAddresses([...t.addresses].slice(0, 80));
-  const byId = await fetchByIds([...t.eventIds].slice(0, 40));
+  const byAddr = await fetchByAddresses(
+    [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS)
+  );
+  const byId = await fetchByIds([...t.eventIds].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS));
   return preferTopLevelPublications(
     mergeById([
       ...byAddr.filter((e) => e.kind === KIND.PUBLICATION),
