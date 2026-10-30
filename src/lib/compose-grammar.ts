@@ -1,4 +1,6 @@
+import { get } from 'svelte/store';
 import { intersects, protectedRanges } from './grammar-markup-protect';
+import { grammarIgnoreWords, normalizeIgnoreWord } from './stores/grammar-ignore';
 
 export type GrammarIssue = {
   offset: number;
@@ -120,9 +122,32 @@ type LtResponse = {
   matches?: LtMatch[];
 };
 
-export function filterGrammarIssues(text: string, issues: GrammarIssue[]): GrammarIssue[] {
+/** True when the matched span is on the local ignore / custom dictionary list. */
+export function grammarIssueIsIgnored(
+  text: string,
+  issue: GrammarIssue,
+  ignoredWords: readonly string[]
+): boolean {
+  if (!ignoredWords.length || issue.length <= 0) return false;
+  const raw = text.slice(issue.offset, issue.offset + issue.length);
+  const word = normalizeIgnoreWord(raw);
+  if (!word) return false;
+  const key = word.toLowerCase();
+  return ignoredWords.some((w) => w.toLowerCase() === key);
+}
+
+export function filterGrammarIssues(
+  text: string,
+  issues: GrammarIssue[],
+  ignoredWords?: readonly string[]
+): GrammarIssue[] {
   const ranges = protectedRanges(text);
-  return issues.filter((issue) => !intersects(issue.offset, issue.length, ranges));
+  const ignored = ignoredWords ?? get(grammarIgnoreWords);
+  return issues.filter((issue) => {
+    if (intersects(issue.offset, issue.length, ranges)) return false;
+    if (grammarIssueIsIgnored(text, issue, ignored)) return false;
+    return true;
+  });
 }
 
 export async function checkGrammar(

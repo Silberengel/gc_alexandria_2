@@ -909,13 +909,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
           outbox,
           [
             {
-              kinds: [
-                KIND.BOOKMARK,
-                KIND.DEPRECATED_CATEGORIZED_LIST,
-                KIND.DIRECTORY,
-                KIND.LABEL,
-                KIND.READING_QUEUE
-              ],
+              kinds: [KIND.BOOKMARK, KIND.DEPRECATED_CATEGORIZED_LIST, KIND.DIRECTORY, KIND.LABEL],
               authors: [viewer],
               limit: 40
             }
@@ -928,10 +922,6 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
       : Promise.resolve([] as Event[])
   ]);
   const outboxEvents = settled(myOutboxLists, []);
-  // Backfill Reading now if session phase-2 missed kind 16374 under pool pressure.
-  for (const event of outboxEvents) {
-    if (event.kind === KIND.READING_QUEUE) session.rememberEvent(event);
-  }
   return {
     liveLabels: mergeEvents(
       settled(socialLabels, []),

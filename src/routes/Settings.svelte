@@ -5,6 +5,7 @@
   import { relayPrefs } from '$lib/stores/relay-prefs';
   import { trust } from '$lib/stores/trust';
   import { readingPrefs } from '$lib/stores/reading-prefs';
+  import { grammarIgnoreWords } from '$lib/stores/grammar-ignore';
   import { localReadingQueue } from '$lib/stores/local-reading-queue';
   import { session } from '$lib/stores/session';
   import { readingQueueFromMetadata } from '$lib/reading-queue';
@@ -396,6 +397,37 @@
         {/each}
       </select>
     </label>
+  </section>
+
+  <section class="settings-panel">
+    <header class="settings-panel-head">
+      <h2>Grammar dictionary</h2>
+      <p class="muted">
+        Words you add from a grammar suggestion stay accepted on this device (e.g. Nostr).
+      </p>
+    </header>
+    {#if $grammarIgnoreWords.length}
+      <ul class="settings-word-list">
+        {#each $grammarIgnoreWords as word (word.toLowerCase())}
+          <li>
+            <span>{word}</span>
+            <button
+              class="btn"
+              type="button"
+              aria-label={`Remove ${word}`}
+              onclick={() => grammarIgnoreWords.remove(word)}
+            >
+              Remove
+            </button>
+          </li>
+        {/each}
+      </ul>
+      <button class="btn" type="button" onclick={() => grammarIgnoreWords.reset()}>
+        Clear dictionary
+      </button>
+    {:else}
+      <p class="muted settings-hint">No custom words yet — use “Add …” on a spelling suggestion.</p>
+    {/if}
   </section>
 
   {#if $session.pubkey}

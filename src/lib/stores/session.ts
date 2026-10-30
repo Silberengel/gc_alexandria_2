@@ -317,9 +317,15 @@ function createSessionStore() {
         byId.set(e.id, e);
       }
       let merged = [...byId.values()];
-      // Prefer a newer local kind 16374 / shelf / label over a stale relay copy.
-      for (const local of priorLocal) {
+      // Prefer newer local shelf/queue/label events over a stale relay copy.
+      // Include mid-flight `rememberEvent` writes (e.g. a just-published 16374) —
+      // `priorLocal` alone would drop anything remembered after loadMetadata started.
+      const localsById = new Map<string, Event>();
+      for (const local of [...priorLocal, ...metadataEvents]) {
         if (local.pubkey.toLowerCase() !== pubkey.toLowerCase()) continue;
+        localsById.set(local.id.toLowerCase(), local);
+      }
+      for (const local of localsById.values()) {
         merged = mergeRememberedMetadata(merged, local);
       }
       // One NIP-01 winner per replaceable/addressable coord (mute, relays, queue, dirs, …).

@@ -32,6 +32,11 @@
   import ReadingFinishModal from '$lib/components/ReadingFinishModal.svelte';
   import PageFilter from '$lib/components/PageFilter.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
+  import {
+    canDownloadEventSource,
+    downloadEventSourceFile
+  } from '$lib/download-source';
+  import { showNotice } from '$lib/stores/toast';
   import { eventTranslations } from '$lib/event-translation';
   import { KIND, NIP32_READ_LABEL } from '$lib/constants';
   import { publicationPath, hasPublicationSection, publicationSectionCount } from '$lib/metadata';
@@ -3189,6 +3194,14 @@
     }
   }
 
+  function downloadSectionSource(section: Event): void {
+    try {
+      downloadEventSourceFile(section);
+    } catch (e) {
+      showNotice(e instanceof Error ? e.message : String(e), false);
+    }
+  }
+
   async function loadSectionComments(section: Event): Promise<void> {
     const a = eventAddress(section);
     if (sectionResponses[a] || sectionComments[a]) return;
@@ -3941,6 +3954,18 @@
                           {/if}
                           {/snippet}
                           {#snippet after()}
+                            {#if canDownloadEventSource(verse)}
+                              <li role="none">
+                                <button
+                                  class="menu-item"
+                                  type="button"
+                                  role="menuitem"
+                                  onclick={() => downloadSectionSource(verse)}
+                                >
+                                  Download as a file
+                                </button>
+                              </li>
+                            {/if}
                             <li role="none">
                               <button
                                 class="menu-item"
@@ -4010,6 +4035,18 @@
                           {/if}
                         {/snippet}
                         {#snippet after()}
+                          {#if canDownloadEventSource(verse)}
+                            <li role="none">
+                              <button
+                                class="menu-item"
+                                type="button"
+                                role="menuitem"
+                                onclick={() => downloadSectionSource(verse)}
+                              >
+                                Download as a file
+                              </button>
+                            </li>
+                          {/if}
                           <li role="none">
                             <button
                               class="menu-item"
@@ -4177,6 +4214,18 @@
                           {/if}
                         {/snippet}
                         {#snippet after()}
+                          {#if canDownloadEventSource(section)}
+                            <li role="none">
+                              <button
+                                class="menu-item"
+                                type="button"
+                                role="menuitem"
+                                onclick={() => downloadSectionSource(section)}
+                              >
+                                Download as a file
+                              </button>
+                            </li>
+                          {/if}
                           <li role="none">
                             <button
                               class="menu-item"
@@ -4271,6 +4320,18 @@
                       {/if}
                     {/snippet}
                     {#snippet after()}
+                      {#if canDownloadEventSource(section)}
+                        <li role="none">
+                          <button
+                            class="menu-item"
+                            type="button"
+                            role="menuitem"
+                            onclick={() => downloadSectionSource(section)}
+                          >
+                            Download as a file
+                          </button>
+                        </li>
+                      {/if}
                       <li role="none">
                         <button
                           class="menu-item"

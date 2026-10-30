@@ -1,12 +1,16 @@
 <script lang="ts">
   import { scrubClipboardTextPaste } from '$lib/clean-url';
-  import type { GrammarIssue } from '$lib/compose-grammar';
+  import {
+    grammarIssueIsIgnored,
+    type GrammarIssue
+  } from '$lib/compose-grammar';
   import {
     attachMentionField,
     MENTION_UI_IDLE,
     type MentionFieldBinding,
     type MentionUiState
   } from '$lib/mention-field';
+  import { grammarIgnoreWords, normalizeIgnoreWord } from '$lib/stores/grammar-ignore';
   import MentionHost from './MentionHost.svelte';
 
   interface Props {
@@ -80,11 +84,25 @@
   const paintIssues = $derived.by(() => {
     if (!enabled || !issues.length) return [] as GrammarIssue[];
     if (checkedSource !== value) return [] as GrammarIssue[];
+    const ignored = $grammarIgnoreWords;
     return issues
       .filter((i) => i.length > 0 && i.offset >= 0 && i.offset + i.length <= value.length)
+      .filter((i) => !grammarIssueIsIgnored(value, i, ignored))
       .slice()
       .sort((a, b) => a.offset - b.offset);
   });
+
+  const activeIgnoreWord = $derived.by(() => {
+    if (!active) return '';
+    return normalizeIgnoreWord(value.slice(active.offset, active.offset + active.length));
+  });
+
+  function addActiveToDictionary(): void {
+    const word = activeIgnoreWord;
+    if (!word) return;
+    grammarIgnoreWords.add(word);
+    active = null;
+  }
 
   function escapeHtml(s: string): string {
     return s
@@ -285,10 +303,20 @@
         {#each active.replacements.slice(0, 5) as rep}
           <button type="button" class="btn" onclick={() => applyFix(rep)}>{rep}</button>
         {/each}
-        <button type="button" class="btn grammar-popover-dismiss" onclick={() => (active = null)}
+        <button type="button" class="btn btn-primary" onclick={() => (active = null)}
           >Dismiss</button
         >
       </div>
+      {#if activeIgnoreWord}
+        <button
+          type="button"
+          class="grammar-popover-dict-link"
+          title={`Always accept “${activeIgnoreWord}” on this device`}
+          onclick={addActiveToDictionary}
+        >
+            Add "{activeIgnoreWord}" to your personal dictionary
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
@@ -378,9 +406,27 @@
   .grammar-popover-actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.35rem;
   }
-  .grammar-popover-dismiss {
-    opacity: 0.75;
+  .grammar-popover-dict-link {
+    appearance: none;
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0.45rem 0 0;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    text-align: left;
+    color: color-mix(in srgb, var(--accent, var(--accent-strong)) 72%, var(--ink-soft));
+    text-decoration: underline;
+    text-underline-offset: 0.14em;
+    cursor: pointer;
+  }
+  .grammar-popover-dict-link:hover {
+    color: var(--accent, var(--accent-strong));
   }
 </style>

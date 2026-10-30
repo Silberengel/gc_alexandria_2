@@ -4,6 +4,10 @@
   import { pruneToLatestReplaceables, replaceableCoord } from '$lib/nostr/replaceable';
   import { eventSources } from '$lib/nostr/event-sources';
   import {
+    canDownloadEventSource,
+    downloadEventSourceFile
+  } from '$lib/download-source';
+  import {
     exportPublicationDownload,
     type PublicationDownloadFormat
   } from '$lib/publication-export';
@@ -263,13 +267,23 @@
     { format: 'adoc', label: 'Asciidoc' }
   ];
 
-  let busy = $state<PublicationDownloadFormat | null>(null);
+  let busy = $state<PublicationDownloadFormat | 'source' | null>(null);
   let error = $state<string | null>(null);
   let republishing = $state(false);
   let republishProgress = $state<RepublishProgress | null>(null);
   const formatLabel = $derived(
-    busy === 'epub' ? 'EPUB' : busy === 'pdf' ? 'PDF' : busy === 'adoc' ? 'Asciidoc' : null
+    busy === 'epub'
+      ? 'EPUB'
+      : busy === 'pdf'
+        ? 'PDF'
+        : busy === 'adoc'
+          ? 'Asciidoc'
+          : busy === 'source'
+            ? 'file'
+            : null
   );
+  /** Body source (.md/.adoc) and/or assembled publication book download. */
+  const showDownloadMenu = $derived(canExport || canDownloadEventSource(event));
 
   async function onExport(format: PublicationDownloadFormat): Promise<void> {
     if (!canExport || busy || republishing) return;
@@ -277,6 +291,24 @@
     error = null;
     try {
       await exportPublicationDownload(event, format, getSeedEvents?.() ?? []);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function onDownloadSource(): Promise<void> {
+    if (busy || republishing) return;
+    busy = 'source';
+    error = null;
+    try {
+      if (canDownloadEventSource(event)) {
+        downloadEventSourceFile(event);
+      } else if (canExport) {
+        // Empty 30040 index — assemble the book as AsciiDoc.
+        await exportPublicationDownload(event, 'adoc', getSeedEvents?.() ?? []);
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -536,22 +568,35 @@
               </button>
             </li>
           {/if}
-          {#if canExport}
+          {#if showDownloadMenu}
             <li class="menu-sep" role="separator"></li>
             <li class="menu-heading" role="presentation">Download</li>
-            {#each formats as opt (opt.format)}
-              <li role="none">
-                <button
-                  class="menu-item"
-                  type="button"
-                  role="menuitem"
-                  disabled={!!busy || republishing}
-                  onclick={() => void onExport(opt.format)}
-                >
-                  {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
-                </button>
-              </li>
-            {/each}
+            <li role="none">
+              <button
+                class="menu-item"
+                type="button"
+                role="menuitem"
+                disabled={!!busy || republishing}
+                onclick={() => void onDownloadSource()}
+              >
+                {busy === 'source' ? 'Downloading…' : 'Download as a file'}
+              </button>
+            </li>
+            {#if canExport}
+              {#each formats as opt (opt.format)}
+                <li role="none">
+                  <button
+                    class="menu-item"
+                    type="button"
+                    role="menuitem"
+                    disabled={!!busy || republishing}
+                    onclick={() => void onExport(opt.format)}
+                  >
+                    {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
+                  </button>
+                </li>
+              {/each}
+            {/if}
           {/if}
         {/snippet}
       </CopyPointerButton>

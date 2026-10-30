@@ -30,9 +30,19 @@ describe('filterGrammarIssues', () => {
       { offset: 0, length: 5, message: 'x', replacements: [] },
       { offset: 6, length: 10, message: 'in nostr', replacements: [] }
     ];
-    const kept = filterGrammarIssues(text, issues);
+    const kept = filterGrammarIssues(text, issues, []);
     expect(kept).toHaveLength(1);
     expect(kept[0]?.offset).toBe(0);
+  });
+
+  it('drops issues whose span is on the local ignore list', () => {
+    const text = 'Hello Nostr friends';
+    const issues: GrammarIssue[] = [
+      { offset: 6, length: 5, message: 'Possible spelling mistake found.', replacements: ['Not'] }
+    ];
+    expect(filterGrammarIssues(text, issues, ['Nostr'])).toHaveLength(0);
+    expect(filterGrammarIssues(text, issues, ['nostr'])).toHaveLength(0);
+    expect(filterGrammarIssues(text, issues, [])).toHaveLength(1);
   });
 });
 
