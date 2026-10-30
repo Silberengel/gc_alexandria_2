@@ -317,15 +317,13 @@ function createSessionStore() {
         byId.set(e.id, e);
       }
       let merged = [...byId.values()];
-      // Prefer newer local shelf/queue/label events over a stale relay copy.
-      // Include mid-flight `rememberEvent` writes (e.g. a just-published 16374) —
-      // `priorLocal` alone would drop anything remembered after loadMetadata started.
-      const localsById = new Map<string, Event>();
-      for (const local of [...priorLocal, ...metadataEvents]) {
+      // Prefer live local shelf/queue/label events over a stale relay copy.
+      // `metadataEvents` already evolves from the start-of-load `priorLocal` snapshot
+      // via mid-flight `rememberEvent` (e.g. a just-published 16374). Re-spreading
+      // `priorLocal` here would be redundant for same ids and could resurrect events
+      // that a mid-flight deletion already dropped from the live list.
+      for (const local of metadataEvents) {
         if (local.pubkey.toLowerCase() !== pubkey.toLowerCase()) continue;
-        localsById.set(local.id.toLowerCase(), local);
-      }
-      for (const local of localsById.values()) {
         merged = mergeRememberedMetadata(merged, local);
       }
       // One NIP-01 winner per replaceable/addressable coord (mute, relays, queue, dirs, …).

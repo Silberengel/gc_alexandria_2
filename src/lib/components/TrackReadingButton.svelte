@@ -26,8 +26,8 @@
 
   let busy = $state(false);
   let errorHint = $state('');
-  /** Encrypt this book into kind-16374 content instead of public tags. */
-  let trackPrivate = $state(false);
+  /** After Track reading: choose public vs encrypted queue entry. */
+  let choosingVisibility = $state(false);
 
   const addr = $derived(eventAddress(publication));
   const entries = $derived($viewerReadingEntries);
@@ -47,7 +47,26 @@
   const bunker = $derived($session.signerType === 'bunker');
   const localOnly = $derived($readingPrefs.localOnly);
 
-  async function track(): Promise<void> {
+  function beginTrack(): void {
+    if (busy || !ready || alreadyRead) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      return;
+    }
+    errorHint = '';
+    if (localOnly) {
+      void track(false);
+      return;
+    }
+    choosingVisibility = true;
+  }
+
+  function cancelChoose(): void {
+    if (busy) return;
+    choosingVisibility = false;
+  }
+
+  async function track(asPrivate: boolean): Promise<void> {
     if (busy) return;
     if (!$session.pubkey) {
       openLoginDialog();
@@ -56,6 +75,7 @@
     if (!ready || alreadyRead) return;
     busy = true;
     errorHint = '';
+    choosingVisibility = false;
     try {
       if (bunker) {
         const ok = await session.ensureBunkerSigner();
@@ -69,7 +89,7 @@
         pos,
         total,
         sectionId,
-        private: trackPrivate && !localOnly
+        private: asPrivate && !localOnly
       });
       if (!published) {
         errorHint = bunker
@@ -161,17 +181,28 @@
   <button class="btn" type="button" onclick={() => openLoginDialog()}>
     Sign in to track reading
   </button>
+{:else if choosingVisibility}
+  <div class="reading-track-choose" role="group" aria-label="Reading visibility">
+    <p class="reading-track-choose-prompt">
+      Track this book publicly, or keep it private in your encrypted reading queue?
+    </p>
+    <div class="reading-track-choose-actions">
+      <button class="btn" type="button" disabled={busy} onclick={() => void track(false)}>
+        {busy && bunker ? 'Waiting for Amber…' : 'Track publicly'}
+      </button>
+      <button class="btn" type="button" disabled={busy} onclick={() => void track(true)}>
+        Track privately
+      </button>
+      <button class="reading-track-action" type="button" disabled={busy} onclick={cancelChoose}>
+        Cancel
+      </button>
+    </div>
+  </div>
 {:else}
   <div class="reading-track-start">
-    <button class="btn" type="button" disabled={busy} onclick={() => void track()}>
+    <button class="btn" type="button" disabled={busy} onclick={beginTrack}>
       {busy && bunker ? 'Waiting for Amber…' : 'Track reading'}
     </button>
-    {#if !localOnly}
-      <label class="reading-track-private" title="Keep this book encrypted in reading-queue content">
-        <input type="checkbox" bind:checked={trackPrivate} disabled={busy} />
-        Priv
-      </label>
-    {/if}
   </div>
   {#if bunker && !busy}
     <aside class="reading-track-help" aria-label="Tracking help">

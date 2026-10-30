@@ -78,6 +78,7 @@ describe('markup editor insertions', () => {
     expect(editMarkup('sidebar', 'djot', '', 0, 0).value).toContain('::: sidebar\nThis is a sidebar.');
     expect(editMarkup('example', 'asciidoc', '', 0, 0).value).toBe('====\nexample\n====');
     expect(editMarkup('description', 'asciidoc', 'a meaning', 0, 9).value).toBe('term:: a meaning');
+    expect(editMarkup('description', 'djot', 'a meaning', 0, 9).value).toBe(': term\n\n  a meaning');
     expect(editMarkup('description', 'djot', '', 0, 0).value).toContain(': term\n\n  description');
     expect(editMarkup('description', 'djot', '', 0, 0).value).toContain(': another term');
     expect(editMarkup('description', 'asciidoc', '', 0, 0).value).toContain('another term:: another description');
@@ -94,6 +95,8 @@ describe('markup editor insertions', () => {
     expect(editMarkup('quote', 'asciidoc', '', 0, 0).value).toContain(
       '[quote, Emily Dickinson, Hope Is The Thing With Feathers]'
     );
+    expect(editMarkup('menu', 'asciidoc', '', 0, 0).value).toBe('menu:File[Save]');
+    expect(editMarkup('menu', 'asciidoc', 'Export', 0, 6).value).toBe('menu:Menu[Export]');
   });
 
   it('inserts sample code, literal, and attributed quote for both formats', () => {
@@ -105,6 +108,20 @@ describe('markup editor insertions', () => {
       '{source="Hope Is The Thing With Feathers, by Emily Dickinson"}'
     );
     expect(editMarkup('quote', 'djot', '', 0, 0).value).toContain('> ‘Hope’ is the thing with feathers');
+  });
+
+  it('wraps a selection in a quote with a generic attribution placeholder', () => {
+    const adoc = editMarkup('quote', 'asciidoc', 'selected body', 0, 'selected body'.length);
+    expect(adoc.value).toContain('[quote, attribution]');
+    expect(adoc.value).toContain('____\nselected body\n____');
+    expect(adoc.value).not.toContain('Emily Dickinson');
+    expect(adoc.value.slice(adoc.selectionStart, adoc.selectionEnd)).toBe('attribution');
+
+    const djot = editMarkup('quote', 'djot', 'line one\nline two', 0, 'line one\nline two'.length);
+    expect(djot.value).toContain('{source="attribution"}');
+    expect(djot.value).toContain('> line one\n> line two');
+    expect(djot.value).not.toContain('Emily Dickinson');
+    expect(djot.value.slice(djot.selectionStart, djot.selectionEnd)).toBe('attribution');
   });
 
   it('inserts inline and display TeX examples', () => {

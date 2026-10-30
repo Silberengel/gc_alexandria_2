@@ -120,6 +120,8 @@ const EXAMPLE_QUOTE_LINES = [
 ];
 
 const EXAMPLE_QUOTE_SOURCE = 'Hope Is The Thing With Feathers, by Emily Dickinson';
+/** Generic attribution when wrapping a selection (examples stay for empty inserts). */
+const QUOTE_ATTR_PLACEHOLDER = 'attribution';
 
 export function editQuote(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
@@ -129,17 +131,30 @@ export function editQuote(format: MarkupEditorFormat, source: string, start: num
         .split('\n')
         .map((line) => (line.startsWith('> ') ? line : `> ${line}`))
         .join('\n');
-      return insertBlock(source, start, end, `{source="${EXAMPLE_QUOTE_SOURCE}"}\n${quoted}`);
+      return selectInner(
+        insertBlock(source, start, end, `{source="${QUOTE_ATTR_PLACEHOLDER}"}\n${quoted}`),
+        QUOTE_ATTR_PLACEHOLDER
+      );
     }
     const body = EXAMPLE_QUOTE_LINES.map((line) => (line ? `> ${line}` : '>')).join('\n');
     return insertBlock(source, start, end, `{source="${EXAMPLE_QUOTE_SOURCE}"}\n${body}`);
   }
-  const inner = selected || EXAMPLE_QUOTE_LINES.join('\n');
+  if (selected) {
+    return selectInner(
+      insertBlock(
+        source,
+        start,
+        end,
+        `[quote, ${QUOTE_ATTR_PLACEHOLDER}]\n____\n${selected}\n____`
+      ),
+      QUOTE_ATTR_PLACEHOLDER
+    );
+  }
   return insertBlock(
     source,
     start,
     end,
-    `[quote, Emily Dickinson, Hope Is The Thing With Feathers]\n____\n${inner}\n____`
+    `[quote, Emily Dickinson, Hope Is The Thing With Feathers]\n____\n${EXAMPLE_QUOTE_LINES.join('\n')}\n____`
   );
 }
 
@@ -256,12 +271,18 @@ export function editTex(
 /** Language-tagged source block (Djot fence / AsciiDoc [source]). */
 export function editCodeBlock(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
   const selected = source.slice(start, end).replace(/^\n+|\n+$/g, '');
-  const inner = selected || EXAMPLE_JSON_CODE;
+  if (selected) {
+    const block =
+      format === 'asciidoc'
+        ? `[source,language]\n----\n${selected}\n----`
+        : '```language\n' + selected + '\n```';
+    return selectInner(insertBlock(source, start, end, block), 'language');
+  }
   const block =
     format === 'asciidoc'
-      ? `[source,json]\n----\n${inner}\n----`
-      : '```json\n' + inner + '\n```';
-  return selectInner(insertBlock(source, start, end, block), inner);
+      ? `[source,json]\n----\n${EXAMPLE_JSON_CODE}\n----`
+      : '```json\n' + EXAMPLE_JSON_CODE + '\n```';
+  return selectInner(insertBlock(source, start, end, block), EXAMPLE_JSON_CODE);
 }
 
 const EXAMPLE_TABLE_ASCIIDOC = `.A table with a title, header and footer, horizontal alignment, and column width
@@ -521,12 +542,12 @@ export function editDescription(format: MarkupEditorFormat, source: string, star
     );
   }
   if (format === 'asciidoc') {
+    // Selection is the description; "term" is the editable placeholder.
     const line = `term:: ${selected}`;
     const edit = insertBlock(source, start, end, line);
-    const at = edit.value.lastIndexOf(selected, edit.selectionStart);
-    return at < 0 ? edit : { value: edit.value, selectionStart: at, selectionEnd: at + selected.length };
+    return selectInner(edit, 'term');
   }
-  return selectInner(insertBlock(source, start, end, `: ${selected}\n\n  description`), 'description');
+  return selectInner(insertBlock(source, start, end, `: term\n\n  ${selected}`), 'term');
 }
 
 const EXAMPLE_CALLOUT =
@@ -589,7 +610,18 @@ export function editButton(format: MarkupEditorFormat, source: string, start: nu
 }
 
 export function editMenu(format: MarkupEditorFormat, source: string, start: number, end: number): SourceEdit {
-  if (format === 'asciidoc') return splice(source, start, end, 'menu:File[Save]', 'menu:'.length, 'File'.length);
+  const selected = source.slice(start, end).trim();
+  if (format === 'asciidoc') {
+    if (selected) {
+      const insert = `menu:Menu[${selected}]`;
+      return splice(source, start, end, insert, 'menu:'.length, 'Menu'.length);
+    }
+    return splice(source, start, end, 'menu:File[Save]', 'menu:'.length, 'File'.length);
+  }
+  if (selected) {
+    const insert = `Menu › ${selected}`;
+    return splice(source, start, end, insert, 0, 'Menu'.length);
+  }
   return splice(source, start, end, 'File › Save', 0, 'File'.length);
 }
 

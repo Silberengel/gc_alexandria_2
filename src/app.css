@@ -9725,17 +9725,24 @@ a.user-status-line:hover {
   align-items: center;
   gap: 0.65rem;
 }
-.reading-track-private {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  cursor: pointer;
-  user-select: none;
+.reading-track-choose {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  max-width: 28rem;
 }
-.reading-track-private input {
+.reading-track-choose-prompt {
   margin: 0;
+  font-size: var(--text-meta);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.reading-track-choose-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
 }
 .reading-track-hint {
   margin: 0.35rem 0;
