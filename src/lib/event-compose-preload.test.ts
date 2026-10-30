@@ -42,6 +42,44 @@ describe('eventToComposeDraft', () => {
     expect(draft.freeformTags).toEqual([['custom', 'keep-me']]);
     expect(draft.freeformTags.some((t) => t[0] === 'client')).toBe(false);
     expect(draft.freeformTags.some((t) => t[0] === 'e')).toBe(false);
+    expect(draft.contentWarningEnabled).toBe(false);
+  });
+
+  it('preloads NIP-36 content warnings outside freeform tags', () => {
+    const note = ev({
+      kind: KIND.TEXT_NOTE,
+      pubkey: 'f'.repeat(64),
+      content: 'Sensitive',
+      tags: [
+        ['content-warning', 'Spoilers'],
+        ['custom', 'keep']
+      ]
+    });
+    const draft = eventToComposeDraft(note);
+    expect(draft.contentWarningEnabled).toBe(true);
+    expect(draft.contentWarningLabel).toBe('Spoilers');
+    expect(draft.freeformTags).toEqual([['custom', 'keep']]);
+  });
+
+  it('preloads NIP-88 poll options outside freeform tags', () => {
+    const poll = ev({
+      kind: KIND.POLL,
+      pubkey: 'f'.repeat(64),
+      content: 'Favorite color?',
+      tags: [
+        ['option', 'a1', 'Red'],
+        ['option', 'a2', 'Blue'],
+        ['polltype', 'multiplechoice'],
+        ['endsAt', String(Math.floor(Date.now() / 1000) + 7200)],
+        ['relay', 'wss://relay.example'],
+        ['custom', 'keep']
+      ]
+    });
+    const draft = eventToComposeDraft(poll);
+    expect(draft.pollOptions).toEqual(['Red', 'Blue']);
+    expect(draft.pollMultipleChoice).toBe(true);
+    expect(draft.pollEndsHours).toBe('2');
+    expect(draft.freeformTags).toEqual([['custom', 'keep']]);
   });
 
   it('maps publication title and authors', () => {

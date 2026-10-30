@@ -18,6 +18,10 @@
   import ProfileMetadataCard from './ProfileMetadataCard.svelte';
   import DirectoryExplorer from './DirectoryExplorer.svelte';
   import TipReceiptCard from './TipReceiptCard.svelte';
+  import InteractivePollCard from './InteractivePollCard.svelte';
+  import GitRepositoryCard from './GitRepositoryCard.svelte';
+  import GitIssueCard from './GitIssueCard.svelte';
+  import CalendarEventCard from './CalendarEventCard.svelte';
   import { KIND } from '$lib/constants';
   import { eventPreview } from '$lib/event-preview';
   import { eventHref } from '$lib/listing-table';
@@ -243,6 +247,24 @@
     </article>
   {:else if event.kind === KIND.DIRECTORY}
     <DirectoryExplorer {event} showMenu={showMenu} headerOnly={openAsThread || embedded} />
+  {:else if event.kind === KIND.POLL}
+    <article class="card note-card poll-event-card">
+      {#if showMenu}
+        <CopyPointerButton {event} class="generic-card-copy" />
+      {/if}
+      <div class="card-clip">
+        <p class="note-card-by muted">
+          by <UserBadge pubkey={event.pubkey} />
+        </p>
+        <InteractivePollCard {event} />
+      </div>
+    </article>
+  {:else if event.kind === KIND.GIT_REPO}
+    <GitRepositoryCard {event} {showMenu} />
+  {:else if event.kind === KIND.ISSUE}
+    <GitIssueCard {event} {showMenu} compact={openAsThread || embedded} />
+  {:else if event.kind === KIND.CALENDAR_DATE || event.kind === KIND.CALENDAR_TIME}
+    <CalendarEventCard {event} {showMenu} />
   {:else if parseZap(event) || isMoneroTipEvent(event)}
     <article class="card note-card tip-receipt-card">
       {#if showMenu}

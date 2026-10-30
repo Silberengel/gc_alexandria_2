@@ -13,7 +13,7 @@
   } from '$lib/publication-asciidoc-split';
   import type { PublishProgress } from '$lib/publication-publish';
   import { KIND } from '$lib/constants';
-  import MentionControl from './MentionControl.svelte';
+  import ProseGrammarField from './ProseGrammarField.svelte';
 
   interface Props {
     source?: string;
@@ -278,17 +278,12 @@
   <div class="pub-split-panes">
     <section class="pub-split-pane" aria-label="AsciiDoc source">
       <div class="pub-split-pane-label">AsciiDoc</div>
-      <MentionControl
-        mode="prose"
-        multiline
+      <ProseGrammarField
         fill
-        placement="over"
-        class="pub-split-source"
         bind:element={sourceEl}
         bind:value={source}
         disabled={publishing}
         placeholder={'== Chapter one\n\nBody…\n\n== Chapter two\n\n…'}
-        spellcheck="true"
       />
     </section>
     <section class="pub-split-pane" aria-label="Publication structure">
@@ -395,11 +390,11 @@
     padding: 0.35rem 0.65rem;
     border-bottom: 1px solid color-mix(in srgb, var(--rule, #ccc) 50%, transparent);
   }
-  .pub-split-pane :global(.mention-host.fill) {
+  .pub-split-pane :global(.prose-grammar-field) {
     flex: 1 1 auto;
     min-height: 0;
   }
-  .pub-split-pane :global(textarea.pub-split-source) {
+  .pub-split-pane :global(.grammar-textarea) {
     flex: 1;
     width: 100%;
     border: 0;

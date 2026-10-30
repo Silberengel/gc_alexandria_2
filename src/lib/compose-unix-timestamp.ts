@@ -57,7 +57,15 @@ export function datetimeLocalToUnix(isoLocal: string): number | null {
 
 /** True when this compose field stores a unix timestamp (seconds). */
 export function isUnixTimestampField(field: FieldDef, kind: number): boolean {
+  // NIP-52 date-based calendar uses ISO calendar days (YYYY-MM-DD), not unix.
+  if (kind === 31922) {
+    const tag = field.tag ?? field.produces?.[0] ?? field.id;
+    if (tag === 'start' || tag === 'end' || field.id === 'start' || field.id === 'end') {
+      return false;
+    }
+  }
   if (field.valueType === 'unix_timestamp') return true;
+  if (field.valueType && field.valueType !== 'unix_timestamp') return false;
   const tag = field.tag ?? field.produces?.[0] ?? field.id;
   if (tagValueType(tag, kind) === 'unix_timestamp') return true;
   if (UNIX_TAG_HINTS.has(tag) || UNIX_TAG_HINTS.has(field.id)) return true;
@@ -65,4 +73,11 @@ export function isUnixTimestampField(field: FieldDef, kind: number): boolean {
     return true;
   }
   return false;
+}
+
+/** NIP-52 date-based calendar `start` / `end` ISO days. */
+export function isIsoDateField(field: FieldDef, kind: number): boolean {
+  if (kind !== 31922) return false;
+  const tag = field.tag ?? field.produces?.[0] ?? field.id;
+  return tag === 'start' || tag === 'end' || field.id === 'start' || field.id === 'end';
 }

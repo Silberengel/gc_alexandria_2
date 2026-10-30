@@ -3,7 +3,7 @@
   import { untrack } from 'svelte';
   import { link, location, push, querystring, replace } from 'svelte-spa-router';
   import UserBadge from '$lib/components/UserBadge.svelte';
-  import MentionControl from '$lib/components/MentionControl.svelte';
+  import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
@@ -16,6 +16,12 @@
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import FeedBoosters from '$lib/components/FeedBoosters.svelte';
   import TipReceiptCard from '$lib/components/TipReceiptCard.svelte';
+  import InteractivePollCard from '$lib/components/InteractivePollCard.svelte';
+  import GitRepositoryCard from '$lib/components/GitRepositoryCard.svelte';
+  import GitIssueCard from '$lib/components/GitIssueCard.svelte';
+  import IssueRepoHeader from '$lib/components/IssueRepoHeader.svelte';
+  import RepoIssuesPanel from '$lib/components/RepoIssuesPanel.svelte';
+  import CalendarEventCard from '$lib/components/CalendarEventCard.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { appClientHeight, appOffsetTop, appScrollTo, appScrollY } from '$lib/app-scroll';
   import { KIND } from '$lib/constants';
@@ -76,7 +82,6 @@
     feedEventsWatermark,
     feedFollowAuthors,
     feedListPath,
-    feedLookbackIsWider,
     feedRelayGroups,
     FEED_FILTER_KINDS,
     feedTabKinds,
@@ -112,6 +117,7 @@
     recallFollowsFeed,
     recallKindFeed,
     recallNotifications,
+    isFeedTab,
     type FeedTab,
     type NotificationLookbackId
   } from '$lib/feed';
@@ -166,7 +172,14 @@
   /** Tab id under the pointer — never a visible-strip index (visibility can change mid-drag). */
   let dragFromTab = $state<FeedTab | null>(null);
   let dragOverTab = $state<FeedTab | null>(null);
+  /** Suppress the synthetic click after a pointer reorder (or a pointer-handled tap). */
   let dragMoved = $state(false);
+  /** Active tab-strip pointer gesture (HTML5 DnD does not work for touch/stylus). */
+  let tabDragPointerId: number | null = null;
+  let tabDragActive = $state(false);
+  let tabDragStartX = 0;
+  let tabDragStartY = 0;
+  const TAB_DRAG_THRESHOLD_PX = 8;
   let metadataEvents = $state<Event[]>([]);
   /**
    * Stable feed-load deps. Raw `metadataEvents` / `$muteState` get new identities on every
@@ -308,39 +321,103 @@
     void replace(feedListPath(next, { author: feedAuthor }));
   }
 
-  function onTabDragStart(tab: FeedTab, e: DragEvent): void {
-    dragFromTab = tab;
-    dragMoved = false;
-    dragOverTab = tab;
-    e.dataTransfer?.setData('text/plain', tab);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+  function reorderFeedTab(fromTab: FeedTab, toTab: FeedTab): void {
+    if (fromTab === toTab) return;
+    // Reorder in the persisted full order so hidden tabs (follows/notifications
+    // when signed out) keep their slots; visible indices would mis-target those.
+    const full = $feedTabOrder;
+    const from = full.indexOf(fromTab);
+    const to = full.indexOf(toTab);
+    if (from >= 0 && to >= 0) feedTabOrder.reorder(from, to);
   }
 
-  function onTabDragOver(tab: FeedTab, e: DragEvent): void {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    if (dragFromTab !== null && dragFromTab !== tab) dragMoved = true;
-    dragOverTab = tab;
+  function tabUnderPoint(clientX: number, clientY: number): FeedTab | null {
+    const hit = document.elementFromPoint(clientX, clientY);
+    const el = hit?.closest?.('[data-feed-tab]');
+    if (!(el instanceof HTMLElement)) return null;
+    const raw = el.dataset.feedTab ?? '';
+    return isFeedTab(raw) ? raw : null;
   }
 
-  function onTabDrop(tab: FeedTab, e: DragEvent): void {
-    e.preventDefault();
+  function clearTabDragListeners(): void {
+    window.removeEventListener('pointermove', onTabPointerMove);
+    window.removeEventListener('pointerup', onTabPointerUp);
+    window.removeEventListener('pointercancel', onTabPointerCancel);
+  }
+
+  function endTabPointerGesture(selectIfTap: boolean): void {
     const fromTab = dragFromTab;
-    if (fromTab && fromTab !== tab) {
-      // Reorder in the persisted full order so hidden tabs (follows/notifications
-      // when signed out) keep their slots; visible indices would mis-target those.
-      const full = $feedTabOrder;
-      const from = full.indexOf(fromTab);
-      const to = full.indexOf(tab);
-      if (from >= 0 && to >= 0) feedTabOrder.reorder(from, to);
-    }
+    const toTab = dragOverTab;
+    const didDrag = tabDragActive;
+    clearTabDragListeners();
+    tabDragPointerId = null;
+    tabDragActive = false;
     dragFromTab = null;
     dragOverTab = null;
+    if (didDrag) {
+      if (fromTab && toTab) reorderFeedTab(fromTab, toTab);
+      // Swallow the follow-up click after a drag.
+      dragMoved = true;
+      queueMicrotask(() => {
+        dragMoved = false;
+      });
+      return;
+    }
+    if (selectIfTap && fromTab) {
+      setFeedTab(fromTab);
+      // Stylus/touch often still synthesize a click — absorb it.
+      dragMoved = true;
+      queueMicrotask(() => {
+        dragMoved = false;
+      });
+    }
   }
 
-  function onTabDragEnd(): void {
-    dragFromTab = null;
-    dragOverTab = null;
+  function onTabPointerMove(e: PointerEvent): void {
+    if (tabDragPointerId !== e.pointerId || dragFromTab == null) return;
+    const dx = e.clientX - tabDragStartX;
+    const dy = e.clientY - tabDragStartY;
+    if (!tabDragActive) {
+      if (dx * dx + dy * dy < TAB_DRAG_THRESHOLD_PX * TAB_DRAG_THRESHOLD_PX) return;
+      tabDragActive = true;
+      dragMoved = true;
+    }
+    // Required so touch/stylus keep delivering moves instead of scrolling.
+    e.preventDefault();
+    const over = tabUnderPoint(e.clientX, e.clientY);
+    if (over && over !== dragOverTab) dragOverTab = over;
+  }
+
+  function onTabPointerUp(e: PointerEvent): void {
+    if (tabDragPointerId !== e.pointerId) return;
+    endTabPointerGesture(true);
+  }
+
+  function onTabPointerCancel(e: PointerEvent): void {
+    if (tabDragPointerId !== e.pointerId) return;
+    endTabPointerGesture(false);
+  }
+
+  function onTabPointerDown(tab: FeedTab, e: PointerEvent): void {
+    if (pointer) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.target as Element | null)?.closest?.('.feed-tab-remove')) return;
+    // One gesture at a time.
+    if (tabDragPointerId != null) endTabPointerGesture(false);
+
+    tabDragPointerId = e.pointerId;
+    tabDragActive = false;
+    tabDragStartX = e.clientX;
+    tabDragStartY = e.clientY;
+    dragFromTab = tab;
+    dragOverTab = tab;
+    dragMoved = false;
+
+    // Capture on the tab so pen/touch keep tracking after leaving the hit box.
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    window.addEventListener('pointermove', onTabPointerMove, { passive: false });
+    window.addEventListener('pointerup', onTabPointerUp);
+    window.addEventListener('pointercancel', onTabPointerCancel);
   }
 
   function onTabClick(tab: FeedTab): void {
@@ -348,8 +425,15 @@
       dragMoved = false;
       return;
     }
+    // Keyboard / non-pointer activation (pointer path selects on pointerup).
     setFeedTab(tab);
   }
+
+  $effect(() => {
+    return () => {
+      if (tabDragPointerId != null) endTabPointerGesture(false);
+    };
+  });
 
   function parseCustomKindRow(raw: string): number | null {
     const t = raw.trim();
@@ -473,7 +557,7 @@
   let feedKindFilter = $state('');
   let feedTextFilter = $state('');
   let items = $state<Event[]>([]);
-  /** Widest lookback already fetched for the current tab — expand → relay requery. */
+  /** Lookback last fetched for the current tab — change → relay requery. */
   let fetchedLookback = $state<NotificationLookbackId | null>(null);
 
   const feedKindNumber = $derived.by(() => {
@@ -819,6 +903,8 @@
   let threadLoading = $state(true);
   let socialLoading = $state(false);
   let responses = $state<WorkResponses>(emptyWorkResponses());
+  /** Issues vs Comments under a NIP-34 repository thread. */
+  let repoThreadTab = $state<'issues' | 'comments'>('issues');
   let threadArticlePane = $state<HTMLElement | undefined>();
   let threadSelDraft = $state<{ quote: string; context?: string } | null>(null);
   let keepThreadSelDraft = false;
@@ -1286,8 +1372,10 @@
     const threadOpen = !!pointer;
     const prevFetched = untrack(() => fetchedLookback);
     const tabChanged = loadedTab !== listKey;
-    // Author feeds ignore the lookback control; everyone else requeries when the window widens.
-    const widerLookback = !author && feedLookbackIsWider(lookback, prevFetched);
+    // Author feeds ignore the lookback control; list feeds requery on any since change
+    // (widen or narrow) so relay `since` always matches the dropdown.
+    const lookbackChanged =
+      !author && !tabChanged && prevFetched != null && prevFetched !== lookback;
     let cancelled = false;
 
     if (threadOpen) {
@@ -1309,8 +1397,8 @@
       loadedTab = listKey;
       listLoading = true;
       listSettled = false;
-    } else if (widerLookback) {
-      // Keep current rows visible while a longer window loads.
+    } else if (lookbackChanged) {
+      // Keep current rows visible while the new window loads.
       listLoading = true;
       listSettled = false;
     } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
@@ -1350,10 +1438,9 @@
     }
 
     // Already settled for this tab/window — quiet polling handles New Events.
-    // Narrowing the lookback is client-side only (no relay trip).
     if (
       !tabChanged &&
-      !widerLookback &&
+      !lookbackChanged &&
       untrack(() => listSettled) &&
       untrack(() => items.length)
     ) {
@@ -1526,9 +1613,11 @@
       event = null;
       threadLoading = false;
       responses = emptyWorkResponses();
+      repoThreadTab = 'issues';
       return;
     }
     responses = emptyWorkResponses();
+    repoThreadTab = 'issues';
     socialLoading = false;
     const warm = takePendingNavEvent();
     // Prefer the pending click seed when it is the OP; otherwise fall back to
@@ -1666,6 +1755,28 @@
             <DirectoryExplorer {event} />
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
+        {:else if event.kind === KIND.GIT_REPO}
+          <article class="card reading-body feed-git-repo-thread">
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
+            <GitRepositoryCard {event} showMenu={false} />
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+          </article>
+        {:else if event.kind === KIND.ISSUE}
+          <article class="card reading-body" class:mark-mode={markMode} bind:this={threadArticlePane}>
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
+            <IssueRepoHeader {event} />
+            <EventBody {event} quotes={bodyHighlights} />
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+          </article>
+        {:else if event.kind === KIND.CALENDAR_DATE || event.kind === KIND.CALENDAR_TIME}
+          <article class="card reading-body feed-calendar-thread">
+            <FeedBoosters boosts={threadBoosts} targetId={event.id} />
+            <CalendarEventCard {event} showMenu={false} />
+            {#if event.tags.some((t) => t[0] === 'summary' && (t[1] ?? '').trim()) && event.content.trim()}
+              <EventBody {event} quotes={bodyHighlights} />
+            {/if}
+            <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
+          </article>
         {:else}
           <article class="card reading-body" class:mark-mode={markMode} bind:this={threadArticlePane}>
             <FeedBoosters boosts={threadBoosts} targetId={event.id} />
@@ -1682,7 +1793,11 @@
                 <span class="feed-kind muted">{eventKindDescription(event)}</span>
               </header>
             {/if}
-            <EventBody {event} quotes={bodyHighlights} />
+            {#if event.kind === KIND.POLL}
+              <InteractivePollCard {event} />
+            {:else}
+              <EventBody {event} quotes={bodyHighlights} />
+            {/if}
             <DetailsPanel {event} appHandlers={panelResponses.appHandlers ?? []} />
           </article>
           {#if threadSelDraft && !inkOpen && !notePromptOpen && !replyComposeOpen}
@@ -1719,7 +1834,7 @@
             <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
               <label>
                 Note on highlight
-                <MentionControl mode="prose" multiline rows={3} bind:value={notePromptText} placeholder="Your note…" />
+                <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
               </label>
               <div class="compose-actions">
                 <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
@@ -1737,7 +1852,7 @@
             <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
               <label>
                 Reply
-                <MentionControl mode="prose" multiline rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
+                <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
               </label>
               <div class="compose-actions">
                 <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
@@ -1773,6 +1888,35 @@
               responses={panelResponses}
               loading={socialLoading}
             />
+          {:else if event.kind === KIND.GIT_REPO}
+            <div class="feed-repo-tabs" role="tablist" aria-label="Repository responses">
+              <button
+                type="button"
+                class="feed-repo-tab"
+                class:active={repoThreadTab === 'issues'}
+                role="tab"
+                aria-selected={repoThreadTab === 'issues'}
+                onclick={() => (repoThreadTab = 'issues')}
+              >Issues</button>
+              <button
+                type="button"
+                class="feed-repo-tab"
+                class:active={repoThreadTab === 'comments'}
+                role="tab"
+                aria-selected={repoThreadTab === 'comments'}
+                onclick={() => (repoThreadTab = 'comments')}
+              >Comments</button>
+            </div>
+            {#if repoThreadTab === 'issues'}
+              <RepoIssuesPanel repo={event} />
+            {:else}
+              <WorkCommentsPanel
+                target={event}
+                responses={panelResponses}
+                focusId={focusComment}
+                loading={socialLoading}
+              />
+            {/if}
           {:else}
             <WorkCommentsPanel
               target={event}
@@ -1830,15 +1974,13 @@
           {/if}
         </div>
       {:else}
-        <MentionControl
+        <ProseGrammarField
           id="feed-note-draft"
-          mode="prose"
-          multiline
           rows={3}
           bind:value={noteDraft}
           placeholder={signedIn ? 'Write a short note…' : 'Sign in to post a note'}
           disabled={notePosting || !signedIn}
-          onpaste={onNotePaste}
+          onPaste={onNotePaste}
         />
       {/if}
       {#if proseHasShareTrackers(noteDraft)}
@@ -1883,16 +2025,13 @@
             role="tab"
             class="feed-tab"
             class:active={feedTab === tab}
-            class:feed-tab-dragging={dragFromTab === tab}
-            class:feed-tab-drop={dragOverTab === tab && dragFromTab !== null && dragFromTab !== tab}
+            class:feed-tab-dragging={dragFromTab === tab && tabDragActive}
+            class:feed-tab-drop={dragOverTab === tab && dragFromTab !== null && dragFromTab !== tab && tabDragActive}
+            data-feed-tab={tab}
             aria-selected={feedTab === tab}
             tabindex={pointer ? -1 : 0}
-            draggable={!pointer}
             title="Drag to reorder tabs"
-            ondragstart={(e) => onTabDragStart(tab, e)}
-            ondragover={(e) => onTabDragOver(tab, e)}
-            ondrop={(e) => onTabDrop(tab, e)}
-            ondragend={onTabDragEnd}
+            onpointerdown={(e) => onTabPointerDown(tab, e)}
             onclick={() => onTabClick(tab)}
           >
             <span class="feed-tab-label">{feedTabLabel(tab, $feedTabLabels[tab])}</span>
@@ -1901,6 +2040,7 @@
                 class="feed-tab-remove"
                 role="presentation"
                 title={isKindFeedTab(tab) ? 'Remove kind tab' : `Remove ${feedTabLabel(tab)}`}
+                onpointerdown={(e) => e.stopPropagation()}
                 onclick={(e) => requestRemoveTab(tab, e)}>×</span
               >
             {/if}
@@ -2133,6 +2273,50 @@
                       enlargeOnClick={false}
                     />
                   </div>
+                {:else if item.kind === KIND.POLL}
+                  <div class="thread-head">
+                    <UserBadge pubkey={actorPubkey} />
+                    <a
+                      class="thread-time muted"
+                      href={threadHref}
+                      use:link
+                      title={formatAbsoluteTime(item.created_at)}
+                      onclick={() => openThreadLink(item)}
+                    >{formatRelativeTime(item.created_at)}</a>
+                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
+                    {#if feedTab === 'notifications'}
+                      <div class="thread-actions">
+                        <CopyPointerButton event={item} class="thread-more feed-row-more" />
+                      </div>
+                    {/if}
+                  </div>
+                  <div class="feed-body">
+                    <InteractivePollCard
+                      event={item}
+                      showControls={false}
+                      voteHref={threadHref}
+                      onVoteOpen={() => openThreadLink(item)}
+                    />
+                  </div>
+                {:else if item.kind === KIND.GIT_REPO}
+                  <div class="feed-body feed-body-card">
+                    <GitRepositoryCard event={item} showMenu={feedTab === 'notifications'} />
+                  </div>
+                {:else if item.kind === KIND.ISSUE}
+                  <div class="feed-body feed-body-card">
+                    <GitIssueCard
+                      event={item}
+                      showMenu={feedTab === 'notifications'}
+                      compact
+                    />
+                  </div>
+                {:else if item.kind === KIND.CALENDAR_DATE || item.kind === KIND.CALENDAR_TIME}
+                  <div class="feed-body feed-body-card">
+                    <CalendarEventCard
+                      event={item}
+                      showMenu={feedTab === 'notifications'}
+                    />
+                  </div>
                 {:else}
                   <div class="thread-head">
                     <UserBadge pubkey={actorPubkey} />
@@ -2200,6 +2384,38 @@
                 {:else if target && target.kind === KIND.LONG_FORM}
                   <div class="feed-body feed-body-card">
                     <PublicationCard event={target} showMenu={false} enlargeOnClick={false} />
+                  </div>
+                {:else if target && target.kind === KIND.POLL}
+                  <div class="thread-head">
+                    <UserBadge pubkey={target.pubkey} />
+                    <a
+                      class="thread-time muted"
+                      href={threadHref}
+                      use:link
+                      title={formatAbsoluteTime(target.created_at)}
+                      onclick={() => openThreadLink(target, row.targetId)}
+                    >{formatRelativeTime(target.created_at)}</a>
+                    <span class="feed-kind muted">{eventKindDescription(target)}</span>
+                  </div>
+                  <div class="feed-body">
+                    <InteractivePollCard
+                      event={target}
+                      showControls={false}
+                      voteHref={threadHref}
+                      onVoteOpen={() => openThreadLink(target, row.targetId)}
+                    />
+                  </div>
+                {:else if target && target.kind === KIND.GIT_REPO}
+                  <div class="feed-body feed-body-card">
+                    <GitRepositoryCard event={target} showMenu={false} />
+                  </div>
+                {:else if target && target.kind === KIND.ISSUE}
+                  <div class="feed-body feed-body-card">
+                    <GitIssueCard event={target} showMenu={false} compact />
+                  </div>
+                {:else if target && (target.kind === KIND.CALENDAR_DATE || target.kind === KIND.CALENDAR_TIME)}
+                  <div class="feed-body feed-body-card">
+                    <CalendarEventCard event={target} showMenu={false} />
                   </div>
                 {:else if target}
                   <div class="thread-head">
@@ -2302,7 +2518,7 @@
     margin-top: 0.15rem;
     min-height: 4.5rem;
   }
-  /* MentionControl owns the textarea — pierce scoped styles into the child. */
+  /* ProseGrammarField owns the textarea — pierce scoped styles into the child. */
   .feed-note-compose :global(textarea) {
     width: 100%;
     box-sizing: border-box;
@@ -2311,10 +2527,14 @@
     padding: 0.55rem 0.65rem;
     font: inherit;
     line-height: 1.45;
-    color: inherit;
+    color: var(--ink);
+    caret-color: var(--ink);
     background: var(--paper-light, var(--paper));
     border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
     border-radius: 0.4rem;
+  }
+  .feed-note-compose :global(textarea:focus) {
+    caret-color: var(--accent-strong);
   }
   .feed-note-compose :global(textarea:disabled) {
     opacity: 0.7;
@@ -2481,6 +2701,10 @@
     font-size: 0.95rem;
     color: color-mix(in srgb, currentColor 55%, transparent);
     cursor: grab;
+    /* Let pointermove preventDefault so stylus/touch can reorder without scrolling. */
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .feed-tab:active {
     cursor: grabbing;
@@ -2922,6 +3146,33 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
+  }
+  .feed-repo-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0 0 0.85rem;
+    padding: 0.2rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 65%, transparent);
+    border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--paper) 45%, var(--paper-light));
+  }
+  .feed-repo-tab {
+    appearance: none;
+    border: 0;
+    margin: 0;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .feed-repo-tab.active {
+    background: color-mix(in srgb, var(--accent) 18%, var(--paper-light));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .feed-comments {
     margin-top: 1rem;

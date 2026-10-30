@@ -3,7 +3,7 @@
   import { replace, querystring } from 'svelte-spa-router';
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
-  import MentionControl from '$lib/components/MentionControl.svelte';
+  import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
@@ -873,7 +873,7 @@
       <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
         <label>
           Note on highlight
-          <MentionControl mode="prose" multiline rows={3} bind:value={notePromptText} placeholder="Your note…" />
+          <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
         </label>
         <div class="compose-actions">
           <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
@@ -891,7 +891,7 @@
       <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
         <label>
           Reply
-          <MentionControl mode="prose" multiline rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
+          <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
         </label>
         <div class="compose-actions">
           <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>

@@ -25,7 +25,7 @@ Feature: About and Contact
     Then I see "Contact"
     And I can follow GitHub at github.com/ShadowySupercode/gitcitadel and Geyser at geyser.fund/project/gitcitadel
     And I see the GitCitadel userbadge for npub1s3ht77dq4zqnya8vjun5jp3p44pr794ru36d0ltxu65chljw8xjqd975wz
-    And I can open gitworkshop.dev/silberengel@gitcitadel.com/Alexandria/issues
+    And I can open Alexandria issues in the Alexandria feed
     And I see a subject-and-body issue form
     When I submit a subject and body
     Then a kind 1621 issue is published

@@ -16,7 +16,7 @@
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import EventCard from '$lib/components/EventCard.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
-  import MentionControl from '$lib/components/MentionControl.svelte';
+  import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
   import CommentThread from '$lib/components/CommentThread.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
@@ -4346,7 +4346,7 @@
           <div class="reader-mini-dialog" role="dialog" aria-label="Highlight note">
             <label>
               Note on highlight
-              <MentionControl mode="prose" multiline rows={3} bind:value={notePromptText} placeholder="Your note…" />
+              <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
             </label>
             <div class="compose-actions">
               <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
@@ -4364,7 +4364,7 @@
           <div class="reader-mini-dialog" role="dialog" aria-label="Reply with quote">
             <label>
               Reply
-              <MentionControl mode="prose" multiline rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
+              <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
             </label>
             <div class="compose-actions">
               <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>

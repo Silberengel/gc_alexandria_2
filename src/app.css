@@ -1466,11 +1466,21 @@ select {
   border-radius: 0.45rem;
   background: var(--paper-light);
   color: var(--ink);
+  /* Explicit — auto/currentColor can vanish on cream paper in Firefox (esp. pen). */
+  caret-color: var(--ink);
   width: 100%;
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input[type='search']:focus,
+input[type='text']:focus,
+input[type='number']:focus,
+input[type='date']:focus,
+input[type='datetime-local']:focus,
+textarea:focus {
+  caret-color: var(--accent-strong);
 }
 textarea {
   resize: vertical;
@@ -7262,6 +7272,21 @@ a.embed-event-line:focus-visible {
   gap: 0.5rem;
   margin-top: 1.5rem;
 }
+/* Comment / reply fields sit inside .reading-body; keep ink + caret explicit. */
+.compose textarea,
+.compose input[type='text'],
+.op-reply-compose textarea,
+.feed-comments textarea {
+  color: var(--ink);
+  caret-color: var(--ink);
+  background: var(--paper-light);
+}
+.compose textarea:focus,
+.compose input[type='text']:focus,
+.op-reply-compose textarea:focus,
+.feed-comments textarea:focus {
+  caret-color: var(--accent-strong);
+}
 .compose-actions {
   display: flex;
   flex-wrap: wrap;
@@ -10294,6 +10319,102 @@ a.user-status-line:hover {
 .profile-kind-share {
   flex: 0 0 auto;
   font-size: 0.88rem;
+}
+.profile-bookmark-description {
+  margin: -0.35rem 0 0.85rem;
+}
+.profile-bookmark-url {
+  padding: 0.85rem 1rem 1rem;
+}
+.profile-bookmark-tag {
+  margin: 0.15rem 0;
+}
+.profile-bookmark-omitted {
+  margin: 0.35rem 0 1.25rem;
+}
+
+/* Profile media gallery — column masonry (Pinterest-like irregular tiles) */
+.profile-media-masonry {
+  column-count: 2;
+  column-gap: 0.7rem;
+  margin: 0 0 1.5rem;
+}
+@media (min-width: 640px) {
+  .profile-media-masonry {
+    column-count: 3;
+  }
+}
+@media (min-width: 980px) {
+  .profile-media-masonry {
+    column-count: 4;
+  }
+}
+.profile-media-tile {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 0.7rem;
+  border-radius: calc(var(--radius) + 0.05rem);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--paper-dark) 55%, var(--paper-light) 45%);
+  border: 1px solid color-mix(in srgb, var(--rule) 80%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--paper-light) 40%, transparent);
+}
+.profile-media-tile-btn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  line-height: 0;
+}
+.profile-media-tile-btn img,
+.profile-media-tile-video video {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: top;
+}
+.profile-media-tile-w2 .profile-media-tile-btn:not([style*='aspect-ratio']),
+.profile-media-tile-w2 .profile-media-tile-video:not([style*='aspect-ratio']) {
+  min-height: 11rem;
+}
+.profile-media-tile-w3 .profile-media-tile-btn:not([style*='aspect-ratio']),
+.profile-media-tile-w3 .profile-media-tile-video:not([style*='aspect-ratio']) {
+  min-height: 15rem;
+}
+.profile-media-tile-w2 .profile-media-tile-btn:not([style*='aspect-ratio']) img,
+.profile-media-tile-w2 .profile-media-tile-video:not([style*='aspect-ratio']) video,
+.profile-media-tile-w3 .profile-media-tile-btn:not([style*='aspect-ratio']) img,
+.profile-media-tile-w3 .profile-media-tile-video:not([style*='aspect-ratio']) video {
+  min-height: inherit;
+  object-fit: cover;
+}
+.profile-media-tile-video {
+  line-height: 0;
+  background: #12100e;
+}
+.profile-media-tile-audio {
+  background: color-mix(in srgb, var(--paper-light) 70%, var(--accent-strong) 8%);
+}
+.profile-media-tile-audio-inner {
+  padding: 1.1rem 0.85rem;
+  min-height: 5.5rem;
+  display: flex;
+  align-items: center;
+}
+.profile-media-tile-w2.profile-media-tile-audio .profile-media-tile-audio-inner {
+  min-height: 8rem;
+}
+.profile-media-tile-w3.profile-media-tile-audio .profile-media-tile-audio-inner {
+  min-height: 11rem;
+}
+.profile-media-tile-audio-inner audio {
+  width: 100%;
 }
 
 /* Full-screen cover / media lightbox */

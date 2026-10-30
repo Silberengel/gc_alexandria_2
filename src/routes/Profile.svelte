@@ -22,11 +22,12 @@
   import { filterPageEvents } from '$lib/page-filter';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { cachePutEvent, cacheGetProfilePageSnapshot, cachePutProfilePageSnapshot, peekProfilePageSnapshot, profilePageSnapshotFresh, type ProfilePageSnapshot } from '$lib/nostr/cache';
-  import { rememberEvents, memoryFindMetadata } from '$lib/nostr/event-memory';
+  import { rememberEvents, memoryFindMetadata, memoryGetEvent } from '$lib/nostr/event-memory';
   import { cachedIdentityEvent } from '$lib/nostr/identity-cache';
   import { peekProfileThumb, rememberProfileFromKind0 } from '$lib/profile-cache';
   import { pickLatestReplaceable, isNewerReplaceable, pruneToLatestReplaceables } from '$lib/nostr/replaceable';
-  import { fetchByAddress, fetchByIds } from '$lib/nostr/fetch';
+  import { fetchByAddress, fetchById, fetchByIds } from '$lib/nostr/fetch';
+  import { eventSources } from '$lib/nostr/event-sources';
   import { publicationTargets, isListPublicationLabelEvent } from '$lib/nip32';
   import { publicationTargetsFromDirectory } from '$lib/bookshelf';
   import { referencedLibraryAddress, parseAddress } from '$lib/library-scope';
@@ -40,7 +41,7 @@
   import { nip19, type Event } from 'nostr-tools';
   import { untrack } from 'svelte';
   import { get } from 'svelte/store';
-  import { isAllowedHref } from '$lib/markup';
+  import { isAllowedHref, isAllowedMediaUrl } from '$lib/markup';
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import Nip05Badge from '$lib/components/Nip05Badge.svelte';
   import UserStatusBadge from '$lib/components/UserStatusBadge.svelte';
@@ -67,6 +68,22 @@
     profileKindHeading,
     profileKindPath
   } from '$lib/profile-route';
+  import {
+    isProfileBookmarksSegment,
+    privateBookmarkTags,
+    profileBookmarkSections,
+    profileBookmarksPath,
+    resolveBookmarkItems,
+    type BookmarkItem,
+    type BookmarkSection
+  } from '$lib/profile-bookmarks';
+  import {
+    PROFILE_MEDIA_KINDS,
+    isProfileMediaSegment,
+    profileMediaPath,
+    profileMediaTiles,
+    type ProfileMediaTile
+  } from '$lib/profile-media';
   import { feedAuthorRepliesPath } from '$lib/feed';
   import {
     PROFILE_PINBOARD_LIMIT,
@@ -77,6 +94,7 @@
     samePinnedNoteIds
   } from '$lib/profile-pins';
   import PinSlip from '$lib/components/PinSlip.svelte';
+  import WebBookmarkEmbed from '$lib/components/WebBookmarkEmbed.svelte';
   import Cover from '$lib/components/Cover.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
@@ -126,6 +144,12 @@
   let pinboardSlips = $state<Event[]>([]);
   /** True when the board includes at least one kind-10001 pin. */
   let pinboardHasPins = $state(false);
+  /** Kind 10003 list, then kind 30003 sets, for `/p/:id/bookmarks`. */
+  let bookmarkSections = $state<BookmarkSection[]>([]);
+  /** Resolved `e` / `a` bookmarks. Missing key means still loading; null means unavailable. */
+  let bookmarkResolved = $state<Record<string, Event | null>>({});
+  /** Flattened media tiles for `/p/:id/media`. */
+  let mediaTiles = $state<ProfileMediaTile[]>([]);
   const pinboardHeading = $derived(pinboardHasPins ? 'Pinned' : 'Latest');
 
   /** Max covers on the profile reading desk. */
@@ -178,13 +202,41 @@
     for (const pub of ratedEditions) take({ source: 'rated', pub });
     return out.slice(0, PROFILE_DESK_LIMIT);
   });
-  const showReadingDesk = $derived(!isKindFiltered && deskItems.length > 0);
+  const isBookmarksMode = $derived(isProfileBookmarksSegment(params.kind));
+  const isMediaMode = $derived(isProfileMediaSegment(params.kind));
+  const isSpecialListing = $derived(isBookmarksMode || isMediaMode);
+  const showReadingDesk = $derived(
+    !isKindFiltered && !isSpecialListing && deskItems.length > 0
+  );
   const isBlogMode = $derived(kindFilter === KIND.LONG_FORM);
   const kindHeading = $derived(kindFilter != null ? profileKindHeading(kindFilter) : '');
   const profileShareId = $derived(profilePathId || npub || pubkey);
+  /** Profile navigation stays on npub or hex. Share links may use a NIP-05 id. */
+  const profileNavId = $derived(npub || pubkey || profilePathId);
   const blogPath = $derived(profileShareId ? profileKindPath(profileShareId, KIND.LONG_FORM) : '');
+  const bookmarksPath = $derived(profileNavId ? profileBookmarksPath(profileNavId) : '');
+  const mediaPath = $derived(profileNavId ? profileMediaPath(profileNavId) : '');
+  const mediaImageUrls = $derived(
+    mediaTiles.filter((tile) => tile.type === 'image').map((tile) => tile.url)
+  );
+  const mediaImageAlts = $derived(
+    mediaTiles.filter((tile) => tile.type === 'image').map((tile) => tile.alt ?? '')
+  );
+  const bookmarkEvents = $derived.by(() => {
+    $deletionRevision;
+    const mute = $muteState;
+    const out: Record<string, Event | null> = {};
+    for (const [key, event] of Object.entries(bookmarkResolved)) {
+      if (!event) {
+        out[key] = null;
+        continue;
+      }
+      out[key] = filterDeletedEvents(filterMuted([event], mute))[0] ?? null;
+    }
+    return out;
+  });
   const feedPath = $derived(pubkey ? feedAuthorRepliesPath(pubkey) : '');
-  const fullProfilePath = $derived(profileShareId ? `/p/${profileShareId}` : '');
+  const fullProfilePath = $derived(profileNavId ? `/p/${profileNavId}` : '');
   const profileShareUrl = $derived.by(() => {
     if (!profileShareId || typeof window === 'undefined') return '';
     return `${window.location.origin}/#/p/${profileShareId}`;
@@ -388,6 +440,9 @@
     ratedEditions = [];
     pinboardSlips = [];
     pinboardHasPins = false;
+    bookmarkSections = [];
+    bookmarkResolved = {};
+    mediaTiles = [];
     producedPage = 1;
     interactedPage = 1;
     pageFilter = '';
@@ -400,7 +455,8 @@
     produced = omitNested(pruneToLatestReplaceables(snap.produced));
     interacted = pruneToLatestReplaceables(snap.interacted);
     // Cached page (even empty) is enough to drop the spinner; live refresh continues.
-    if (kindFilter == null) listingsLoading = false;
+    // Bookmarks / media are not in the snapshot — keep the spinner until that query finishes.
+    if (kindFilter == null && !isBookmarksMode && !isMediaMode) listingsLoading = false;
     rememberEvents([
       ...snap.produced,
       ...snap.interacted,
@@ -453,7 +509,9 @@
     resolveFailed = false;
     profilePathId = decodeProfileIdSegment(raw);
 
-    if (kindRaw !== undefined) {
+    const bookmarksMode = isProfileBookmarksSegment(kindRaw);
+    const mediaMode = isProfileMediaSegment(kindRaw);
+    if (kindRaw !== undefined && !bookmarksMode && !mediaMode) {
       const parsed = parseKindParam(kindRaw);
       if (parsed === null) {
         kindFilter = null;
@@ -474,6 +532,7 @@
     }
 
     const filterKind = kindFilter;
+    const specialListing = bookmarksMode || mediaMode;
     pubkey = '';
     npub = '';
     profile = null;
@@ -656,7 +715,7 @@
       // Within TTL: keep the cached page; only kind-0 was refreshed above.
       // Kind-filtered views always re-query so arbitrary kinds are not missed.
       // Refresh the pinboard when empty or short of five slips (do not block paint).
-      if (profilePageSnapshotFresh(snap) && filterKind == null) {
+      if (profilePageSnapshotFresh(snap) && filterKind == null && !specialListing) {
         clearListingsLoading();
         const boardShort = (snap?.pinnedNotes?.length ?? 0) < PROFILE_PINBOARD_LIMIT;
         if (boardShort) {
@@ -691,44 +750,166 @@
       let paymentEventsAcc: Event[] = snap?.paymentEvents ?? [];
 
       // 4) Docs first (no priority — priority slot waits can hang forever under load).
-      const docsP =
-        filterKind != null
-          ? (() => {
-              const docKinds = [
-                KIND.PUBLICATION,
-                KIND.WIKI,
-                KIND.SPEC,
-                KIND.LONG_FORM,
-                KIND.SECTION
-              ];
-              const relays = (docKinds as number[]).includes(filterKind)
-                ? documentStack()
-                : [...new Set([...socialStack(), ...documentStack()])];
-              return queryAuthored(relays, [authoredFilter], 8000, 5).then((authored) => {
+      // Bookmarks: kind 10003 plus every kind 30003 set. Wait for the author's outbox
+      // when Outboxes is on — these lists often live only there.
+      const docsP = bookmarksMode
+        ? (async () => {
+            try {
+              const boxes = await mailboxesP;
+              if (!cancelled) authorOutbox = boxes.outbox;
+            } catch {
+              /* stay on our relays */
+            }
+            if (cancelled) return;
+            const hits = await queryAuthored(
+              [...new Set([...socialStack(), ...documentStack()])],
+              [
+                { kinds: [KIND.BOOKMARK], authors: [nextPk], limit: 8 },
+                { kinds: [KIND.BOOKMARK_SET], authors: [nextPk], limit: 80 }
+              ],
+              8000,
+              5
+            );
+            if (cancelled) return;
+            const own = get(session).pubkey?.toLowerCase() === nextPk.toLowerCase();
+            const privateTags = new Map<string, string[][]>();
+            if (own) {
+              await Promise.all(
+                hits.map(async (event) => {
+                  if (event.kind !== KIND.BOOKMARK && event.kind !== KIND.BOOKMARK_SET) return;
+                  const rows = await privateBookmarkTags(event);
+                  if (rows.length) privateTags.set(event.id, rows);
+                })
+              );
+            }
+            if (cancelled) return;
+            const sections = profileBookmarkSections(hits, privateTags);
+            bookmarkSections = sections;
+            rememberEvents(hits);
+            const ids = [
+              ...new Set(
+                sections.flatMap((section) =>
+                  section.items.flatMap((item) => (item.type === 'event' ? [item.id] : []))
+                )
+              )
+            ];
+            if (ids.length) {
+              const listRelays = hits.flatMap((event) => eventSources(event.id));
+              const scope = withPreferredRelays(
+                [...new Set([...socialStack(), ...documentStack()])],
+                [...authorOutbox, ...listRelays],
+                4,
+                8
+              );
+              const chunks: string[][] = [];
+              for (let i = 0; i < ids.length; i += 20) chunks.push(ids.slice(i, i + 20));
+              const batches = await Promise.all(
+                chunks.map((chunk) =>
+                  relayPool.query(
+                    scope.relays,
+                    [{ ids: chunk, limit: chunk.length }],
+                    8000,
+                    scope.maxRelays,
+                    undefined,
+                    { priority: true, includeCooling: true }
+                  )
+                )
+              );
+              if (cancelled) return;
+              rememberEvents(batches.flat());
+            }
+            const record: Record<string, Event | null> = {};
+            const missing: BookmarkItem[] = [];
+            for (const item of sections.flatMap((section) => section.items)) {
+              if (item.type === 'event') {
+                const event = memoryGetEvent(item.id);
+                if (event) record[item.key] = event;
+                else missing.push(item);
+              } else if (item.type === 'address') {
+                missing.push(item);
+              }
+            }
+            // Paint notes already on hand. A follow-up fetch must not replace them with misses.
+            bookmarkResolved = record;
+            if (!missing.length || cancelled) return;
+            const resolved = await resolveBookmarkItems(missing, {
+              eventById: (id, relay) =>
+                fetchById(id, {
+                  hintRelays: relay ? [relay, ...authorOutbox] : authorOutbox
+                }),
+              eventByAddress: (address, relay) =>
+                fetchByAddress(address, {
+                  hintRelays: relay ? [relay, ...authorOutbox] : authorOutbox
+                })
+            });
+            if (cancelled) return;
+            const next = { ...record };
+            for (const [key, event] of resolved) {
+              if (event) {
+                rememberEvents([event]);
+                next[key] = event;
+              } else if (!(key in next)) {
+                next[key] = null;
+              }
+            }
+            bookmarkResolved = next;
+          })()
+        : mediaMode
+          ? (async () => {
+              try {
+                const boxes = await mailboxesP;
+                if (!cancelled) authorOutbox = boxes.outbox;
+              } catch {
+                /* stay on our relays */
+              }
+              if (cancelled) return;
+              const hits = await queryAuthored(
+                [...new Set([...socialStack(), ...documentStack()])],
+                [{ kinds: [...PROFILE_MEDIA_KINDS], authors: [nextPk], limit: 120 }],
+                8000,
+                5
+              );
+              if (cancelled) return;
+              rememberEvents(hits);
+              mediaTiles = profileMediaTiles(hits);
+            })()
+          : filterKind != null
+            ? (() => {
+                const docKinds = [
+                  KIND.PUBLICATION,
+                  KIND.WIKI,
+                  KIND.SPEC,
+                  KIND.LONG_FORM,
+                  KIND.SECTION
+                ];
+                const relays = (docKinds as number[]).includes(filterKind)
+                  ? documentStack()
+                  : [...new Set([...socialStack(), ...documentStack()])];
+                return queryAuthored(relays, [authoredFilter], 8000, 5).then((authored) => {
+                  if (cancelled) return;
+                  const byId = new Map<string, Event>();
+                  for (const e of untrack(() => produced)) {
+                    if (e.kind === filterKind) byId.set(e.id, e);
+                  }
+                  for (const e of authored) byId.set(e.id, e);
+                  produced = pruneToLatestReplaceables([...byId.values()]);
+                  rememberEvents(produced);
+                });
+              })()
+            : Promise.all([
+                queryAuthored(documentStack(), [authoredFilter], 8000, 5),
+                mercuryFilter(creditedFilter).then(async (m) =>
+                  m.length
+                    ? m
+                    : relayPool.query(documentStack(), [creditedFilter], 8000, 5)
+                )
+              ]).then(([authored, credited]) => {
                 if (cancelled) return;
                 const byId = new Map<string, Event>();
-                for (const e of untrack(() => produced)) {
-                  if (e.kind === filterKind) byId.set(e.id, e);
-                }
-                for (const e of authored) byId.set(e.id, e);
-                produced = pruneToLatestReplaceables([...byId.values()]);
+                for (const e of [...authored, ...credited]) byId.set(e.id, e);
+                produced = omitNested(pruneToLatestReplaceables([...byId.values()]));
                 rememberEvents(produced);
               });
-            })()
-          : Promise.all([
-              queryAuthored(documentStack(), [authoredFilter], 8000, 5),
-              mercuryFilter(creditedFilter).then(async (m) =>
-                m.length
-                  ? m
-                  : relayPool.query(documentStack(), [creditedFilter], 8000, 5)
-              )
-            ]).then(([authored, credited]) => {
-              if (cancelled) return;
-              const byId = new Map<string, Event>();
-              for (const e of [...authored, ...credited]) byId.set(e.id, e);
-              produced = omitNested(pruneToLatestReplaceables([...byId.values()]));
-              rememberEvents(produced);
-            });
 
       void docsP.finally(() => {
         clearListingsLoading();
@@ -779,14 +960,14 @@
       });
 
       const readsP =
-        filterKind != null
+        filterKind != null || specialListing
           ? Promise.resolve()
           : countReadsByAuthor(nextPk).then((n) => {
               if (!cancelled) readCount = n;
             });
 
       const queueP =
-        filterKind != null
+        filterKind != null || specialListing
           ? Promise.resolve()
           : queryAuthored(
               socialStack(),
@@ -822,7 +1003,7 @@
               });
 
       const interactP =
-        filterKind != null
+        filterKind != null || specialListing
           ? Promise.resolve()
           : Promise.all([
               queryAuthored(socialStack(), [{ kinds: [KIND.LABEL], authors: [nextPk], limit: 50 }], 8000, 4),
@@ -885,9 +1066,11 @@
               ratedEditions = ratedPubs;
             });
 
-      const pinboardP = loadPinboard((base, filters, timeout, baseMax) =>
-        queryAuthored(base, filters, timeout, baseMax)
-      );
+      const pinboardP = specialListing
+        ? Promise.resolve(false)
+        : loadPinboard((base, filters, timeout, baseMax) =>
+            queryAuthored(base, filters, timeout, baseMax)
+          );
 
       await Promise.allSettled([
         docsP,
@@ -902,8 +1085,8 @@
       if (cancelled) return;
       clearListingsLoading();
 
-      // Kind-filtered views skip the full-page snapshot write (partial listings).
-      if (filterKind != null) return;
+      // Kind-filtered, bookmark, and media views skip the full-page snapshot write (partial listings).
+      if (filterKind != null || specialListing) return;
 
       const marksObj: Record<string, string[]> = {};
       for (const [id, marks] of marksByWork) marksObj[id] = [...marks];
@@ -950,9 +1133,34 @@
     }
   });
 
+  async function copyBookmarksLink(): Promise<void> {
+    const id = npub || pubkey || profilePathId;
+    if (!id) return;
+    await copyProfileLink(profileBookmarksPath(id));
+  }
+
+  async function copyMediaLink(): Promise<void> {
+    const id = npub || pubkey || profilePathId;
+    if (!id) return;
+    await copyProfileLink(profileMediaPath(id));
+  }
+
   async function copyKindLink(): Promise<void> {
     if (kindFilter == null) return;
-    const path = profileKindPath(profilePathId || npub || pubkey, kindFilter);
+    await copyProfileLink(profileKindPath(profilePathId || npub || pubkey, kindFilter));
+  }
+
+  function openMediaTile(tile: ProfileMediaTile): void {
+    if (tile.type !== 'image' || !isAllowedMediaUrl(tile.url)) return;
+    openMediaViewer({
+      url: tile.url,
+      urls: mediaImageUrls,
+      alts: mediaImageAlts,
+      title: displayTitle
+    });
+  }
+
+  async function copyProfileLink(path: string): Promise<void> {
     const url = `${window.location.origin}/#${path}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -1017,17 +1225,25 @@
   {/if}
 {/snippet}
 
-<main class="shell profile-page" class:profile-page-compact={!showReadingDesk && !isKindFiltered}>
+<main class="shell profile-page" class:profile-page-compact={!showReadingDesk && !isKindFiltered && !isSpecialListing}>
   {#if kindInvalid}
     <ErrorPage title="Page not found" message="That is not a valid Nostr kind number." />
   {:else if resolveFailed}
     <ErrorPage title="Profile not found" message="This address could not be resolved to a pubkey." />
   {:else}
-    {#if isKindFiltered}
+    {#if isKindFiltered || isSpecialListing}
       <header class="page-header">
-        <p class="page-kicker">{isBlogMode ? 'Blog' : 'Kind'}</p>
-        <h1>{kindHeading}</h1>
-        {#if !isBlogMode}
+        <p class="page-kicker"
+          >{isBookmarksMode
+            ? 'Bookmarks'
+            : isMediaMode
+              ? 'Media'
+              : isBlogMode
+                ? 'Blog'
+                : 'Kind'}</p
+        >
+        <h1>{isBookmarksMode ? 'Bookmarks' : isMediaMode ? 'Media' : kindHeading}</h1>
+        {#if isKindFiltered && !isBlogMode}
           <form class="profile-kind-jump" onsubmit={submitKindJump}>
             <label class="profile-kind-jump-label" for="profile-kind-input">Kind</label>
             <input
@@ -1066,7 +1282,7 @@
         {/if}
       </header>
     {/if}
-    {#if isBlogMode}
+    {#if isBlogMode || isSpecialListing}
       <div class="profile-filter-row">
         <span class="profile-filter-row-spacer" aria-hidden="true"></span>
         {#if profileShareId}
@@ -1105,7 +1321,7 @@
         <div class="profile-header-text">
           <div class="profile-title-row">
             <h2>
-              {#if isKindFiltered}
+              {#if isKindFiltered || isSpecialListing}
                 <a class="profile-title-link" href={`#/p/${npub || pubkey}`} use:link>{displayTitle}</a>
               {:else}
                 {displayTitle}
@@ -1138,13 +1354,19 @@
             </div>
           {/if}
         </div>
-        {#if !isKindFiltered && (feedPath || blogPath || isOwnProfile)}
+        {#if !isKindFiltered && !isSpecialListing && (feedPath || blogPath || bookmarksPath || mediaPath || isOwnProfile)}
           <nav class="profile-side-actions" aria-label="Profile links">
             {#if feedPath}
               <a class="btn profile-card-action" href={`#${feedPath}`} use:link>View feed</a>
             {/if}
             {#if blogPath}
               <a class="btn profile-card-action" href={`#${blogPath}`} use:link>View blog</a>
+            {/if}
+            {#if mediaPath}
+              <a class="btn profile-card-action" href={`#${mediaPath}`} use:link>View media</a>
+            {/if}
+            {#if bookmarksPath}
+              <a class="btn profile-card-action" href={`#${bookmarksPath}`} use:link>View bookmarks</a>
             {/if}
             {#if isOwnProfile}
               <a class="btn profile-card-action" href="#/compose?kind=0" use:link>Edit profile</a>
@@ -1294,7 +1516,7 @@
         </ShelfTrack>
       </section>
     {/if}
-    {#if !isKindFiltered && pinboardSlips.length}
+    {#if !isKindFiltered && !isSpecialListing && pinboardSlips.length}
       <section class="profile-pinboard" aria-label={pinboardHeading}>
         <h3 class="profile-reading-heading">{pinboardHeading}</h3>
         <div class="profile-pinboard-board">
@@ -1306,7 +1528,133 @@
     {/if}
   {/if}
 
-  {#if isKindFiltered && pubkey}
+  {#if isMediaMode && pubkey}
+    <section class="profile-kind-feed" aria-label="Media">
+      <div class="profile-kind-toolbar">
+        <h2 class="section-title" style="margin:0">Media</h2>
+        <button class="btn profile-kind-share" type="button" onclick={() => void copyMediaLink()}>
+          {shareCopied ? 'Link copied' : 'Copy link'}
+        </button>
+      </div>
+      {#if listingsLoading && !mediaTiles.length}
+        <LoadingHint message="Loading media…" />
+      {:else if mediaTiles.length}
+        <div class="profile-media-masonry">
+          {#each mediaTiles as tile (tile.key)}
+            {@const aspect =
+              tile.width && tile.height && tile.width > 0 && tile.height > 0
+                ? `${tile.width} / ${tile.height}`
+                : undefined}
+            <article
+              class="profile-media-tile"
+              class:profile-media-tile-w2={tile.weight === 2}
+              class:profile-media-tile-w3={tile.weight === 3}
+              class:profile-media-tile-audio={tile.type === 'audio'}
+            >
+              {#if tile.type === 'image'}
+                <button
+                  class="profile-media-tile-btn"
+                  type="button"
+                  style={aspect ? `aspect-ratio: ${aspect}` : undefined}
+                  title={tile.alt || 'View image'}
+                  aria-label={tile.alt || 'View image'}
+                  onclick={() => openMediaTile(tile)}
+                >
+                  <img src={tile.url} alt={tile.alt || ''} loading="lazy" decoding="async" />
+                </button>
+              {:else if tile.type === 'video'}
+                <div
+                  class="profile-media-tile-video"
+                  style={aspect ? `aspect-ratio: ${aspect}` : undefined}
+                >
+                  <video
+                    src={tile.url}
+                    poster={tile.poster || undefined}
+                    controls
+                    preload="metadata"
+                    playsinline
+                  >
+                    <track kind="captions" />
+                  </video>
+                </div>
+              {:else}
+                <div class="profile-media-tile-audio-inner">
+                  <audio src={tile.url} controls preload="metadata"></audio>
+                </div>
+              {/if}
+            </article>
+          {/each}
+        </div>
+      {:else}
+        <p class="muted">No media yet.</p>
+      {/if}
+    </section>
+  {:else if isBookmarksMode && pubkey}
+    <section class="profile-kind-feed" aria-label="Bookmarks">
+      <div class="profile-kind-toolbar">
+        <h2 class="section-title" style="margin:0">Bookmarks</h2>
+        <button class="btn profile-kind-share" type="button" onclick={() => void copyBookmarksLink()}>
+          {shareCopied ? 'Link copied' : 'Copy link'}
+        </button>
+      </div>
+      {#if listingsLoading && !bookmarkSections.length}
+        <LoadingHint message="Loading bookmarks…" />
+      {:else if bookmarkSections.length}
+        {#each bookmarkSections as section (section.id)}
+          {@const showHeading = section.listKind === KIND.BOOKMARK_SET}
+          {@const pending = section.items.some(
+            (item) =>
+              (item.type === 'event' || item.type === 'address') && !(item.key in bookmarkResolved)
+          )}
+          {#if showHeading}
+            <h3 class="section-title">{section.title}</h3>
+          {/if}
+          {#if section.description}
+            <p class="muted profile-bookmark-description">{section.description}</p>
+          {/if}
+          {#if pending}
+            <LoadingHint message="Loading bookmarks…" />
+          {/if}
+          {#if section.items.length}
+            <div class="card-grid card-grid-results">
+              {#each section.items as item (item.key)}
+                {#if item.type === 'url'}
+                  <article class="card profile-bookmark-url">
+                    <WebBookmarkEmbed url={item.url} />
+                  </article>
+                {:else if item.type === 'tag'}
+                  <p class="profile-bookmark-tag">
+                    <a
+                      class="chip chip-quiet"
+                      href={`#/search?subject=${encodeURIComponent(item.tag)}`}
+                      use:link>#{item.tag}</a
+                    >
+                  </p>
+                {:else if item.key in bookmarkResolved}
+                  {@const raw = bookmarkResolved[item.key]}
+                  {@const found = bookmarkEvents[item.key]}
+                  {#if found}
+                    <EventCard event={found} />
+                  {:else if !raw}
+                    <p class="muted">This bookmark could not be loaded.</p>
+                  {/if}
+                {/if}
+              {/each}
+            </div>
+          {:else if !pending}
+            <p class="muted">Nothing in this list yet.</p>
+          {/if}
+          {#if section.omitted > 0}
+            <p class="muted profile-bookmark-omitted">
+              {section.omitted === 1 ? '1 more not shown.' : `${section.omitted} more not shown.`}
+            </p>
+          {/if}
+        {/each}
+      {:else}
+        <p class="muted">No bookmarks yet.</p>
+      {/if}
+    </section>
+  {:else if isKindFiltered && pubkey}
     <section class="profile-kind-feed" aria-label={kindHeading}>
       <div class="profile-kind-toolbar">
         <h2 class="section-title" style="margin:0">{kindHeading}</h2>

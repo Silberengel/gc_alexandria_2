@@ -15,6 +15,18 @@ import { withClientTag } from './sign';
 import { isComposePointerTagName, normalizeComposeTagRow } from './compose-tag-normalize';
 import { fieldSpecs } from './kind-compose';
 import { isCatalogued } from '@silberengel/kind-compose-catalog';
+import { appendContentWarningTag, isContentWarningTagName } from './content-warning';
+import {
+  appendPollTags,
+  endsAtFromHours,
+  filledPollOptions,
+  isPollTagName
+} from './poll';
+import {
+  ensureCalendarIdentifier,
+  isCalendarEventKind,
+  withCalendarDayTags
+} from './nip52';
 
 export type ComposeFormState = {
   kind: number;
@@ -29,6 +41,14 @@ export type ComposeFormState = {
   appMergeTags?: string[][];
   /** Body markup chosen in the editor. Written as an `m` tag when set. */
   markup?: 'djot' | 'asciidoc' | null;
+  /** NIP-36 content warning (imwald parity). */
+  contentWarningEnabled?: boolean;
+  contentWarningLabel?: string;
+  /** NIP-88 poll options (imwald parity). */
+  pollOptions?: string[];
+  pollMultipleChoice?: boolean;
+  /** Relative hours until `endsAt`; empty when unset. */
+  pollEndsHours?: string;
 };
 
 export {
@@ -99,7 +119,14 @@ function mergePointerTagExtras(tags: string[][], extras: string[][]): string[][]
 
 function normalizeFreeformTagRows(rows: string[][] | undefined): string[][] | undefined {
   if (!rows?.length) return rows;
-  return rows.map((row) => normalizeComposeTagRow(row));
+  return rows
+    .map((row) => normalizeComposeTagRow(row))
+    // Content warning / poll tags are owned by dedicated UI — never emit duplicates.
+    .filter((row) => !isContentWarningTagName(row[0]) && !isPollTagName(row[0]));
+}
+
+function isPollComposeKind(kind: number): boolean {
+  return kind === KIND.POLL || getKind(kind)?.handler === 'poll';
 }
 
 export function buildComposePartial(state: ComposeFormState): {
@@ -170,6 +197,22 @@ export function buildComposePartial(state: ComposeFormState): {
         tags.push([...row]);
       }
     }
+  } else if (isPollComposeKind(kind)) {
+    content = scrubProseText(
+      state.content?.trim() ? state.content : String(values.content ?? '')
+    );
+    // Poll options are app-owned (catalog fields: []); emit via appendPollTags.
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content,
+      hashtags: state.hashtags,
+      freeformTags
+    });
+    tags = appendPollTags(tags, {
+      options: state.pollOptions ?? [],
+      multipleChoice: state.pollMultipleChoice === true,
+      endsAtEpochSec: endsAtFromHours(state.pollEndsHours ?? '')
+    });
   } else {
     if (contentEncodingEmpty(kind)) {
       content = '';
@@ -200,6 +243,15 @@ export function buildComposePartial(state: ComposeFormState): {
   }
 
   tags = mergePointerTagExtras(tags, pointerTagExtras);
+  if (isCalendarEventKind(kind)) {
+    tags = ensureCalendarIdentifier(tags);
+    if (kind === KIND.CALENDAR_TIME) tags = withCalendarDayTags(tags);
+  }
+  tags = appendContentWarningTag(
+    tags,
+    state.contentWarningEnabled === true,
+    state.contentWarningLabel
+  );
   return { kind, content, tags: withClientTag(tags) };
 }
 
@@ -211,6 +263,9 @@ export function validateComposeForm(
     content: partial.content,
     values: state.values,
     tags: partial.tags,
+    options: isPollComposeKind(state.kind)
+      ? filledPollOptions(state.pollOptions ?? [])
+      : undefined
   });
   if (!result.ok) return result;
   return { ok: true };

@@ -12,6 +12,13 @@ export type ComposeDraftState = {
   kind0Tags?: string[][];
   /** Advanced-editor markup, when the kind has a Djot or AsciiDoc body. */
   markup?: 'djot' | 'asciidoc' | null;
+  /** NIP-36 content warning (imwald parity). */
+  contentWarningEnabled?: boolean;
+  contentWarningLabel?: string;
+  /** NIP-88 poll fields (imwald parity). */
+  pollOptions?: string[];
+  pollMultipleChoice?: boolean;
+  pollEndsHours?: string;
   /** Kind 30040: link existing sections vs split AsciiDoc into 30040/30041. */
   publicationSectionsMode?: 'link' | 'split';
   /**
@@ -96,12 +103,20 @@ export function isComposeDraftEmpty(
     | 'imetaTags'
     | 'freeformTags'
     | 'kind0Tags'
+    | 'contentWarningEnabled'
+    | 'pollOptions'
+    | 'pollMultipleChoice'
+    | 'pollEndsHours'
     | 'publicationAsciiDoc'
     | 'publicationManuscriptId'
   >,
   baselineValues: Record<string, string> = {},
 ): boolean {
   if (draft.content.trim()) return false;
+  if (draft.contentWarningEnabled) return false;
+  if (draft.pollMultipleChoice) return false;
+  if ((draft.pollEndsHours ?? '').trim()) return false;
+  if ((draft.pollOptions ?? []).some((o) => o.trim())) return false;
   if (draft.publicationAsciiDoc?.trim()) return false;
   if (draft.publicationManuscriptId?.trim()) return false;
   if (draft.hashtags.some((h) => h.trim())) return false;

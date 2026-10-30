@@ -4,6 +4,7 @@ import {
   COMPOSE_DOCUMENT_PRESETS,
   COMPOSE_METADATA_KINDS,
   COMPOSE_PICKER_EXCLUDED,
+  composeGrammarEligible,
   composeMarkupFormat,
   composePickerGroups,
   isMetadataComposeKind,
@@ -95,5 +96,18 @@ describe('composePickerGroups', () => {
     expect(showContentBox(KIND.DIRECTORY)).toBe(false);
     expect(showContentBox(KIND.READING_QUEUE)).toBe(false);
     expect(showContentBox(KIND.TEXT_NOTE)).toBe(true);
+  });
+
+  it('enables grammar for freeform bodies and not for encrypted/list composers', () => {
+    expect(composeGrammarEligible(KIND.TEXT_NOTE)).toBe(true);
+    expect(composeGrammarEligible(KIND.COMMENT)).toBe(true);
+    expect(composeGrammarEligible(KIND.LONG_FORM)).toBe(true);
+    expect(composeGrammarEligible(KIND.ISSUE)).toBe(true);
+    expect(composeGrammarEligible(null)).toBe(true);
+    expect(composeGrammarEligible(KIND.MUTE)).toBe(false);
+    expect(composeGrammarEligible(KIND.CONTACT_LIST)).toBe(false);
+    expect(composeGrammarEligible(KIND.DIRECTORY)).toBe(false);
+    expect(composeGrammarEligible(KIND.READING_QUEUE)).toBe(false);
+    expect(composeGrammarEligible(10013)).toBe(false);
   });
 });

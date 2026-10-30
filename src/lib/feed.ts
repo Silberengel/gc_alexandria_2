@@ -119,6 +119,11 @@ const FEED_POST_KINDS = [
   KIND.VOICE,
   KIND.HIGHLIGHT,
   KIND.LONG_FORM,
+  KIND.POLL,
+  KIND.ISSUE,
+  KIND.GIT_REPO,
+  KIND.CALENDAR_DATE,
+  KIND.CALENDAR_TIME,
   KIND.RATING,
   KIND.MUSIC,
   KIND.WEB_BOOKMARK,
@@ -1199,9 +1204,10 @@ function pointerFromAddressCoord(coord: string): string | null {
   }
 }
 
-/** Kind 7 / 17 reactions, Lightning zaps, and Monero tips — open the target, not themselves. */
+/** Kind 7 / 17 reactions, Lightning zaps, Monero tips, and poll votes — open the target, not themselves. */
 export function isFeedInteractionEvent(event: Event): boolean {
   if (event.kind === KIND.REACTION || event.kind === KIND.ZAP || event.kind === 17) return true;
+  if (event.kind === KIND.POLL_RESPONSE) return true;
   if (event.kind === KIND.MONERO_TIP || event.kind === KIND.MONERO_TIP_RECEIPT) return true;
   // PosterChan kind-1 `#monerotip` — treated like a tip receipt in notifications.
   if (event.kind === KIND.TEXT_NOTE) {

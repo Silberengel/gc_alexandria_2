@@ -11,6 +11,9 @@
   import ComposeEventTagRows from '$lib/components/ComposeEventTagRows.svelte';
   import ComposePublicationAuthorsEditor from '$lib/components/ComposePublicationAuthorsEditor.svelte';
   import ComposePublishedOnField from '$lib/components/ComposePublishedOnField.svelte';
+  import ComposeContentWarningField from '$lib/components/ComposeContentWarningField.svelte';
+  import ComposePollOptionsField from '$lib/components/ComposePollOptionsField.svelte';
+  import InteractivePollCard from '$lib/components/InteractivePollCard.svelte';
   import ComposeUnixTimestampField from '$lib/components/ComposeUnixTimestampField.svelte';
   import ComposePublicationSectionsEditor from '$lib/components/ComposePublicationSectionsEditor.svelte';
   import {
@@ -23,6 +26,7 @@
     retryPublicationEvents,
     type PublishProgress
   } from '$lib/publication-publish';
+  import { assemblePublicationDocument } from '$lib/publication-export';
   import {
     publicationPublishContinueEvents,
     publicationPublishRetryEvents,
@@ -66,7 +70,7 @@
   } from '$lib/compose-tag-normalize';
   import PrivateRelayListModal from '$lib/components/PrivateRelayListModal.svelte';
   import { emptyKind0TagRows } from '$lib/compose-kind0';
-  import { isUnixTimestampField } from '$lib/compose-unix-timestamp';
+  import { isIsoDateField, isUnixTimestampField } from '$lib/compose-unix-timestamp';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { signAndPublish, signUnsigned, consumeSignFailure, withClientTag } from '$lib/sign';
@@ -104,6 +108,7 @@
     COMPOSE_METADATA_KINDS,
     composePickerGroups,
     composeKindLabel,
+    composeGrammarEligible,
     composeMarkupFormat,
     showContentBox,
     isMetadataComposeKind
@@ -122,6 +127,12 @@
     type ComposeDraftState
   } from '$lib/compose-drafts';
   import { buildComposePartial, validateComposeForm } from '$lib/compose-build';
+  import {
+    CONTENT_WARNING_DEFAULT_LABEL,
+    appendContentWarningTag,
+    contentWarningLabel as eventContentWarningLabel
+  } from '$lib/content-warning';
+  import { ensureMinPollOptionRows } from '$lib/poll';
   import {
     pickLatestByKind,
     shouldPreloadReplaceable,
@@ -200,9 +211,19 @@
   let freeformTags = $state<string[][]>([['', '']]);
   let kind0Tags = $state<string[][]>(emptyKind0TagRows());
   let existingKind0 = $state<Record<string, unknown>>({});
+  /** NIP-36 content warning (imwald parity). */
+  let contentWarningEnabled = $state(false);
+  let contentWarningLabel = $state(CONTENT_WARNING_DEFAULT_LABEL);
+  /** NIP-88 poll fields (imwald parity). */
+  let pollOptions = $state<string[]>(['', '']);
+  let pollMultipleChoice = $state(false);
+  let pollEndsHours = $state('');
 
-  /** Off by default — GrammarTool would see draft text, including later-encrypted bodies. */
-  let grammarOn = $state(false);
+  /**
+   * On by default for freeform bodies. Ciphertext / list kinds (NIP-51, NIP-37, …)
+   * hide the body box — Grammar stays off so LanguageTool never sees that content.
+   */
+  let grammarOn = $state(true);
   let grammarLang = $state(defaultGrammarLanguageToolCode());
   let grammarIssues = $state<GrammarIssue[]>([]);
   let grammarCheckedSource = $state('');
@@ -241,6 +262,12 @@
   let publicationManuscriptListedAt = $state(0);
   let publicationIndexDepth = $state<PublicationIndexDepth>(DEFAULT_INDEX_DEPTH);
   let publicationSplitOpen = $state(false);
+  /**
+   * Root 30040 from Copy/Replace (`?copy=`). Link-mode draft stays as today;
+   * Preview is disabled and a CTA can assemble this tree into the AsciiDoc splitter.
+   */
+  let publicationCopyRoot = $state<NostrEvent | null>(null);
+  let assemblingPublication = $state(false);
   let splitProgress = $state<PublishProgress | null>(null);
   /** Last split-publish attempt — Retry failed republishes missingEvents. */
   let splitRetryEvents = $state<NostrEvent[]>([]);
@@ -315,6 +342,9 @@
   });
   const contentMeta = $derived(getKind(kind)?.content);
   const showBody = $derived(showContentBox(kind) || (!isCatalogued(kind) && otherLocked));
+  const grammarEligible = $derived(
+    showBody && (composeGrammarEligible(kind) || (!isCatalogued(kind) && otherLocked))
+  );
   const showHashtags = $derived(
     !shortNoteEditSource &&
       !isMetadataComposeKind(kind) &&
@@ -323,10 +353,15 @@
   const showFreeform = $derived(
     !shortNoteEditSource && kind !== 0 && (isCatalogued(kind) ? allowExtraTags(kind) : true)
   );
-  const showGrammar = $derived(grammarOn && kind !== 9802 && showBody);
+  const showGrammar = $derived(grammarOn && grammarEligible);
   const markupFormat = $derived(
     showBody ? composeMarkupFormat(kind, content, previewEvent?.tags) : null
   );
+
+  $effect(() => {
+    void kind;
+    grammarOn = grammarEligible;
+  });
   type DraftListItem = {
     source: 'local' | 'encrypted' | 'manuscript';
     kind: number;
@@ -500,6 +535,7 @@
     if (cleanedHashtags(hashtagRows).length) return true;
     if (imetaTags.some((t) => t.some((c) => String(c).trim()))) return true;
     if (cleanedFreeformTags(freeformTags).length) return true;
+    if (contentWarningEnabled) return true;
     return false;
   }
 
@@ -958,6 +994,11 @@
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       markup: editorMarkup,
+      contentWarningEnabled,
+      contentWarningLabel: contentWarningLabel.trim() || CONTENT_WARNING_DEFAULT_LABEL,
+      pollOptions: ensureMinPollOptionRows(pollOptions).map((o) => o),
+      pollMultipleChoice,
+      pollEndsHours: pollEndsHours.trim(),
       updatedAt: Date.now()
     };
     // Only attach split-manuscript fields on kind 30040 split mode — otherwise a
@@ -981,6 +1022,11 @@
       freeformTags: string[][];
       kind0Tags?: string[][];
       markup?: 'djot' | 'asciidoc' | null;
+      contentWarningEnabled?: boolean;
+      contentWarningLabel?: string;
+      pollOptions?: string[];
+      pollMultipleChoice?: boolean;
+      pollEndsHours?: string;
       publicationSectionsMode?: 'link' | 'split';
       publicationAsciiDoc?: string;
       publicationAsciiDocLen?: number;
@@ -1005,6 +1051,13 @@
       freeformTags: d.freeformTags,
       kind0Tags: d.kind0Tags,
       markup: d.markup,
+      contentWarningEnabled: d.contentWarningEnabled === true,
+      contentWarningLabel: d.contentWarningEnabled
+        ? (d.contentWarningLabel?.trim() || CONTENT_WARNING_DEFAULT_LABEL)
+        : '',
+      pollOptions: d.pollOptions ?? ['', ''],
+      pollMultipleChoice: d.pollMultipleChoice === true,
+      pollEndsHours: (d.pollEndsHours ?? '').trim(),
       publicationSectionsMode: d.publicationSectionsMode,
       publicationManuscriptId: d.publicationManuscriptId,
       publicationAsciiDocLen: asciiLen,
@@ -1026,6 +1079,11 @@
     freeformTags: string[][];
     kind0Tags?: string[][];
     markup?: 'djot' | 'asciidoc' | null;
+    contentWarningEnabled?: boolean;
+    contentWarningLabel?: string;
+    pollOptions?: string[];
+    pollMultipleChoice?: boolean;
+    pollEndsHours?: string;
     publicationSectionsMode?: 'link' | 'split';
     publicationAsciiDoc?: string;
     publicationManuscriptId?: string;
@@ -1047,6 +1105,12 @@
       d.kind === 0 && d.kind0Tags?.length
         ? d.kind0Tags.map((t) => [...t])
         : emptyKind0TagRows();
+    contentWarningEnabled = d.contentWarningEnabled === true;
+    contentWarningLabel =
+      (d.contentWarningLabel ?? '').trim() || CONTENT_WARNING_DEFAULT_LABEL;
+    pollOptions = ensureMinPollOptionRows(d.pollOptions ?? ['', '']);
+    pollMultipleChoice = d.pollMultipleChoice === true;
+    pollEndsHours = (d.pollEndsHours ?? '').trim();
     if (d.kind === KIND.PUBLICATION && d.publicationSectionsMode === 'split') {
       publicationSectionsMode = 'split';
       publicationAsciiDoc = d.publicationAsciiDoc ?? '';
@@ -1072,6 +1136,8 @@
     publicationManuscriptListedAt = 0;
     publicationIndexDepth = DEFAULT_INDEX_DEPTH;
     publicationSplitOpen = false;
+    publicationCopyRoot = null;
+    assemblingPublication = false;
     splitProgress = null;
     clearSplitPublishFailureState();
     clearStagedManuscript();
@@ -1255,6 +1321,11 @@
     imetaTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
+    contentWarningEnabled = false;
+    contentWarningLabel = CONTENT_WARNING_DEFAULT_LABEL;
+    pollOptions = ['', ''];
+    pollMultipleChoice = false;
+    pollEndsHours = '';
     clearPublicationManuscriptFields();
     existingKind0 = {};
     formError = '';
@@ -1292,6 +1363,11 @@
     imetaTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
+    contentWarningEnabled = false;
+    contentWarningLabel = CONTENT_WARNING_DEFAULT_LABEL;
+    pollOptions = ['', ''];
+    pollMultipleChoice = false;
+    pollEndsHours = '';
     clearPublicationManuscriptFields();
     existingKind0 = {};
     formError = '';
@@ -1324,9 +1400,47 @@
     shortNoteEditSource = null;
     const draft = eventToComposeDraft(source);
     applyDraft(draft);
+    publicationCopyRoot = source.kind === KIND.PUBLICATION ? source : null;
     formError = '';
     editorTab = 'edit';
     bumpPreview();
+  }
+
+  /** True while a copied 30040 is still in link mode — form Preview cannot render the tree. */
+  const blocksPublicationPreview = $derived(
+    kind === KIND.PUBLICATION &&
+      publicationSectionsMode === 'link' &&
+      publicationCopyRoot != null
+  );
+
+  async function openCopiedPublicationInSplitter(): Promise<void> {
+    const root = publicationCopyRoot;
+    if (!root || assemblingPublication) return;
+    if (kind !== KIND.PUBLICATION) return;
+    assemblingPublication = true;
+    formError = '';
+    try {
+      const assembled = await assemblePublicationDocument(root);
+      publicationSectionsMode = 'split';
+      publicationAsciiDoc = assembled.content;
+      publicationManuscriptId = null;
+      publicationManuscriptListedAt = 0;
+      clearSplitPublishFailureState();
+      splitProgress = null;
+      if (!values.title?.trim() && assembled.title.trim()) {
+        values = { ...values, title: assembled.title };
+      }
+      editorTab = 'edit';
+      publicationSplitOpen = true;
+      persistCurrent({ immediateManuscript: true, refreshList: true });
+    } catch (err) {
+      formError =
+        err instanceof Error
+          ? err.message
+          : 'Could not assemble that publication into AsciiDoc.';
+    } finally {
+      assemblingPublication = false;
+    }
   }
 
   async function applyForkIntent(source: NostrEvent): Promise<void> {
@@ -1373,13 +1487,16 @@
     const edits = await shortNoteEditState(source);
     const baseline = baselineContentForEdit(source, edits.latestAuthorEdit);
     shortNoteEditSource = source;
+    const warning = eventContentWarningLabel(source);
     applyDraft({
       kind: KIND.TEXT_NOTE,
       content: baseline,
       values: {},
       hashtags: [],
       imetaTags: [],
-      freeformTags: []
+      freeformTags: [],
+      contentWarningEnabled: warning != null,
+      contentWarningLabel: warning ?? CONTENT_WARNING_DEFAULT_LABEL
     });
     formError = '';
     editorTab = 'edit';
@@ -1509,6 +1626,11 @@
       freeformTags = [['', '']];
       kind0Tags = emptyKind0TagRows();
       existingKind0 = {};
+      contentWarningEnabled = false;
+      contentWarningLabel = CONTENT_WARNING_DEFAULT_LABEL;
+      pollOptions = ['', ''];
+      pollMultipleChoice = false;
+      pollEndsHours = '';
       // Kind switch starts blank — do not carry split AsciiDoc into the next form.
       clearPublicationManuscriptFields();
       const preloaded = await applyReplaceablePreload(nextKind);
@@ -1620,7 +1742,12 @@
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       existingKind0,
-      markup: editorMarkup
+      markup: editorMarkup,
+      contentWarningEnabled,
+      contentWarningLabel,
+      pollOptions: ensureMinPollOptionRows(pollOptions),
+      pollMultipleChoice,
+      pollEndsHours
     };
   }
 
@@ -1630,7 +1757,12 @@
     const partial = shortNoteEditSource
       ? (() => {
           const draft = shortNoteEditDraft(shortNoteEditSource, content);
-          return { ...draft, tags: withClientTag(draft.tags) };
+          return {
+            ...draft,
+            tags: withClientTag(
+              appendContentWarningTag(draft.tags, contentWarningEnabled, contentWarningLabel)
+            )
+          };
         })()
       : buildComposePartial(formState());
     previewJson = JSON.stringify(
@@ -1665,6 +1797,10 @@
     void publicationAsciiDoc;
     void publicationManuscriptId;
     void publicationIndexDepth;
+    void contentWarningEnabled;
+    void contentWarningLabel;
+    void pollMultipleChoice;
+    void pollEndsHours;
     // Deep-read proxies: `void values` alone does not re-run on values[id] = … /
     // bind:value={values[id]} (e.g. 30040 title), so drafts never saved.
     void JSON.stringify(values);
@@ -1672,6 +1808,7 @@
     void JSON.stringify(imetaTags);
     void JSON.stringify(freeformTags);
     void JSON.stringify(kind0Tags);
+    void JSON.stringify(pollOptions);
     const t = setTimeout(() => {
       bumpPreview();
       persistCurrent();
@@ -2087,7 +2224,11 @@
           formError = 'Edited notes need some content.';
           return;
         }
-        const partial = shortNoteEditDraft(shortNoteEditSource, text);
+        const draft = shortNoteEditDraft(shortNoteEditSource, text);
+        const partial = {
+          ...draft,
+          tags: appendContentWarningTag(draft.tags, contentWarningEnabled, contentWarningLabel)
+        };
         const signed = await signAndPublish(partial, { successMessage: 'Edit published.' });
         if (!signed) {
           formError = consumeSignFailure() ?? 'Could not sign or publish.';
@@ -2372,6 +2513,17 @@
             ...values,
             ...(d ? { d } : {}),
             ...(a ? { redirect_a: a } : {})
+          };
+        }
+      }
+      if (start === KIND.ISSUE) {
+        const a = (params.get('a') ?? '').trim();
+        const p = (params.get('p') ?? '').trim();
+        if (a || p) {
+          values = {
+            ...values,
+            ...(a ? { repo_a: a } : {}),
+            ...(p ? { owner_p: p } : {})
           };
         }
       }
@@ -2728,7 +2880,14 @@
             class="compose-tab"
             class:active={editorTab === 'preview'}
             aria-selected={editorTab === 'preview'}
-            onclick={() => (editorTab = 'preview')}>Preview</button
+            disabled={blocksPublicationPreview}
+            title={blocksPublicationPreview
+              ? 'Whole-book preview needs the AsciiDoc splitter'
+              : undefined}
+            onclick={() => {
+              if (blocksPublicationPreview) return;
+              editorTab = 'preview';
+            }}>Preview</button
           >
           <button
             type="button"
@@ -2825,6 +2984,25 @@
                           </p>
                         {/if}
                       {:else}
+                        {#if blocksPublicationPreview}
+                          <div class="compose-publication-split-cta" role="status">
+                            <p class="muted compose-split-hint">
+                              Form Preview can’t render a whole book. Assemble the linked sections into
+                              AsciiDoc and open the splitter to edit and preview — unchanged headings keep
+                              their <code>d</code> tags on republish.
+                            </p>
+                            <button
+                              type="button"
+                              class="btn compose-advanced-btn"
+                              disabled={assemblingPublication}
+                              onclick={() => void openCopiedPublicationInSplitter()}
+                            >
+                              {assemblingPublication
+                                ? 'Assembling…'
+                                : 'Assemble & open AsciiDoc splitter'}
+                            </button>
+                          </div>
+                        {/if}
                         <ComposePublicationSectionsEditor
                           bind:value={values[field.id]}
                           label=""
@@ -2905,6 +3083,16 @@
                     required={!!field.required}
                     help={field.help ?? 'Unix timestamp (seconds)'}
                   />
+                {:else if isIsoDateField(field, kind)}
+                  <label class="compose-field">
+                    <span
+                      >{field.label}{#if field.required}*{/if}</span
+                    >
+                    <input type="date" bind:value={values[field.id]} />
+                    {#if field.help}
+                      <small class="muted">{field.help}</small>
+                    {/if}
+                  </label>
                 {:else}
                   <label class="compose-field">
                     <span
@@ -2995,6 +3183,15 @@
               {/if}
             {/if}
 
+            {#if kind === KIND.POLL}
+              <ComposePollOptionsField
+                bind:options={pollOptions}
+                bind:multipleChoice={pollMultipleChoice}
+                bind:endsHours={pollEndsHours}
+                disabled={posting || uploading || savingDraft}
+              />
+            {/if}
+
             {#if showBody}
               <div class="compose-content-block">
                 <div class="compose-content-head">
@@ -3014,7 +3211,7 @@
                 <!-- Unmounted while the advanced editor is open so this field cannot overwrite that draft. -->
                 {#if advancedOpen}
                   <p class="muted compose-advanced-open">Editing in the advanced editor.</p>
-                {:else if kind !== 9802}
+                {:else}
                   <ComposeGrammarTextarea
                     id="compose-body"
                     bind:value={content}
@@ -3027,22 +3224,11 @@
                     onPaste={(event) => void onBodyPaste(event)}
                     onDrop={(event) => void onBodyDrop(event)}
                   />
-                {:else}
-                  <MentionControl
-                    id="compose-body-plain"
-                    mode="prose"
-                    multiline
-                    rows={10}
-                    bind:value={content}
-                    placeholder={contentMeta?.placeholder ?? ''}
-                    onpaste={(event) => void onBodyPaste(event)}
-                    ondrop={(event) => void onBodyDrop(event)}
-                  />
                 {/if}
                 {#if proseHasShareTrackers(content)}
                   <p class="compose-track-warn muted">{SHARE_TRACKER_WARNING}</p>
                 {/if}
-                {#if kind !== 9802}
+                {#if grammarEligible}
                   <div class="compose-grammar-tools">
                     <label class="compose-grammar-check">
                       <input type="checkbox" bind:checked={grammarOn} />
@@ -3086,7 +3272,11 @@
           <div class="compose-tab-panel compose-tab-preview" role="tabpanel">
             {#key `${previewGen}-${kind}`}
               {#if previewEvent}
-                <EventBody event={previewEvent} showEmbeds />
+                {#if previewEvent.kind === KIND.POLL}
+                  <InteractivePollCard event={previewEvent} />
+                {:else}
+                  <EventBody event={previewEvent} showEmbeds />
+                {/if}
               {:else}
                 <p class="muted">Nothing to preview yet.</p>
               {/if}
@@ -3166,6 +3356,12 @@
             Retry failed
           </button>
         {/if}
+
+        <ComposeContentWarningField
+          bind:enabled={contentWarningEnabled}
+          bind:label={contentWarningLabel}
+          disabled={posting || uploading || savingDraft}
+        />
 
         <div class="compose-actions">
           <button class="btn btn-primary" type="submit" disabled={posting || uploading || savingDraft}>
@@ -3440,6 +3636,20 @@
     font-size: 0.95rem;
     font-weight: 600;
     line-height: 1.4;
+  }
+  .compose-publication-split-cta {
+    margin: 0 0 0.85rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--paper-dark, #f3efe6) 55%, var(--paper, #fff));
+  }
+  .compose-publication-split-cta .compose-split-hint {
+    margin: 0 0 0.65rem;
+  }
+  .compose-tab:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .compose-drafts-panel {
     margin: 0 0 1rem;

@@ -211,8 +211,21 @@ export const KIND = {
   /** NIP-37 draft checkpoint (revision of a 31234 wrap). */
   DRAFT_CHECKPOINT: 1234,
   COMMENT: 1111,
+  /** NIP-88 poll question. */
+  POLL: 1068,
+  /** NIP-88 poll response (vote). */
+  POLL_RESPONSE: 1018,
   LABEL: 1985,
+  /** NIP-34 git issue. */
   ISSUE: 1621,
+  /** NIP-34 issue/PR/patch status: Open. */
+  ISSUE_STATUS_OPEN: 1630,
+  /** NIP-34 status: Resolved (issues) / Applied·Merged (patches). */
+  ISSUE_STATUS_RESOLVED: 1631,
+  /** NIP-34 status: Closed. */
+  ISSUE_STATUS_CLOSED: 1632,
+  /** NIP-34 status: Draft. */
+  ISSUE_STATUS_DRAFT: 1633,
   PAYMENT: 10133,
   /** Reading queue + Bookshelf-style progress (one replaceable per pubkey). */
   READING_QUEUE: 16374,
@@ -227,6 +240,16 @@ export const KIND = {
   DRAFT_WRAP: 31234,
   PUBLICATION: 30040,
   SECTION: 30041,
+  /** NIP-34 git repository announcement. */
+  GIT_REPO: 30617,
+  /** NIP-52 date-based calendar event (all-day / multi-day). */
+  CALENDAR_DATE: 31922,
+  /** NIP-52 time-based calendar event. */
+  CALENDAR_TIME: 31923,
+  /** NIP-52 calendar (collection of events). */
+  CALENDAR: 31924,
+  /** NIP-52 calendar event RSVP. */
+  CALENDAR_RSVP: 31925,
   /** NKBIP-04 directory index (bookshelf folders). */
   DIRECTORY: 30045,
   FOLLOW_SET: 30000,
@@ -305,12 +328,20 @@ export const CACHE_KINDS = [
   KIND.PUBLIC_MESSAGE,
   KIND.REACTION,
   KIND.COMMENT,
+  KIND.ISSUE,
+  KIND.ISSUE_STATUS_OPEN,
+  KIND.ISSUE_STATUS_RESOLVED,
+  KIND.ISSUE_STATUS_CLOSED,
+  KIND.ISSUE_STATUS_DRAFT,
   KIND.REPOST,
   KIND.GENERIC_REPOST,
   KIND.FOLLOW_SET,
   KIND.LONG_FORM,
   KIND.PUBLICATION,
   KIND.SECTION,
+  KIND.GIT_REPO,
+  KIND.CALENDAR_DATE,
+  KIND.CALENDAR_TIME,
   KIND.DIRECTORY,
   KIND.STATUS,
   KIND.LIVE_CHAT,

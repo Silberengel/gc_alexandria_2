@@ -681,7 +681,16 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.NIP85_SCORE,
   KIND.APP_HANDLER,
   // NIP-41 edits merge into kind-1 display — not thread / other rows.
-  KIND.SHORT_NOTE_EDIT
+  KIND.SHORT_NOTE_EDIT,
+  // NIP-88 votes surface on the poll card, not as reply rows.
+  KIND.POLL_RESPONSE,
+  // NIP-34 issue status — badges on the issue, not Other responses.
+  KIND.ISSUE_STATUS_OPEN,
+  KIND.ISSUE_STATUS_RESOLVED,
+  KIND.ISSUE_STATUS_CLOSED,
+  KIND.ISSUE_STATUS_DRAFT,
+  // Issues under a repo are listed on the Issues tab.
+  KIND.ISSUE
 ]);
 
 const ATTRIBUTION_KINDS = new Set<number>([

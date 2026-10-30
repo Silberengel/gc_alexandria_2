@@ -16,6 +16,8 @@
     id?: string;
     /** Stretch to the parent height (full-screen editor). */
     fill?: boolean;
+    disabled?: boolean;
+    required?: boolean;
     /** Issues for the last successful check (only painted when source matches value). */
     issues?: GrammarIssue[];
     /** Exact text that was checked — underlines hide when it diverges from value. */
@@ -34,6 +36,8 @@
     placeholder = '',
     id = '',
     fill = false,
+    disabled = false,
+    required = false,
     issues = [],
     checkedSource = '',
     enabled = true,
@@ -261,6 +265,8 @@
       {rows}
       {placeholder}
       id={id || undefined}
+      {disabled}
+      {required}
       class="grammar-textarea"
       spellcheck="false"
       onselect={onSelectOrClick}
@@ -344,6 +350,8 @@
     z-index: 1;
     background: transparent !important;
     width: 100%;
+    /* Mirror below uses caret-color: transparent; this layer must stay visible. */
+    caret-color: var(--accent-strong, var(--ink));
   }
   .grammar-popover {
     position: absolute;

@@ -3,6 +3,66 @@ import { buildComposePartial, parseKind0Json, validateComposeForm } from './comp
 import { assertReadyToSign } from './kind-compose';
 
 describe('buildComposePartial', () => {
+  it('appends a NIP-36 content-warning tag when enabled', () => {
+    const withWarn = buildComposePartial({
+      kind: 1,
+      content: 'hello',
+      values: {},
+      contentWarningEnabled: true,
+      contentWarningLabel: 'Spoilers'
+    });
+    expect(withWarn.tags).toContainEqual(['content-warning', 'Spoilers']);
+
+    const without = buildComposePartial({
+      kind: 1,
+      content: 'hello',
+      values: {},
+      freeformTags: [['content-warning', 'stale']],
+      contentWarningEnabled: false
+    });
+    expect(without.tags.some((t) => t[0] === 'content-warning')).toBe(false);
+  });
+
+  it('adds NIP-52 D tags for time-based calendar events', () => {
+    const start = 1_700_000_000;
+    const partial = buildComposePartial({
+      kind: 31923,
+      content: 'Meetup downtown',
+      values: {
+        d: 'meetup-1',
+        title: 'Meetup',
+        start: String(start),
+        end: String(start + 7200)
+      }
+    });
+    expect(partial.tags).toContainEqual(['title', 'Meetup']);
+    expect(partial.tags.some((t) => t[0] === 'D')).toBe(true);
+  });
+
+  it('builds NIP-88 poll tags from dedicated compose fields', () => {
+    const partial = buildComposePartial({
+      kind: 1068,
+      content: 'Favorite color?',
+      values: {},
+      pollOptions: ['Red', 'Blue', ''],
+      pollMultipleChoice: true,
+      pollEndsHours: '2'
+    });
+    expect(partial.content).toBe('Favorite color?');
+    expect(partial.tags.filter((t) => t[0] === 'option')).toHaveLength(2);
+    expect(partial.tags).toContainEqual(['polltype', 'multiplechoice']);
+    expect(partial.tags.some((t) => t[0] === 'endsAt')).toBe(true);
+
+    const bad = validateComposeForm({
+      kind: 1068,
+      content: 'Only one?',
+      values: {},
+      pollOptions: ['Yes']
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toMatch(/two options/i);
+  });
+
   it('forces empty content for kind 30040', () => {
     const partial = buildComposePartial({
       kind: 30040,

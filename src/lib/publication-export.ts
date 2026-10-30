@@ -141,11 +141,14 @@ async function downloadAssembled(
   return { filename };
 }
 
-export async function exportPublicationDownload(
+/**
+ * Assemble a publication tree into one AsciiDoc book (same pipeline as download export).
+ * Used by compose Copy/Replace → AsciiDoc splitter.
+ */
+export async function assemblePublicationDocument(
   root: Event,
-  format: PublicationDownloadFormat,
   seedEvents: Event[] = []
-): Promise<{ filename: string }> {
+): Promise<AssembledPublicationAsciidoc> {
   const nested = await collectPublicationEventsForExport(root, seedEvents);
   if (nested.length === 0 && !orderedPublicationRefsFromIndex(root).length) {
     throw new Error('Publication has no nested reading content.');
@@ -153,6 +156,14 @@ export async function exportPublicationDownload(
   if (nested.length === 0) {
     throw new Error('Publication export unavailable — could not load sections.');
   }
-  const assembled = assembleFromEvents(root, nested);
+  return assembleFromEvents(root, nested);
+}
+
+export async function exportPublicationDownload(
+  root: Event,
+  format: PublicationDownloadFormat,
+  seedEvents: Event[] = []
+): Promise<{ filename: string }> {
+  const assembled = await assemblePublicationDocument(root, seedEvents);
   return downloadAssembled(assembled, format);
 }

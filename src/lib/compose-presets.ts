@@ -5,13 +5,21 @@ import {
 } from '@silberengel/kind-compose-catalog';
 import { resolveMarkup } from './markup';
 
-export const COMPOSE_DOCUMENT_PRESETS = [30040, 30818, 30817, 30023, 1, 30041, 30045] as const;
+export const COMPOSE_DOCUMENT_PRESETS = [
+  30040, 30818, 30817, 30023, 1, 1068, 1621, 31922, 31923, 30041, 30045
+] as const;
 export const COMPOSE_METADATA_KINDS = [
   0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10243
 ] as const;
 /** Action / context kinds composed elsewhere — not offered in the picker. */
 export const COMPOSE_PICKER_EXCLUDED = [
-  5, 7, 819, 1621, 1985, 16374, 34259,
+  5, 7, 819, 1985, 16374, 34259,
+  /** NIP-34 issue/PR status — set from the issue thread, not the picker. */
+  1630, 1631, 1632, 1633,
+  /** NIP-52 calendar collection / RSVP — not top-level compose presets. */
+  31924, 31925,
+  /** NIP-88 poll votes — cast from the poll card, not the picker. */
+  1018,
   /** NIP-53 live chat / presence — composed from the live room UI. */
   1311, 10312,
   /** NIP-37 wraps/checkpoints — Save to Draft, not the picker. */
@@ -95,6 +103,16 @@ export function showContentBox(kind: number): boolean {
   const encoding = def.content?.encoding;
   if (!encoding || encoding === 'empty' || encoding === 'json') return false;
   return true;
+}
+
+/**
+ * Freeform body kinds may run LanguageTool. Ciphertext / list composers
+ * (NIP-51 private tags, NIP-37 draft relays, directories, reading queues, …)
+ * stay off — that text is not meant for a remote grammar API.
+ */
+export function composeGrammarEligible(kind: number | null | undefined): boolean {
+  if (kind == null) return true;
+  return showContentBox(kind);
 }
 
 /**

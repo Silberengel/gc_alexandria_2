@@ -11,7 +11,7 @@
   import { showNotice } from '$lib/stores/toast';
   import DrawingEditor from './DrawingEditor.svelte';
   import EventBody from './EventBody.svelte';
-  import MentionControl from './MentionControl.svelte';
+  import ProseGrammarField from './ProseGrammarField.svelte';
 
   interface Props {
     value?: string;
@@ -172,7 +172,7 @@
     void submit();
   }}
 >
-  <MentionControl mode="prose" multiline rows={3} bind:value {placeholder} onpaste={onPaste} />
+  <ProseGrammarField rows={3} bind:value {placeholder} onPaste={onPaste} />
   {#if previewEvent}
     <div class="compose-preview">
       <p class="compose-preview-label muted">Preview</p>

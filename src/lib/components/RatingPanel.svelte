@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Event } from 'nostr-tools';
   import UserBadge from './UserBadge.svelte';
-  import MentionControl from './MentionControl.svelte';
+  import ProseGrammarField from './ProseGrammarField.svelte';
   import Stars from './Stars.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -311,13 +311,11 @@
       </div>
       <label class="muted">
         Review (optional)
-        <MentionControl
-          mode="prose"
-          multiline
+        <ProseGrammarField
           bind:value={review}
           rows={3}
           placeholder="Write a short review"
-          onpaste={onReviewPaste}
+          onPaste={onReviewPaste}
         />
       </label>
       <div class="rating-actions">

@@ -1,6 +1,6 @@
 <script lang="ts">
   import UserBadge from '$lib/components/UserBadge.svelte';
-  import MentionControl from '$lib/components/MentionControl.svelte';
+  import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { session } from '$lib/stores/session';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -8,10 +8,22 @@
   import { GITCITADEL_HEX } from '$lib/hex';
   import { scrubClipboardTextPaste, scrubProseText } from '$lib/clean-url';
   import { signAndPublish } from '$lib/sign';
+  import { feedThreadPath } from '$lib/feed';
   import { nip19 } from 'nostr-tools';
+  import { link } from 'svelte-spa-router';
 
-  const PROJECT_URL = 'https://gitworkshop.dev/silberengel@gitcitadel.com/Alexandria';
-  const ISSUES_BASE = `${PROJECT_URL}/issues`;
+  const ALEXANDRIA_REPO_THREAD = (() => {
+    try {
+      const naddr = nip19.naddrEncode({
+        kind: KIND.GIT_REPO,
+        pubkey: REPO_OWNER_HEX,
+        identifier: 'Alexandria'
+      });
+      return `#/feed?thread=${naddr}`;
+    } catch {
+      return '#/feed';
+    }
+  })();
 
   let subject = $state('');
   let body = $state('');
@@ -48,22 +60,21 @@
     try {
       const signed = await signAndPublish({
         kind: KIND.ISSUE,
-        content: `Subject: ${subject}\n\n${body}`,
+        content: body.trim(),
         tags: [
           ['a', CONTACT_A_TAG],
-          ['p', REPO_OWNER_HEX]
+          ['p', REPO_OWNER_HEX],
+          ['subject', subject.trim()]
         ]
       });
       if (!signed) {
         error = 'Could not sign or publish the issue.';
         return;
       }
-      issueHref = `${ISSUES_BASE}/${nip19.neventEncode({
-        id: signed.id,
-        author: signed.pubkey,
-        kind: signed.kind
-      })}`;
+      issueHref = `#${feedThreadPath(signed)}`;
       success = 'Issue published. Thank you.';
+      subject = '';
+      body = '';
     } finally {
       sending = false;
     }
@@ -85,21 +96,21 @@
   </p>
   <p><UserBadge pubkey={GITCITADEL_HEX} /></p>
   <p class="contact-actions">
-    <a class="btn" href={ISSUES_BASE} target="_blank" rel="noopener">Alexandria issues</a>
+    <a class="btn" href={ALEXANDRIA_REPO_THREAD} use:link>Alexandria issues</a>
   </p>
 
   {#if $session.pubkey}
     <form class="card contact-form" onsubmit={submit}>
       <label>Subject<input type="text" bind:value={subject} required onpaste={onSubjectPaste} /></label>
       <label style="display:block;margin-top:1rem"
-        >Body<MentionControl mode="prose" multiline rows={8} bind:value={body} required onpaste={onBodyPaste} /></label
+        >Body<ProseGrammarField rows={8} bind:value={body} required onPaste={onBodyPaste} /></label
       >
       {#if sending}<LoadingHint message="Sending…" compact />{/if}
       {#if error}<p class="contact-form-error">{error}</p>{/if}
       {#if success}
         <p class="contact-form-success">{success}</p>
         {#if issueHref}
-          <p><a href={issueHref} target="_blank" rel="noopener">{issueHref}</a></p>
+          <p><a href={issueHref} use:link>View your issue in Alexandria</a></p>
         {/if}
       {/if}
       <button class="btn btn-primary" type="submit" style="margin-top:1rem" disabled={sending}>

@@ -7,12 +7,28 @@ import { formatAuthors, type AuthorEntry } from './compose-publication-authors';
 import type { ComposeDraftState } from './compose-drafts';
 import { COMPOSE_PICKER_EXCLUDED } from './compose-presets';
 import { KIND } from './constants';
+import {
+  CONTENT_WARNING_DEFAULT_LABEL,
+  CONTENT_WARNING_TAG,
+  contentWarningLabel,
+  isContentWarningTagName
+} from './content-warning';
+import {
+  ensureMinPollOptionRows,
+  isPollTagName,
+  pollComposeFieldsFromEvent
+} from './poll';
 
 const ALWAYS_SKIP = new Set([
   'client',
   'published_at',
   'imeta',
-  't' // owned by hashtags UI
+  't', // owned by hashtags UI
+  CONTENT_WARNING_TAG, // owned by content-warning UI
+  'option',
+  'polltype',
+  'endsAt',
+  'relay'
 ]);
 
 /** Thread / pointer tags dropped when cloning a regular note (imwald clone parity). */
@@ -147,9 +163,14 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
       const name = t[0] ?? '';
       if (!name || consumed.has(name)) return false;
       if (ALWAYS_SKIP.has(name)) return false;
+      if (isContentWarningTagName(name)) return false;
+      if (isPollTagName(name)) return false;
       return true;
     })
     .map((t) => [...t]);
+
+  const warning = contentWarningLabel(event);
+  const poll = pollComposeFieldsFromEvent(event);
 
   return {
     kind: event.kind,
@@ -158,6 +179,11 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
     hashtags,
     imetaTags,
     freeformTags,
+    contentWarningEnabled: warning != null,
+    contentWarningLabel: warning ?? CONTENT_WARNING_DEFAULT_LABEL,
+    pollOptions: ensureMinPollOptionRows(poll.options),
+    pollMultipleChoice: poll.multipleChoice,
+    pollEndsHours: poll.endsHours,
     updatedAt: Date.now()
   };
 }
