@@ -225,10 +225,24 @@
 
   /** Failed remote loads — show a readable alt fallback instead of black UA broken-image text. */
   let brokenMediaUrls = $state<Record<string, true>>({});
+  /** BUD-10: advance through `fallbacks` when the current host 404s. */
+  let mediaSrcOverride = $state<Record<string, string>>({});
 
-  function markMediaBroken(url: string): void {
-    if (brokenMediaUrls[url]) return;
-    brokenMediaUrls = { ...brokenMediaUrls, [url]: true };
+  function mediaDisplayUrl(item: { url: string; fallbacks?: string[] }): string {
+    return mediaSrcOverride[item.url] ?? item.url;
+  }
+
+  function markMediaBroken(item: { url: string; fallbacks?: string[] }): void {
+    const chain = [item.url, ...(item.fallbacks ?? [])];
+    const current = mediaDisplayUrl(item);
+    const idx = chain.findIndex((u) => u === current);
+    const next = idx >= 0 ? chain[idx + 1] : chain[1];
+    if (next) {
+      mediaSrcOverride = { ...mediaSrcOverride, [item.url]: next };
+      return;
+    }
+    if (brokenMediaUrls[item.url]) return;
+    brokenMediaUrls = { ...brokenMediaUrls, [item.url]: true };
   }
   /** Active LibreTranslate overlay (⋯ → Translate this event) — does not mutate the Nostr event. */
   const translationEntry = $derived.by(() => {
@@ -788,19 +802,22 @@
   {/if}
   {#if !isNip53Kind(sourceKind) || sourceKind === NIP53_KIND.LIVE_CHAT}
     {#each media as item (item.url)}
+      {@const src = mediaDisplayUrl(item)}
       {#if item.type === 'video'}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
           class="event-imeta"
-          src={item.url}
+          src={src}
           poster={item.poster}
           controls
           playsinline
           preload="metadata"
+          onerror={() => markMediaBroken(item)}
         ></video>
       {:else if item.type === 'audio'}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <audio class="event-imeta" src={item.url} controls></audio>
+        <audio class="event-imeta" src={src} controls onerror={() => markMediaBroken(item)}
+        ></audio>
       {:else}
         {@const alt = item.alt?.trim() || ''}
         {@const broken = !!brokenMediaUrls[item.url]}
@@ -810,17 +827,17 @@
           type="button"
           title={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
           aria-label={alt || (imageUrls.length > 1 ? 'View gallery' : 'View image')}
-          onclick={() => openImageGallery(item.url)}
+          onclick={() => openImageGallery(src)}
         >
           <img
             class="event-imeta"
-            src={item.url}
+            src={src}
             alt={broken ? '' : alt}
             loading="lazy"
             decoding="async"
             width={broken ? undefined : item.width}
             height={broken ? undefined : item.height}
-            onerror={() => markMediaBroken(item.url)}
+            onerror={() => markMediaBroken(item)}
           />
           {#if broken}
             <span class="event-imeta-fallback"

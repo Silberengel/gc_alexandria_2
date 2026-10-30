@@ -8,6 +8,28 @@ export const BLOSSOM_PRESET_SERVERS = [
   'https://blossom.nostr.build',
 ] as const;
 
+const SHA256_HEX = /^[a-f0-9]{64}$/;
+const HEX_PUBKEY = /^[a-f0-9]{64}$/;
+
+/** BUD-10 `blossom:<sha256>.<ext>[?…]` in free text (ext required). */
+export const BLOSSOM_URI_RE =
+  /blossom:([a-f0-9]{64})\.([a-z0-9]+)(?:\?([^\s<>"']*))?/gi;
+
+/** Parsed BUD-10 blossom URI (discovery hints preserved in order). */
+export type BlossomUri = {
+  sha256: string;
+  /** Extension without a leading dot (e.g. `jpg`). */
+  ext: string;
+  /** `xs` server hints (domain or absolute origin), order preserved. */
+  servers: string[];
+  /** `as` uploader pubkeys (lowercase hex), order preserved. */
+  authors: string[];
+  /** `sz` blob size in bytes when present and valid. */
+  size: number | null;
+  /** Original URI string (scheme through query). */
+  raw: string;
+};
+
 export type SignedNostrEvent = {
   id: string;
   pubkey: string;
@@ -54,6 +76,150 @@ export function mergeBlossomServers(
     out.push(url);
   }
   return out;
+}
+
+function peelTrailingPunct(raw: string): string {
+  return raw.trim().replace(/[.,;:!?)\]]+$/u, '');
+}
+
+/**
+ * Parse a BUD-10 `blossom:` URI. Returns null when the scheme/hash/ext are invalid.
+ * Query params `xs` / `as` may repeat; `sz` must be a positive integer when set.
+ */
+export function parseBlossomUri(raw: string): BlossomUri | null {
+  const text = peelTrailingPunct(raw);
+  if (!/^blossom:/i.test(text)) return null;
+  const body = text.slice('blossom:'.length);
+  const qIdx = body.indexOf('?');
+  const path = qIdx >= 0 ? body.slice(0, qIdx) : body;
+  const query = qIdx >= 0 ? body.slice(qIdx + 1) : '';
+  const dot = path.lastIndexOf('.');
+  if (dot <= 0 || dot === path.length - 1) return null;
+  const sha256 = path.slice(0, dot).toLowerCase();
+  const ext = path.slice(dot + 1).toLowerCase();
+  if (!SHA256_HEX.test(sha256) || !/^[a-z0-9]+$/.test(ext)) return null;
+
+  const servers: string[] = [];
+  const authors: string[] = [];
+  let size: number | null = null;
+  if (query) {
+    const params = new URLSearchParams(query);
+    for (const [key, value] of params.entries()) {
+      const k = key.toLowerCase();
+      const v = value.trim();
+      if (!v) continue;
+      if (k === 'xs') {
+        // Domain or absolute origin — strip trailing slash only.
+        const server = v.replace(/\/+$/, '');
+        if (server) servers.push(server);
+      } else if (k === 'as') {
+        const pk = v.toLowerCase();
+        if (HEX_PUBKEY.test(pk)) authors.push(pk);
+      } else if (k === 'sz' && size == null) {
+        const n = Number(v);
+        if (Number.isInteger(n) && n > 0) size = n;
+      }
+    }
+  }
+
+  return {
+    sha256,
+    ext,
+    servers,
+    authors,
+    size,
+    raw: `blossom:${sha256}.${ext}${query ? `?${query}` : ''}`
+  };
+}
+
+/** Find all BUD-10 URIs in free text (deduped by raw URI). */
+export function findBlossomUris(content: string): BlossomUri[] {
+  if (!content) return [];
+  const out: BlossomUri[] = [];
+  const seen = new Set<string>();
+  const re = new RegExp(BLOSSOM_URI_RE.source, 'gi');
+  for (const match of content.matchAll(re)) {
+    const parsed = parseBlossomUri(match[0] ?? '');
+    if (!parsed || seen.has(parsed.raw)) continue;
+    seen.add(parsed.raw);
+    out.push(parsed);
+  }
+  return out;
+}
+
+/**
+ * Build ordered http(s) GET candidates for a blob (BUD-01 `GET /<sha256>[.ext]`).
+ * `xs` hints first (https then http when scheme omitted), then optional fallbacks.
+ */
+export function blossomBlobCandidates(
+  uri: BlossomUri,
+  fallbackServers: readonly string[] = BLOSSOM_PRESET_SERVERS
+): string[] {
+  const path = `/${uri.sha256}.${uri.ext}`;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (absolute: string): void => {
+    const url = normalizeBlossomServer(absolute) + path;
+    const key = url.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(url);
+  };
+
+  for (const hint of uri.servers) {
+    if (/^https?:\/\//i.test(hint)) {
+      push(hint);
+      continue;
+    }
+    // Domain-only: prefer https, then http (BUD-10).
+    push(`https://${hint}`);
+    push(`http://${hint}`);
+  }
+  for (const server of fallbackServers) {
+    push(server);
+  }
+  return out;
+}
+
+/** Media kind from the BUD-10 file extension. */
+export function blossomMediaType(
+  ext: string
+): 'image' | 'video' | 'audio' | null {
+  const e = ext.toLowerCase().replace(/^\./, '');
+  if (/^(?:png|jpe?g|gif|webp|avif|svg)$/.test(e)) return 'image';
+  if (/^(?:mp4|webm|ogv|mov|m4v)$/.test(e)) return 'video';
+  if (/^(?:mp3|ogg|wav|m4a|aac)$/.test(e)) return 'audio';
+  return null;
+}
+
+/**
+ * Format a BUD-10 URI after upload. Extension defaults to `bin` when unknown.
+ */
+export function formatBlossomUri(opts: {
+  sha256: string;
+  ext?: string | null;
+  servers?: string[];
+  authors?: string[];
+  size?: number | null;
+}): string | null {
+  const sha256 = opts.sha256.trim().toLowerCase();
+  if (!SHA256_HEX.test(sha256)) return null;
+  let ext = (opts.ext ?? 'bin').trim().toLowerCase().replace(/^\./, '');
+  if (!ext || !/^[a-z0-9]+$/.test(ext)) ext = 'bin';
+  const params = new URLSearchParams();
+  for (const server of opts.servers ?? []) {
+    const s = server.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (s) params.append('xs', s);
+  }
+  for (const author of opts.authors ?? []) {
+    const pk = author.trim().toLowerCase();
+    if (HEX_PUBKEY.test(pk)) params.append('as', pk);
+  }
+  if (opts.size != null && Number.isInteger(opts.size) && opts.size > 0) {
+    params.set('sz', String(opts.size));
+  }
+  const q = params.toString();
+  return `blossom:${sha256}.${ext}${q ? `?${q}` : ''}`;
 }
 
 function asArrayBufferView(bytes: ArrayBuffer | Uint8Array): Uint8Array<ArrayBuffer> {

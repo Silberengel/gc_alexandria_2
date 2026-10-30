@@ -7,7 +7,7 @@
  */
 
 export const APP_VIEWPORT_CONTENT =
-  'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content';
 
 function blockPinch(e: TouchEvent): void {
   if (e.touches.length > 1) e.preventDefault();

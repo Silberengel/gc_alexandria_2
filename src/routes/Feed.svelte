@@ -54,8 +54,8 @@
   } from '$lib/comments';
   import { cropRenderedUrlsInText } from '$lib/crop-url';
   import { resolveReactionEmoji } from '$lib/emoji-content';
-  import { filterMuted, muteState, type MuteState } from '$lib/mute';
-  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
+  import { filterMuted, muteState } from '$lib/mute';
+  import { deletionRevision } from '$lib/deletions';
   import { liveChatShield } from '$lib/stores/live-chat-shield';
   import { eventPreview } from '$lib/event-preview';
   import { isAllowedMediaUrl } from '$lib/markup';
@@ -78,11 +78,12 @@
     tipNotificationText
   } from '$lib/zaps';
   import {
-    collectNewFeedEvents,
-    feedEventsWatermark,
+    admitFeedPendingVisible,
+    applyFeedScope,
+    applyFeedView,
+    createFeedListState,
     feedFollowAuthors,
     feedListPath,
-    feedRelayGroups,
     FEED_FILTER_KINDS,
     feedTabKinds,
     feedTabLabel,
@@ -90,20 +91,13 @@
     isKindFeedTab,
     isOptionalBuiltinFeedTab,
     isRemovableFeedTab,
+    mergeFeedPosts,
     normalizeFeedKinds,
     OPTIONAL_BUILTIN_FEED_TABS,
     feedThreadPath,
     feedThreadPathFromId,
     feedThreadWarmSeed,
     fetchFeedThreadTarget,
-    mergeFeedPosts,
-    loadAuthorFeed,
-    loadAuthorFeedWithReplies,
-    loadFeed,
-    loadFeedWithReplies,
-    loadFollowsFeed,
-    loadKindFeed,
-    loadNotifications,
     NOTIFICATION_LOOKBACK_OPTIONS,
     notificationLookbackSeconds,
     applyFeedListFilters,
@@ -113,19 +107,14 @@
     parseFeedTab,
     parseFeedThreadParam,
     parseFeedThreadTarget,
-    recallAuthorFeedPosts,
-    recallAuthorFeedWithReplies,
-    recallFeedPosts,
-    recallFeedWithReplies,
-    recallFollowsFeed,
-    recallKindFeed,
-    recallNotifications,
+    startFeedListLoad,
+    startFeedQuietPoll,
     isFeedTab,
+    type FeedListState,
     type FeedTab,
     type NotificationLookbackId
   } from '$lib/feed';
   import PageFilter from '$lib/components/PageFilter.svelte';
-  import { filterPageEvents } from '$lib/page-filter';
   import { feedTabOrder } from '$lib/stores/feed-tab-order';
   const feedTabLabels = feedTabOrder.labels;
   import { skipNextNavTrack } from '$lib/nav-history';
@@ -312,15 +301,10 @@
     pendingFocusId = null;
     listRestorePending = false;
     listRestoreGen += 1;
-    pendingNew = [];
-    feedWatermark = 0;
-    loadedTab = null;
-    items = [];
+    listState = createFeedListState();
     shown = {};
     boostTargets = {};
     boostFetchQueued = {};
-    listSettled = false;
-    listLoading = true;
     void replace(feedListPath(next, feedNavOpts({ author: feedAuthor })));
   }
 
@@ -616,9 +600,12 @@
     void replace(qs ? `/feed?${qs}` : '/feed');
   }
 
-  let items = $state<Event[]>([]);
-  /** Lookback last fetched for the current tab — change → relay requery. */
-  let fetchedLookback = $state<NotificationLookbackId | null>(null);
+  /** Canonical list store — fetch scope only; kind/q are view-derived. */
+  let listState = $state<FeedListState>(createFeedListState());
+  const items = $derived(listState.items);
+  const pendingNew = $derived(listState.pendingNew);
+  const listSettled = $derived(listState.settled);
+  const listError = $derived(listState.error);
 
   const feedKindNumber = $derived.by(() => {
     const raw = feedKindFilter.trim();
@@ -632,6 +619,13 @@
     if (seconds == null) return null;
     return Math.floor(Date.now() / 1000) - seconds;
   });
+  const feedViewOpts = $derived.by(() => ({
+    sinceUnix: feedSinceUnix,
+    kind: feedKindNumber,
+    q: feedTextFilter,
+    muted: $muteState,
+    author: feedAuthor
+  }));
   const feedListFiltered = $derived(
     !feedAuthor &&
       (feedLookback !== 'all' ||
@@ -670,19 +664,7 @@
   /** Unmuted / undeleted / in-window rows — kind filter options come from these. */
   const feedScopeItems = $derived.by(() => {
     $deletionRevision;
-    let base = filterDeletedEvents(
-      filterMuted(
-        feedAuthor
-          ? items.filter((event) => event.pubkey.toLowerCase() === feedAuthor)
-          : items,
-        $muteState
-      )
-    );
-    if (feedAuthor) return base;
-    if (feedSinceUnix != null) {
-      base = base.filter((event) => event.created_at >= feedSinceUnix);
-    }
-    return base;
+    return applyFeedScope(items, feedViewOpts);
   });
 
   const feedKindOptions = $derived.by(() => {
@@ -699,26 +681,20 @@
   });
 
   const visibleItems = $derived.by(() => {
-    let base = feedScopeItems;
-    if (feedAuthor) return base;
-    if (feedKindNumber != null) {
-      base = base.filter((event) => event.kind === feedKindNumber);
-    }
-    if (!feedTextFilter.trim()) return base;
-    return filterPageEvents(base, feedTextFilter);
+    $deletionRevision;
+    return applyFeedView(items, feedViewOpts);
+  });
+  /** Pending rows that match the active kind/text view (New Events count/admit). */
+  const pendingVisible = $derived.by(() => {
+    $deletionRevision;
+    return applyFeedView(pendingNew, feedViewOpts);
   });
   /** Reposts collapse onto the target event; boosters show as profile pics. */
   const feedRows = $derived(collapseFeedReposts(visibleItems));
   let noteDraft = $state('');
   let notePreviewing = $state(false);
   let notePosting = $state(false);
-  let listLoading = $state(true);
-  /** True only after a load finishes once the viewer's relay lists are in place. */
-  let listSettled = $state(false);
-  let listError = $state('');
   let feedRelays = $state(0);
-  /** Last tab+author whose list is currently shown — wipe rows when the scope changes. */
-  let loadedTab = $state<string | null>(null);
   /** Rows in view. Each one renders its body and embedded cards; the rest stay a preview. */
   let shown = $state<Record<string, true>>({});
   /** Resolved target events for collapsed boost-only rows (undefined = not fetched). */
@@ -731,37 +707,11 @@
   /** Non-reactive arm so restore runs once when `?thread=` clears (Return or back). */
   let listRestorePending = false;
   let listRestoreGen = 0;
-  /** Newer posts held above the timeline until the user clicks New Events. */
-  let pendingNew = $state<Event[]>([]);
-  /** Max created_at already in the timeline (or last admit). */
-  let feedWatermark = 0;
-
-  function ingestFeedEvents(incoming: Event[], muted: MuteState): void {
-    const next = filterMuted(incoming, muted);
-    if (!next.length) return;
-    // Keep list rows in session memory so thread opens can seed the OP without a relay round-trip.
-    rememberEvents(next);
-    const settled = untrack(() => listSettled);
-    const current = untrack(() => items);
-    if (!settled || !current.length) {
-      // Merge (don't replace) so streaming batches don't reshuffle the viewport.
-      items = mergeFeedPosts(current, next);
-      if (items.length) feedWatermark = feedEventsWatermark(items);
-      return;
-    }
-    pendingNew = collectNewFeedEvents(next, {
-      shown: current,
-      pending: untrack(() => pendingNew),
-      watermark: feedWatermark || feedEventsWatermark(current)
-    });
-  }
 
   function admitNewEvents(): void {
-    const fresh = untrack(() => pendingNew);
+    const fresh = untrack(() => pendingVisible);
     if (!fresh.length) return;
-    items = mergeFeedPosts(untrack(() => items), fresh);
-    pendingNew = [];
-    feedWatermark = feedEventsWatermark(items);
+    listState = admitFeedPendingVisible(untrack(() => listState), fresh);
     appScrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
@@ -873,7 +823,10 @@
       if (!signed) return; // signAndPublish already toasted
       rememberEvents([signed]);
       clearNoteDraft();
-      items = mergeFeedPosts(untrack(() => items), [signed]);
+      listState = {
+        ...untrack(() => listState),
+        items: mergeFeedPosts(untrack(() => listState.items), [signed])
+      };
     } finally {
       notePosting = false;
     }
@@ -1412,255 +1365,81 @@
 
   $effect(() => {
     // Never wipe the in-memory timeline when only `?thread=` toggles.
-    // Pause list REQs while a thread is open so comment fetches keep pool slots
-    // (list load uses priority and was starving "Loading comments…").
-    // Read deps first, then bail before any listLoading setup — otherwise opening
-    // a thread falsely paints the feed as "Loading…".
+    // Pause list REQs while a thread is open so comment fetches keep pool slots.
+    // Fetch key = tab + author + since only (kind/q are client view filters).
     void feedRelays;
     void followAuthorsKey;
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
     const lookback = feedLookback;
-    const lookbackSec = notificationLookbackSeconds(lookback);
-    const listKey = `${tab}:${author ?? ''}`;
     const pubkey = $session.pubkey;
     const sessionLoading = $session.loading;
-    // Snapshot via untrack — identity churn on these must not re-subscribe the effect.
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
     const threadOpen = !!pointer;
-    const prevFetched = untrack(() => fetchedLookback);
-    const tabChanged = loadedTab !== listKey;
-    // Author feeds ignore the lookback control; list feeds requery on any since change
-    // (widen or narrow) so relay `since` always matches the dropdown.
-    const lookbackChanged =
-      !author && !tabChanged && prevFetched != null && prevFetched !== lookback;
-    let cancelled = false;
-
-    if (threadOpen) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    listError = '';
-
-    if (tabChanged) {
-      items = [];
+    const prevKey = untrack(() => listState.loadedKey);
+    const listKey = `${tab}:${author ?? ''}`;
+    if (prevKey !== listKey && !threadOpen) {
       shown = {};
       boostTargets = {};
       boostFetchQueued = {};
-      pendingNew = [];
-      feedWatermark = 0;
-      fetchedLookback = null;
-      loadedTab = listKey;
-      listLoading = true;
-      listSettled = false;
-    } else if (lookbackChanged) {
-      // Keep current rows visible while the new window loads.
-      listLoading = true;
-      listSettled = false;
-    } else if (!untrack(() => items.length) && !untrack(() => listSettled)) {
-      listLoading = true;
     }
-
-    if ((tab === 'notifications' || tab === 'follows') && !pubkey) {
-      items = [];
-      pendingNew = [];
-      listLoading = false;
-      listSettled = true;
-      fetchedLookback = lookback;
-      return;
-    }
-
-    if (pubkey && sessionLoading && !feedRelayGroups().personal.length && tab !== 'notifications') {
-      const kinds = feedTabKinds(tab);
-      const recall = author
-        ? tab === 'replies'
-          ? recallAuthorFeedWithReplies(author)
-          : recallAuthorFeedPosts(author)
-        : tab === 'follows'
-          ? recallFollowsFeed(meta, muted)
-          : kinds.length
-            ? recallKindFeed(kinds)
-            : tab === 'replies'
-              ? recallFeedWithReplies()
-              : recallFeedPosts();
-      void recall.then((cached) => {
-        if (cancelled || !cached.length) return;
-        ingestFeedEvents(cached, muted);
-        listLoading = false;
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    // Already settled for this tab/window — quiet polling handles New Events.
-    if (
-      !tabChanged &&
-      !lookbackChanged &&
-      untrack(() => listSettled) &&
-      untrack(() => items.length)
-    ) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    let timer = 0;
-    let resumeWait: (() => void) | null = null;
-    const wait = (ms: number) =>
-      new Promise<void>((resolve) => {
-        resumeWait = resolve;
-        timer = window.setTimeout(resolve, ms);
-      });
-
-    const loadForTab = (
-      onCache: (cached: Event[]) => void
-    ): Promise<Event[]> => {
-      if (tab === 'notifications') {
-        return loadNotifications(pubkey!, muted, onCache, lookbackSec);
-      }
-      if (author) {
-        return tab === 'replies'
-          ? loadAuthorFeedWithReplies(author, muted, onCache)
-          : loadAuthorFeed(author, muted, onCache);
-      }
-      if (tab === 'follows') {
-        return loadFollowsFeed(meta, muted, onCache, lookbackSec);
-      }
-      const kinds = feedTabKinds(tab);
-      if (kinds.length) {
-        return loadKindFeed(kinds, muted, onCache, lookbackSec);
-      }
-      if (tab === 'replies') {
-        return loadFeedWithReplies(meta, muted, onCache, lookbackSec);
-      }
-      return loadFeed(meta, muted, onCache, lookbackSec);
-    };
-
-    const recallForTab = (): Promise<Event[]> => {
-      if (tab === 'notifications' && pubkey) return recallNotifications(pubkey);
-      if (author) {
-        return tab === 'replies'
-          ? recallAuthorFeedWithReplies(author)
-          : recallAuthorFeedPosts(author);
-      }
-      if (tab === 'follows') return recallFollowsFeed(meta, muted);
-      const kinds = feedTabKinds(tab);
-      if (kinds.length) return recallKindFeed(kinds);
-      if (tab === 'replies') return recallFeedWithReplies();
-      return recallFeedPosts();
-    };
-
-    void recallForTab().then((cached) => {
-      if (cancelled || !cached.length) return;
-      ingestFeedEvents(cached, muted);
-      listLoading = false;
-    });
-
-    const markSettled = (): void => {
-      listLoading = false;
-      listSettled = true;
-      fetchedLookback = lookback;
-      feedWatermark = Math.max(feedWatermark, feedEventsWatermark(items));
-    };
-
-    void (async () => {
-      for (let attempt = 0; attempt < 4 && !cancelled; attempt += 1) {
-        try {
-          const events = await loadForTab((cached) => {
-            if (cancelled || !cached.length) return;
-            ingestFeedEvents(cached, muted);
-            listLoading = false;
-          });
-          if (cancelled) return;
-          ingestFeedEvents(events, muted);
-          const listsMissing =
-            tab !== 'notifications' && !!pubkey && !feedRelayGroups().personal.length;
-          if (items.length && !listsMissing) {
-            markSettled();
-            return;
-          }
-          if (items.length) listLoading = false;
-          if (tab === 'notifications' && items.length) {
-            markSettled();
-            return;
-          }
-        } catch (err: unknown) {
-          if (cancelled) return;
-          if (items.length) {
-            markSettled();
-            return;
-          }
-          listError = err instanceof Error ? err.message : 'Could not load the feed.';
-          markSettled();
-          return;
+    const { cancel } = startFeedListLoad(
+      {
+        tab,
+        author,
+        lookback,
+        pubkey: pubkey ?? null,
+        sessionLoading,
+        threadOpen,
+        meta,
+        muted,
+        feedRelaysEpoch: feedRelays,
+        followAuthorsKey,
+        muteKey
+      },
+      untrack(() => listState),
+      {
+        onState: (next) => {
+          listState = next;
         }
-        if (attempt < 3 && !cancelled) await wait(1200);
       }
-      if (cancelled || items.length) {
-        if (!cancelled) markSettled();
-        return;
-      }
-      markSettled();
-    })();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      resumeWait?.();
-    };
+    );
+    return cancel;
   });
 
   /** Quiet refresh: stage newer posts for the New Events control (never auto-insert). */
   $effect(() => {
-    if (pointer || !listSettled) return;
     void followAuthorsKey;
     void muteKey;
     const tab = feedTab;
     const author = feedAuthor;
-    const lookbackSec = notificationLookbackSeconds(feedLookback);
+    const lookback = feedLookback;
     const pubkey = $session.pubkey;
     const meta = untrack(() => metadataEvents);
     const muted = untrack(() => $muteState);
-    if ((tab === 'notifications' || tab === 'follows') && !pubkey) return;
-
-    let cancelled = false;
-    const pull = async () => {
-      try {
-        let events: Event[] = [];
-        if (tab === 'notifications' && pubkey) {
-          events = await loadNotifications(pubkey, muted, undefined, lookbackSec);
-        } else if (author) {
-          events =
-            tab === 'replies'
-              ? await loadAuthorFeedWithReplies(author, muted)
-              : await loadAuthorFeed(author, muted);
-        } else if (tab === 'follows') {
-          events = await loadFollowsFeed(meta, muted, undefined, lookbackSec);
-        } else if (feedTabKinds(tab).length) {
-          events = await loadKindFeed(feedTabKinds(tab), muted, undefined, lookbackSec);
-        } else if (tab === 'replies') {
-          events = await loadFeedWithReplies(meta, muted, undefined, lookbackSec);
-        } else {
-          events = await loadFeed(meta, muted, undefined, lookbackSec);
+    return startFeedQuietPoll(
+      {
+        tab,
+        author,
+        lookback,
+        pubkey: pubkey ?? null,
+        sessionLoading: $session.loading,
+        threadOpen: !!pointer,
+        meta,
+        muted,
+        feedRelaysEpoch: feedRelays,
+        followAuthorsKey,
+        muteKey
+      },
+      () => untrack(() => listState),
+      {
+        onState: (next) => {
+          listState = next;
         }
-        if (cancelled) return;
-        ingestFeedEvents(events, muted);
-      } catch {
-        /* quiet */
       }
-    };
-
-    const first = window.setTimeout(() => void pull(), 15_000);
-    const interval = window.setInterval(() => void pull(), 45_000);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(first);
-      window.clearInterval(interval);
-    };
+    );
   });
 
   $effect(() => {
@@ -2269,18 +2048,18 @@
       <LoadingHint message={loadingMessageForTab(feedTab)} />
     {:else if !visibleItems.length}
       <p class="muted">{emptyMessageForTab(feedTab)}</p>
-      {#if pendingNew.length}
+      {#if pendingVisible.length}
         <p class="feed-new-wrap">
           <button type="button" class="btn feed-new-events" onclick={admitNewEvents}>
-            New Events ({pendingNew.length})
+            New Events ({pendingVisible.length})
           </button>
         </p>
       {/if}
     {:else}
-      {#if pendingNew.length}
+      {#if pendingVisible.length}
         <p class="feed-new-wrap">
           <button type="button" class="btn feed-new-events" onclick={admitNewEvents}>
-            New Events ({pendingNew.length})
+            New Events ({pendingVisible.length})
           </button>
         </p>
       {/if}

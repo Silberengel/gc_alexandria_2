@@ -4,6 +4,7 @@ import './lib/hljs-theme.css';
 import './lib/stores/appearance';
 import { registerPwa } from './lib/pwa';
 import { rewritePathDeepLinkToHash } from './lib/path-to-hash';
+import { installFocusInView } from './lib/focus-in-view';
 import { installViewportLock } from './lib/viewport-lock';
 import App from './App.svelte';
 
@@ -12,6 +13,8 @@ rewritePathDeepLinkToHash();
 
 // Tablets: kill pinch/double-tap zoom so TopBar + footer stay in the layout.
 installViewportLock();
+// Keep focused fields above the OS keyboard / stylus handwriting pad.
+installFocusInView();
 
 registerPwa();
 

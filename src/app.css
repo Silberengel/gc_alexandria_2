@@ -139,6 +139,15 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Room to scroll a focused field above the OS keyboard / stylus pad. */
+  padding-bottom: var(--keyboard-inset, 0px);
+  scroll-padding-bottom: max(1.5rem, var(--keyboard-inset, 0px));
+}
+
+.app-scroll textarea,
+.app-scroll input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+.app-scroll [contenteditable='true'] {
+  scroll-margin-bottom: max(1.25rem, var(--keyboard-inset, 0px));
 }
 
 .shell {

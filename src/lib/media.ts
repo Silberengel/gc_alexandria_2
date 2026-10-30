@@ -1,8 +1,16 @@
 import type { Event } from 'nostr-tools';
+import {
+  BLOSSOM_URI_RE,
+  blossomBlobCandidates,
+  blossomMediaType,
+  findBlossomUris
+} from './blossom';
 
 export type MediaItem = {
   type: 'image' | 'video' | 'audio';
   url: string;
+  /** Extra BUD-01 http(s) URLs to try when `url` fails (BUD-10 xs / presets). */
+  fallbacks?: string[];
   alt?: string;
   poster?: string;
   width?: number;
@@ -102,14 +110,30 @@ function prefersDisplayUrl(current: string, next: string): boolean {
   return /\/thumb\//i.test(current) && !/\/thumb\//i.test(next);
 }
 
-function pushUnique(out: MediaItem[], url: string, type: MediaItem['type']): void {
+function pushUnique(
+  out: MediaItem[],
+  url: string,
+  type: MediaItem['type'],
+  fallbacks?: string[]
+): void {
   if (!isHttpUrl(url)) return;
-  const existing = out.find((item) => sameMedia(item.url, url));
+  const existing = out.find(
+    (item) => sameMedia(item.url, url) || fallbacks?.some((f) => sameMedia(item.url, f))
+  );
   if (existing) {
     if (prefersDisplayUrl(existing.url, url)) existing.url = url;
+    if (fallbacks?.length) {
+      const have = new Set([existing.url, ...(existing.fallbacks ?? [])].map((u) => u.toLowerCase()));
+      const extra = fallbacks.filter((f) => !have.has(f.toLowerCase()));
+      if (extra.length) existing.fallbacks = [...(existing.fallbacks ?? []), ...extra];
+    }
     return;
   }
-  out.push({ type, url });
+  out.push({
+    type,
+    url,
+    ...(fallbacks?.length ? { fallbacks } : {})
+  });
 }
 
 /** Keep NIP-92 fields (`alt`, poster, dims) when merging an imeta row into the list. */
@@ -194,6 +218,14 @@ export function uniqueMedia(event: Event): MediaItem[] {
     const type = classify(url);
     if (type) pushUnique(out, url, type);
   }
+  // BUD-10 blossom: URIs — resolve to http(s) candidates for <img>/<video>.
+  for (const blossom of findBlossomUris(event.content ?? '')) {
+    const type = blossomMediaType(blossom.ext);
+    if (!type) continue;
+    const candidates = blossomBlobCandidates(blossom);
+    if (!candidates.length) continue;
+    pushUnique(out, candidates[0]!, type, candidates.slice(1));
+  }
   return out;
 }
 
@@ -220,9 +252,33 @@ function mediaKeySet(urls: Array<string | undefined>): Set<string> {
 
 /** Remove file URLs from note text without flattening paragraph breaks. */
 export function omitMediaUrls(content: string, media: MediaItem[]): string {
-  const keys = mediaKeySet(media.flatMap((item) => [item.url, item.poster]));
-  if (!content || !keys.size) return content.replace(/[ \t]{2,}/g, ' ').trim();
-  let out = content.replace(CONTENT_URL_RE, (raw) =>
+  const keys = mediaKeySet(
+    media.flatMap((item) => [item.url, item.poster, ...(item.fallbacks ?? [])])
+  );
+  if (!content) return content;
+  // Always strip BUD-10 blossom: refs that we resolved into `media` (match by sha256).
+  const blossomHashes = new Set<string>();
+  for (const item of media) {
+    for (const key of mediaMatchKeys(item.url)) {
+      if (key.startsWith('sha256:')) blossomHashes.add(key.slice('sha256:'.length));
+    }
+    for (const fb of item.fallbacks ?? []) {
+      for (const key of mediaMatchKeys(fb)) {
+        if (key.startsWith('sha256:')) blossomHashes.add(key.slice('sha256:'.length));
+      }
+    }
+  }
+  let out = content;
+  if (blossomHashes.size) {
+    out = out.replace(new RegExp(BLOSSOM_URI_RE.source, 'gi'), (raw) => {
+      const hash = /blossom:([a-f0-9]{64})/i.exec(raw)?.[1]?.toLowerCase();
+      return hash && blossomHashes.has(hash) ? '' : raw;
+    });
+  }
+  if (!keys.size) {
+    return out.replace(/[ \t]{2,}/g, ' ').trim();
+  }
+  out = out.replace(CONTENT_URL_RE, (raw) =>
     contentUrlVariants(raw).some((url) => matchesMedia(url, keys)) ? '' : raw
   );
   out = out
