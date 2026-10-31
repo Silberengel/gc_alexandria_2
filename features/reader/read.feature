@@ -79,6 +79,8 @@ Feature: In-browser reader
     And the top-level 30040 title is the first ToC link (jumps to the publication top) and the first reading-pane heading
     And basic edition metadata (authors, publisher, summary) appears under that top index heading
     And an index or section with an image tag shows that image as a hero above its heading
+    And the same plate is not repeated under that section's body text (image / imeta stay in the header only)
+    And a nested or later same-level section that repeats a plate already shown above omits the hero
     And a Mercury index row with no event still shows as a titled heading in the ToC and reading pane (not an unavailable stub)
     And nested 30040 titles appear as headings in the reading pane (not only in the ToC)
     And ToC order stays fixed to that tree / 30040 order when jumping or loading more sections

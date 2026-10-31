@@ -148,9 +148,14 @@ function explicitImageTag(event: Event): string | undefined {
   return undefined;
 }
 
-/** Kinds that show a publication hero. Notes must not lose their first image. */
+/**
+ * Kinds that paint an `image` tag as a reading hero (not a body attachment).
+ * Notes must not lose their first image; sections use the same plate as the
+ * header figure so EventBody can strip the duplicate imeta under the text.
+ */
 const CONTENT_HERO_KINDS = new Set<number>([
   KIND.PUBLICATION,
+  KIND.SECTION,
   KIND.WIKI,
   KIND.SPEC,
   KIND.LONG_FORM
@@ -440,8 +445,9 @@ export function eventHeroImageUrls(event: Event): string[] {
 }
 
 /**
- * Cover URLs from the edition and every painted index that appears above
- * `section` in document order — used to suppress repeated plates on children.
+ * Cover URLs from the edition and every painted event that appears above
+ * `section` in document order — higher indexes and earlier same-level siblings.
+ * Used to show a repeated plate only once.
  */
 export function paintedAncestorHeroUrls(
   section: Event,
@@ -452,7 +458,13 @@ export function paintedAncestorHeroUrls(
   if (edition) bag.push(...eventHeroImageUrls(edition));
   for (const ev of painted) {
     if (ev.id === section.id) break;
-    if (ev.kind === KIND.PUBLICATION) bag.push(...eventHeroImageUrls(ev));
+    if (ev.kind === KIND.PUBLICATION) {
+      bag.push(...eventHeroImageUrls(ev));
+      continue;
+    }
+    // Leaves: only the explicit `image` plate (not first-content-image fallback).
+    const plate = sectionHeroFullImageUrl(ev) ?? sectionHeroImageUrl(ev);
+    if (plate) bag.push(plate);
   }
   return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
 }
@@ -463,9 +475,10 @@ function matchesAnyHeroUrl(hero: string, candidates: string[]): boolean {
 
 /**
  * Hero for a reading-pane section. Nested indexes/sections that repeat the
- * edition or a painted index above them are omitted — that double-hero is
- * redundant. Edition root falls back to the first content image, then the same
- * cover sources as {@link coverImageUrl} (image / imeta / Gutenberg).
+ * edition, a painted index above them, or an earlier same-level sibling are
+ * omitted — that double-hero is redundant. Edition root falls back to the
+ * first content image, then the same cover sources as {@link coverImageUrl}
+ * (image / imeta / Gutenberg).
  */
 export function readerSectionHeroUrl(
   section: Event,

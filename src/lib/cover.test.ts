@@ -34,6 +34,7 @@ describe('isContentHeroKind', () => {
     expect(isContentHeroKind(KIND.WIKI)).toBe(true);
     expect(isContentHeroKind(KIND.SPEC)).toBe(true);
     expect(isContentHeroKind(KIND.PUBLICATION)).toBe(true);
+    expect(isContentHeroKind(KIND.SECTION)).toBe(true);
     expect(isContentHeroKind(1)).toBe(false);
     expect(isContentHeroKind(KIND.PICTURE)).toBe(false);
   });
@@ -239,6 +240,16 @@ describe('readerSectionHeroUrl', () => {
       KIND.SECTION
     );
     expect(readerSectionHeroUrl(leaf, root, [chapter, leaf])).toBe('https://example.com/unique.jpg');
+  });
+
+  it('shows a same-level plate once, then skips later siblings with the same image', () => {
+    const plate = 'https://example.com/douay-cover.jpg';
+    const root = ev([['title', 'Bible']], '1'.repeat(64));
+    const first = ev([['image', plate], ['title', '4:1']], '2'.repeat(64), KIND.SECTION);
+    const second = ev([['image', plate], ['title', '4:2']], '3'.repeat(64), KIND.SECTION);
+    expect(readerSectionHeroUrl(first, root, [first, second])).toBe(plate);
+    expect(paintedAncestorHeroUrls(second, root, [first, second])).toContain(plate);
+    expect(readerSectionHeroUrl(second, root, [first, second])).toBeUndefined();
   });
 
   it('uses Gutenberg / cover sources on the edition root when image is absent', () => {

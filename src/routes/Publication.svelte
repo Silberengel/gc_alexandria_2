@@ -131,7 +131,9 @@
     contentHeroFullUrl,
     contentHeroThumbUrl,
     readerSectionHeroFullUrl,
-    readerSectionHeroUrl
+    readerSectionHeroUrl,
+    sectionHeroFullImageUrl,
+    sectionHeroImageUrl
   } from '$lib/cover';
   import { coverPlaceholderUrl } from '$lib/cover-fallback';
   import { isRemoteImageMissing } from '$lib/image-reachable';
@@ -397,8 +399,9 @@
 
   const addr = $derived(event ? eventAddress(event) : '');
   /**
-   * Cover URLs for the edition and painted indexes — nested bodies strip
-   * `image` tags / early content that repeat any of these plates.
+   * Cover URLs for the edition, painted indexes, and leaf `image` plates —
+   * nested bodies strip tags / early content that repeat any of these so the
+   * same plate is not dumped under every verse after the text.
    */
   const publicationHeroUrls = $derived.by(() => {
     if (!event) return [];
@@ -413,7 +416,12 @@
       bag.push(...eventHeroImageUrls(scopedPaintIndex));
     }
     for (const section of sections) {
-      if (section.kind === KIND.PUBLICATION) bag.push(...eventHeroImageUrls(section));
+      if (section.kind === KIND.PUBLICATION) {
+        bag.push(...eventHeroImageUrls(section));
+        continue;
+      }
+      const plate = sectionHeroFullImageUrl(section) ?? sectionHeroImageUrl(section);
+      if (plate) bag.push(plate);
     }
     return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
   });
@@ -4318,7 +4326,7 @@
                           event={{ ...section, content: parts.text }}
                           applyTranslation={false}
                           quotes={quotesFor(section)}
-                          dedupeHeroImage={Boolean(showHero)}
+                          dedupeHeroImage
                           dedupeHeroUrls={publicationHeroUrls}
                         />
                       {/if}
@@ -4331,7 +4339,7 @@
                       <EventBody
                         event={section}
                         quotes={quotesFor(section)}
-                        dedupeHeroImage={Boolean(showHero)}
+                        dedupeHeroImage
                         dedupeHeroUrls={publicationHeroUrls}
                       />
                     </div>
