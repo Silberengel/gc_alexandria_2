@@ -3,6 +3,7 @@
   import { untrack } from 'svelte';
   import type { Event } from 'nostr-tools';
   import HeartButton from './HeartButton.svelte';
+  import BookmarkButton from './BookmarkButton.svelte';
   import TipButton from './TipButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
@@ -161,6 +162,7 @@
   <div class="event-social-actions">
     <TipButton {event} />
     <HeartButton {event} />
+    <BookmarkButton {event} />
     <ThreadRefBadges {event} {zaps} {boosts} />
     {#if allowReply}
       <button

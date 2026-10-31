@@ -16,6 +16,7 @@ Feature: Comments, threads, and ratings
     And each comment shows a relative created-at time (with the absolute time on hover)
     And kind 1 replies nest under their parent e-tag (or as roots when that e-tag is the edition)
     And each kind 1 or kind 1111 response has a heart button that shows the count of kind 7 "+" likes (rendered as the jumble heart emoji)
+    And each response also has a bookmark-icon toggle beside the heart (kind 10003 for other people's events, kind 10001 pin for my own)
 
   Scenario: Edition comments include notes, quotes, and highlights
     Given an edition has kind 1111 comments and kind 1 notes that e-tag or a-tag the edition
@@ -52,6 +53,11 @@ Feature: Comments, threads, and ratings
     And liking again removes my reaction with a kind 5 deletion
     And I cannot like my own events (heart button disabled)
     And when I am signed out the heart and reply buttons are disabled
+    And the bookmark toggle on someone else's event asks whether to bookmark publicly or privately before publishing kind 10003
+    And a private bookmark is stored in encrypted NIP-51 content tags; a public one is a normal list tag
+    And other bookmark entries are preserved either way
+    And the bookmark toggle on my own event pins or unpins on kind 10001 publicly (no visibility prompt)
+    And tapping an active bookmark or pin removes only that entry
 
   Scenario: Ratings use kind 34259 on an edition
     Given ratings are kind 34259 events with m=book, books, novel, or publication whose d and a/A tags are 30040:<pubkey>:<d-tag>

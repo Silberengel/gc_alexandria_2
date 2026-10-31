@@ -32,6 +32,7 @@
   import CopyPointerButton from './CopyPointerButton.svelte';
   import LoadingHint from './LoadingHint.svelte';
   import HeartButton from './HeartButton.svelte';
+  import BookmarkButton from './BookmarkButton.svelte';
   import TipButton from './TipButton.svelte';
   import AppHandlerIcon from './AppHandlerIcon.svelte';
   import UserBadge from './UserBadge.svelte';
@@ -541,6 +542,7 @@
     <div class="details-toolbar">
       <TipButton {event} />
       <HeartButton {event} />
+      <BookmarkButton {event} />
       <button
         class="btn btn-icon icon-action-btn thread-reply"
         type="button"

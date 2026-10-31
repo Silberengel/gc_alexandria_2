@@ -130,10 +130,9 @@
     eventHeroImageUrls,
     contentHeroFullUrl,
     contentHeroThumbUrl,
+    paintedEventHeroUrls,
     readerSectionHeroFullUrl,
-    readerSectionHeroUrl,
-    sectionHeroFullImageUrl,
-    sectionHeroImageUrl
+    readerSectionHeroUrl
   } from '$lib/cover';
   import { coverPlaceholderUrl } from '$lib/cover-fallback';
   import { isRemoteImageMissing } from '$lib/image-reachable';
@@ -418,12 +417,7 @@
       bag.push(...eventHeroImageUrls(scopedPaintIndex));
     }
     for (const section of sections) {
-      if (section.kind === KIND.PUBLICATION) {
-        bag.push(...eventHeroImageUrls(section));
-        continue;
-      }
-      const plate = sectionHeroFullImageUrl(section) ?? sectionHeroImageUrl(section);
-      if (plate) bag.push(plate);
+      bag.push(...paintedEventHeroUrls(section));
     }
     return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
   });

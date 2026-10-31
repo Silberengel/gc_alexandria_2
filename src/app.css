@@ -7126,6 +7126,7 @@ a.embed-event-line:focus-visible {
 }
 /* Icon+count controls: grow as a pill so 1–4 digit counts stay inside the border. */
 .btn.btn-icon.heart-btn,
+.btn.btn-icon.bookmark-btn,
 .btn.btn-icon.read-btn {
   display: inline-flex;
   align-items: center;
@@ -7144,6 +7145,8 @@ a.embed-event-line:focus-visible {
 }
 .heart-btn:hover:not(:disabled),
 .heart-btn:focus-visible,
+.bookmark-btn:hover:not(:disabled),
+.bookmark-btn:focus-visible,
 .read-btn:hover:not(:disabled),
 .read-btn:focus-visible {
   color: var(--text);
@@ -7175,6 +7178,26 @@ a.embed-event-line:focus-visible {
 :root.dark .heart-btn.heart-on:hover:not(:disabled),
 :root.dark .heart-btn[aria-pressed='true']:hover:not(:disabled) {
   color: #ff8a80;
+}
+.bookmark-btn.bookmark-on,
+.bookmark-btn[aria-pressed='true'] {
+  color: color-mix(in srgb, var(--accent-strong, var(--accent)) 88%, var(--text));
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  font-weight: inherit;
+  box-shadow: none;
+}
+.bookmark-btn.bookmark-on:hover:not(:disabled),
+.bookmark-btn[aria-pressed='true']:hover:not(:disabled),
+.bookmark-btn.bookmark-on:focus-visible,
+.bookmark-btn[aria-pressed='true']:focus-visible {
+  color: var(--accent-strong, var(--accent));
+}
+:root.dark .bookmark-btn.bookmark-on,
+:root.dark .bookmark-btn[aria-pressed='true'] {
+  color: color-mix(in srgb, var(--accent) 75%, #fff);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
 }
 /* Response controls stay as quiet as the … menu until hovered. */
 .thread-actions .btn.btn-icon.heart-btn,

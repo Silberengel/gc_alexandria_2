@@ -445,6 +445,22 @@ export function eventHeroImageUrls(event: Event): string[] {
 }
 
 /**
+ * Hero URLs contributed by one painted event for duplicate suppression.
+ * Article indexes (publication / wiki / spec / long-form) use the full cover
+ * bag; leaf sections keep only an explicit `image` plate so a unique body
+ * illustration is not treated as a shared cover.
+ */
+export function paintedEventHeroUrls(event: Event): string[] {
+  if (event.kind === KIND.SECTION) {
+    const plate = sectionHeroFullImageUrl(event) ?? sectionHeroImageUrl(event);
+    return plate ? [plate] : [];
+  }
+  if (isContentHeroKind(event.kind)) return eventHeroImageUrls(event);
+  const plate = sectionHeroFullImageUrl(event) ?? sectionHeroImageUrl(event);
+  return plate ? [plate] : [];
+}
+
+/**
  * Cover URLs from the edition and every painted event that appears above
  * `section` in document order — higher indexes and earlier same-level siblings.
  * Used to show a repeated plate only once.
@@ -458,13 +474,7 @@ export function paintedAncestorHeroUrls(
   if (edition) bag.push(...eventHeroImageUrls(edition));
   for (const ev of painted) {
     if (ev.id === section.id) break;
-    if (ev.kind === KIND.PUBLICATION) {
-      bag.push(...eventHeroImageUrls(ev));
-      continue;
-    }
-    // Leaves: only the explicit `image` plate (not first-content-image fallback).
-    const plate = sectionHeroFullImageUrl(ev) ?? sectionHeroImageUrl(ev);
-    if (plate) bag.push(plate);
+    bag.push(...paintedEventHeroUrls(ev));
   }
   return [...new Set(bag.map((u) => u.trim()).filter(Boolean))];
 }

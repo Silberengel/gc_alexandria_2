@@ -9,6 +9,7 @@ import {
   isContentHeroKind,
   gutenbergCoverUrl,
   paintedAncestorHeroUrls,
+  paintedEventHeroUrls,
   readerSectionHeroFullUrl,
   readerSectionHeroUrl,
   sectionHeroImageUrl,
@@ -250,6 +251,19 @@ describe('readerSectionHeroUrl', () => {
     expect(readerSectionHeroUrl(first, root, [first, second])).toBe(plate);
     expect(paintedAncestorHeroUrls(second, root, [first, second])).toContain(plate);
     expect(readerSectionHeroUrl(second, root, [first, second])).toBeUndefined();
+  });
+
+  it('uses full hero bags for wiki/spec/long-form ancestors, not only image tags', () => {
+    const wiki = ev(
+      [['title', 'Article'], ['d', 'pg141-mansfield-park']],
+      '1'.repeat(64),
+      KIND.WIKI
+    );
+    const full = paintedEventHeroUrls(wiki);
+    expect(full).toEqual(eventHeroImageUrls(wiki));
+    expect(full.length).toBeGreaterThan(0);
+    const leaf = ev([['image', 'https://example.com/aside.jpg']], '2'.repeat(64), KIND.SECTION);
+    expect(paintedEventHeroUrls(leaf)).toEqual(['https://example.com/aside.jpg']);
   });
 
   it('uses Gutenberg / cover sources on the edition root when image is absent', () => {

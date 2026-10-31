@@ -11,6 +11,7 @@
   import { canOfferKind1Reply, highlightsForEvent, threadNodeKey } from '$lib/comments';
   import { formatAbsoluteTime, formatRelativeTime } from '$lib/relative-time';
   import HeartButton from './HeartButton.svelte';
+  import BookmarkButton from './BookmarkButton.svelte';
   import TipButton from './TipButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import ThreadRefBadges from './ThreadRefBadges.svelte';
@@ -130,6 +131,7 @@
       <div class="thread-actions">
         <TipButton {event} />
         <HeartButton {event} />
+        <BookmarkButton {event} />
         <ThreadRefBadges {event} {zaps} {boosts} />
         <button
           class="btn btn-icon icon-action-btn thread-reply"

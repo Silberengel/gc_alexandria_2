@@ -104,10 +104,28 @@ Feature: Landing bookshelves
   Scenario: Signed-in user can add and remove one bookmark
     Given I am signed in
     And I already have other items on my kind 10003
-    When I bookmark a work from an edition page
+    When I toggle the bookmark icon on someone else's edition (social bar / Details)
+    Then I am asked to bookmark publicly or privately
+    When I choose publicly
     Then my kind 10003 is published with that publication's a-tag or e-tag added
     And every other bookmark entry is preserved
-    When I remove that bookmark
+    When I toggle that bookmark off
     Then that one entry is gone
     And the rest of the list remains
     And the whole 10003 is not replaced by a single-item list
+
+  Scenario: Private bookmark stays in encrypted content
+    Given I am signed in
+    When I toggle the bookmark icon on someone else's event and choose privately
+    Then my kind 10003 keeps public tags otherwise unchanged
+    And the new pointer is in encrypted private tags (NIP-51 content)
+
+  Scenario: Signed-in user pins their own events
+    Given I am signed in
+    And I already have other items on my kind 10001
+    When I toggle the bookmark icon on one of my own events
+    Then I am not asked for visibility — the pin is always public
+    And my kind 10001 is published with that event's e-tag or a-tag added
+    And every other pin entry is preserved
+    When I toggle that pin off
+    Then that one entry is gone and the rest of the pin list remains

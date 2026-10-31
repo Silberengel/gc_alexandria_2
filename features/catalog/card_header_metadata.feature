@@ -47,7 +47,7 @@ Feature: Publication and wiki card metadata
     And subject t-tags appear under Topics as plain search links (no leading #)
     And Language and Topics share one row when either is present
     And the Details accordion stacks label-above-value on a narrow screen so long ids and relay URLs wrap without horizontal scroll
-    And Details has a heart reaction count button and a more menu to copy the pointer and open the event on njump.me or jumble.imwald.eu
+    And Details has a heart reaction count button, a bookmark/pin toggle beside it, and a more menu to copy the pointer and open the event on njump.me or jumble.imwald.eu
     And that copied naddr or nevent always includes the relay the event was found on (then stack defaults)
     And a non-URL source string is a plain source label
     And shelf and Read actions are grouped separately from those labels

@@ -527,18 +527,4 @@ export function nestedShelvesForViewer(
   return out.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
 
-export function withBookmarkTag(
-  bookmark: Event | null,
-  publication: Event,
-  add: boolean
-): string[][] {
-  const addr = eventAddress(publication);
-  const existing = bookmark?.tags ?? [];
-  const without = existing.filter((t) => {
-    if (t[0] === 'a' && t[1] === addr) return false;
-    if (t[0] === 'e' && t[1]?.toLowerCase() === publication.id.toLowerCase()) return false;
-    return true;
-  });
-  if (!add) return without;
-  return [...without, ['a', addr]];
-}
+export { withListMembershipTag as withBookmarkTag } from './bookmark-actions';
