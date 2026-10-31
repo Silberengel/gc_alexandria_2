@@ -936,6 +936,9 @@ export function highlightsForEvent(highlights: Event[], event: Event): Event[] {
 }
 
 export function isXmrZap(event: Event): boolean {
+  // Kind 9735 is a Lightning receipt. Its description JSON often lists
+  // wss://nostr.xmr.rocks, which must not count as a Monero tip.
+  if (event.kind === KIND.ZAP) return false;
   if (event.kind === KIND.MONERO_TIP || event.kind === KIND.MONERO_TIP_RECEIPT) return true;
   if (
     event.kind === KIND.TEXT_NOTE &&
@@ -943,7 +946,14 @@ export function isXmrZap(event: Event): boolean {
   ) {
     return true;
   }
-  return event.tags.some((t) => t.some((cell) => /xmr|monero/i.test(cell ?? '')));
+  return event.tags.some((t) => {
+    const name = (t[0] ?? '').toLowerCase();
+    if (name === 'amount_xmr') return true;
+    if (name === 'amount' || name === 'unit') {
+      return t.slice(1).some((cell) => /^(xmr|monero)$/i.test((cell ?? '').trim()));
+    }
+    return false;
+  });
 }
 
 function nip73Values(target: Event): string[] {

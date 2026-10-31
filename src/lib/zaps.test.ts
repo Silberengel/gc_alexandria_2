@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
+import { isXmrZap } from './comments';
 import { KIND } from './constants';
 import {
   formatCompactSats,
@@ -162,5 +163,31 @@ describe('zaps', () => {
     expect(isKind1MoneroTip(note)).toBe(true);
     expect(parseMoneroTip(note)?.amountXmr).toBe(0.0002);
     expect(tipNotificationText(note)).toBe('Monero tip · 0.0002 XMR — tip');
+    expect(isXmrZap(note)).toBe(true);
+  });
+
+  it('does not treat a Lightning zap as Monero when a relay hint contains xmr', () => {
+    const zap = ev({
+      kind: KIND.ZAP,
+      tags: [
+        ['p', 'e'.repeat(64)],
+        ['e', '0'.repeat(64)],
+        ['bolt11', 'lnbc2210n1p4wv2xv'],
+        [
+          'description',
+          JSON.stringify({
+            kind: 9734,
+            tags: [
+              ['relays', 'wss://nostr.xmr.rocks/', 'wss://nos.lol/'],
+              ['amount', '221000'],
+              ['e', '0'.repeat(64)]
+            ],
+            content: 'Zap from Nostr Vault'
+          })
+        ]
+      ]
+    });
+    expect(isXmrZap(zap)).toBe(false);
+    expect(isXmrZap(ev({ kind: KIND_MONERO_TIP, tags: [['amount', '1', 'XMR']] }))).toBe(true);
   });
 });
