@@ -5,6 +5,7 @@ import { get } from 'svelte/store';
 import {
   deletionRevision,
   filterDeletedEvents,
+  isAddressDeleted,
   isEventDeleted,
   rememberDeletedTarget,
   rememberDeletion,
@@ -151,5 +152,39 @@ describe('deletions', () => {
       })
     );
     expect(isEventDeleted(target)).toBe(true);
+  });
+
+  it('rememberDeletedTarget tombstones the target address so sibling replaceables stay hidden', () => {
+    const pk = 'b'.repeat(64);
+    const target = ev({
+      id: 'a'.repeat(64),
+      pubkey: pk,
+      kind: KIND.DIRECTORY,
+      created_at: 100,
+      tags: [['d', 'gc-starter-guides-probe']]
+    });
+    const sibling = ev({
+      id: 'e'.repeat(64),
+      pubkey: pk,
+      kind: KIND.DIRECTORY,
+      created_at: 150,
+      tags: [['d', 'gc-starter-guides-probe']]
+    });
+    rememberDeletedTarget(
+      target,
+      ev({
+        id: 'c'.repeat(64),
+        pubkey: pk,
+        kind: KIND.DELETION,
+        created_at: 200,
+        tags: [
+          ['e', target.id],
+          ['k', String(KIND.DIRECTORY)]
+        ]
+      })
+    );
+    expect(isEventDeleted(target)).toBe(true);
+    expect(isEventDeleted(sibling)).toBe(true);
+    expect(isAddressDeleted(KIND.DIRECTORY, pk, 'gc-starter-guides-probe')).toBe(true);
   });
 });

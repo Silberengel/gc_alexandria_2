@@ -1,26 +1,33 @@
 @mvp
-Feature: Landing starter guides
-  As a visitor
-  I want GitCitadel Publishing recommendation shelves on Home
-  So that I can start reading without knowing the full catalog
+Feature: Landing shelf rows and guide chips
+  As a visitor or signed-in reader
+  I want calm cover rows for bookshelves
+  So that I can browse without a stack of per-folder shelves
 
   Background:
-    Given Guides are kind 30045 folder children of the GitCitadel Publishing curator’s my-book-collection
-    And the curator npub is the configured GitCitadel Publishing curator
-    And guide chips link to /search?bookshelf={d}&npub={curator}
-    And community Labels chips stay separate and popularity-ranked
-    And adding or removing folders under my-book-collection changes which Guides appear on the next Home load
+    Given cover rows use horizontal shelf bars
+    And bookshelf / guide folder names use Guides-style guide-links chips
+    And the From the guides chip list always renders (including Biblestr), even before relays answer
+    And guide covers appear only when those publications are not already on shelves above
+    And extra guides cover tracks open only once each track can stay dense/scrollable (do not shred a thin resolve across empty rows)
+    And shelf heading labels for own bookshelves and guides are not clickable
 
-  Scenario: Home shows Guides from the curator bookshelf
-    Given the curator has published my-book-collection with nested folder directories
-    When I open the home page as a visitor or signed-in reader
-    Then I see a Guides section directly below the landing title and byline, above Reading now and the shelves
-    And each nested folder under my-book-collection appears as a guide chip in membership order
-    And each guide chip uses curated styling distinct from Labels chips
-    And clicking a guide opens an explicit bookshelf search scoped to the curator npub
-
-  Scenario: Missing bookshelf omits Guides
-    Given the curator my-book-collection is not on the document stack
+  Scenario: Signed-in Home shelves
+    Given I am signed in with kind 30045 directories under my-book-collection
     When I open the home page
-    Then the Guides section is omitted
-    And Labels still work as before
+    Then I see one cover row titled "From your bookshelves" with covers from all my bookshelf folders
+    And under that label I see my bookshelf names as guide-links chips
+    And I see a cover row titled "From your follows' bookshelves" with follows' shelved publications minus my own
+    And I see a cover row titled "From the network"
+    And below that I see From the guides (one heading, one or more cover tracks)
+    And under that guides label I see guide folder chips (and Biblestr)
+    And those cover shelves stay together (Booklists does not sit between them)
+    And if mine or follows has no covers, an extra guides cover track fills that slot under the same heading
+
+  Scenario: Signed-out Home shelves
+    Given I am not signed in
+    When I open the home page
+    Then I see From the network
+    And below that I see From the guides once as a heading with three cover tracks
+    And under that guides label I see guide folder chips (and Biblestr)
+    And those cover shelves stay together (Booklists does not sit between them)

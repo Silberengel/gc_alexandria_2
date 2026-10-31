@@ -365,9 +365,13 @@ export async function fetchPublication(d: string, pubkey: string): Promise<Event
   return fetchByAddress(`${KIND.PUBLICATION}:${pubkey.toLowerCase()}:${d}`);
 }
 
-export async function fetchByAddresses(coords: string[], concurrency = 3): Promise<Event[]> {
+export async function fetchByAddresses(
+  coords: string[],
+  concurrency = 3,
+  opts?: FetchByAddressOpts
+): Promise<Event[]> {
   const unique = [...new Set(coords.filter(Boolean))];
-  const fetched = await poolMap(unique, concurrency, fetchByAddress);
+  const fetched = await poolMap(unique, concurrency, (coord) => fetchByAddress(coord, opts));
   return fetched.filter((e): e is Event => !!e);
 }
 

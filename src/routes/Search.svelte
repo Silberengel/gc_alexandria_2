@@ -277,23 +277,28 @@
     else if (queue) void runReadingQueueSearch(queue, onUpdate);
     else if (read) void runReadSearch(read, onUpdate);
     else if (bookshelf) {
-      void loadBookshelfCatalog(bookshelf, shelfNpub || undefined)
+      const applyDirectory = (directory: Event | null) => {
+        if (runGen !== searchGen) return;
+        if (directory) {
+          bookshelfDirectory = directory;
+        } else {
+          // Keep a prior hit for the same slug so Edit does not vanish on a flaky refetch.
+          const priorD = bookshelfDirectory ? normalizeDTag(directoryDTag(bookshelfDirectory)) : '';
+          const wantD = normalizeDTag(bookshelf);
+          const priorAuthor = bookshelfDirectory?.pubkey.toLowerCase() ?? '';
+          const wantAuthor = (nextAuthorHex || priorAuthor).toLowerCase();
+          if (!bookshelfDirectory || priorD !== wantD || (wantAuthor && priorAuthor !== wantAuthor)) {
+            bookshelfDirectory = null;
+          }
+        }
+        const dir = bookshelfDirectory;
+        if (dir && !bookshelfAuthorHex) bookshelfAuthorHex = dir.pubkey.toLowerCase();
+      };
+      void loadBookshelfCatalog(bookshelf, shelfNpub || undefined, applyDirectory)
         .then(({ directory, events: shelfEvents }) => {
           if (runGen !== searchGen) return;
-          if (directory) {
-            bookshelfDirectory = directory;
-          } else {
-            // Keep a prior hit for the same slug so Edit does not vanish on a flaky refetch.
-            const priorD = bookshelfDirectory ? normalizeDTag(directoryDTag(bookshelfDirectory)) : '';
-            const wantD = normalizeDTag(bookshelf);
-            const priorAuthor = bookshelfDirectory?.pubkey.toLowerCase() ?? '';
-            const wantAuthor = (nextAuthorHex || priorAuthor).toLowerCase();
-            if (!bookshelfDirectory || priorD !== wantD || (wantAuthor && priorAuthor !== wantAuthor)) {
-              bookshelfDirectory = null;
-            }
-          }
+          applyDirectory(directory);
           const dir = bookshelfDirectory;
-          if (dir && !bookshelfAuthorHex) bookshelfAuthorHex = dir.pubkey.toLowerCase();
           const me = session.getPubkey()?.toLowerCase() ?? '';
           const author = (nextAuthorHex || dir?.pubkey || me).toLowerCase();
           if (!bookshelfAuthorHex && author) bookshelfAuthorHex = author;

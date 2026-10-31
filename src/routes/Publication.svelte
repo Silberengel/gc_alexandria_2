@@ -52,7 +52,7 @@
     mercuryPublicationToc
   } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
-  import { documentStack, socialStack } from '$lib/nostr/selector';
+  import { documentStack, socialSearchStack, socialStack } from '$lib/nostr/selector';
   import { eventAddress, firstTag, isTopLevel30040 } from '$lib/nostr/verify';
   import { fetchById, fetchPublication, fetchByAddress, poolMap } from '$lib/nostr/fetch';
   import { cacheFindByAddress, cacheGetCompletePublication, cacheGetPublicationStreamSnapshot, cachePutPublicationStream, cacheClearPublicationStream } from '$lib/nostr/cache';
@@ -79,7 +79,13 @@
     highlightsForEvent,
     type WorkResponses
   } from '$lib/comments';
-  import { newestRatingPerAuthor, publicationRatingATagsForQuery, ratingHasScore, aggregateRating } from '$lib/ratings';
+  import {
+    newestRatingPerAuthor,
+    publicationRatingATagsForQuery,
+    ratingEventTargetsPublication,
+    ratingHasScore,
+    aggregateRating
+  } from '$lib/ratings';
   import { scrubProseText } from '$lib/clean-url';
   import {
     deleteThreadDraft,
@@ -813,9 +819,21 @@
     // Section-only highlight addrs — book/root coords already come from fetchWorkResponses.
     const bookKeySet = new Set(bookKeys);
     const sectionHighlightAddrs = [...new Set(sectionAddrs)].filter((k) => !bookKeySet.has(k));
+    // Landing feeds hunt ratings on socialSearchStack (nos.lol, …); edition page must too.
+    const ratingRelays = [...new Set([...socialStack(), ...socialSearchStack()])];
+    const ratingQueryOpts = { includeCooling: true, priority: true } as const;
+    const focusRatingId = focusFromUrl().rating;
+    // Warm from SPA memory immediately (landing → pub click) so ?rating= is not empty.
+    if (focusRatingId) {
+      const warm = memoryGetEvent(focusRatingId);
+      if (warm && ratingEventTargetsPublication(warm, target)) {
+        ratings = [warm];
+      }
+    }
     const [
       rA,
       rA2,
+      focusedRating,
       threadEvents,
       labelHits,
       bookmarkHits,
@@ -824,8 +842,25 @@
       readingQueueHits,
       ...highlightBatches
     ] = await Promise.all([
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }], 5000, 4),
-      relayPool.query(socialStack(), [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }], 5000, 4),
+      relayPool.query(
+        ratingRelays,
+        [{ kinds: [KIND.RATING], '#a': ratingKeys, limit: 50 }],
+        5000,
+        6,
+        undefined,
+        ratingQueryOpts
+      ),
+      relayPool.query(
+        ratingRelays,
+        [{ kinds: [KIND.RATING], '#A': ratingKeys, limit: 50 }],
+        5000,
+        6,
+        undefined,
+        ratingQueryOpts
+      ),
+      focusRatingId
+        ? Promise.resolve(memoryGetEvent(focusRatingId)).then((hit) => hit ?? fetchById(focusRatingId))
+        : Promise.resolve(null),
       fetchWorkResponses(target, 80),
       relayPool.query(socialStack(), [{ kinds: [KIND.LABEL], '#a': bookKeys, limit: 80 }], 5000, 4),
       relayPool.query(socialStack(), [{ kinds: [KIND.BOOKMARK], '#a': bookKeys, limit: 40 }], 5000, 4),
@@ -856,6 +891,10 @@
     if (!stillHere()) return;
     const ratingById = new Map<string, Event>();
     for (const e of [...rA, ...rA2]) ratingById.set(e.id, e);
+    if (focusedRating && ratingEventTargetsPublication(focusedRating, target)) {
+      ratingById.set(focusedRating.id, focusedRating);
+      rememberEvents([focusedRating]);
+    }
     ratings = [...ratingById.values()];
     comments = threadEvents.thread;
     workQuotes = threadEvents.quotes;

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   preferLive,
   subjectsFromPublications,
+  withSubjects,
   orderShelfCovers,
   landingCoverSeed,
   titleForAddress,
@@ -16,7 +17,15 @@ import {
   clearWarmLandingVisit,
   isWarmLandingRevisit
 } from './landing';
-import { orderLandingShelves, dedupeLandingShelfEvents } from './shelves';
+import {
+  bookshelfChipsFromDirectories,
+  guideCoverTrackCount,
+  GUIDES_MIN_COVERS_PER_TRACK,
+  orderLandingShelves,
+  dedupeLandingShelfEvents
+} from './shelves';
+import { MY_BOOK_COLLECTION_D_TAG } from './bookshelf';
+import { KIND } from './constants';
 import type { Event } from 'nostr-tools';
 import type { LandingShelfSnap } from './nostr/cache';
 
@@ -47,80 +56,180 @@ describe('landing cache fallback', () => {
       ])
     ).toEqual(['fiction', 'romance']);
   });
+
+  it('withSubjects counts t-tags on shelf covers when publications lack them', () => {
+    const tagged = ev([['t', 'novel'], ['t', 'classical'], ['title', 'Jane Eyre']], 'a');
+    tagged.kind = 30040;
+    const bare = ev([['title', 'Chronological Bible']], 'b');
+    bare.kind = 30040;
+    const view = withSubjects({
+      viewerPubkey: null,
+      publications: [bare],
+      highlights: [],
+      comments: [],
+      ratings: [],
+      referenced: [],
+      shelves: [{ id: 'mine', title: 'From your bookshelves', events: [tagged] }],
+      labels: []
+    });
+    expect(view.subjects).toEqual(['novel', 'classical']);
+  });
 });
 
 describe('mergeLandingShelves', () => {
   it('keeps prior shelves and unions events during progressive paints', () => {
     const a = ev([['d', 'book-a'], ['title', 'A']], '1');
+    a.pubkey = '1'.repeat(64);
     const b = ev([['d', 'book-b'], ['title', 'B']], '2');
+    b.pubkey = '2'.repeat(64);
     const c = ev([['d', 'book-c'], ['title', 'C']], '3');
+    c.pubkey = '1'.repeat(64);
     const prev: LandingShelfSnap[] = [
       { id: 'network', title: 'Network', events: [a, b] },
-      { id: 'mine', title: 'My shelf', events: [a] }
+      { id: 'mine', title: 'From your bookshelves', events: [a] }
     ];
-    const next: LandingShelfSnap[] = [{ id: 'mine', title: 'My shelf', events: [c] }];
+    const next: LandingShelfSnap[] = [
+      { id: 'mine', title: 'From your bookshelves', events: [c] }
+    ];
     const merged = mergeLandingShelves(prev, next);
     expect(merged.map((s) => s.id)).toEqual(['mine', 'network']);
     const mine = merged.find((s) => s.id === 'mine')!;
     expect(mine.events.map((e) => e.id).sort()).toEqual([a.id, c.id].sort());
-    // a stays on mine — network only keeps b
+    // a is on mine (same author scrubbed from network) — network only keeps b
     expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([b.id]);
   });
 
-  it('drops Mercury network filler when follows resolve without a network shelf', () => {
+  it('keeps Mercury network filler when follows resolve without a network shelf', () => {
     const nested = ev([['d', 'day-1'], ['title', 'Day 1']], '1');
+    nested.pubkey = 'a'.repeat(64);
     const followBook = ev([['d', 'jane-eyre'], ['title', 'Jane Eyre']], '2');
     followBook.pubkey = 'f'.repeat(64);
     const prev: LandingShelfSnap[] = [
       { id: 'network', title: 'From the network', events: [nested] }
     ];
     const next: LandingShelfSnap[] = [
-      { id: 'follows', title: 'From follows', events: [followBook] },
-      { id: 'mine', title: 'My shelf', events: [] }
+      { id: 'follows', title: "From your follows' bookshelves", events: [followBook] },
+      { id: 'mine', title: 'From your bookshelves', events: [] }
     ];
     const merged = mergeLandingShelves(prev, next);
-    expect(merged.map((s) => s.id)).toEqual(['follows']);
-    expect(merged.find((s) => s.id === 'network')).toBeUndefined();
+    expect(merged.map((s) => s.id)).toEqual(['follows', 'network']);
+    expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([nested.id]);
   });
 
-  it('scrubs follow-authored pubs off a kept network shelf', () => {
-    const followPk = 'f'.repeat(64);
-    const onFollows = ev([['d', 'classic'], ['title', 'Classic']], '1');
-    onFollows.pubkey = followPk;
-    const alsoNetwork = ev([['d', 'nested-day'], ['title', 'Day 3']], '2');
-    alsoNetwork.pubkey = followPk;
+  it('dedupes network covers that already appear on follows', () => {
+    const shared = ev([['d', 'classic'], ['title', 'Classic']], '1');
+    shared.pubkey = 'f'.repeat(64);
     const stranger = ev([['d', 'other'], ['title', 'Other']], '3');
     stranger.pubkey = 'c'.repeat(64);
     const merged = mergeLandingShelves(
-      [{ id: 'network', title: 'From the network', events: [alsoNetwork, stranger] }],
+      [{ id: 'network', title: 'From the network', events: [shared, stranger] }],
       [
-        { id: 'follows', title: 'From follows', events: [onFollows] },
-        { id: 'network', title: 'From the network', events: [alsoNetwork, stranger] }
+        { id: 'follows', title: "From your follows' bookshelves", events: [shared] },
+        { id: 'network', title: 'From the network', events: [shared, stranger] }
       ]
     );
     const network = merged.find((s) => s.id === 'network');
     expect(network?.events.map((e) => e.id)).toEqual([stranger.id]);
   });
+
+  it('keeps prior guide chips when a progressive pack omits them', () => {
+    const cover = ev([['d', 'iliad'], ['title', 'Iliad']], '1');
+    cover.pubkey = 'c'.repeat(64);
+    const chips = [{ d: 'ancient-classics', title: 'Ancient classics', href: '/search?bookshelf=ancient-classics' }];
+    const merged = mergeLandingShelves(
+      [{ id: 'guides', title: 'From the guides', events: [cover], chips }],
+      [{ id: 'guides', title: 'From the guides', events: [cover] }]
+    );
+    expect(merged.find((s) => s.id === 'guides')?.chips).toEqual(chips);
+  });
+});
+
+describe('guideCoverTrackCount', () => {
+  it('keeps one dense track while covers are still resolving', () => {
+    expect(guideCoverTrackCount(6, 3)).toBe(1);
+    expect(guideCoverTrackCount(GUIDES_MIN_COVERS_PER_TRACK - 1, 3)).toBe(1);
+  });
+
+  it('opens more tracks only when each can hold a full scrollable row', () => {
+    expect(guideCoverTrackCount(GUIDES_MIN_COVERS_PER_TRACK, 3)).toBe(1);
+    expect(guideCoverTrackCount(GUIDES_MIN_COVERS_PER_TRACK * 2, 3)).toBe(2);
+    expect(guideCoverTrackCount(GUIDES_MIN_COVERS_PER_TRACK * 3, 3)).toBe(3);
+    expect(guideCoverTrackCount(GUIDES_MIN_COVERS_PER_TRACK * 5, 3)).toBe(3);
+  });
+});
+
+describe('bookshelfChipsFromDirectories', () => {
+  const owner = 'a'.repeat(64);
+  const npub = 'npub1example';
+
+  function dir(d: string, childDs: string[] = [], title?: string): Event {
+    const tags: string[][] = [['d', d]];
+    if (title) tags.push(['title', title]);
+    for (const child of childDs) {
+      tags.push(['a', `${KIND.DIRECTORY}:${owner}:${child}`, '', 'b'.repeat(64)]);
+    }
+    return {
+      id: d.padEnd(64, '0').slice(0, 64),
+      kind: KIND.DIRECTORY,
+      pubkey: owner,
+      created_at: 1,
+      content: '',
+      tags,
+      sig: 'c'.repeat(128)
+    };
+  }
+
+  it('lists my-book-collection children in membership order with My bookshelf first', () => {
+    const chips = bookshelfChipsFromDirectories(
+      [
+        dir(MY_BOOK_COLLECTION_D_TAG, ['summer-reads', 'classics']),
+        dir('summer-reads', [], 'Summer reads'),
+        dir('classics')
+      ],
+      owner,
+      npub
+    );
+    expect(chips.map((c) => c.d)).toEqual([
+      MY_BOOK_COLLECTION_D_TAG,
+      'summer-reads',
+      'classics'
+    ]);
+    expect(chips[0]?.title).toBe('My bookshelf');
+    expect(chips[1]?.title).toBe('Summer reads');
+    expect(chips[2]?.title).toBe('Classics');
+    expect(chips[1]?.href).toContain('bookshelf=summer-reads');
+    expect(chips[1]?.href).toContain(`npub=${encodeURIComponent(npub)}`);
+  });
+
+  it('still chips from a-tags when child directory events are missing', () => {
+    const chips = bookshelfChipsFromDirectories(
+      [dir(MY_BOOK_COLLECTION_D_TAG, ['orphaned-shelf'])],
+      owner,
+      npub
+    );
+    expect(chips.map((c) => c.d)).toEqual([MY_BOOK_COLLECTION_D_TAG, 'orphaned-shelf']);
+    expect(chips[1]?.title).toBe('Orphaned shelf');
+  });
 });
 
 describe('orderLandingShelves', () => {
-  it('puts Reading now first, then My shelf, nested folders, follows, then network', () => {
+  it('puts Reading now first, then own bookshelves (folding legacy folders), follows, network, guides', () => {
     const ordered = orderLandingShelves([
-      { id: 'network', title: 'From the network' },
-      { id: 'folder:Mystery', title: 'Mystery' },
-      { id: 'follows', title: 'From follows' },
-      { id: 'folder:adventure', title: 'adventure' },
-      { id: 'gitcitadel', title: 'GitCitadel' },
-      { id: 'mine', title: 'My shelf' },
-      { id: 'reading-now', title: 'Reading now' }
+      { id: 'network', title: 'From the network', events: [] },
+      { id: 'folder:Mystery', title: 'Mystery', events: [] },
+      { id: 'follows', title: "From your follows' bookshelves", events: [] },
+      { id: 'folder:adventure', title: 'adventure', events: [] },
+      { id: 'gitcitadel', title: 'GitCitadel', events: [] },
+      { id: 'guides', title: 'From the guides', events: [] },
+      { id: 'mine', title: 'From your bookshelves', events: [] },
+      { id: 'reading-now', title: 'Reading now', events: [] }
     ]);
     expect(ordered.map((s) => s.id)).toEqual([
       'reading-now',
       'mine',
-      'folder:adventure',
-      'folder:Mystery',
       'follows',
-      'network'
+      'network',
+      'guides'
     ]);
   });
 });
@@ -145,7 +254,7 @@ describe('dedupeLandingShelfEvents', () => {
     const deduped = dedupeLandingShelfEvents([
       { id: 'network', title: 'From the network', events: [shared, onlyNet] },
       { id: 'gitcitadel', title: 'GitCitadel', events: [shared, onlyGc] },
-      { id: 'mine', title: 'My shelf', events: [shared] }
+      { id: 'mine', title: 'From your bookshelves', events: [shared] }
     ]);
     expect(deduped.map((s) => s.id)).toEqual(['mine', 'network']);
     expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
@@ -154,19 +263,32 @@ describe('dedupeLandingShelfEvents', () => {
     );
   });
 
-  it('keeps a cover on the nested folder and drops it from My shelf', () => {
+  it('folds legacy folder rows into From your bookshelves and drops duplicates lower down', () => {
     const shared = pub('shared', '1');
     const onlyMine = pub('mine-only', '2');
     const deduped = dedupeLandingShelfEvents([
       { id: 'folder:summer', title: 'Summer', events: [shared] },
-      { id: 'mine', title: 'My shelf', events: [shared, onlyMine] },
+      { id: 'mine', title: 'From your bookshelves', events: [shared, onlyMine] },
       { id: 'network', title: 'From the network', events: [shared] }
     ]);
-    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([onlyMine.id]);
-    expect(deduped.find((s) => s.id === 'folder:summer')?.events.map((e) => e.id)).toEqual([
-      shared.id
-    ]);
+    expect(deduped.map((s) => s.id)).toEqual(['mine']);
+    expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id).sort()).toEqual(
+      [shared.id, onlyMine.id].sort()
+    );
+    expect(deduped.find((s) => s.id === 'folder:summer')).toBeUndefined();
     expect(deduped.find((s) => s.id === 'network')).toBeUndefined();
+  });
+
+  it('keeps chip-only From the guides when every cover already sits on mine', () => {
+    const shared = pub('shared', '1');
+    const chips = [{ d: 'great-books', title: 'Great books' }];
+    const deduped = dedupeLandingShelfEvents([
+      { id: 'mine', title: 'From your bookshelves', events: [shared] },
+      { id: 'guides', title: 'From the guides', events: [shared], chips }
+    ]);
+    expect(deduped.map((s) => s.id)).toEqual(['mine', 'guides']);
+    expect(deduped.find((s) => s.id === 'guides')?.events).toEqual([]);
+    expect(deduped.find((s) => s.id === 'guides')?.chips).toEqual(chips);
   });
 });
 

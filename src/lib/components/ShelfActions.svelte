@@ -141,6 +141,10 @@
     ...myListOptions
   ]);
   const listOptionSlugs = $derived(new Set(listOptions.map((o) => o.slug)));
+  /** True when this edition already has at least one of the viewer's list labels. */
+  const onAList = $derived(appliedSlugs.size > 0);
+  /** True when this edition is already in one of the viewer's bookshelf folders. */
+  const onABookshelf = $derived((bookshelf?.membershipCoords.size ?? 0) > 0);
 
   const listSuggestionExclude = $derived(new Set([...appliedSlugs, ...listOptionSlugs]));
   const folderSuggestionExclude = $derived(
@@ -369,7 +373,7 @@
         aria-expanded={listsOpen}
         onclick={() => void toggleListsMenu()}
       >
-        Add to a list
+        {onAList ? 'Edit the list' : 'Add to a list'}
       </button>
       {#if listsOpen}
         <ul
@@ -465,7 +469,11 @@
         {#if shelfLoading}
           <span class="jump-busy-spinner" aria-hidden="true"></span>
         {/if}
-        {shelfLoading ? 'Loading bookshelves…' : 'Add to your bookshelf'}
+        {#if shelfLoading}
+          Loading bookshelves…
+        {:else}
+          {onABookshelf ? 'Edit the bookshelf' : 'Add to your bookshelf'}
+        {/if}
       </button>
       {#if shelfOpen}
         <ul

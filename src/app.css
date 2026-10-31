@@ -696,6 +696,10 @@ body:has(main.reading-page) .top-bar {
 .landing-shelf .section-title {
   margin: 0;
 }
+/* Guides-style bookshelf / guide folder chips under the shelf label */
+.landing-shelf .landing-shelf-chips {
+  margin: -0.35rem 0 0.85rem;
+}
 .landing-shelf-reading {
   box-sizing: border-box;
   /* Hug the covers; left inset comes from the shared 1.45rem shelf-bar padding. */

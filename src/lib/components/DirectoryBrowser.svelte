@@ -741,6 +741,7 @@
     let deleted = 0;
     const nextResolved = { ...resolved };
     const deletedFolderIds = new Set<string>();
+    const deletedFolderCoords = new Set<string>();
     try {
       for (const row of rows) {
         const folder = row.event ?? (row.entry ? await ensureResolved(row.entry) : null);
@@ -754,12 +755,14 @@
           // Still drop tombstoned folders from the owned list when deletion published.
           if (result.error.startsWith('Folder deleted')) {
             deletedFolderIds.add(folder.id);
+            deletedFolderCoords.add(directoryCoordinateFromEvent(folder).toLowerCase());
           }
           break;
         }
         parent = result.parent;
         delete nextResolved[row.key];
         deletedFolderIds.add(folder.id);
+        deletedFolderCoords.add(directoryCoordinateFromEvent(folder).toLowerCase());
         deleted += 1;
       }
       if (deletedFolderIds.size) {
@@ -768,7 +771,11 @@
         stack = stack.filter((ev) => !deletedFolderIds.has(ev.id));
         if (!stack.length) stack = [root];
         const nextOwned = upsertDirectoryEvents(
-          ownedDirectories.filter((e) => !deletedFolderIds.has(e.id)),
+          ownedDirectories.filter(
+            (e) =>
+              !deletedFolderIds.has(e.id) &&
+              !deletedFolderCoords.has(directoryCoordinateFromEvent(e).toLowerCase())
+          ),
           parent
         );
         onOwnedDirectoriesChange?.(nextOwned);

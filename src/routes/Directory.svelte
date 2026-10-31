@@ -24,7 +24,11 @@
     directoryExplorerTitle,
     upsertDirectoryEvents
   } from '$lib/directory-explorer';
-  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
+  import {
+    deletionRevision,
+    filterDeletedEvents,
+    refreshDeletionsFor
+  } from '$lib/deletions';
   import { hexPubkey } from '$lib/metadata';
   import { pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { openLoginDialog } from '$lib/stores/login-ui';
@@ -100,9 +104,11 @@
     browseFolder = null;
     try {
       const all = await listOwnedDirectories(pk);
-      ownedDirectories = all;
+      // Relays keep deleted 30045s; load kind-5 tombstones before orphan math.
+      await refreshDeletionsFor(all);
+      ownedDirectories = filterDeletedEvents(all);
       const existingRoot =
-        all.find((e) => directoryDTag(e) === ROOT_DIRECTORY_D_TAG) ?? null;
+        ownedDirectories.find((e) => directoryDTag(e) === ROOT_DIRECTORY_D_TAG) ?? null;
 
       if (isSelf) {
         if (existingRoot) {

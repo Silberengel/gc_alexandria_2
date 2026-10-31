@@ -1107,13 +1107,14 @@ describe('booklist and shelves', () => {
       [addr(pubE), pubE]
     ]);
     const shelves = assignShelves(memberships, pubs, me, new Set([follow]));
-    expect(shelves.map((s) => s.id)).toEqual(['mine', 'follows', 'network']);
+    expect(shelves.map((s) => s.id)).toEqual(['mine', 'follows', 'guides', 'network']);
     expect(shelves[0]?.events.map((e) => e.id)).toEqual([pubA.id, pubE.id]);
     expect(shelves[1]?.events.map((e) => e.id)).toEqual([pubB.id]);
-    expect(shelves[2]?.events.map((e) => e.id).sort()).toEqual([pubC.id, pubD.id].sort());
+    expect(shelves[2]?.events.map((e) => e.id)).toEqual([pubC.id]);
+    expect(shelves[3]?.events.map((e) => e.id)).toEqual([pubD.id]);
   });
 
-  it('puts curator labels on From follows when the viewer follows the curator, else network', () => {
+  it('puts curator labels on From follows when the viewer follows the curator, else guides', () => {
     const me = '6'.repeat(64);
     const labels = [booklist(GITCITADEL_CURATOR_HEX, pubC, 12)];
     const memberships = membershipsFromEvents(labels);
@@ -1121,7 +1122,7 @@ describe('booklist and shelves', () => {
     expect(
       assignShelves(memberships, pubs, me, new Set([GITCITADEL_CURATOR_HEX])).map((s) => s.id)
     ).toEqual(['follows']);
-    expect(assignShelves(memberships, pubs, me, new Set()).map((s) => s.id)).toEqual(['network']);
+    expect(assignShelves(memberships, pubs, me, new Set()).map((s) => s.id)).toEqual(['guides']);
   });
 
   it('ranks by the reference event created_at, not the publication', () => {

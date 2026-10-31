@@ -44,7 +44,18 @@ const MAX_PUBLICATION_STREAM_EVENTS = 50_000;
 /** Medium-term search result paint — skip relay fan-out while fresh. */
 export const SEARCH_SNAPSHOT_TTL_MS = 20 * 60 * 1000;
 
-export type LandingShelfSnap = { id: string; title: string; events: Event[]; href?: string };
+/** Optional Guides-style chip under a landing shelf heading. */
+export type LandingShelfChip = { d: string; title: string; href: string };
+
+export type LandingShelfSnap = {
+  id: string;
+  title: string;
+  events: Event[];
+  /** Prefer plain titles — own/guides shelves are not heading links. */
+  href?: string;
+  /** Bookshelf / guide folder chips (Guides-style). */
+  chips?: LandingShelfChip[];
+};
 
 export type LandingSnapshot = {
   /** Hex pubkey of the signed-in viewer when this snapshot was saved; null = anonymous. */

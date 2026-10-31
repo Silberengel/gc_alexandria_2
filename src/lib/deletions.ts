@@ -1,11 +1,23 @@
 import type { Event } from 'nostr-tools';
 import { writable } from 'svelte/store';
-import { KIND } from './constants';
+import { DOCUMENT_SEARCH_RELAYS, KIND, SOCIAL_RELAYS } from './constants';
 import { dTagVariants, normalizeDTag } from './dtag';
 import { cacheDeleteEvent } from './nostr/cache';
 import { relayPool } from './nostr/pool';
 import { documentStack, socialStack } from './nostr/selector';
 import { eventAddress, firstTag } from './nostr/verify';
+
+/** Prefer library hosts when resolving directory (30045) tombstones. */
+function deletionQueryRelays(): string[] {
+  return [
+    ...new Set([
+      ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+      ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u)),
+      ...documentStack(),
+      ...socialStack()
+    ])
+  ];
+}
 
 const HEX64 = /^[0-9a-f]{64}$/i;
 
@@ -83,19 +95,36 @@ export function rememberDeletions(events: Event[]): void {
 }
 
 /**
- * After a local delete publish: record the kind-5 and always tombstone the
- * concrete target id (covers drafts that only emitted an `a` tag).
+ * After a local delete publish: record the kind-5, the concrete target id, and
+ * (for addressables) every d-tag variant of the target coordinate. Relays keep
+ * the old replaceable; without an address tombstone a reload resurrects it and
+ * Directory shows it as an “outside /root” orphan again.
  */
 export function rememberDeletedTarget(target: Event, deletion: Event): void {
   rememberDeletion(deletion);
   if (!target?.id || !target.pubkey || !deletion?.pubkey) return;
   const pk = deletion.pubkey.toLowerCase();
   if (target.pubkey.toLowerCase() !== pk) return;
+  let changed = false;
   const id = target.id.toLowerCase();
-  if (!HEX64.test(id)) return;
-  if (deletedIds.get(id) === pk) return;
-  deletedIds.set(id, pk);
-  bumpDeletionRevision();
+  if (HEX64.test(id) && deletedIds.get(id) !== pk) {
+    deletedIds.set(id, pk);
+    changed = true;
+  }
+  if (target.kind >= 30_000 && target.kind < 40_000) {
+    const d = firstTag(target, 'd');
+    if (d != null) {
+      const until = deletion.created_at || Math.floor(Date.now() / 1000);
+      for (const addr of addrVariants(target.kind, target.pubkey, d)) {
+        const prev = deletedAddrs.get(addr);
+        if (prev === undefined || until > prev) {
+          deletedAddrs.set(addr, until);
+          changed = true;
+        }
+      }
+    }
+  }
+  if (changed) bumpDeletionRevision();
 }
 
 export function isEventDeleted(event: Event): boolean {
@@ -112,6 +141,25 @@ export function isEventDeleted(event: Event): boolean {
   return until > 0 && event.created_at <= until;
 }
 
+/**
+ * True when a replaceable coordinate is tombstoned and `createdAt` is not newer
+ * than the kind-5. Omit `createdAt` (or pass 0) to treat any tombstone as a hit
+ * — used for landing chips keyed only by d-tag.
+ */
+export function isAddressDeleted(
+  kind: number,
+  pubkey: string,
+  d: string,
+  createdAt = 0
+): boolean {
+  if (!pubkey || !d) return false;
+  const until = Math.max(
+    0,
+    ...addrVariants(kind, pubkey, d).map((a) => deletedAddrs.get(a) ?? 0)
+  );
+  return until > 0 && createdAt <= until;
+}
+
 export function filterDeletedEvents<T extends Event>(events: T[]): T[] {
   return events.filter((e) => !isEventDeleted(e));
 }
@@ -124,14 +172,16 @@ export async function sweepDeletions(): Promise<void> {
     { kinds: [KIND.DELETION], '#k': [String(KIND.WIKI)], limit: 100 },
     { kinds: [KIND.DELETION], '#k': [String(KIND.SPEC)], limit: 100 },
     { kinds: [KIND.DELETION], '#k': [String(KIND.RATING)], limit: 100 },
-    { kinds: [KIND.DELETION], '#k': [String(KIND.LABEL)], limit: 100 }
+    { kinds: [KIND.DELETION], '#k': [String(KIND.LABEL)], limit: 100 },
+    // Directory folders (30045) — without this, deleted shelves reappear as orphans.
+    { kinds: [KIND.DELETION], '#k': [String(KIND.DIRECTORY)], limit: 200 }
   ];
-  const [doc, social] = await Promise.all([
-    relayPool.query(documentStack(), filters, 5000),
-    relayPool.query(socialStack(), filters, 5000)
-  ]);
+  const hits = await relayPool.query(deletionQueryRelays(), filters, 5000, 6, undefined, {
+    bypassConstrain: true,
+    priority: true
+  });
   const byId = new Map<string, Event>();
-  for (const event of [...doc, ...social]) {
+  for (const event of hits) {
     if (event?.id) byId.set(event.id.toLowerCase(), event);
   }
   rememberDeletions([...byId.values()]);
@@ -164,12 +214,12 @@ export async function refreshDeletionsFor(events: Event[]): Promise<void> {
     ...(ids.length ? [{ kinds: [KIND.DELETION], '#e': ids, limit: 100 }] : []),
     ...(addrs.length ? [{ kinds: [KIND.DELETION], '#a': addrs, limit: 100 }] : [])
   ];
-  const [doc, social] = await Promise.all([
-    relayPool.query(documentStack(), filters, 3500),
-    relayPool.query(socialStack(), filters, 3500)
-  ]);
+  const hits = await relayPool.query(deletionQueryRelays(), filters, 3500, 6, undefined, {
+    bypassConstrain: true,
+    priority: true
+  });
   const byId = new Map<string, Event>();
-  for (const event of [...doc, ...social]) {
+  for (const event of hits) {
     if (event?.id) byId.set(event.id.toLowerCase(), event);
   }
   rememberDeletions([...byId.values()]);

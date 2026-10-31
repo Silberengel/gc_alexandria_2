@@ -7,6 +7,7 @@ import {
   directoryDTag,
   isProtectedDirectoryDTag
 } from './bookshelf';
+import { isAddressDeleted, isEventDeleted, refreshDeletionsFor } from './deletions';
 import { isNewerReplaceable, pickLatestAddressable } from './nostr/replaceable';
 import { relayPool } from './nostr/pool';
 import { documentStack } from './nostr/selector';
@@ -91,11 +92,31 @@ export function childGuideFolderDTags(dir: Event | undefined): string[] {
 }
 
 /**
- * Instant Home Guides chips — empty until relays confirm the curator bookshelf.
- * (Hardcoded genres would drift from folders you add/remove under my-book-collection.)
+ * Known folder d-tags under the curator bookshelf — optimistic Home chips so the
+ * guide-links row always paints. Live {@link loadStarterGuideChips} replaces this
+ * with membership order (and any newly added folders) once relays answer.
+ */
+export const GC_DEFAULT_GUIDE_CHIP_D_TAGS = [
+  'ancient-classics',
+  'great-books',
+  'catholic-classics',
+  'classic-novels',
+  'classic-documents',
+  'black-authors',
+  'protestant-classics',
+  'reading-guides'
+] as const;
+
+/**
+ * Instant Home Guides chips — always available; refined when the curator
+ * my-book-collection membership loads.
  */
 export function defaultStarterGuideChips(): StarterGuideChip[] {
-  return [];
+  return GC_DEFAULT_GUIDE_CHIP_D_TAGS.map((d) => ({
+    d,
+    title: starterGuideTitle(d),
+    href: guideSearchHref(d)
+  }));
 }
 
 /**
@@ -113,6 +134,7 @@ export function starterGuideChipsFromBookshelf(
   for (const event of childEvents) {
     if (event.kind !== KIND.DIRECTORY) continue;
     if (event.pubkey.toLowerCase() !== GITCITADEL_CURATOR_HEX) continue;
+    if (isEventDeleted(event)) continue;
     const d = directoryDTag(event);
     if (!d) continue;
     const prev = byD.get(d);
@@ -122,6 +144,12 @@ export function starterGuideChipsFromBookshelf(
   const chips: StarterGuideChip[] = [];
   for (const d of childGuideFolderDTags(bookshelf)) {
     const ev = byD.get(d);
+    if (ev) {
+      if (isEventDeleted(ev)) continue;
+    } else if (isAddressDeleted(KIND.DIRECTORY, GITCITADEL_CURATOR_HEX, d)) {
+      // Parent still lists the a-tag, but the folder was NIP-09 deleted.
+      continue;
+    }
     const titled = ev ? firstTag(ev, 'title')?.trim() : undefined;
     chips.push({
       d,
@@ -175,11 +203,11 @@ export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
       GITCITADEL_CURATOR_HEX,
       MY_BOOK_COLLECTION_D_TAG
     );
-    if (!bookshelf) return [];
+    if (!bookshelf) return defaultStarterGuideChips();
     rememberEvents([bookshelf]);
 
     const childDs = childGuideFolderDTags(bookshelf);
-    if (!childDs.length) return [];
+    if (!childDs.length) return defaultStarterGuideChips();
 
     const childHits = await relayPool.query(
       library,
@@ -197,8 +225,14 @@ export async function loadStarterGuideChips(): Promise<StarterGuideChip[]> {
       { bypassConstrain: true, includeCooling: true, priority: true }
     );
     if (childHits.length) rememberEvents(childHits);
-    return starterGuideChipsFromBookshelf(bookshelf, childHits);
+    try {
+      await refreshDeletionsFor([bookshelf, ...childHits]);
+    } catch {
+      /* deletions optional */
+    }
+    const live = starterGuideChipsFromBookshelf(bookshelf, childHits);
+    return live.length ? live : defaultStarterGuideChips();
   } catch {
-    return [];
+    return defaultStarterGuideChips();
   }
 }

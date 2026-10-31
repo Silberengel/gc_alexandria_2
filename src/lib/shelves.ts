@@ -2,21 +2,28 @@ import type { Event } from 'nostr-tools';
 import { isRenderableCatalogEvent } from './catalog-visibility';
 import { KIND } from './constants';
 import { coverImageUrl } from './cover';
+import { GITCITADEL_CURATOR_HEX } from './hex';
 import { isPublicationLabelEvent, publicationTargets } from './nip32';
 import { deprecatedListD } from './nip51-deprecated-lists';
 import {
   MY_BOOK_COLLECTION_D_TAG,
   ROOT_DIRECTORY_D_TAG,
+  directoryChildrenFromEvent,
+  directoryDTag,
+  isProtectedDirectoryDTag,
   publicationTargetsFromDirectory
 } from './bookshelf';
-import { pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
+import { directoryExplorerTitle } from './directory-explorer';
+import { isAddressDeleted, isEventDeleted } from './deletions';
+import type { LandingShelfChip } from './nostr/cache';
+import { isNewerReplaceable, pruneToLatestReplaceables, putNewest } from './nostr/replaceable';
 import { firstTag, eventAddress } from './nostr/verify';
 
 function isBookmarkMembershipEvent(event: Event): boolean {
   return event.kind === KIND.BOOKMARK || deprecatedListD(event) === 'bookmark';
 }
 
-export type ShelfId = 'mine' | 'follows' | 'network';
+export type ShelfId = 'mine' | 'follows' | 'guides' | 'network';
 
 export type Shelf = {
   id: ShelfId;
@@ -24,7 +31,7 @@ export type Shelf = {
   events: Event[];
 };
 
-/** Extra horizontal shelf from a nested 30045 folder (viewer only). */
+/** @deprecated Nested folders are folded into {@link SHELF_TITLES.mine}; kept for tests. */
 export type NestedShelf = {
   id: string;
   title: string;
@@ -43,36 +50,57 @@ export type Membership = {
 };
 
 export const SHELF_TITLES: Record<ShelfId, string> = {
-  mine: 'My shelf',
-  follows: 'From follows',
+  mine: 'From your bookshelves',
+  follows: "From your follows' bookshelves",
+  guides: 'From the guides',
   network: 'From the network'
 };
 
-/** Core bucket order for assignShelves (folders are interleaved separately). */
-const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'network'];
+/**
+ * Do not open another guides cover track until each row can fill a scrollable shelf.
+ * Progressive membership resolve often starts with ~12 curator pubs — splitting those
+ * across 3 tracks left arrow-less rows of 4–6 covers.
+ */
+export const GUIDES_MIN_COVERS_PER_TRACK = 12;
+
+/**
+ * How many From the guides cover tracks to open for `coverCount` publications.
+ * `desired` is the layout budget (signed-out: 3; signed-in fills empty mine/follows slots).
+ */
+export function guideCoverTrackCount(coverCount: number, desired: number): number {
+  const n = Math.max(1, desired);
+  if (coverCount <= 0) return 0;
+  const maxUseful = Math.max(1, Math.floor(coverCount / GUIDES_MIN_COVERS_PER_TRACK));
+  return Math.min(n, maxUseful, coverCount);
+}
+
+/** Core bucket order for assignShelves. */
+const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'guides', 'network'];
 
 /**
  * Home / landing row order:
- * 1. Reading now (active + up-next queue)
- * 2. My shelf
- * 3. Viewer's nested folder shelves (A–Z by title)
- * 4. From follows
- * 5. From the network (includes GitCitadel curator lists)
- * Unknown ids stay at the end in input order.
- * Legacy `gitcitadel` shelf ids are folded into network.
+ * 1. Reading now
+ * 2. From your bookshelves (mine; legacy folder:* folded in)
+ * 3. From your follows' bookshelves
+ * 4. From the network
+ * 5. From the guides (one or more cover tracks under a single heading, last)
  */
-export function orderLandingShelves<T extends { id: string; title?: string }>(shelves: T[]): T[] {
+export function orderLandingShelves<T extends { id: string; title?: string; events?: Event[] }>(
+  shelves: T[]
+): T[] {
   const readingNow: T[] = [];
   const mine: T[] = [];
-  const folders: T[] = [];
+  const legacyFolders: T[] = [];
   const follows: T[] = [];
+  const guides: T[] = [];
   const network: T[] = [];
   const other: T[] = [];
   for (const shelf of shelves) {
     if (shelf.id === 'reading-now') readingNow.push(shelf);
     else if (shelf.id === 'mine') mine.push(shelf);
-    else if (shelf.id.startsWith('folder:')) folders.push(shelf);
+    else if (shelf.id.startsWith('folder:')) legacyFolders.push(shelf);
     else if (shelf.id === 'follows') follows.push(shelf);
+    else if (shelf.id === 'guides' || shelf.id.startsWith('guides-')) guides.push(shelf);
     else if (shelf.id === 'network' || shelf.id === 'gitcitadel') {
       network.push(
         shelf.id === 'gitcitadel'
@@ -81,59 +109,71 @@ export function orderLandingShelves<T extends { id: string; title?: string }>(sh
       );
     } else other.push(shelf);
   }
-  folders.sort((a, b) => {
-    const ta = (a.title ?? a.id).trim();
-    const tb = (b.title ?? b.id).trim();
-    return ta.localeCompare(tb, undefined, { sensitivity: 'base' });
-  });
-  // One network row — fold legacy gitcitadel covers into it when both were present.
+
+  const foldEvents = (rows: T[]): Event[] =>
+    rows.flatMap((s) => (Array.isArray(s.events) ? (s.events as Event[]) : []));
+
+  // Legacy per-folder rows → one "From your bookshelves" cover row.
+  let mineRow: T[] = mine;
+  if (legacyFolders.length) {
+    const events = [...foldEvents(mine), ...foldEvents(legacyFolders)];
+    if (events.length) {
+      const base = mine[0];
+      mineRow = [
+        base
+          ? ({ ...base, id: 'mine', title: SHELF_TITLES.mine, events } as T)
+          : ({ id: 'mine', title: SHELF_TITLES.mine, events } as unknown as T)
+      ];
+    } else if (mine.length) {
+      mineRow = [{ ...mine[0]!, id: 'mine', title: SHELF_TITLES.mine } as T];
+    } else {
+      mineRow = [];
+    }
+  } else if (mine.length > 1 && Array.isArray(mine[0]!.events)) {
+    const events = foldEvents(mine);
+    mineRow = [{ ...mine[0]!, id: 'mine', title: SHELF_TITLES.mine, events } as T];
+  } else if (mine.length) {
+    mineRow = mine.map((s) => ({ ...s, title: s.title || SHELF_TITLES.mine }));
+  }
+
   let networkRow: T[] = network;
   if (network.length > 1) {
     const first = network[0]!;
-    if (Array.isArray((first as { events?: Event[] }).events)) {
-      const events = network.flatMap((s) => (s as { events?: Event[] }).events ?? []);
+    if (Array.isArray(first.events)) {
+      const events = foldEvents(network);
       networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network, events } as T];
     } else {
       networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network } as T];
     }
   }
-  return [...readingNow, ...mine, ...folders, ...follows, ...networkRow, ...other];
+
+  return [...readingNow, ...mineRow, ...follows, ...networkRow, ...guides, ...other];
 }
 
 /**
- * Drop covers on follows / network that already appear on a higher row.
- * Nested folder shelves keep their covers; My shelf omits anything already on a
- * viewer folder (so Interior Castle in philosophy-and-theology is not also on Mine).
- * Empty curated shelves after dedupe are omitted.
+ * Drop covers on lower-priority rows that already appear higher.
+ * Empty shelves after dedupe are omitted — except chip-only rows (e.g. Guides).
  */
 export function dedupeLandingShelfEvents<
-  T extends { id: string; title?: string; events: Event[] }
+  T extends { id: string; title?: string; events: Event[]; chips?: { d: string }[] }
 >(shelves: T[]): T[] {
   const ordered = orderLandingShelves(shelves);
-  const onViewerFolder = new Set<string>();
-  for (const shelf of ordered) {
-    if (!shelf.id.startsWith('folder:')) continue;
-    for (const event of pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent)) {
-      onViewerFolder.add(eventAddress(event) || event.id.toLowerCase());
-    }
-  }
-
   const seen = new Set<string>();
   const out: T[] = [];
   for (const shelf of ordered) {
-    let listable = pruneToLatestReplaceables(shelf.events).filter(isRenderableCatalogEvent);
-    if (shelf.id === 'mine' && onViewerFolder.size) {
-      listable = listable.filter((event) => {
-        const key = eventAddress(event) || event.id.toLowerCase();
-        return !onViewerFolder.has(key);
-      });
-    }
+    const listable = pruneToLatestReplaceables(shelf.events ?? []).filter(
+      isRenderableCatalogEvent
+    );
+    const keepChipsOnly = (shelf.chips?.length ?? 0) > 0;
     const owned = isViewerOwnedShelfId(shelf.id);
     if (owned) {
       for (const event of listable) {
         seen.add(eventAddress(event) || event.id.toLowerCase());
       }
-      if (!listable.length) continue;
+      if (!listable.length) {
+        if (keepChipsOnly) out.push({ ...shelf, events: [] });
+        continue;
+      }
       out.push(listable === shelf.events ? shelf : { ...shelf, events: listable });
       continue;
     }
@@ -143,15 +183,23 @@ export function dedupeLandingShelfEvents<
       seen.add(key);
       return true;
     });
-    if (!events.length) continue;
+    if (!events.length) {
+      if (keepChipsOnly) out.push({ ...shelf, events: [] });
+      continue;
+    }
     out.push(events === shelf.events ? shelf : { ...shelf, events });
   }
   return out;
 }
 
-/** My shelf and nested 30045 folders — not follows/network. */
+/** Reading now + own bookshelves — not follows/network/guides. */
 export function isViewerOwnedShelfId(id: string): boolean {
   return id === 'reading-now' || id === 'mine' || id.startsWith('folder:');
+}
+
+/** Mine / follows — must not carry across identities. */
+export function isViewerBoundShelfId(id: string): boolean {
+  return id === 'mine' || id === 'follows' || id.startsWith('folder:');
 }
 
 function targetsFromMembershipEvent(event: Event): {
@@ -170,10 +218,9 @@ export function membershipsFromEvents(labelsBookmarksAndDirs: Event[]): Membersh
     const isDir = event.kind === KIND.DIRECTORY;
     if (!isBookmark && !isLabel && !isDir) continue;
     const { addresses, eventIds } = targetsFromMembershipEvent(event);
+    const d = isDir ? directoryDTag(event) : '';
     const folderD =
-      isDir && event.tags.find((t) => t[0] === 'd')?.[1] !== 'my-book-collection'
-        ? event.tags.find((t) => t[0] === 'd')?.[1]
-        : undefined;
+      isDir && d && d !== MY_BOOK_COLLECTION_D_TAG && d !== ROOT_DIRECTORY_D_TAG ? d : undefined;
     for (const address of addresses) {
       out.push({
         address,
@@ -203,15 +250,17 @@ function shelfForAuthor(
 ): ShelfId {
   if (viewer && author === viewer) return 'mine';
   if (viewer && follows.has(author)) return 'follows';
-  // GitCitadel curator lists land on From the network with everyone else.
+  // Curator lists paint as "From the guides" (unless the viewer follows them).
+  if (author === GITCITADEL_CURATOR_HEX) return 'guides';
   return 'network';
 }
 
-/** Membership win priority when a pub appears on multiple lists (lower wins). Matches Home row order. */
+/** Membership win priority when a pub appears on multiple lists (lower wins). */
 const PRIORITY: Record<ShelfId, number> = {
   mine: 0,
   follows: 1,
-  network: 2
+  guides: 2,
+  network: 3
 };
 
 /**
@@ -257,7 +306,6 @@ export function collapseSameCoverEditions(events: Event[]): Event[] {
     const score = (e: Event): number => {
       const childHits = e.tags.filter((t) => t[0] === 'a' && t[1] && addrs.has(t[1])).length;
       const d = firstTag(e, 'd') ?? '';
-      // Prefer pubs that a-tag siblings (true parents), then shorter d-tags.
       return childHits * 10_000 - d.length;
     };
     const ranked = [...group].sort((a, b) => score(b) - score(a));
@@ -300,8 +348,6 @@ export function assignShelves(
   for (const membership of memberships) {
     const address = membership.address;
     if (!address) continue;
-    // Nested 30045 folders get their own Home rows — do not also bucket them as Mine.
-    if (membership.folderD) continue;
     const pub = publications.get(address);
     if (!pub) continue;
     const top = promoteToTopLevel(pub, knownPubs);
@@ -323,6 +369,7 @@ export function assignShelves(
   const buckets: Record<ShelfId, { event: Event; created_at: number }[]> = {
     mine: [],
     follows: [],
+    guides: [],
     network: []
   };
 
@@ -347,9 +394,96 @@ export function assignShelves(
   return shelves;
 }
 
+function bookshelfChipHref(d: string, ownerNpub: string): string {
+  return `/search?bookshelf=${encodeURIComponent(d)}&npub=${encodeURIComponent(ownerNpub)}`;
+}
+
+function humanizeBookshelfDTag(d: string): string {
+  const parts = d.split('-').filter(Boolean);
+  if (!parts.length) return d;
+  return parts
+    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+function bookshelfChipTitle(d: string, dir?: Event): string {
+  if (d === MY_BOOK_COLLECTION_D_TAG) return 'My bookshelf';
+  const titled = dir
+    ? firstTag(dir, 'title')?.trim() || directoryExplorerTitle(dir).trim()
+    : '';
+  // Explorer falls back to the raw d-tag — humanize that for chip labels.
+  if (titled && titled !== d) return titled;
+  return humanizeBookshelfDTag(d);
+}
+
 /**
- * Viewer's nested 30045 folders as extra home rows (root my-book-collection excluded —
- * those pubs already appear on "My shelf").
+ * Guides-style chips for an owner's directory folders (skips `/root`).
+ * Prefer membership order under `my-book-collection` (plus "My bookshelf");
+ * otherwise list every owned folder alphabetically.
+ * NIP-09 tombstoned folders are omitted.
+ */
+export function bookshelfChipsFromDirectories(
+  directories: Event[],
+  ownerHex: string,
+  ownerNpub: string
+): LandingShelfChip[] {
+  const pk = ownerHex.toLowerCase();
+  const byD = new Map<string, Event>();
+  for (const dir of directories) {
+    if (dir.kind !== KIND.DIRECTORY) continue;
+    if (dir.pubkey.toLowerCase() !== pk) continue;
+    if (isEventDeleted(dir)) continue;
+    const d = directoryDTag(dir);
+    if (!d || d === ROOT_DIRECTORY_D_TAG) continue;
+    const prev = byD.get(d);
+    if (!prev || isNewerReplaceable(dir, prev)) byD.set(d, dir);
+  }
+
+  const collection = byD.get(MY_BOOK_COLLECTION_D_TAG);
+  if (collection) {
+    const chips: LandingShelfChip[] = [
+      {
+        d: MY_BOOK_COLLECTION_D_TAG,
+        title: 'My bookshelf',
+        href: bookshelfChipHref(MY_BOOK_COLLECTION_D_TAG, ownerNpub)
+      }
+    ];
+    const seen = new Set<string>([MY_BOOK_COLLECTION_D_TAG]);
+    for (const child of directoryChildrenFromEvent(collection)) {
+      if (!child.isFolder || !child.identifier) continue;
+      const d = child.identifier.trim();
+      if (!d || seen.has(d) || isProtectedDirectoryDTag(d)) continue;
+      const ev = byD.get(d);
+      if (ev) {
+        if (isEventDeleted(ev)) continue;
+      } else if (isAddressDeleted(KIND.DIRECTORY, pk, d)) {
+        continue;
+      }
+      seen.add(d);
+      chips.push({
+        d,
+        title: bookshelfChipTitle(d, ev),
+        href: bookshelfChipHref(d, ownerNpub)
+      });
+    }
+    return chips;
+  }
+
+  const chips: LandingShelfChip[] = [];
+  for (const [d, dir] of byD) {
+    chips.push({
+      d,
+      title: bookshelfChipTitle(d, dir),
+      href: bookshelfChipHref(d, ownerNpub)
+    });
+  }
+  chips.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+  return chips;
+}
+
+/**
+ * @deprecated Prefer folding nested pubs into mine via {@link assignShelves}.
+ * Kept for publication-interactions tests.
  */
 export function nestedShelvesForViewer(
   directories: Event[],
@@ -391,11 +525,6 @@ export function nestedShelvesForViewer(
     });
   }
   return out.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
-}
-
-/** Mine, follows, and nested 30045 folder rows — must not carry across identities. */
-export function isViewerBoundShelfId(id: string): boolean {
-  return id === 'mine' || id === 'follows' || id.startsWith('folder:');
 }
 
 export function withBookmarkTag(

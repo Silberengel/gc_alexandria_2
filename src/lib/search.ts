@@ -43,7 +43,7 @@ import {
   publicationTargetsFromDirectory,
   publicationsNotInDirectory
 } from './bookshelf';
-import { authorOutbox, withPreferredRelays } from './nostr/mailboxes';
+import { authorOutbox } from './nostr/mailboxes';
 import { fetchByAddress, fetchByAddresses, fetchByIds } from './nostr/fetch';
 import {
   fetchFollowReadingQueues,
@@ -930,13 +930,33 @@ function bookshelfDirectoryAuthors(npubOrHex?: string): string[] {
  * Hard library hosts for kind-30045 shelves. Must not depend on the viewer's
  * GitCitadel / Outboxes toggles — curated guides live here even when personal
  * stacks omit them. Never put flaky third-party outbox URLs (nostr21, sovbit)
- * ahead of these.
+ * on this list: Promise.all in relayPool.query waits for every host, so one
+ * dead socket stalls the whole bookshelf paint.
  */
 function libraryBookshelfRelays(): string[] {
   return [
-    ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
-    ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+    ...new Set([
+      ...SOCIAL_RELAYS.filter((u) => /theforest|thecitadel/i.test(u)),
+      ...DOCUMENT_SEARCH_RELAYS.filter((u) => /thecitadel|theforest/i.test(u))
+    ])
   ];
+}
+
+function chunkList<T>(items: T[], size: number): T[][] {
+  if (size <= 0 || !items.length) return items.length ? [items] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function pickBookshelfDirectory(dirs: Event[], authors: string[]): Event | null {
+  const only = dirs.filter((e) => e.kind === KIND.DIRECTORY);
+  if (!only.length) return null;
+  if (authors.length) {
+    const want = authors[0]!.toLowerCase();
+    return only.find((e) => e.pubkey.toLowerCase() === want) ?? only[0] ?? null;
+  }
+  return only[0] ?? null;
 }
 
 /** Newest matching kind-30045 for a bookshelf slug (optional author scope). */
@@ -953,40 +973,139 @@ export async function fetchBookshelfDirectory(
     limit: authors.length ? 5 : 20,
     ...(authors.length ? { authors } : {})
   };
-  // Kind 30045 is not a Mercury document kind — documentStack alone often misses
-  // shelves that live on social hosts (theforest) / curator outboxes.
+  // Fast path: only theforest / thecitadel. Mixing socialStack/documentStack used to
+  // pull in nostr21/sovbit and block on their 4s attempt timeout every open.
   const library = libraryBookshelfRelays();
-  const base = [...new Set([...library, ...socialStack(), ...documentStack()])];
-  let outbox: string[] = [];
-  const curator = authors[0];
-  if (curator && foreignRelaysAllowed()) {
-    try {
-      // After library hosts — curator NIP-65 lists often lead with dead sockets.
-      outbox = (await authorOutbox(curator))
-        .filter((u) => !/nostr21|sovbit/i.test(u))
-        .slice(0, 4);
-    } catch {
-      /* stay on library + stacks */
-    }
-  }
-  const preferred = [...library, ...outbox];
-  const scope = withPreferredRelays(base, preferred, 4, 6);
-  const dirs = pruneToLatestReplaceables(
+  const libraryHits = pruneToLatestReplaceables(
     mergeById(
-      await relayPool.query(scope.relays, [filter], 12_000, Math.min(scope.maxRelays, 8), undefined, {
-        // Shelves must still resolve when GitCitadel preset / Outboxes are off.
+      await relayPool.query(library, [filter], 5_000, Math.min(4, library.length || 1), undefined, {
         bypassConstrain: true,
-        includeCooling: true,
         priority: true
       })
     )
-  ).filter((e) => e.kind === KIND.DIRECTORY);
-  if (!dirs.length) return null;
-  if (authors.length) {
-    const want = authors[0]!.toLowerCase();
-    return dirs.find((e) => e.pubkey.toLowerCase() === want) ?? dirs[0] ?? null;
+  );
+  let hit = pickBookshelfDirectory(libraryHits, authors);
+  if (hit) return hit;
+
+  // Slow fallback: filtered outbox only (never nostr21/sovbit), still no cooling.
+  const curator = authors[0];
+  if (!curator || !foreignRelaysAllowed()) return null;
+  let outbox: string[] = [];
+  try {
+    outbox = (await authorOutbox(curator))
+      .filter((u) => !/nostr21|sovbit/i.test(u))
+      .slice(0, 3);
+  } catch {
+    return null;
   }
-  return dirs[0] ?? null;
+  if (!outbox.length) return null;
+  const fallbackHits = pruneToLatestReplaceables(
+    mergeById(
+      await relayPool.query(outbox, [filter], 5_000, Math.min(3, outbox.length), undefined, {
+        bypassConstrain: true,
+        priority: true
+      })
+    )
+  );
+  return pickBookshelfDirectory(fallbackHits, authors);
+}
+
+/**
+ * Resolve many 30040 a-tags with a few batched REQs (by author + #d chunks)
+ * instead of one Mercury+relay round-trip per membership.
+ */
+async function fetchBookshelfPublicationsByAddresses(addresses: string[]): Promise<Event[]> {
+  const unique = [...new Set(addresses.filter(Boolean))];
+  if (!unique.length) return [];
+
+  const byAuthor = new Map<string, { kind: number; ds: string[] }>();
+  for (const coord of unique) {
+    const parsed = parseEventCoordinate(coord);
+    if (!parsed || parsed.kind !== KIND.PUBLICATION || !parsed.d) continue;
+    const pk = parsed.pubkey.toLowerCase();
+    const key = `${parsed.kind}:${pk}`;
+    let group = byAuthor.get(key);
+    if (!group) {
+      group = { kind: parsed.kind, ds: [] };
+      byAuthor.set(key, group);
+    }
+    if (!group.ds.includes(parsed.d)) group.ds.push(parsed.d);
+  }
+
+  const library = libraryBookshelfRelays();
+  const filters: Filter[] = [];
+  for (const [key, group] of byAuthor) {
+    const pk = key.slice(key.indexOf(':') + 1);
+    for (const ds of chunkList(group.ds, 40)) {
+      filters.push({
+        kinds: [group.kind],
+        authors: [pk],
+        '#d': ds,
+        limit: Math.min(80, ds.length + 5)
+      });
+    }
+  }
+
+  const batches: Event[][] = [];
+  for (const filterChunk of chunkList(filters, 6)) {
+    batches.push(
+      await relayPool.query(library, filterChunk, 6_000, Math.min(4, library.length || 1), undefined, {
+        bypassConstrain: true,
+        priority: true
+      })
+    );
+  }
+
+  const hits = pruneToLatestReplaceables(mergeById(batches.flat())).filter(
+    (e) => e.kind === KIND.PUBLICATION
+  );
+  rememberEvents(hits);
+
+  const found = new Set(
+    hits.map((e) => `${e.kind}:${e.pubkey.toLowerCase()}:${e.tags.find((t) => t[0] === 'd')?.[1] ?? ''}`.toLowerCase())
+  );
+  const missing = unique.filter((coord) => {
+    const parsed = parseEventCoordinate(coord);
+    if (!parsed?.d) return false;
+    return !found.has(`${parsed.kind}:${parsed.pubkey}:${parsed.d}`.toLowerCase());
+  });
+
+  // Gap-fill only what the batch missed — relaysOnly skips Mercury 502 stalls.
+  if (missing.length) {
+    const extras = await fetchByAddresses(missing, 8, { relaysOnly: true });
+    return mergeById([...hits, ...extras.filter((e) => e.kind === KIND.PUBLICATION)]);
+  }
+  return hits;
+}
+
+async function fetchBookshelfPublicationsByIds(ids: string[]): Promise<Event[]> {
+  const unique = [
+    ...new Set(ids.map((id) => id.toLowerCase()).filter((id) => HEX64.test(id)))
+  ];
+  if (!unique.length) return [];
+  const library = libraryBookshelfRelays();
+  const batches: Event[][] = [];
+  for (const idChunk of chunkList(unique, 40)) {
+    batches.push(
+      await relayPool.query(
+        library,
+        [{ ids: idChunk, kinds: [KIND.PUBLICATION] }],
+        5_000,
+        Math.min(4, library.length || 1),
+        undefined,
+        { bypassConstrain: true, priority: true }
+      )
+    );
+  }
+  const hits = mergeById(batches.flat()).filter((e) => e.kind === KIND.PUBLICATION);
+  rememberEvents(hits);
+  const have = new Set(hits.map((e) => e.id.toLowerCase()));
+  const missing = unique.filter((id) => !have.has(id));
+  if (missing.length) {
+    const extras = await fetchByIds(missing, 8);
+    return mergeById([...hits, ...extras.filter((e) => e.kind === KIND.PUBLICATION)]);
+  }
+  return hits;
 }
 
 /** Resolve shelf members from an already-fetched 30045. */
@@ -996,29 +1115,28 @@ export async function publicationsFromBookshelfDirectory(
   if (!dir) return [];
   const t = publicationTargetsFromDirectory(dir);
   // a- and e-tag memberships share one directory budget (MAX_BOOKSHELF_DIRECTORY_ITEMS).
-  // Fetch both up to that cap — a lower e-id slice would truncate valid shelves.
-  const byAddr = await fetchByAddresses(
-    [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS),
-    6
-  );
-  const byId = await fetchByIds([...t.eventIds].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS), 6);
-  return preferTopLevelPublications(
-    mergeById([
-      ...byAddr.filter((e) => e.kind === KIND.PUBLICATION),
-      ...byId.filter((e) => e.kind === KIND.PUBLICATION)
-    ])
-  );
+  const addresses = [...t.addresses].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS);
+  const eventIds = [...t.eventIds].slice(0, MAX_BOOKSHELF_DIRECTORY_ITEMS);
+  const [byAddr, byId] = await Promise.all([
+    fetchBookshelfPublicationsByAddresses(addresses),
+    fetchBookshelfPublicationsByIds(eventIds)
+  ]);
+  return preferTopLevelPublications(mergeById([...byAddr, ...byId]));
 }
 
 /**
  * One directory fetch for both the catalog grid and Edit — avoids a second
  * lookup returning null while members already painted.
+ * Optional `onDirectory` fires as soon as the 30045 is known so the UI can
+ * show the curator/edit chrome before memberships finish loading.
  */
 export async function loadBookshelfCatalog(
   d: string,
-  npubOrHex?: string
+  npubOrHex?: string,
+  onDirectory?: (directory: Event | null) => void
 ): Promise<{ directory: Event | null; events: Event[] }> {
   const directory = await fetchBookshelfDirectory(d, npubOrHex);
+  onDirectory?.(directory);
   const events = await publicationsFromBookshelfDirectory(directory);
   return { directory, events };
 }

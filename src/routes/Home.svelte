@@ -9,6 +9,7 @@
   import {
     LANDING_FEED_LIMIT,
     clearWarmLandingVisit,
+    ensureNetworkShelf,
     isWarmLandingRevisit,
     landingCoverSeed,
     loadCachedLanding,
@@ -17,6 +18,7 @@
     orderShelfCovers,
     recordWarmLandingVisit,
     refreshLanding,
+    subjectsFromPublications,
     type LandingView
   } from '$lib/landing';
   import { warmNavEvent } from '$lib/nav-warm';
@@ -26,8 +28,16 @@
   import { listingDensity } from '$lib/stores/listing-density';
   import { get } from 'svelte/store';
   import { muteState, filterMuted } from '$lib/mute';
+  import { deletionRevision, isAddressDeleted } from '$lib/deletions';
   import { rememberEvents } from '$lib/nostr/event-memory';
-  import { isViewerBoundShelfId, orderLandingShelves, dedupeLandingShelfEvents } from '$lib/shelves';
+  import {
+    bookshelfChipsFromDirectories,
+    guideCoverTrackCount,
+    isViewerBoundShelfId,
+    orderLandingShelves,
+    dedupeLandingShelfEvents,
+    SHELF_TITLES
+  } from '$lib/shelves';
   import { coverImageUrl } from '$lib/cover';
   import { coverAuthor, coverTitle } from '$lib/cover-fallback';
   import { prefetchImages } from '$lib/image-cache';
@@ -35,6 +45,7 @@
   import { nip19, type Event } from 'nostr-tools';
   import { cachePutEvent, type LandingShelfSnap } from '$lib/nostr/cache';
   import { KIND } from '$lib/constants';
+  import { GITCITADEL_CURATOR_HEX } from '$lib/hex';
   import {
     defaultStarterGuideChips,
     loadStarterGuideChips,
@@ -52,7 +63,6 @@
   import { warmReadingQueueCache } from '$lib/reading-queue-cache';
   import { fetchByAddress } from '$lib/nostr/fetch';
   import { eventAddress } from '$lib/nostr/verify';
-  import { MY_BOOK_COLLECTION_D_TAG } from '$lib/bookshelf';
   import LandingFollowsReading from '$lib/components/LandingFollowsReading.svelte';
 
   const LOG = '[alexandria:landing]';
@@ -65,6 +75,8 @@
   let shelves = $state<LandingShelfSnap[]>([]);
   let labels = $state<string[]>([]);
   let guideChips = $state<StarterGuideChip[]>(defaultStarterGuideChips());
+  /** Viewer's kind-30045 directories from session metadata — mine chip list. */
+  let viewerDirectories = $state<Event[]>([]);
   let landingBusy = $state(true);
   let landingStatus = $state('Starting…');
   let shelfBusy = $state(false);
@@ -95,22 +107,171 @@
     return { id: 'reading-now', title: 'Reading now', events };
   });
 
-  const visibleShelves = $derived(
-    dedupeLandingShelfEvents(
+  /** Curator guide chips — signed-out "From the guides" when shelf chips are empty. */
+  const visibleGuides = $derived.by(() => {
+    void $deletionRevision;
+    return guideChips.filter(
+      (chip) => !isAddressDeleted(KIND.DIRECTORY, GITCITADEL_CURATOR_HEX, chip.d)
+    );
+  });
+
+  /** Own bookshelf folder chips under "From your bookshelves". */
+  const viewerBookshelfChips = $derived.by(() => {
+    void $deletionRevision;
+    const pk = ($session.pubkey ?? '').toLowerCase();
+    if (!pk) return [];
+    let npub = '';
+    try {
+      npub = nip19.npubEncode(pk);
+    } catch {
+      return [];
+    }
+    return bookshelfChipsFromDirectories(viewerDirectories, pk, npub).filter(
+      (chip) => !isAddressDeleted(KIND.DIRECTORY, pk, chip.d)
+    );
+  });
+
+  /** Split curator covers into scrollable "From the guides" rows (chips on the first). */
+  function splitGuideCoverRows(
+    covers: Event[],
+    count: number,
+    chips: { d: string; title: string; href: string }[]
+  ): LandingShelfSnap[] {
+    if (!covers.length) {
+      return chips.length
+        ? [{ id: 'guides', title: SHELF_TITLES.guides, events: [], chips }]
+        : [];
+    }
+    // Prefer one dense/scrollable track while membership is still resolving.
+    const chunks = guideCoverTrackCount(covers.length, count);
+    const rows: LandingShelfSnap[] = [];
+    const size = Math.ceil(covers.length / chunks);
+    for (let i = 0; i < chunks; i++) {
+      const slice = covers.slice(i * size, (i + 1) * size);
+      if (!slice.length) break;
+      rows.push({
+        id: i === 0 ? 'guides' : `guides-${i + 1}`,
+        title: SHELF_TITLES.guides,
+        events: slice,
+        ...(i === 0 && chips.length ? { chips } : {})
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * Signed-in: mine → follows → network → From the guides (×1, or more if mine/follows empty).
+   * Signed-out: network → From the guides ×3 (same cover-row budget).
+   * Multiple guides tracks share one heading; Booklists renders after guides.
+   */
+  const visibleShelves = $derived.by(() => {
+    void $deletionRevision;
+    const signedIn = !!$session.pubkey;
+    const rows: LandingShelfSnap[] = [
+      ...(readingNowShelf ? [readingNowShelf] : []),
+      ...shelves.map((s) => {
+        if (s.id === 'network') {
+          return { ...s, events: filterMuted(s.events, $muteState) };
+        }
+        if ((s.id === 'mine' || s.id === 'guides') && s.chips?.length) {
+          const owner =
+            s.id === 'guides'
+              ? GITCITADEL_CURATOR_HEX
+              : ($session.pubkey ?? '').toLowerCase();
+          if (!owner) return s;
+          const nextChips = s.chips.filter(
+            (chip) => !isAddressDeleted(KIND.DIRECTORY, owner, chip.d)
+          );
+          return nextChips.length === s.chips.length ? s : { ...s, chips: nextChips };
+        }
+        return s;
+      })
+    ];
+
+    // Own bookshelf chips — prefer shelf pack, else session directories.
+    let mine = rows.find((s) => s.id === 'mine');
+    const mineChipsForRow =
+      mine?.chips?.length ? mine.chips : viewerBookshelfChips;
+    if (mine && !(mine.chips?.length) && mineChipsForRow.length) {
+      mine = { ...mine, chips: mineChipsForRow };
+    } else if (!mine && mineChipsForRow.length) {
+      mine = {
+        id: 'mine',
+        title: SHELF_TITLES.mine,
+        events: [],
+        chips: mineChipsForRow
+      };
+    }
+
+    let guides = rows.find((s) => s.id === 'guides');
+    // Chips always — prefer shelf pack, else curator starter chips (defaults until live).
+    const guideChipsForRow =
+      guides?.chips?.length ? guides.chips : visibleGuides;
+    if (!guides) {
+      guides = {
+        id: 'guides',
+        title: SHELF_TITLES.guides,
+        events: [],
+        chips: guideChipsForRow
+      };
+    } else if (!(guides.chips?.length)) {
+      guides = { ...guides, chips: guideChipsForRow };
+    }
+
+    const withoutGuides = rows.filter(
+      (s) =>
+        s.id !== 'guides' &&
+        !String(s.id).startsWith('guides-') &&
+        s.id !== 'mine'
+    );
+    const withMine = mine ? [...withoutGuides, mine] : withoutGuides;
+    const base = signedIn
+      ? withMine.filter(
+          (s) =>
+            s.id === 'reading-now' ||
+            s.id === 'mine' ||
+            s.id === 'follows' ||
+            s.id === 'network' ||
+            s.id.startsWith('folder:')
+        )
+      : withMine.filter(
+          (s) => s.id === 'reading-now' || s.id === 'network'
+        );
+
+    const hasMine = base.some((s) => s.id === 'mine' && (s.events?.length ?? 0) > 0);
+    const hasFollows = base.some((s) => s.id === 'follows' && (s.events?.length ?? 0) > 0);
+    // Signed-out always 3 guides rows; signed-in starts at 1 and adds one per missing personal row.
+    let guideRowCount = signedIn ? 1 : 3;
+    if (signedIn) {
+      if (!hasMine) guideRowCount += 1;
+      if (!hasFollows) guideRowCount += 1;
+    }
+
+    // Guide covers only when upper shelves do not already show that publication.
+    const upperCoverKeys = new Set<string>();
+    for (const s of base) {
+      for (const event of s.events ?? []) {
+        upperCoverKeys.add(eventAddress(event) || event.id.toLowerCase());
+      }
+    }
+    const guideCovers = (guides.events ?? []).filter((event) => {
+      const key = eventAddress(event) || event.id.toLowerCase();
+      return !upperCoverKeys.has(key);
+    });
+
+    const guideRows = splitGuideCoverRows(guideCovers, guideRowCount, guideChipsForRow);
+
+    return dedupeLandingShelfEvents(
       orderLandingShelves(
-        [
-          ...(readingNowShelf ? [readingNowShelf] : []),
-          ...shelves.map((s) => {
-            // Curated shelves keep their covers; mute only drops authors on open network rows.
-            if (s.id === 'network') {
-              return { ...s, events: filterMuted(s.events, $muteState) };
-            }
-            return s;
-          })
-        ].filter((s) => s.events.length)
+        [...base, ...guideRows].filter(
+          (s) =>
+            (s.events?.length ?? 0) > 0 ||
+            (s.chips?.length ?? 0) > 0 ||
+            s.id === 'guides'
+        )
       )
-    )
-  );
+    );
+  });
   const hasViewerShelves = $derived(
     visibleShelves.some((s) => isViewerBoundShelfId(s.id))
   );
@@ -128,9 +289,19 @@
   const visibleRatings = $derived(
     filterMuted(ratings, $muteState).slice(0, LANDING_FEED_LIMIT)
   );
-  const visibleSubjects = $derived(subjects);
+  /** Prefer t-tags on painted shelf covers — Mercury recent pubs often have none. */
+  const visibleSubjects = $derived.by(() => {
+    const fromShelves = subjectsFromPublications(
+      shelves
+        .flatMap((s) => s.events ?? [])
+        .filter(
+          (e) =>
+            e.kind === KIND.PUBLICATION || e.kind === KIND.WIKI || e.kind === KIND.SPEC
+        )
+    );
+    return fromShelves.length ? fromShelves : subjects;
+  });
   const visibleLabels = $derived(labels);
-  const visibleGuides = $derived(guideChips);
   /** Busy spinner only until something paints — do not hold it for session.loading after shelves. */
   const landingHasPaintedContent = $derived(
     visibleShelves.length > 0 ||
@@ -168,8 +339,13 @@
     return `#${publicationPath(pub)}`;
   }
 
-  /** Search URL for a landing shelf heading (replaces the old “Full shelf →” link). */
+  /**
+   * Search URL for a landing shelf heading.
+   * Own bookshelves / guides use plain labels + chips — never a heading link.
+   */
   function shelfHeadingHref(shelf: LandingShelfSnap): string | null {
+    if (shelf.id === 'mine' || shelf.id === 'guides' || shelf.id.startsWith('guides-'))
+      return null;
     if (shelf.href) {
       return shelf.href.startsWith('#') ? shelf.href : `#${shelf.href}`;
     }
@@ -184,11 +360,58 @@
     if (shelf.id === 'reading-now') {
       return `#/search?queue=${encodeURIComponent(npub)}`;
     }
-    if (shelf.id === 'mine') {
-      return `#/search?bookshelf=${encodeURIComponent(MY_BOOK_COLLECTION_D_TAG)}&npub=${encodeURIComponent(npub)}`;
-    }
     return null;
   }
+
+  function shelfChips(shelf: LandingShelfSnap): { d: string; title: string; href: string }[] {
+    void $deletionRevision;
+    const raw =
+      shelf.chips?.length
+        ? shelf.chips
+        : shelf.id === 'guides' && visibleGuides.length
+          ? visibleGuides
+          : shelf.id === 'mine' && viewerBookshelfChips.length
+            ? viewerBookshelfChips
+            : [];
+    if (!raw.length) return [];
+    const owner =
+      shelf.id === 'guides' || shelf.id.startsWith('guides-')
+        ? GITCITADEL_CURATOR_HEX
+        : shelf.id === 'mine'
+          ? ($session.pubkey ?? '').toLowerCase()
+          : '';
+    if (!owner) return raw;
+    return raw.filter((chip) => !isAddressDeleted(KIND.DIRECTORY, owner, chip.d));
+  }
+
+  function isGuidesShelfId(id: string): boolean {
+    return id === 'guides' || id.startsWith('guides-');
+  }
+
+  type ShelfBlock =
+    | { kind: 'single'; shelf: LandingShelfSnap }
+    | { kind: 'guides'; shelves: LandingShelfSnap[] };
+
+  /** Group consecutive guides cover tracks under one heading. */
+  const shelfBlocks = $derived.by((): ShelfBlock[] => {
+    const out: ShelfBlock[] = [];
+    let guidesBuf: LandingShelfSnap[] = [];
+    const flushGuides = () => {
+      if (!guidesBuf.length) return;
+      out.push({ kind: 'guides', shelves: guidesBuf });
+      guidesBuf = [];
+    };
+    for (const shelf of visibleShelves) {
+      if (isGuidesShelfId(shelf.id)) {
+        guidesBuf.push(shelf);
+        continue;
+      }
+      flushGuides();
+      out.push({ kind: 'single', shelf });
+    }
+    flushGuides();
+    return out;
+  });
 
   /** All shelf publications in priority order, deduped — used by table view. */
   const allShelfEvents = $derived.by(() => {
@@ -276,6 +499,7 @@
     shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
     labels = [];
+    viewerDirectories = [];
     lastFoldedMetaKey = null;
     clearWarmLandingVisit();
   }
@@ -494,6 +718,14 @@
           identity: identity?.slice(0, 8) ?? null,
           metaEvents: metaKey ? metaKey.split(',').length : 0
         });
+        // Older snapshots often omitted network after follows resolved — refill from cache pubs.
+        if (
+          cached &&
+          !shelves.some((s) => s.id === 'network' && s.events.length) &&
+          cached.publications.length
+        ) {
+          shelves = await ensureNetworkShelf(shelves, cached.publications, identity);
+        }
         markViewerShelvesFoldedIfReady();
         recordWarmLandingVisit(identity, metaKey);
         landingStatus = '';
@@ -573,11 +805,15 @@
       if ($s.pubkey === lastPk) return;
       lastPk = $s.pubkey;
       lastMetaKey = undefined;
+      if (!$s.pubkey) viewerDirectories = [];
       clearIdentityShelves();
       scheduleLoad();
     });
     const unsubMeta = session.metadata.subscribe((events) => {
       const pk = session.getPubkey();
+      viewerDirectories = pk
+        ? events.filter((e) => e.kind === KIND.DIRECTORY)
+        : [];
       if (!pk) {
         lastMetaKey = undefined;
         return;
@@ -649,7 +885,7 @@
           </p>
         {:else if $session.pubkey && !hasViewerShelves}
           <p class="muted landing-status landing-hero-status">
-            Signed in, but My shelf / folders did not load. Open the browser console and filter for
+            Signed in, but your bookshelves did not load. Open the browser console and filter for
             <code>alexandria:landing</code>.
           </p>
         {:else}
@@ -659,48 +895,22 @@
     </div>
   </header>
 
-  {#if visibleGuides.length}
-    <section class="landing-section landing-guides">
-      <div class="landing-section-heading">
-        <h2 class="section-title">Guides</h2>
-        <p class="landing-section-hint">
-          Folders from GitCitadel Publishing’s bookshelf — add or remove them under
-          <code>/root/my-book-collection</code>
-        </p>
-      </div>
-      <nav class="guide-links" aria-label="Starter guides">
-        {#each visibleGuides as guide, i (guide.d)}
-          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
-          <a href={guide.href} use:link>{guide.title}</a>
-        {/each}
-        <span class="guide-links-sep" aria-hidden="true">·</span>
-        <a
-          class="guide-links-external"
-          href="https://biblestr.imwald.eu/"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img class="guide-links-icon" src="/biblestr-icon.png" alt="" width="16" height="16" />
-          Biblestr
-        </a>
-      </nav>
-    </section>
-  {/if}
-
-  {#if visibleLabels.length}
-    <section class="landing-section landing-booklists">
-      <div class="landing-section-heading">
-        <h2 class="section-title">Booklists</h2>
-        <a class="landing-browse-link" href="#/booklists" use:link>Browse the booklists</a>
-      </div>
-      <nav class="guide-links guide-links-clamp" aria-label="Booklists">
-        {#each visibleLabels as label, i}
-          {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
-          <a href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
-        {/each}
-      </nav>
-    </section>
-  {/if}
+  {#snippet booklistsSection()}
+    {#if visibleLabels.length}
+      <section class="landing-section landing-booklists">
+        <div class="landing-section-heading">
+          <h2 class="section-title">Booklists</h2>
+          <a class="landing-browse-link" href="#/booklists" use:link>Browse the booklists</a>
+        </div>
+        <nav class="guide-links guide-links-clamp" aria-label="Booklists">
+          {#each visibleLabels as label, i}
+            {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+            <a href={`#/search?label=${encodeURIComponent(label)}`} use:link>{label}</a>
+          {/each}
+        </nav>
+      </section>
+    {/if}
+  {/snippet}
 
   {#if visibleShelves.length}
     <div class="listing-toolbar">
@@ -708,16 +918,144 @@
     </div>
   {/if}
 
+  {#snippet shelfCoverTrack(shelf: LandingShelfSnap)}
+    {#if shelfCoverEvents(shelf).length}
+      <ShelfTrack>
+        <div class="shelf-bar">
+          {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+            {@const tipTitle = coverTitle(pub)}
+            {@const tipAuthor = coverAuthor(pub)}
+            {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+            <a
+              class="cover"
+              href={shelfCoverHref(shelf, pub)}
+              use:link
+              title={tip}
+              aria-label={tip}
+              onpointerdown={() => warmNavEvent(pub)}
+              onclick={() => warmNavEvent(pub)}
+            >
+              <Cover event={pub} captionOnHover />
+            </a>
+          {/each}
+        </div>
+      </ShelfTrack>
+    {/if}
+  {/snippet}
+
   {#if $listingDensity === 'table'}
     {#if allShelfEvents.length}
       <EventsTable events={allShelfEvents} />
     {/if}
+    {@render booklistsSection()}
   {:else}
-    {#each visibleShelves as shelf (shelf.id)}
-      {@const headingHref = shelfHeadingHref(shelf)}
-      {#if shelf.id === 'reading-now'}
-        <div class="landing-reading-row">
-          <section class="landing-section landing-shelf landing-shelf-reading">
+    {#each shelfBlocks as block, blockIndex (block.kind === 'guides' ? 'guides' : block.shelf.id)}
+      {#if block.kind === 'guides'}
+        {@const lead = block.shelves[0]!}
+        {@const chips = shelfChips(lead)}
+        <section class="landing-section landing-shelf landing-shelf-guides">
+          <div class="shelf-heading">
+            <h2 class="section-title">{SHELF_TITLES.guides}</h2>
+          </div>
+          <p class="landing-section-hint">GitCitadel Publishing’s bookshelves</p>
+          <nav class="guide-links landing-shelf-chips" aria-label="Guides">
+            {#each chips as chip, i (chip.d)}
+              {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+              <a href={chip.href.startsWith('#') ? chip.href : `#${chip.href}`} use:link
+                >{chip.title}</a
+              >
+            {/each}
+            {#if chips.length}
+              <span class="guide-links-sep" aria-hidden="true">·</span>
+            {/if}
+            <a
+              class="guide-links-external"
+              href="https://biblestr.imwald.eu/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <img class="guide-links-icon" src="/biblestr-icon.png" alt="" width="16" height="16" />
+              Biblestr
+            </a>
+          </nav>
+          {#each block.shelves as guideShelf (guideShelf.id)}
+            {@render shelfCoverTrack(guideShelf)}
+          {/each}
+        </section>
+        {#if blockIndex === shelfBlocks.length - 1}
+          {@render booklistsSection()}
+        {/if}
+      {:else}
+        {@const shelf = block.shelf}
+        {@const headingHref = shelfHeadingHref(shelf)}
+        {@const chips = shelfChips(shelf)}
+        {#if shelf.id === 'reading-now'}
+          <div class="landing-reading-row">
+            <section class="landing-section landing-shelf landing-shelf-reading">
+              <div class="shelf-heading">
+                <h2 class="section-title">
+                  {#if headingHref}
+                    <a href={headingHref} use:link>{shelf.title}</a>
+                  {:else}
+                    {shelf.title}
+                  {/if}
+                </h2>
+              </div>
+              <ShelfTrack class="shelf-track-reading">
+                  <div class="shelf-bar">
+                    {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                      {@const tipTitle = coverTitle(pub)}
+                      {@const tipAuthor = coverAuthor(pub)}
+                      {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
+                      {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                      {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                      <a
+                        class="cover"
+                        href={shelfCoverHref(shelf, pub)}
+                        use:link
+                        title={tip}
+                        aria-label={`${tip} — ${pct}% read`}
+                        onpointerdown={() => warmNavEvent(pub)}
+                        onclick={() => warmNavEvent(pub)}
+                      >
+                        <Cover event={pub} />
+                      </a>
+                    {/each}
+                  </div>
+                  <div class="shelf-reading-captions">
+                    {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
+                      {@const tipTitle = coverTitle(pub)}
+                      {@const tipAuthor = coverAuthor(pub)}
+                      {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
+                      {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
+                      <div class="shelf-reading-caption">
+                        <span class="shelf-reading-caption-title">{tipTitle}</span>
+                        {#if tipAuthor}
+                          <span class="shelf-reading-caption-author">{tipAuthor}</span>
+                        {/if}
+                        <div
+                          class="shelf-reading-progress"
+                          role="progressbar"
+                          aria-valuenow={pct}
+                          aria-valuemin="0"
+                          aria-valuemax="100"
+                          aria-label={`${pct}% read`}
+                        >
+                          <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
+                        </div>
+                        <span class="shelf-reading-caption-pct">{pct}%</span>
+                      </div>
+                    {/each}
+                  </div>
+                </ShelfTrack>
+            </section>
+            <LandingFollowsReading />
+          </div>
+        {:else}
+          <section
+            class="landing-section landing-shelf"
+            class:landing-shelf-mine={shelf.id === 'mine'}
+          >
             <div class="shelf-heading">
               <h2 class="section-title">
                 {#if headingHref}
@@ -727,92 +1065,30 @@
                 {/if}
               </h2>
             </div>
-            <ShelfTrack class="shelf-track-reading">
-                <div class="shelf-bar">
-                  {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
-                    {@const tipTitle = coverTitle(pub)}
-                    {@const tipAuthor = coverAuthor(pub)}
-                    {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
-                    {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
-                    {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
-                    <a
-                      class="cover"
-                      href={shelfCoverHref(shelf, pub)}
-                      use:link
-                      title={tip}
-                      aria-label={`${tip} — ${pct}% read`}
-                      onpointerdown={() => warmNavEvent(pub)}
-                      onclick={() => warmNavEvent(pub)}
-                    >
-                      <Cover event={pub} />
-                    </a>
-                  {/each}
-                </div>
-                <div class="shelf-reading-captions">
-                  {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
-                    {@const tipTitle = coverTitle(pub)}
-                    {@const tipAuthor = coverAuthor(pub)}
-                    {@const queueEntry = findQueueEntry(readingQueue, eventAddress(pub))}
-                    {@const pct = queueEntry ? readingProgressPercent(queueEntry) : 0}
-                    <div class="shelf-reading-caption">
-                      <span class="shelf-reading-caption-title">{tipTitle}</span>
-                      {#if tipAuthor}
-                        <span class="shelf-reading-caption-author">{tipAuthor}</span>
-                      {/if}
-                      <div
-                        class="shelf-reading-progress"
-                        role="progressbar"
-                        aria-valuenow={pct}
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        aria-label={`${pct}% read`}
-                      >
-                        <span class="shelf-reading-progress-fill" style={`width:${pct}%`}></span>
-                      </div>
-                      <span class="shelf-reading-caption-pct">{pct}%</span>
-                    </div>
-                  {/each}
-                </div>
-              </ShelfTrack>
-          </section>
-          <LandingFollowsReading />
-        </div>
-      {:else}
-      <section
-        class="landing-section landing-shelf"
-      >
-        <div class="shelf-heading">
-          <h2 class="section-title">
-            {#if headingHref}
-              <a href={headingHref} use:link>{shelf.title}</a>
-            {:else}
-              {shelf.title}
+            {#if chips.length}
+              <nav
+                class="guide-links landing-shelf-chips"
+                aria-label={shelf.id === 'mine' ? 'Your bookshelves' : shelf.title}
+              >
+                {#each chips as chip, i (chip.d)}
+                  {#if i > 0}<span class="guide-links-sep" aria-hidden="true">·</span>{/if}
+                  <a href={chip.href.startsWith('#') ? chip.href : `#${chip.href}`} use:link
+                    >{chip.title}</a
+                  >
+                {/each}
+              </nav>
             {/if}
-          </h2>
-        </div>
-          <ShelfTrack>
-            <div class="shelf-bar">
-              {#each shelfCoverEvents(shelf).slice(0, LISTING_PAGE_SIZE_FULL) as pub (pub.id)}
-                {@const tipTitle = coverTitle(pub)}
-                {@const tipAuthor = coverAuthor(pub)}
-                {@const tip = tipAuthor ? `${tipTitle} — ${tipAuthor}` : tipTitle}
-                <a
-                  class="cover"
-                  href={shelfCoverHref(shelf, pub)}
-                  use:link
-                  title={tip}
-                  aria-label={tip}
-                  onpointerdown={() => warmNavEvent(pub)}
-                  onclick={() => warmNavEvent(pub)}
-                >
-                  <Cover event={pub} captionOnHover />
-                </a>
-              {/each}
-            </div>
-          </ShelfTrack>
-      </section>
+            {@render shelfCoverTrack(shelf)}
+          </section>
+        {/if}
+        {#if blockIndex === shelfBlocks.length - 1}
+          {@render booklistsSection()}
+        {/if}
       {/if}
     {/each}
+    {#if !shelfBlocks.length}
+      {@render booklistsSection()}
+    {/if}
   {/if}
 
   {#if visibleRatings.length}
