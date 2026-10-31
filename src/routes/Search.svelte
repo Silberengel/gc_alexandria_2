@@ -35,6 +35,7 @@
   import { parseSearchPointer } from '$lib/search-pointer';
   import SearchPointerEditor from '$lib/components/SearchPointerEditor.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
+  import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import {
@@ -517,6 +518,9 @@
       >Clear all</button>
     </div>
   </header>
+  {#key formResetKey}
+    <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
+  {/key}
   {#if searchTerm}
     {#if searchPointer}
       <SearchPointerEditor pointer={searchPointer} />
@@ -526,14 +530,22 @@
           <span class="muted">Bookshelf</span>
           <span>{searchTerm}</span>
         </p>
-        {#if bookshelfAuthorHex}
-          <p class="search-bookshelf-curator">
-            <span class="search-bookshelf-curator-label">Curator:</span>
-            <UserBadge pubkey={bookshelfAuthorHex} compact />
-          </p>
-        {/if}
-        {#if isOwnBookshelf}
-          <a class="btn search-bookshelf-edit" href={bookshelfEditHref} use:link>Edit the list</a>
+        {#if bookshelfAuthorHex || bookshelfDirectory || isOwnBookshelf}
+          <div class="search-bookshelf-curator">
+            {#if bookshelfAuthorHex}
+              <span class="search-bookshelf-curator-label">Curator:</span>
+              <UserBadge pubkey={bookshelfAuthorHex} compact />
+            {/if}
+            {#if bookshelfDirectory}
+              <CopyPointerButton
+                event={bookshelfDirectory}
+                class="search-bookshelf-more"
+              />
+            {/if}
+            {#if isOwnBookshelf}
+              <a class="btn search-bookshelf-edit" href={bookshelfEditHref} use:link>Edit the list</a>
+            {/if}
+          </div>
         {/if}
       </div>
     {:else}
@@ -546,11 +558,34 @@
   {#if searching}
     <LoadingHint message={loadingMessage} />
   {/if}
-  {#key formResetKey}
-    <AdvancedSearchPanel initial={advancedReq} open={Boolean(advancedReq)} />
-  {/key}
   <div class="listing-toolbar search-result-filters" role="group" aria-label="Result filters">
-    <PageFilter bind:value={pageFilter} />
+    <div class="search-result-filter-lead">
+      <PageFilter bind:value={pageFilter} />
+      <SearchRefineBar
+        events={muted}
+        kind={refineKind}
+        pubkey={refinePubkey}
+        sinceDate={refineSinceDate}
+        untilDate={refineUntilDate}
+        sort={refineSort}
+        {resultScope}
+        defaultResultScope={bookshelfSlug ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE}
+        {showMineScope}
+        {showFollowsScope}
+        {showTrustedScope}
+        onKind={(v) => (refineKind = v)}
+        onPubkey={(v) => (refinePubkey = v)}
+        onSinceDate={(v) => (refineSinceDate = v)}
+        onUntilDate={(v) => (refineUntilDate = v)}
+        onSort={(v) => (refineSort = v)}
+        onResultScope={(v) => setResultScope(v)}
+        onClear={() => {
+          resetRefine();
+          // Bookshelves default to "all" so Clear does not re-hide the shelf.
+          setResultScope(bookshelfSlug ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE);
+        }}
+      />
+    </div>
     {#if resultScope === 'trusted' && (events.length > 0 || Boolean(searchTerm) || Boolean(advancedReq))}
       <button
         type="button"
@@ -563,29 +598,6 @@
     {/if}
     <ListingViewToggle label="Search results" />
   </div>
-  <SearchRefineBar
-    events={muted}
-    kind={refineKind}
-    pubkey={refinePubkey}
-    sinceDate={refineSinceDate}
-    untilDate={refineUntilDate}
-    sort={refineSort}
-    {resultScope}
-    {showMineScope}
-    {showFollowsScope}
-    {showTrustedScope}
-    onKind={(v) => (refineKind = v)}
-    onPubkey={(v) => (refinePubkey = v)}
-    onSinceDate={(v) => (refineSinceDate = v)}
-    onUntilDate={(v) => (refineUntilDate = v)}
-    onSort={(v) => (refineSort = v)}
-    onResultScope={(v) => setResultScope(v)}
-    onClear={() => {
-      resetRefine();
-      // Bookshelves default to "all" so Clear does not re-hide the shelf.
-      setResultScope(bookshelfSlug ? 'all' : DEFAULT_AUTHOR_RESULT_SCOPE);
-    }}
-  />
   {#if !searching}
     {#if loading}
       <LoadingHint message="Updating…" />

@@ -28,10 +28,12 @@
     directoryExplorerEntries,
     directoryExplorerTitle,
     directoryPathSegment,
+    directoriesUnreachableFrom,
     directoryTitleTag,
     formatDirectoryGmtParts,
     type DirectoryExplorerEntry
   } from '$lib/directory-explorer';
+  import { directoryCoordinateFromEvent } from '$lib/bookshelf';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
   import { parseEventCoordinate } from '$lib/library-scope';
@@ -49,11 +51,16 @@
     root: Event;
     /** Hide create/remove/rename when browsing someone else's tree. */
     readOnly?: boolean;
+    /**
+     * All kind-30045 events from this owner. At `/root`, directories not linked
+     * under the tree are listed too (parallel roots / orphans).
+     */
+    ownedDirectories?: Event[];
     /** Fired when `/root` is republished after a membership change. */
     onRootChange?: (root: Event) => void;
   }
 
-  let { root, readOnly = false, onRootChange }: Props = $props();
+  let { root, readOnly = false, ownedDirectories = [], onRootChange }: Props = $props();
 
   /** Stack of opened folders; index 0 is always `/root`. */
   let stack = $state<Event[]>(untrack(() => [root]));
@@ -132,8 +139,12 @@
     event?: Event;
   };
 
+  const atFilesystemRoot = $derived(
+    stack.length === 1 && directoryDTag(cwd) === ROOT_DIRECTORY_D_TAG
+  );
+
   const listing = $derived.by((): ListingRow[] => {
-    return directoryExplorerEntries(cwd, cwdPrivateTags).map((entry) => {
+    const rows = directoryExplorerEntries(cwd, cwdPrivateTags).map((entry) => {
       const resolvedHit = Object.prototype.hasOwnProperty.call(resolved, entry.key)
         ? resolved[entry.key]
         : undefined;
@@ -184,6 +195,53 @@
         event: hit
       };
     });
+
+    // At /root, also list this author's other 30045 trees (e.g. starter guides)
+    // that are not linked under the filesystem root.
+    if (atFilesystemRoot && ownedDirectories.length) {
+      const listedCoords = new Set(
+        rows
+          .map((r) => r.entry?.coordinate?.toLowerCase())
+          .filter((c): c is string => Boolean(c))
+      );
+      const listedIds = new Set(rows.map((r) => r.event?.id.toLowerCase()).filter(Boolean));
+      for (const ev of directoriesUnreachableFrom(cwd, ownedDirectories)) {
+        const coord = directoryCoordinateFromEvent(ev).toLowerCase();
+        if (listedCoords.has(coord) || listedIds.has(ev.id.toLowerCase())) continue;
+        const counts = directoryChildCounts(ev);
+        rows.push({
+          key: `owned:${ev.id}`,
+          role: 'folder',
+          name: directoryExplorerTitle(ev),
+          dTag: directoryDTag(ev),
+          createdAt: ev.created_at,
+          folders: counts.folders,
+          events: counts.events,
+          objects: counts.folders + counts.events,
+          missing: false,
+          kindLine: 'Folder',
+          iconClass: 'is-folder',
+          event: ev
+        });
+      }
+    }
+    return rows;
+  });
+
+  $effect(() => {
+    if (!atFilesystemRoot || !ownedDirectories.length) return;
+    const extras = directoriesUnreachableFrom(cwd, ownedDirectories);
+    if (!extras.length) return;
+    const next = { ...resolved };
+    let changed = false;
+    for (const ev of extras) {
+      const key = `owned:${ev.id}`;
+      if (next[key] === undefined) {
+        next[key] = ev;
+        changed = true;
+      }
+    }
+    if (changed) resolved = next;
   });
 
   const sortedListing = $derived(
@@ -259,7 +317,10 @@
       return;
     }
     const next: Record<string, boolean> = {};
-    for (const row of sortedListing) next[row.key] = true;
+    // Skip parallel-tree rows that are not memberships of the open folder.
+    for (const row of sortedListing) {
+      if (row.entry) next[row.key] = true;
+    }
     selectedKeys = next;
   }
 
@@ -868,7 +929,8 @@
                     <input
                       type="checkbox"
                       checked={!!selectedKeys[row.key]}
-                      disabled={selectionBusy}
+                      disabled={selectionBusy || !row.entry}
+                      title={!row.entry ? 'Not linked under this folder' : undefined}
                       aria-label={`Select ${row.name}`}
                       onchange={(e) =>
                         toggleRowSelected(row.key, (e.currentTarget as HTMLInputElement).checked)}

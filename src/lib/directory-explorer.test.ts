@@ -7,6 +7,7 @@ import {
   directoryChildCounts,
   directoryChildHref,
   directoryCoordinateHref,
+  directoriesUnreachableFrom,
   directoryEntryIconClass,
   directoryEntryKindLine,
   directoryExplorerEntries,
@@ -159,6 +160,42 @@ describe('compareDirectoryListing', () => {
       aOther.id,
       bRoot.id
     ]);
+  });
+});
+
+describe('directoriesUnreachableFrom', () => {
+  it('returns parallel trees not linked under /root', () => {
+    const root = ev({
+      id: '1'.repeat(64),
+      pubkey: pk,
+      tags: [
+        ['d', ROOT_DIRECTORY_D_TAG],
+        ['a', `30045:${pk}:${MY_BOOK_COLLECTION_D_TAG}`]
+      ]
+    });
+    const books = ev({
+      id: '2'.repeat(64),
+      pubkey: pk,
+      tags: [['d', MY_BOOK_COLLECTION_D_TAG]]
+    });
+    const guides = ev({
+      id: '3'.repeat(64),
+      pubkey: pk,
+      created_at: 5,
+      tags: [
+        ['d', 'gc-starter-guides'],
+        ['a', `30045:${pk}:ancient-classics`]
+      ]
+    });
+    const classics = ev({
+      id: '4'.repeat(64),
+      pubkey: pk,
+      created_at: 4,
+      tags: [['d', 'ancient-classics']]
+    });
+    const unreachable = directoriesUnreachableFrom(root, [root, books, guides, classics]);
+    // Only the parallel tree top — nested classics stays under guides.
+    expect(unreachable.map((e) => e.id)).toEqual([guides.id]);
   });
 });
 

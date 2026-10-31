@@ -9,7 +9,7 @@ import {
 } from './bookshelf';
 import { parseAddress, parseEventCoordinate } from './library-scope';
 import { libraryDocumentPath, publicationPath } from './metadata';
-import { firstTag } from './nostr/verify';
+import { eventAddress, firstTag } from './nostr/verify';
 import { kindDescription } from './kind-label';
 
 function npubPath(pubkey: string): string {
@@ -147,6 +147,76 @@ export function directoryHomeRank(event: Pick<Event, 'tags'>): number {
   if (d === ROOT_DIRECTORY_D_TAG) return 0;
   if (d === MY_BOOK_COLLECTION_D_TAG) return 1;
   return 2;
+}
+
+/**
+ * Kind-30045 events reachable by walking folder `a`/`e` tags from `root`
+ * (including `root` itself). Used to surface parallel trees / orphans on /directory.
+ */
+export function directoryIdsReachableFrom(
+  root: Event,
+  pool: Event[],
+  privateTags: string[][] = []
+): Set<string> {
+  const byId = new Map<string, Event>();
+  const byCoord = new Map<string, Event>();
+  for (const ev of pool) {
+    if (ev.kind !== KIND.DIRECTORY) continue;
+    byId.set(ev.id.toLowerCase(), ev);
+    byCoord.set(eventAddress(ev).toLowerCase(), ev);
+  }
+  const seen = new Set<string>();
+  const queue: Event[] = [root];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const id = cur.id.toLowerCase();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const priv = cur.id === root.id ? privateTags : [];
+    for (const entry of directoryExplorerEntries(cur, priv)) {
+      if (entry.role !== 'folder') continue;
+      let child: Event | undefined;
+      if (entry.coordinate) child = byCoord.get(entry.coordinate.toLowerCase());
+      if (!child && entry.eventId) child = byId.get(entry.eventId.toLowerCase());
+      if (child && !seen.has(child.id.toLowerCase())) queue.push(child);
+    }
+  }
+  return seen;
+}
+
+/**
+ * Author directories not reachable from `root`, excluding ones that are already
+ * nested under another directory in `pool` (so only parallel tree tops appear).
+ */
+export function directoriesUnreachableFrom(root: Event, pool: Event[]): Event[] {
+  const reachable = directoryIdsReachableFrom(root, pool);
+  const byCoord = new Map<string, Event>();
+  for (const ev of pool) {
+    if (ev.kind !== KIND.DIRECTORY) continue;
+    byCoord.set(eventAddress(ev).toLowerCase(), ev);
+  }
+  const nestedUnderPeer = new Set<string>();
+  for (const ev of pool) {
+    if (ev.kind !== KIND.DIRECTORY) continue;
+    if (ev.id.toLowerCase() === root.id.toLowerCase()) continue;
+    for (const entry of directoryExplorerEntries(ev)) {
+      if (entry.role !== 'folder') continue;
+      const child = entry.coordinate
+        ? byCoord.get(entry.coordinate.toLowerCase())
+        : entry.eventId
+          ? pool.find((e) => e.id.toLowerCase() === entry.eventId!.toLowerCase())
+          : undefined;
+      if (child) nestedUnderPeer.add(child.id.toLowerCase());
+    }
+  }
+  return pool
+    .filter((ev) => {
+      if (ev.kind !== KIND.DIRECTORY) return false;
+      const id = ev.id.toLowerCase();
+      if (reachable.has(id) || nestedUnderPeer.has(id)) return false;
+      return true;
+    })
+    .sort(compareDirectoryListing);
 }
 
 /**

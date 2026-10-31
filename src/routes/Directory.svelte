@@ -6,17 +6,41 @@
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import MentionControl from '$lib/components/MentionControl.svelte';
-  import { MY_BOOK_COLLECTION_D_TAG, ROOT_DIRECTORY_D_TAG } from '$lib/bookshelf';
-  import { ensureUserHomeDirectories, loadUserDirectoryRoot } from '$lib/bookshelf-actions';
+  import {
+    MY_BOOK_COLLECTION_D_TAG,
+    ROOT_DIRECTORY_D_TAG,
+    directoryDTag
+  } from '$lib/bookshelf';
+  import {
+    adoptOrphanDirectoriesUnderRoot,
+    createRootAdoptingDirectories,
+    ensureUserHomeDirectories,
+    listOwnedDirectories,
+    loadUserDirectoryRoot
+  } from '$lib/bookshelf-actions';
+  import {
+    compareDirectoryListing,
+    directoriesUnreachableFrom,
+    directoryExplorerTitle
+  } from '$lib/directory-explorer';
   import { hexPubkey } from '$lib/metadata';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { session } from '$lib/stores/session';
+  import { showNotice } from '$lib/stores/toast';
 
   let loading = $state(false);
   let creating = $state(false);
+  let adopting = $state(false);
   let error = $state('');
   let rootFolder = $state<Event | null>(null);
-  /** Hex pubkey whose `/root` is shown. */
+  /** All latest kind-30045 events for the viewing pubkey. */
+  let ownedDirectories = $state<Event[]>([]);
+  /**
+   * When the owner has no `/root`, browse a chosen 30045 as a temporary top
+   * (read-only). Null = show the flat index of all directories.
+   */
+  let browseFolder = $state<Event | null>(null);
+  /** Hex pubkey whose directories are shown. */
   let viewingPubkey = $state<string | null>(null);
   /** Field text (npub or hex); defaults to the signed-in user. */
   let ownerInput = $state('');
@@ -30,6 +54,17 @@
     )
   );
   const readOnly = $derived(!viewingSelf);
+  const hasFilesystemRoot = $derived(Boolean(rootFolder));
+  const sortedOwned = $derived([...ownedDirectories].sort(compareDirectoryListing));
+  const orphanDirectories = $derived(
+    rootFolder ? directoriesUnreachableFrom(rootFolder, ownedDirectories) : []
+  );
+  const showAdoptOrphans = $derived(
+    viewingSelf && hasFilesystemRoot && orphanDirectories.length > 0
+  );
+  const showCreateRootAdopt = $derived(
+    viewingSelf && !hasFilesystemRoot && ownedDirectories.length > 0
+  );
 
   function npubForHex(hex: string): string {
     try {
@@ -54,19 +89,32 @@
     creating = false;
     viewingPubkey = pk;
     ownerInput = npubForHex(pk);
+    browseFolder = null;
     try {
+      const all = await listOwnedDirectories(pk);
+      ownedDirectories = all;
+      const existingRoot =
+        all.find((e) => directoryDTag(e) === ROOT_DIRECTORY_D_TAG) ?? null;
+
       if (isSelf) {
-        creating = true;
-        const home = await ensureUserHomeDirectories(pk);
-        rootFolder = home.root;
-      } else {
-        const root = await loadUserDirectoryRoot(pk);
-        if (!root) {
-          error = 'No /root directory found for that pubkey on relays.';
+        if (existingRoot) {
+          rootFolder = existingRoot;
+        } else if (all.length === 0) {
+          // Fresh account — mint empty /root + my-book-collection.
+          creating = true;
+          const home = await ensureUserHomeDirectories(pk);
+          rootFolder = home.root;
+          ownedDirectories = await listOwnedDirectories(pk);
+        } else {
+          // Existing directories but no /root — offer an adopt button (do not auto-mint).
           rootFolder = null;
+        }
+      } else {
+        rootFolder = existingRoot ?? (await loadUserDirectoryRoot(pk));
+        if (!rootFolder && !all.length) {
+          error = 'No kind 30045 directories found for that pubkey on relays.';
           return;
         }
-        rootFolder = root;
       }
     } catch (e) {
       error =
@@ -76,9 +124,50 @@
             ? 'Could not open your directories.'
             : 'Could not open that directory.';
       rootFolder = null;
+      ownedDirectories = [];
     } finally {
       creating = false;
       loading = false;
+    }
+  }
+
+  async function onAdoptOrphans(): Promise<void> {
+    if (!rootFolder || !orphanDirectories.length || adopting) return;
+    adopting = true;
+    const orphans = orphanDirectories;
+    const count = orphans.length;
+    try {
+      const next = await adoptOrphanDirectoriesUnderRoot(rootFolder, orphans);
+      if ('error' in next) {
+        showNotice(next.error);
+        return;
+      }
+      rootFolder = next;
+      ownedDirectories = await listOwnedDirectories(next.pubkey);
+      showNotice(
+        `Added ${count} ${count === 1 ? 'directory' : 'directories'} under /root.`,
+        true
+      );
+    } finally {
+      adopting = false;
+    }
+  }
+
+  async function onCreateRootAndAdopt(): Promise<void> {
+    if (!viewingPubkey || adopting || hasFilesystemRoot) return;
+    adopting = true;
+    try {
+      const next = await createRootAdoptingDirectories(viewingPubkey, ownedDirectories);
+      if ('error' in next) {
+        showNotice(next.error);
+        return;
+      }
+      rootFolder = next.root;
+      ownedDirectories = await listOwnedDirectories(viewingPubkey);
+      browseFolder = null;
+      showNotice('Created /root and /my-book-collection, and linked your directories.', true);
+    } finally {
+      adopting = false;
     }
   }
 
@@ -114,6 +203,14 @@
     setOwnerInUrl(null);
   }
 
+  function openOwnedFolder(ev: Event): void {
+    browseFolder = ev;
+  }
+
+  function backToOwnedIndex(): void {
+    browseFolder = null;
+  }
+
   $effect(() => {
     void $querystring;
     void $session.pubkey;
@@ -121,6 +218,8 @@
     if (!target) {
       viewingPubkey = null;
       rootFolder = null;
+      ownedDirectories = [];
+      browseFolder = null;
       loading = false;
       creating = false;
       error = '';
@@ -140,8 +239,8 @@
       <code>/{ROOT_DIRECTORY_D_TAG}</code>
       (with
       <code>/{ROOT_DIRECTORY_D_TAG}/{MY_BOOK_COLLECTION_D_TAG}</code>
-      inside it). Signed-in readers can manage their own tree; anyone can open another pubkey’s
-      folders read-only.
+      inside it), plus every other kind 30045 from this pubkey. Signed-in readers can manage their
+      own tree; anyone can open another pubkey’s folders read-only.
     </p>
   </header>
 
@@ -199,26 +298,94 @@
         <button class="btn" type="button" onclick={() => openLoginDialog()}>Sign in</button>
       {/if}
     </div>
-  {:else if loading && !rootFolder}
+  {:else if loading && !rootFolder && !ownedDirectories.length}
     <LoadingHint
       message={creating
         ? 'Preparing /root and /root/my-book-collection…'
         : viewingSelf
           ? 'Loading your directories…'
-          : 'Loading directory…'}
+          : 'Loading directories…'}
     />
   {:else if error}
     <p class="muted" role="alert">{error}</p>
     <button class="btn" type="button" onclick={() => viewingPubkey && void loadHome(viewingPubkey)}
       >Retry</button
     >
-  {:else if rootFolder}
+  {:else if hasFilesystemRoot && rootFolder}
+    {#if showAdoptOrphans}
+      <div class="directory-adopt-banner">
+        <p class="directory-adopt-copy">
+          {orphanDirectories.length}
+          {orphanDirectories.length === 1 ? 'directory is' : 'directories are'} outside
+          <code>/{ROOT_DIRECTORY_D_TAG}</code>
+          {#if orphanDirectories.length <= 4}
+            ({orphanDirectories.map((d) => `/${directoryDTag(d) || '…'}`).join(', ')})
+          {/if}
+          .
+        </p>
+        <button
+          class="btn btn-primary"
+          type="button"
+          disabled={adopting}
+          onclick={() => void onAdoptOrphans()}
+        >
+          {adopting
+            ? 'Adding…'
+            : `Add ${orphanDirectories.length === 1 ? 'it' : 'them'} to /${ROOT_DIRECTORY_D_TAG}`}
+        </button>
+      </div>
+    {/if}
     <DirectoryBrowser
       root={rootFolder}
       {readOnly}
+      {ownedDirectories}
       onRootChange={(next) => {
         rootFolder = next;
       }}
     />
+  {:else if browseFolder}
+    <div class="directory-browse-back">
+      <button class="btn btn-ghost" type="button" onclick={backToOwnedIndex}
+        >← All directories</button
+      >
+    </div>
+    <DirectoryBrowser root={browseFolder} readOnly />
+  {:else if sortedOwned.length}
+    <p class="muted directory-no-root-hint">
+      No <code>/{ROOT_DIRECTORY_D_TAG}</code> for this pubkey — showing all kind 30045 directories.
+    </p>
+    {#if showCreateRootAdopt}
+      <div class="directory-adopt-banner">
+        <p class="directory-adopt-copy">
+          Create <code>/{ROOT_DIRECTORY_D_TAG}</code> and
+          <code>/{MY_BOOK_COLLECTION_D_TAG}</code>, then link every existing directory under root.
+        </p>
+        <button
+          class="btn btn-primary"
+          type="button"
+          disabled={adopting}
+          onclick={() => void onCreateRootAndAdopt()}
+        >
+          {adopting ? 'Creating…' : 'Create /root and adopt directories'}
+        </button>
+      </div>
+    {/if}
+    <ul class="directory-owned-index">
+      {#each sortedOwned as dir (dir.id)}
+        <li>
+          <button
+            class="directory-owned-index-btn"
+            type="button"
+            onclick={() => openOwnedFolder(dir)}
+          >
+            <span class="directory-owned-index-icon" aria-hidden="true"></span>
+            <span class="directory-owned-index-body">
+              <span class="directory-owned-index-title">{directoryExplorerTitle(dir)}</span>
+              <span class="muted directory-owned-index-d">/{directoryDTag(dir) || '…'}</span>
+            </span>
+          </button>
+        </li>
+      {/each}
+    </ul>
   {/if}
 </main>

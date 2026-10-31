@@ -22,6 +22,8 @@
     untilDate: string;
     sort: SearchSortMode;
     resultScope?: AuthorResultScope;
+    /** Scope that counts as “no refine” for this page (bookshelf uses `all`). */
+    defaultResultScope?: AuthorResultScope;
     showMineScope?: boolean;
     showFollowsScope?: boolean;
     showTrustedScope?: boolean;
@@ -42,6 +44,7 @@
     untilDate,
     sort,
     resultScope = DEFAULT_AUTHOR_RESULT_SCOPE,
+    defaultResultScope = DEFAULT_AUTHOR_RESULT_SCOPE,
     showMineScope = false,
     showFollowsScope = false,
     showTrustedScope = true,
@@ -70,7 +73,7 @@
       !!sinceDate ||
       !!untilDate ||
       sort !== 'best' ||
-      resultScope !== DEFAULT_AUTHOR_RESULT_SCOPE
+      resultScope !== defaultResultScope
   );
 
   let detailsOpen = $state(false);

@@ -1905,6 +1905,10 @@ select:hover {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--ink-soft) 70%, var(--accent));
 }
+.search-bookshelf-more {
+  flex: 0 0 auto;
+  align-self: center;
+}
 .search-bookshelf-edit {
   font-family: var(--ui-font);
   font-size: 0.85rem;
@@ -2136,6 +2140,14 @@ select:hover {
   flex-wrap: wrap;
   margin-bottom: 1rem;
 }
+.search-result-filter-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
 .search-result-filters .page-filter,
 .search-result-filters .page-filter-control {
   flex: 1 1 12rem;
@@ -2151,8 +2163,22 @@ select:hover {
   flex: 0 0 auto;
   margin-left: auto;
 }
-.search-refine-panel {
-  margin: 0 0 1rem;
+/* Inline next to the page filter; open panel spans the lead row. */
+.search-result-filter-lead .search-refine-panel.accordion {
+  flex: 0 0 auto;
+  margin: 0;
+  border-top: none;
+}
+.search-result-filter-lead .search-refine-panel.accordion summary {
+  padding: 0.4rem 0;
+}
+.search-result-filter-lead .search-refine-panel.accordion[open] {
+  flex: 1 1 100%;
+}
+.search-result-filter-lead .search-refine-panel.accordion[open] .search-refine-bar {
+  border-top: 2px solid var(--accent-strong);
+  padding-top: 0.75rem;
+  margin-top: 0.15rem;
 }
 /* Keep native summary marker (chevron); display:flex would hide it. */
 .search-refine-summary-active {
@@ -2167,7 +2193,7 @@ select:hover {
   align-items: end;
   gap: 0.55rem 0.75rem;
   margin: 0;
-  padding-bottom: 0.85rem;
+  padding: 0.35rem 0 0.85rem;
 }
 .search-refine-field {
   display: flex;
@@ -2204,8 +2230,13 @@ select:hover {
     grid-template-columns: 1fr;
   }
 }
-.advanced-search-panel {
-  margin: 0.75rem 0 1.15rem;
+/* No top rule — search field + Advanced Search read as one block.
+   Oxblood rule under the search block separates it from results. */
+.advanced-search-panel.accordion {
+  margin: 0.25rem 0 1.15rem;
+  border-top: none;
+  border-bottom: 2px solid var(--accent-strong);
+  padding-bottom: 0.85rem;
 }
 .advanced-search-form {
   display: grid;
@@ -11440,6 +11471,88 @@ button.directory-explorer-link {
   font-size: 0.75rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+.directory-no-root-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.92rem;
+}
+.directory-adopt-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent-strong) 45%, var(--rule));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-strong) 10%, var(--paper-light));
+}
+.directory-adopt-copy {
+  flex: 1 1 14rem;
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.directory-adopt-copy code {
+  font-size: 0.88em;
+}
+.directory-no-root-hint code {
+  font-size: 0.88em;
+}
+.directory-browse-back {
+  margin: 0 0 0.65rem;
+}
+.directory-owned-index {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
+  border-radius: 0.4rem;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--paper-dark) 40%, var(--paper-light));
+}
+.directory-owned-index li + li {
+  border-top: 1px solid color-mix(in srgb, var(--rule) 55%, transparent);
+}
+.directory-owned-index-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.directory-owned-index-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.directory-owned-index-icon {
+  flex: 0 0 auto;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 1.5px solid color-mix(in srgb, var(--ink-soft) 55%, var(--accent));
+  border-radius: 0.15rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper-light));
+}
+.directory-owned-index-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.directory-owned-index-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.directory-owned-index-d {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
 }
 
 /* Unix-style directory browser */

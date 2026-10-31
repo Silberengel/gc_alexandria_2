@@ -18,6 +18,7 @@ import {
   membershipTargetFromRef,
   rewriteDirectoryDTag,
   slugifyBookshelfDTag,
+  togglePublicationInDirectoryTags,
   type BookshelfShelfOption
 } from './bookshelf';
 import { deletionDraft } from './drafts';
@@ -405,6 +406,144 @@ export async function listOwnedDirectories(pubkey: string): Promise<Event[]> {
       if (db === MY_BOOK_COLLECTION_D_TAG) return 1;
       return b.created_at - a.created_at;
     });
+}
+
+/**
+ * Link many members under `parent` in one replaceable publish (skips already-linked).
+ */
+export async function linkMembersUnderDirectory(
+  parent: Event,
+  members: Event[]
+): Promise<Event | { error: string }> {
+  if (parent.kind !== KIND.DIRECTORY) return { error: 'Not a folder' };
+  if (!canPublishBookshelfReplacement(parent, false)) {
+    return { error: 'Folder not ready' };
+  }
+  const parentCoord = directoryCoordinateFromEvent(parent);
+  const existingPriv = await loadDirectoryPrivateTags(parent);
+  let tags = parent.tags;
+  let privateTags = existingPriv.tags;
+  let addedAny = false;
+  for (const member of members) {
+    if (directoryCoordinateFromEvent(member) === parentCoord) continue;
+    if (directoryContainsPublication({ tags }, member, privateTags)) continue;
+    const parts = createBookshelfDirectoryDraftParts(
+      { tags },
+      privateTags,
+      directoryDTag(parent) || ROOT_DIRECTORY_D_TAG,
+      member
+    );
+    if ('error' in parts) return { error: 'Folder is full' };
+    tags = parts.tags;
+    privateTags = parts.privateTags;
+    if (parts.added) addedAny = true;
+  }
+  if (!addedAny) return parent;
+  const published = await publishDirectoryParts(
+    { kind: KIND.DIRECTORY, tags, privateTags },
+    parent
+  );
+  if (!published) return { error: 'Publish failed' };
+  rememberEvents([published]);
+  invalidateDirectoryCaches(parent.pubkey);
+  directoryByDCache.set(
+    directoryCacheKey(parent.pubkey, directoryDTag(published) || ROOT_DIRECTORY_D_TAG),
+    published
+  );
+  return published;
+}
+
+/** Attach parallel/orphan directories as public children of `/root`. */
+export async function adoptOrphanDirectoriesUnderRoot(
+  root: Event,
+  orphans: Event[]
+): Promise<Event | { error: string }> {
+  if (directoryDTag(root) !== ROOT_DIRECTORY_D_TAG) {
+    return { error: 'Parent must be /root' };
+  }
+  const folders = orphans.filter(
+    (e) =>
+      e.kind === KIND.DIRECTORY &&
+      directoryDTag(e) !== ROOT_DIRECTORY_D_TAG &&
+      e.pubkey.toLowerCase() === root.pubkey.toLowerCase()
+  );
+  if (!folders.length) return root;
+  return linkMembersUnderDirectory(root, folders);
+}
+
+/**
+ * Mint `/root` + `/my-book-collection`, nest the bookshelf under root, and attach
+ * every other existing kind-30045 as a child of `/root`.
+ */
+export async function createRootAdoptingDirectories(
+  pubkey: string,
+  existing: Event[]
+): Promise<UserHomeDirectories | { error: string }> {
+  const pk = pubkey.toLowerCase();
+  const pool = existing.filter(
+    (e) => e.kind === KIND.DIRECTORY && e.pubkey.toLowerCase() === pk
+  );
+  if (pool.some((e) => directoryDTag(e) === ROOT_DIRECTORY_D_TAG)) {
+    return { error: '/root already exists' };
+  }
+
+  const rootPublished = await signAndPublish(
+    createEmptyBookshelfDirectoryDraft(ROOT_DIRECTORY_D_TAG),
+    QUIET
+  );
+  if (!rootPublished) return { error: 'Could not create /root' };
+  rememberEvents([rootPublished]);
+  directoryByDCache.set(directoryCacheKey(pk, ROOT_DIRECTORY_D_TAG), rootPublished);
+
+  let books =
+    pool.find((e) => directoryDTag(e) === MY_BOOK_COLLECTION_D_TAG) ?? null;
+  if (!books) {
+    const minted = await signAndPublish(
+      createEmptyBookshelfDirectoryDraft(MY_BOOK_COLLECTION_D_TAG),
+      QUIET
+    );
+    if (!minted) return { error: 'Could not create /my-book-collection' };
+    rememberEvents([minted]);
+    books = minted;
+  }
+  directoryByDCache.set(directoryCacheKey(pk, MY_BOOK_COLLECTION_D_TAG), books);
+
+  // Only attach tree tops — nested folders stay under their existing parents.
+  const nestedUnderExisting = new Set<string>();
+  const byCoord = new Map(
+    pool.map((e) => [directoryCoordinateFromEvent(e).toLowerCase(), e] as const)
+  );
+  for (const ev of pool) {
+    for (const tag of ev.tags) {
+      if (tag[0] !== 'a' || !tag[1]) continue;
+      const child = byCoord.get(tag[1].trim().toLowerCase());
+      if (child && child.id !== ev.id) nestedUnderExisting.add(child.id.toLowerCase());
+    }
+  }
+  const tops = pool.filter((e) => !nestedUnderExisting.has(e.id.toLowerCase()));
+  const toLink = [
+    books,
+    ...tops.filter((e) => directoryDTag(e) !== MY_BOOK_COLLECTION_D_TAG)
+  ];
+  const seenLink = new Set<string>();
+  const uniqueLink = toLink.filter((e) => {
+    const id = e.id.toLowerCase();
+    if (seenLink.has(id)) return false;
+    seenLink.add(id);
+    return true;
+  });
+  const linked = await linkMembersUnderDirectory(rootPublished, uniqueLink);
+  if ('error' in linked) return linked;
+
+  invalidateDirectoryCaches(pk);
+  directoryByDCache.set(directoryCacheKey(pk, ROOT_DIRECTORY_D_TAG), linked);
+  const home = new Set<string>(DIRECTORY_HOME_D_TAGS);
+  const others = pool
+    .filter((e) => !home.has(directoryDTag(e)))
+    .sort((a, b) => b.created_at - a.created_at);
+  const result: UserHomeDirectories = { root: linked, books, others };
+  homeDirectoriesCache.set(`home:${pk}`, result);
+  return result;
 }
 
 /**
