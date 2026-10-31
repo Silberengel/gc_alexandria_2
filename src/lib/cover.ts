@@ -446,16 +446,23 @@ export function eventHeroImageUrls(event: Event): string[] {
 
 /**
  * Hero URLs contributed by one painted event for duplicate suppression.
- * Article indexes (publication / wiki / spec / long-form) use the full cover
- * bag; leaf sections keep only an explicit `image` plate so a unique body
- * illustration is not treated as a shared cover.
+ * Nested indexes (publication / wiki / spec / long-form) use the full cover
+ * bag so Gutenberg / content fallbacks suppress repeats. Leaf sections and
+ * other kinds contribute only an explicit `image` plate — never first-content
+ * or cover fallbacks — so a body illustration is not treated as a shared cover.
+ *
+ * Note: {@link isContentHeroKind} includes SECTION for EventBody dedupe; that
+ * set must not drive this helper, or section content images would over-suppress.
  */
 export function paintedEventHeroUrls(event: Event): string[] {
-  if (event.kind === KIND.SECTION) {
-    const plate = sectionHeroFullImageUrl(event) ?? sectionHeroImageUrl(event);
-    return plate ? [plate] : [];
+  if (
+    event.kind === KIND.PUBLICATION ||
+    event.kind === KIND.WIKI ||
+    event.kind === KIND.SPEC ||
+    event.kind === KIND.LONG_FORM
+  ) {
+    return eventHeroImageUrls(event);
   }
-  if (isContentHeroKind(event.kind)) return eventHeroImageUrls(event);
   const plate = sectionHeroFullImageUrl(event) ?? sectionHeroImageUrl(event);
   return plate ? [plate] : [];
 }

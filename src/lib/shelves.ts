@@ -527,4 +527,4 @@ export function nestedShelvesForViewer(
   return out.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
 }
 
-export { withListMembershipTag as withBookmarkTag } from './bookmark-actions';
+export { withBookmarkTag } from './bookmark-actions';

@@ -266,6 +266,30 @@ describe('readerSectionHeroUrl', () => {
     expect(paintedEventHeroUrls(leaf)).toEqual(['https://example.com/aside.jpg']);
   });
 
+  it('does not put section content/cover fallbacks into the painted ancestor bag', () => {
+    // SECTION is a content-hero kind for EventBody, but painted ancestors must
+    // stay plate-only — otherwise first-content images would suppress later heroes.
+    expect(isContentHeroKind(KIND.SECTION)).toBe(true);
+    const section = ev(
+      [
+        ['title', 'Ch'],
+        ['d', 'pg141-mansfield-park']
+      ],
+      '1'.repeat(64),
+      KIND.SECTION
+    );
+    section.content = '![x](https://example.com/body-only.jpg)\n\nText';
+    expect(eventHeroImageUrls(section).length).toBeGreaterThan(0);
+    expect(paintedEventHeroUrls(section)).toEqual([]);
+    const withPlate = ev(
+      [['image', 'https://example.com/plate.jpg'], ['title', 'Ch']],
+      '2'.repeat(64),
+      KIND.SECTION
+    );
+    withPlate.content = '![x](https://example.com/body-only.jpg)\n\nText';
+    expect(paintedEventHeroUrls(withPlate)).toEqual(['https://example.com/plate.jpg']);
+  });
+
   it('uses Gutenberg / cover sources on the edition root when image is absent', () => {
     const gutenberg = ev([['d', 'pg45631-twelve-years-a-slave'], ['title', 'Twelve Years a Slave']]);
     expect(readerSectionHeroUrl(gutenberg, gutenberg)).toBe(

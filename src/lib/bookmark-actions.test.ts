@@ -4,6 +4,7 @@ import {
   listIncludesEvent,
   membershipListKind,
   tagsIncludeEvent,
+  withBookmarkTag,
   withListMembershipTag
 } from './bookmark-actions';
 import { KIND } from './constants';
@@ -31,7 +32,7 @@ describe('membershipListKind', () => {
   });
 });
 
-describe('withListMembershipTag', () => {
+describe('withListMembershipTag / withBookmarkTag', () => {
   it('preserves other bookmark tags when adding and removing a publication', () => {
     const pub = ev({
       id: 'd'.repeat(64),
@@ -46,19 +47,20 @@ describe('withListMembershipTag', () => {
         ['e', '9'.repeat(64)]
       ]
     });
-    const added = withListMembershipTag(existing, pub, true);
+    const added = withBookmarkTag(existing, pub, true);
     expect(added.some((t) => t[0] === 'a' && t[1] === eventAddress(pub))).toBe(true);
     expect(added.some((t) => t[1] === '30040:ff:other')).toBe(true);
-    const removed = withListMembershipTag({ ...existing, tags: added }, pub, false);
+    const removed = withBookmarkTag({ ...existing, tags: added }, pub, false);
     expect(removed.some((t) => t[1] === eventAddress(pub))).toBe(false);
     expect(removed.some((t) => t[1] === '30040:ff:other')).toBe(true);
     expect(removed.some((t) => t[1] === '9'.repeat(64))).toBe(true);
   });
 
-  it('uses e-tags for notes and can live in a private tag bag', () => {
+  it('uses e-tags for notes; tag bags go through withListMembershipTag', () => {
     const note = ev({ id: 'f'.repeat(64), kind: KIND.TEXT_NOTE });
-    const tags = withListMembershipTag(null, note, true);
+    const tags = withBookmarkTag(null, note, true);
     expect(tags).toEqual([['e', note.id]]);
+    expect(withListMembershipTag([], note, true)).toEqual([['e', note.id]]);
     expect(listIncludesEvent(ev({ kind: KIND.BOOKMARK, tags }), note)).toBe(true);
     expect(tagsIncludeEvent(tags, note)).toBe(true);
   });

@@ -52,20 +52,31 @@ export function listIncludesEvent(list: Event | null | undefined, target: Event)
  * Addressable kinds get an `a` tag; others get `e`.
  */
 export function withListMembershipTag(
-  tags: string[][] | Event | null | undefined,
+  tags: string[][],
   target: Event,
   add: boolean
 ): string[][] {
-  const existing = Array.isArray(tags) ? tags : (tags?.tags ?? []);
   const id = target.id.toLowerCase();
   const addr = targetAddress(target);
-  const without = existing.filter((tag) => {
+  const without = tags.filter((tag) => {
     if (tag[0] === 'e' && (tag[1] ?? '').toLowerCase() === id) return false;
     if (addr && tag[0] === 'a' && tag[1] === addr) return false;
     return true;
   });
   if (!add) return without;
   return [...without, membershipTag(target)];
+}
+
+/**
+ * Same as {@link withListMembershipTag}, but takes a list event (or null).
+ * Preserves the historical shelves / bookmark helper signature.
+ */
+export function withBookmarkTag(
+  list: Event | null | undefined,
+  target: Event,
+  add: boolean
+): string[][] {
+  return withListMembershipTag(list?.tags ?? [], target, add);
 }
 
 /** Drop deprecated `d=pin|bookmark` when rewriting onto the standard kind. */
@@ -104,7 +115,7 @@ async function publishPinToggle(target: Event, add: boolean): Promise<Event | nu
   if (!pubkey) return null;
   const previous = pickPinListWithDeprecated(session.getMetadata(), pubkey);
   const nextTags = publicTagsForStandardList(
-    withListMembershipTag(previous, target, add),
+    withBookmarkTag(previous, target, add),
     previous
   );
   return signAndPublish(

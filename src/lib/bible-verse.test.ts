@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
+import { KIND } from './constants';
 import {
   bibleContentParts,
   bibleDisplay,
@@ -16,7 +17,7 @@ function section(over: Partial<Event> & { tags?: string[][] }): Event {
     id: over.id ?? 'a'.repeat(64),
     pubkey: 'b'.repeat(64),
     created_at: 1,
-    kind: over.kind ?? 30041,
+    kind: over.kind ?? KIND.SECTION,
     tags: over.tags ?? [],
     content: over.content ?? '',
     sig: 'c'.repeat(128)
@@ -28,7 +29,9 @@ describe('isBibleSection', () => {
     expect(isBibleSection(section({ tags: [['type', 'bible'], ['title', '1:1']] }))).toBe(true);
     expect(isBibleSection(section({ tags: [['type', 'Bible']] }))).toBe(true);
     expect(isBibleSection(section({ tags: [['type', 'essay']] }))).toBe(false);
-    expect(isBibleSection(section({ kind: 30040, tags: [['type', 'bible']] }))).toBe(false);
+    expect(isBibleSection(section({ kind: KIND.PUBLICATION, tags: [['type', 'bible']] }))).toBe(
+      false
+    );
   });
 });
 
@@ -129,21 +132,30 @@ describe('bibleContentParts', () => {
 
 describe('offersVerseStyling', () => {
   it('matches edition type/C tags or loaded bible sections', () => {
-    expect(offersVerseStyling(section({ kind: 30040, tags: [['type', 'bible']] }))).toBe(true);
-    expect(offersVerseStyling(section({ kind: 30040, tags: [['C', 'bible']] }))).toBe(true);
-    expect(offersVerseStyling(section({ kind: 30040, tags: [['type', 'essay']] }))).toBe(false);
+    expect(offersVerseStyling(section({ kind: KIND.PUBLICATION, tags: [['type', 'bible']] }))).toBe(
+      true
+    );
+    expect(offersVerseStyling(section({ kind: KIND.PUBLICATION, tags: [['C', 'bible']] }))).toBe(
+      true
+    );
+    expect(offersVerseStyling(section({ kind: KIND.PUBLICATION, tags: [['type', 'essay']] }))).toBe(
+      false
+    );
     expect(
-      offersVerseStyling(section({ kind: 30040, tags: [['type', 'essay']] }), [
+      offersVerseStyling(section({ kind: KIND.PUBLICATION, tags: [['type', 'essay']] }), [
         section({ tags: [['type', 'bible'], ['title', '1:1']] })
       ])
     ).toBe(true);
   });
 
-  it('matches known reading-plan editions before verses are painted', () => {
+  it('matches known reading-plan publications (30040) before verses are painted', () => {
+    // Plans are KIND.PUBLICATION roots (seeds use 30040:…:biblestr-plan-…), not SECTION.
+    expect(KIND.PUBLICATION).toBe(30040);
+    expect(KIND.SECTION).toBe(30041);
     expect(
       offersVerseStyling(
         section({
-          kind: 30040,
+          kind: KIND.PUBLICATION,
           tags: [['d', 'biblestr-plan-chronological'], ['title', 'Chronological']]
         })
       )
