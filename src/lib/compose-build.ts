@@ -165,15 +165,16 @@ export function buildComposePartial(state: ComposeFormState): {
     kind === KIND.MUTE ||
     getKind(kind)?.handler === 'nip51_mute_list'
   ) {
-    // Public tags via catalog `mute_list`; private JSON still goes in content (app encrypts).
+    // One parse: public mute tags on the event, private JSON in content (app encrypts).
+    // Do not re-emit via buildTagsForKind — that would ignore mute.tags and could diverge.
     const mute = buildMuteListPayload(values.muted ?? '');
     content = mute.privateJson;
-    tags = buildTagsForKind(kind, values, {
-      app: 'alexandria',
-      content: '',
-      hashtags: state.hashtags,
-      freeformTags
-    });
+    tags = [...mute.tags];
+    if (freeformTags?.length) {
+      for (const row of freeformTags) {
+        if (row[0]?.trim()) tags.push([...row]);
+      }
+    }
   } else if (
     kind === KIND.DIRECTORY ||
     getKind(kind)?.handler === 'nkbip04_directory'
