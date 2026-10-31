@@ -531,10 +531,54 @@ async function renderAsciidocHtml(src: string): Promise<string> {
   return convert(src);
 }
 
-/** Escaped paragraphs for catalog plaintext when NostrRichText is not used. */
+/**
+ * `[label](url)` after {@link rewriteWikilinks} (and intentional MD links). Not images.
+ * Exported for NostrRichText so plaintext notes share the same link parse.
+ */
+export const MARKDOWN_LINK_RE = /(?<!!)\[([^\]\n]+)]\(([^)\s]+)\)/g;
+
+export type MarkdownLinkPart =
+  | { type: 'text'; value: string }
+  | { type: 'link'; label: string; href: string };
+
+/** Split text into plain runs and markdown links (wikilink rewrite output). */
+export function splitMarkdownLinks(text: string): MarkdownLinkPart[] {
+  if (!text) return [];
+  const out: MarkdownLinkPart[] = [];
+  let last = 0;
+  const re = new RegExp(MARKDOWN_LINK_RE.source, MARKDOWN_LINK_RE.flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push({ type: 'text', value: text.slice(last, m.index) });
+    out.push({ type: 'link', label: m[1] ?? '', href: (m[2] ?? '').trim() });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ type: 'text', value: text.slice(last) });
+  if (!out.length) out.push({ type: 'text', value: text });
+  return out;
+}
+
+/** Escape plaintext and turn `[label](href)` into anchors (allowed hrefs only). */
+export function linkifyMarkdownLinksEscaped(text: string): string {
+  return splitMarkdownLinks(text)
+    .map((part) => {
+      if (part.type === 'text') return escapePlainHtml(part.value);
+      if (!part.href || !isAllowedHref(part.href)) {
+        return escapePlainHtml(`[${part.label}](${part.href})`);
+      }
+      return `<a href="${escapeHrefAttr(part.href)}">${escapePlainHtml(part.label)}</a>`;
+    })
+    .join('');
+}
+
+/**
+ * Escaped paragraphs for catalog plaintext when NostrRichText is not used.
+ * Applies the same wikilink rewrite as Djot so `[[page]]` becomes clickable.
+ */
 export function renderPlaintextHtml(src: string): string {
-  const escaped = escapePlainHtml(src);
-  return escaped
+  const rewritten = rewriteWikilinks(src ?? '', 'djot');
+  const withLinks = linkifyMarkdownLinksEscaped(rewritten);
+  return withLinks
     .split(/\n\n+/)
     .map((block) => `<p>${block.replace(/\n/g, '<br>')}</p>`)
     .join('');
@@ -545,8 +589,8 @@ async function applyMathToHtml(html: string): Promise<string> {
   return renderMathInHtml(html);
 }
 
-/** Hashtag after start or a non-word character. Body is letters, numbers, underscore. */
-const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
+/** Hashtag after start or a non-word character. Skip `[#id]` AsciiDoc-style anchors. */
+const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{1,64})/gu;
 /** Bare http(s) URL in text nodes (Djot does not autolink). */
 const BARE_HTTP_URL = /(https?:\/\/[^\s<>"')\]]+)/gi;
 const LINKIFY_SKIP_TAGS = new Set(['a', 'pre', 'code', 'script', 'style']);

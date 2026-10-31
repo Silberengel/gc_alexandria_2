@@ -332,6 +332,15 @@ describe('renderWithFallback', () => {
     expect(html).toContain('class="katex"');
     expect(html).toContain('$19.99');
   });
+
+  it('renders plaintext wikilinks as d-tag search anchors', async () => {
+    const html = await renderFormat('plaintext', 'See [[Nostr Wiki]] and [Sphinx.Chat][].');
+    expect(html).toContain('href="#/search?d=nostr-wiki"');
+    expect(html).toContain('>Nostr Wiki</a>');
+    expect(html).toContain('href="#/search?d=sphinx-chat"');
+    expect(html).toContain('>Sphinx.Chat</a>');
+    expect(html).not.toContain('[[');
+  });
 });
 
 describe('djot block attributes', () => {

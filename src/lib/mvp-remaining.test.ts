@@ -54,6 +54,13 @@ describe('wikilinks', () => {
     expect(rewriteWikilinks('[constantinople][]', 'djot')).toContain('#/search?d=constantinople');
   });
 
+  it('rewrites plaintext the same way (NostrRichText path)', () => {
+    expect(rewriteWikilinks('see [[Nostr Wiki]]', 'plaintext')).toContain(
+      '#/search?d=nostr-wiki'
+    );
+    expect(rewriteWikilinks('[Sphinx.Chat][]', 'plaintext')).toContain('#/search?d=sphinx-chat');
+  });
+
   it('rewrites asciidoc wikilinks as link: macros so they become hyperlinks', () => {
     const out = rewriteWikilinks('see [[NKBIP-01]] and [[nkbip-01|NKBIP-01]]', 'asciidoc');
     expect(out).toContain('link:#/search?d=nkbip-01[NKBIP-01]');

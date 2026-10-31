@@ -13,7 +13,11 @@
     type EmojiInfo
   } from '$lib/emoji-content';
   import { KIND } from '$lib/constants';
-  import { isAllowedHref } from '$lib/markup';
+  import {
+    isAllowedHref,
+    rewriteWikilinks,
+    splitMarkdownLinks
+  } from '$lib/markup';
   import { formatUrlHtml } from '$lib/crop-url';
   import { isNip53Kind, NIP53_KIND } from '$lib/nip53';
   import UserBadge from './UserBadge.svelte';
@@ -82,7 +86,8 @@
   const XMR =
     /\b(4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}|8[0-9AB][1-9A-HJ-NP-Za-km-z]{93})\b/g;
   const URL_RE = /(https?:\/\/[^\s<>"')\]]+)/gi;
-  const HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
+  // Skip `[#id]` AsciiDoc-style anchors (parity with markup.linkifyTopicHashtags).
+  const HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{1,64})/gu;
 
   function escapeHtml(s: string): string {
     return s
@@ -92,9 +97,12 @@
       .replace(/"/g, '&quot;');
   }
 
-  function linkifyBody(text: string): string {
-    // Split around URLs so we can escape text while formatting links (safe-prefix
-    // hyperlink + plaintext tracker tail, no ellipsis crop).
+  function escapeAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  }
+
+  /** Bare URLs + hashtags inside a run that is not already a markdown link. */
+  function linkifyBareAndTags(text: string): string {
     const parts: string[] = [];
     let last = 0;
     URL_RE.lastIndex = 0;
@@ -118,6 +126,33 @@
       return `${prefix}<a href="#/search?subject=${encodeURIComponent(tag)}">#${tag}</a>`;
     });
     return s;
+  }
+
+  function linkifyBody(text: string): string {
+    // After rewriteWikilinks: `[label](#/search?d=…)` / `[label](https://…)` → anchors.
+    return splitMarkdownLinks(text)
+      .map((part) => {
+        if (part.type === 'text') return linkifyBareAndTags(part.value);
+        if (!part.href || !isAllowedHref(part.href)) {
+          return escapeHtml(`[${part.label}](${part.href})`);
+        }
+        const href = part.href;
+        const label = part.label;
+        // Autolink-style `[url](url)` keeps Threema tracker split; custom titles stay intact.
+        if (
+          href.startsWith('http://') ||
+          href.startsWith('https://')
+        ) {
+          const urlLike =
+            !label.trim() ||
+            label.trim() === href.trim() ||
+            /^https?:\/\//i.test(label.trim());
+          if (urlLike) return formatUrlHtml(href);
+          return `<a href="${escapeAttr(href)}" rel="noopener noreferrer" target="_blank">${escapeHtml(label)}</a>`;
+        }
+        return `<a href="${escapeAttr(href)}">${escapeHtml(label)}</a>`;
+      })
+      .join('');
   }
 
   type LinkEmbedBit = { type: 'text' | 'youtube' | 'og' | 'url-event'; value: string };
@@ -177,7 +212,8 @@
   }
 
   function renderPlainBlockInner(text: string): string {
-    const lines = prepareLines(text);
+    // Same step Djot/AsciiDoc use: [[page]] / [Label][] → [label](#/search?d=…).
+    const lines = prepareLines(rewriteWikilinks(text, 'djot'));
     return lines
       .map((line) => {
         const inner = `${escapeHtml(line.prefix)}${renderInline(line.body)}`;
@@ -194,7 +230,7 @@
 
   /** Inline-safe lines so a UserBadge can sit mid-sentence without a hard break. */
   function renderFlowTextInner(text: string): string {
-    const lines = prepareLines(text);
+    const lines = prepareLines(rewriteWikilinks(text, 'djot'));
     return lines
       .map((line) => {
         const inner = `${escapeHtml(line.prefix)}${renderInline(line.body)}`;
