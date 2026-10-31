@@ -5,9 +5,7 @@ import {
   validateCompose,
 } from './kind-compose';
 import { kind0SavePayload } from './compose-kind0';
-import { buildDirectoryMemberTags } from './compose-directory-members';
 import { buildMuteListPayload } from './compose-mute-list';
-import { buildPListTags } from './compose-people-list';
 import { scrubProseText, scrubTrackingUrlsInText } from './clean-url';
 import { KIND } from './constants';
 import { withMarkupTag } from './markup';
@@ -156,47 +154,40 @@ export function buildComposePartial(state: ComposeFormState): {
     kind === KIND.CONTACT_LIST ||
     getKind(kind)?.handler === 'nip51_p_list'
   ) {
-    // Catalog emit `p_list` is not in alexandria composeEmits yet — build locally.
-    content = '';
-    tags = [...buildPListTags(values.authors ?? '')];
-    if (freeformTags?.length) {
-      for (const row of freeformTags) {
-        if (row[0]?.trim()) tags.push([...row]);
-      }
-    }
-  } else if (
-    kind === KIND.MUTE ||
-    getKind(kind)?.handler === 'nip51_mute_list'
-  ) {
-    // Catalog emit `mute_list` is not in alexandria composeEmits yet — build locally.
-    const mute = buildMuteListPayload(values.muted ?? '');
-    content = mute.privateJson;
-    tags = [...mute.tags];
-    if (freeformTags?.length) {
-      for (const row of freeformTags) {
-        if (row[0]?.trim()) tags.push([...row]);
-      }
-    }
-  } else if (
-    kind === KIND.DIRECTORY ||
-    getKind(kind)?.handler === 'nkbip04_directory'
-  ) {
-    // Catalog emit `directory_members` is not in alexandria composeEmits yet.
     content = '';
     tags = buildTagsForKind(kind, values, {
       app: 'alexandria',
       content: '',
-      hashtags: state.hashtags
+      hashtags: state.hashtags,
+      freeformTags
     });
-    tags = tags.filter((t) => t[0] !== 'a' && t[0] !== 'e');
-    tags.push(...buildDirectoryMemberTags(values.members ?? ''));
-    if (freeformTags?.length) {
-      for (const row of freeformTags) {
+  } else if (
+    kind === KIND.MUTE ||
+    getKind(kind)?.handler === 'nip51_mute_list'
+  ) {
+    // Public tags via catalog `mute_list`; private JSON still goes in content (app encrypts).
+    const mute = buildMuteListPayload(values.muted ?? '');
+    content = mute.privateJson;
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content: '',
+      hashtags: state.hashtags,
+      freeformTags
+    });
+  } else if (
+    kind === KIND.DIRECTORY ||
+    getKind(kind)?.handler === 'nkbip04_directory'
+  ) {
+    content = '';
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content: '',
+      hashtags: state.hashtags,
+      freeformTags: freeformTags?.filter((row) => {
         const name = row[0]?.trim();
-        if (!name || name === 'a' || name === 'e') continue;
-        tags.push([...row]);
-      }
-    }
+        return !!name && name !== 'a' && name !== 'e';
+      })
+    });
   } else if (isPollComposeKind(kind)) {
     content = scrubProseText(
       state.content?.trim() ? state.content : String(values.content ?? '')

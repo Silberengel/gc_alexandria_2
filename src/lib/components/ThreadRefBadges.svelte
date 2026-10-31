@@ -152,12 +152,19 @@
     scheduleClose();
   }
 
+  // Tip rows can vanish while the panel is open (relay refresh / filter).
+  // Clear open so we don't keep listeners with a destroyed anchor.
+  $effect(() => {
+    if (!open) return;
+    if (rowsFor(open).length === 0) closePanel();
+  });
+
   $effect(() => {
     if (!open) return;
     const kind = open;
-    const root = anchorFor(kind);
     const onDoc = (e: PointerEvent) => {
-      if (root && !root.contains(e.target as Node)) closePanel();
+      const root = anchorFor(kind);
+      if (!root || !root.contains(e.target as Node)) closePanel();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closePanel();
