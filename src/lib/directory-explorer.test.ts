@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Event } from 'nostr-tools';
+import { nip19, type Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { MY_BOOK_COLLECTION_D_TAG, ROOT_DIRECTORY_D_TAG } from './bookshelf';
 import {
@@ -7,6 +7,7 @@ import {
   directoryChildCounts,
   directoryChildHref,
   directoryCoordinateHref,
+  directoryIdsReachableFrom,
   directoriesUnreachableFrom,
   directoryEntryIconClass,
   directoryEntryKindLine,
@@ -196,6 +197,74 @@ describe('directoriesUnreachableFrom', () => {
     const unreachable = directoriesUnreachableFrom(root, [root, books, guides, classics]);
     // Only the parallel tree top — nested classics stays under guides.
     expect(unreachable.map((e) => e.id)).toEqual([guides.id]);
+  });
+
+  it('ignores a stale prior /root replaceable still sitting in the pool', () => {
+    const liveRoot = ev({
+      id: '1'.repeat(64),
+      pubkey: pk,
+      created_at: 20,
+      tags: [
+        ['d', ROOT_DIRECTORY_D_TAG],
+        ['a', `30045:${pk}:${MY_BOOK_COLLECTION_D_TAG}`]
+      ]
+    });
+    const staleRoot = ev({
+      id: '5'.repeat(64),
+      pubkey: pk,
+      created_at: 10,
+      tags: [['d', ROOT_DIRECTORY_D_TAG]]
+    });
+    const books = ev({
+      id: '2'.repeat(64),
+      pubkey: pk,
+      tags: [['d', MY_BOOK_COLLECTION_D_TAG]]
+    });
+    const probe = ev({
+      id: '3'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'gc-starter-guides-probe']]
+    });
+    expect(
+      directoriesUnreachableFrom(liveRoot, [staleRoot, books, probe]).map((e) => e.id)
+    ).toEqual([probe.id]);
+  });
+
+  it('resolves folder a-tags that use npub pubkey segments', () => {
+    const npub = nip19.npubEncode(pk);
+    const root = ev({
+      id: '1'.repeat(64),
+      pubkey: pk,
+      tags: [
+        ['d', ROOT_DIRECTORY_D_TAG],
+        ['a', `30045:${npub}:${MY_BOOK_COLLECTION_D_TAG}`]
+      ]
+    });
+    const books = ev({
+      id: '2'.repeat(64),
+      pubkey: pk,
+      tags: [
+        ['d', MY_BOOK_COLLECTION_D_TAG],
+        ['a', `30045:${npub}:shelf-notes`]
+      ]
+    });
+    const notes = ev({
+      id: '3'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'shelf-notes']]
+    });
+    const guides = ev({
+      id: '4'.repeat(64),
+      pubkey: pk,
+      tags: [['d', 'gc-starter-guides']]
+    });
+    const reachable = directoryIdsReachableFrom(root, [root, books, notes, guides]);
+    expect(reachable.has(books.id)).toBe(true);
+    expect(reachable.has(notes.id)).toBe(true);
+    expect(reachable.has(guides.id)).toBe(false);
+    expect(directoriesUnreachableFrom(root, [root, books, notes, guides]).map((e) => e.id)).toEqual([
+      guides.id
+    ]);
   });
 });
 

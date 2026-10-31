@@ -11682,7 +11682,8 @@ button.directory-explorer-link {
   font-size: 0.8rem;
   margin-right: auto;
 }
-.dir-browser-rename {
+.dir-browser-rename,
+.dir-browser-move {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
@@ -11692,6 +11693,12 @@ button.directory-explorer-link {
 .dir-browser-rename input[type='text'] {
   min-width: 6.5rem;
   max-width: 9rem;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+}
+.dir-browser-move select {
+  min-width: 8rem;
+  max-width: 14rem;
   font-size: 0.78rem;
   padding: 0.2rem 0.35rem;
 }

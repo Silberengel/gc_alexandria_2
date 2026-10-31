@@ -21,9 +21,12 @@
   import {
     compareDirectoryListing,
     directoriesUnreachableFrom,
-    directoryExplorerTitle
+    directoryExplorerTitle,
+    upsertDirectoryEvents
   } from '$lib/directory-explorer';
+  import { deletionRevision, filterDeletedEvents } from '$lib/deletions';
   import { hexPubkey } from '$lib/metadata';
+  import { pruneToLatestReplaceables } from '$lib/nostr/replaceable';
   import { openLoginDialog } from '$lib/stores/login-ui';
   import { session } from '$lib/stores/session';
   import { showNotice } from '$lib/stores/toast';
@@ -55,9 +58,14 @@
   );
   const readOnly = $derived(!viewingSelf);
   const hasFilesystemRoot = $derived(Boolean(rootFolder));
-  const sortedOwned = $derived([...ownedDirectories].sort(compareDirectoryListing));
+  /** Drop tombstones + older replaceables so adopt banners / extras stay accurate. */
+  const liveOwnedDirectories = $derived.by(() => {
+    void $deletionRevision;
+    return pruneToLatestReplaceables(filterDeletedEvents(ownedDirectories));
+  });
+  const sortedOwned = $derived([...liveOwnedDirectories].sort(compareDirectoryListing));
   const orphanDirectories = $derived(
-    rootFolder ? directoriesUnreachableFrom(rootFolder, ownedDirectories) : []
+    rootFolder ? directoriesUnreachableFrom(rootFolder, liveOwnedDirectories) : []
   );
   const showAdoptOrphans = $derived(
     viewingSelf && hasFilesystemRoot && orphanDirectories.length > 0
@@ -338,9 +346,20 @@
     <DirectoryBrowser
       root={rootFolder}
       {readOnly}
-      {ownedDirectories}
+      ownedDirectories={liveOwnedDirectories}
       onRootChange={(next) => {
         rootFolder = next;
+        // Keep the owned pool on the latest /root replaceable so orphans / extras
+        // never treat a prior /root id as a parallel tree.
+        ownedDirectories = upsertDirectoryEvents(ownedDirectories, next);
+      }}
+      onOwnedDirectoriesChange={(next) => {
+        ownedDirectories = next;
+        const latestRoot =
+          next.find((e) => directoryDTag(e) === ROOT_DIRECTORY_D_TAG) ?? null;
+        if (latestRoot && (!rootFolder || rootFolder.id !== latestRoot.id)) {
+          rootFolder = latestRoot;
+        }
       }}
     />
   {:else if browseFolder}

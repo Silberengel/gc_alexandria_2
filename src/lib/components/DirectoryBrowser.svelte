@@ -8,6 +8,7 @@
   import {
     MAX_BOOKSHELF_DEPTH,
     ROOT_DIRECTORY_D_TAG,
+    directoryCoordinateFromEvent,
     directoryDTag,
     isProtectedDirectoryDTag
   } from '$lib/bookshelf';
@@ -15,6 +16,8 @@
     createFolderInParent,
     deleteFolderFromParent,
     directoryPrivateMembershipTags,
+    listOwnedDirectories,
+    moveMemberBetweenDirectories,
     removeMemberFromDirectory,
     renameFolderInParent
   } from '$lib/bookshelf-actions';
@@ -31,9 +34,9 @@
     directoriesUnreachableFrom,
     directoryTitleTag,
     formatDirectoryGmtParts,
+    upsertDirectoryEvents,
     type DirectoryExplorerEntry
   } from '$lib/directory-explorer';
-  import { directoryCoordinateFromEvent } from '$lib/bookshelf';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import { memoryFindByAddress, memoryGetEvent } from '$lib/nostr/event-memory';
   import { parseEventCoordinate } from '$lib/library-scope';
@@ -58,9 +61,17 @@
     ownedDirectories?: Event[];
     /** Fired when `/root` is republished after a membership change. */
     onRootChange?: (root: Event) => void;
+    /** Fired after owned folder create/delete/rename so the parent can refresh. */
+    onOwnedDirectoriesChange?: (directories: Event[]) => void;
   }
 
-  let { root, readOnly = false, ownedDirectories = [], onRootChange }: Props = $props();
+  let {
+    root,
+    readOnly = false,
+    ownedDirectories = [],
+    onRootChange,
+    onOwnedDirectoriesChange
+  }: Props = $props();
 
   /** Stack of opened folders; index 0 is always `/root`. */
   let stack = $state<Event[]>(untrack(() => [root]));
@@ -77,6 +88,11 @@
   let renamingFolder = $state(false);
   let renameInput: HTMLInputElement | undefined = $state();
   let selectAllInput: HTMLInputElement | undefined = $state();
+  /** Destination picker for Move. */
+  let moveOpen = $state(false);
+  let moveDestId = $state('');
+  let moveFolders = $state<Event[]>([]);
+  let moveFoldersLoading = $state(false);
   /** Decrypted private a/e tags for the open folder (owner only). */
   let cwdPrivateTags = $state<string[][]>([]);
 
@@ -144,7 +160,7 @@
   );
 
   const listing = $derived.by((): ListingRow[] => {
-    const rows = directoryExplorerEntries(cwd, cwdPrivateTags).map((entry) => {
+    const rows: ListingRow[] = directoryExplorerEntries(cwd, cwdPrivateTags).map((entry) => {
       const resolvedHit = Object.prototype.hasOwnProperty.call(resolved, entry.key)
         ? resolved[entry.key]
         : undefined;
@@ -205,9 +221,13 @@
           .filter((c): c is string => Boolean(c))
       );
       const listedIds = new Set(rows.map((r) => r.event?.id.toLowerCase()).filter(Boolean));
+      const cwdCoord = directoryCoordinateFromEvent(cwd).toLowerCase();
       for (const ev of directoriesUnreachableFrom(cwd, ownedDirectories)) {
         const coord = directoryCoordinateFromEvent(ev).toLowerCase();
-        if (listedCoords.has(coord) || listedIds.has(ev.id.toLowerCase())) continue;
+        if (coord === cwdCoord || listedCoords.has(coord) || listedIds.has(ev.id.toLowerCase()))
+          continue;
+        // Never list /root (or its stale replaceables) as a child of itself.
+        if (directoryDTag(ev) === ROOT_DIRECTORY_D_TAG) continue;
         const counts = directoryChildCounts(ev);
         rows.push({
           key: `owned:${ev.id}`,
@@ -270,10 +290,17 @@
       .concat(directoryDTag(cwd))
   );
 
+  function rowSelectable(row: ListingRow): boolean {
+    if (row.entry) return true;
+    // Parallel-tree / orphan folders: selectable for Delete (not Remove/Move).
+    return row.role === 'folder' && !!row.event && !isProtectedDirectoryDTag(row.dTag);
+  }
+
   const selectedRows = $derived(sortedListing.filter((row) => selectedKeys[row.key]));
   const selectedCount = $derived(selectedRows.length);
+  const selectableRows = $derived(sortedListing.filter((row) => rowSelectable(row)));
   const allSelected = $derived(
-    sortedListing.length > 0 && sortedListing.every((row) => selectedKeys[row.key])
+    selectableRows.length > 0 && selectableRows.every((row) => selectedKeys[row.key])
   );
   const someSelected = $derived(selectedCount > 0 && !allSelected);
   const selectedDeletableFolders = $derived(
@@ -286,6 +313,28 @@
       ? selectedDeletableFolders[0]!
       : null
   );
+  /** Membership rows can be removed/moved; orphan folder rows can be deleted. */
+  const selectedMembershipRows = $derived(selectedRows.filter((row) => row.entry));
+  const selectedMoveRows = $derived(selectedMembershipRows);
+  const selectedFolderCoords = $derived(
+    new Set(
+      selectedMoveRows
+        .filter((row) => row.role === 'folder')
+        .map((row) => {
+          if (row.event) return directoryCoordinateFromEvent(row.event).toLowerCase();
+          return row.entry?.coordinate?.toLowerCase() ?? '';
+        })
+        .filter(Boolean)
+    )
+  );
+  const moveDestinations = $derived(
+    moveFolders.filter((folder) => {
+      const coord = directoryCoordinateFromEvent(folder).toLowerCase();
+      if (coord === directoryCoordinateFromEvent(cwd).toLowerCase()) return false;
+      if (selectedFolderCoords.has(coord)) return false;
+      return true;
+    })
+  );
 
   $effect(() => {
     // Drop checks when navigating into another folder.
@@ -293,6 +342,8 @@
     selectedKeys = {};
     renameOpen = false;
     renameName = '';
+    moveOpen = false;
+    moveDestId = '';
   });
 
   $effect(() => {
@@ -317,17 +368,126 @@
       return;
     }
     const next: Record<string, boolean> = {};
-    // Skip parallel-tree rows that are not memberships of the open folder.
     for (const row of sortedListing) {
-      if (row.entry) next[row.key] = true;
+      if (rowSelectable(row)) next[row.key] = true;
     }
     selectedKeys = next;
+  }
+
+  function publishOwnedUpdate(...events: Event[]): void {
+    if (!events.length) return;
+    onOwnedDirectoriesChange?.(upsertDirectoryEvents(ownedDirectories, ...events));
   }
 
   function clearSelection(): void {
     selectedKeys = {};
     renameOpen = false;
     renameName = '';
+    moveOpen = false;
+    moveDestId = '';
+  }
+
+  async function openMovePicker(): Promise<void> {
+    if (readOnly || !selectedMoveRows.length || selectionBusy) return;
+    renameOpen = false;
+    moveOpen = true;
+    moveDestId = '';
+    moveFoldersLoading = true;
+    try {
+      const pk = cwd.pubkey.toLowerCase();
+      const listed = ownedDirectories.length
+        ? ownedDirectories
+        : await listOwnedDirectories(pk);
+      // Prefer live owned list; fall back to whatever we already know.
+      moveFolders = listed.filter((e) => e.kind === KIND.DIRECTORY);
+    } catch {
+      moveFolders = ownedDirectories.slice();
+      showNotice('Could not refresh folder list.');
+    } finally {
+      moveFoldersLoading = false;
+    }
+  }
+
+  function cancelMove(): void {
+    moveOpen = false;
+    moveDestId = '';
+  }
+
+  async function submitMoveSelected(): Promise<void> {
+    if (readOnly || !moveDestId || selectionBusy) return;
+    const dest = moveDestinations.find((f) => f.id === moveDestId);
+    if (!dest) {
+      showNotice('Choose a destination folder.');
+      return;
+    }
+    const rows = selectedMoveRows;
+    if (!rows.length) return;
+
+    selectionBusy = true;
+    let from = cwd;
+    let to = dest;
+    let moved = 0;
+    let unlinkFailed = 0;
+    const nextResolved = { ...resolved };
+    try {
+      for (const row of rows) {
+        const member =
+          row.event ?? (row.entry ? await ensureResolved(row.entry) : null);
+        if (!member) {
+          showNotice(`Could not load “${row.name}”.`);
+          continue;
+        }
+        if (
+          member.kind === KIND.DIRECTORY &&
+          directoryCoordinateFromEvent(member) === directoryCoordinateFromEvent(to)
+        ) {
+          showNotice(`Cannot move “${row.name}” into itself.`);
+          continue;
+        }
+        const result = await moveMemberBetweenDirectories(from, to, member, {
+          private: row.entry?.private === true
+        });
+        if ('error' in result) {
+          showNotice(result.error);
+          break;
+        }
+        from = result.from;
+        to = result.to;
+        delete nextResolved[row.key];
+        moved += 1;
+        if (!result.unlinked) unlinkFailed += 1;
+      }
+      if (moved) {
+        replaceStackEvent(cwd.id, from);
+        // Keep an open destination folder in the path in sync after the replaceable update.
+        stack = stack.map((ev) =>
+          directoryCoordinateFromEvent(ev) === directoryCoordinateFromEvent(dest) ? to : ev
+        );
+        if (directoryDTag(to) === ROOT_DIRECTORY_D_TAG || to.id === root.id) {
+          onRootChange?.(to);
+        } else if (
+          directoryCoordinateFromEvent(from) === directoryCoordinateFromEvent(root)
+        ) {
+          onRootChange?.(from);
+        }
+        publishOwnedUpdate(from, to);
+        resolved = nextResolved;
+        clearSelection();
+        const destLabel = `/${directoryDTag(to) || directoryExplorerTitle(to)}`;
+        if (unlinkFailed) {
+          showNotice(
+            `Copied ${moved} to ${destLabel}, but ${unlinkFailed} stayed linked here too.`
+          );
+        } else {
+          showNotice(
+            moved === 1 ? `Moved “${rows[0]!.name}” to ${destLabel}` : `Moved ${moved} items to ${destLabel}`,
+            true
+          );
+        }
+      }
+    } finally {
+      selectionBusy = false;
+    }
   }
 
   function replaceStackEvent(previousId: string, next: Event): void {
@@ -504,6 +664,7 @@
         return;
       }
       replaceStackEvent(cwd.id, result.parent);
+      publishOwnedUpdate(result.parent, result.folder);
       // Prefetch will re-key entries; seed by coordinate once listing rebuilds.
       warmAddress(
         `${result.folder.kind}:${result.folder.pubkey.toLowerCase()}:${directoryDTag(result.folder)}`
@@ -518,8 +679,14 @@
 
   async function removeSelected(): Promise<void> {
     if (readOnly) return;
-    const rows = selectedRows.filter((row) => row.entry);
+    const rows = selectedMembershipRows;
     if (!rows.length || selectionBusy) return;
+    const label =
+      rows.length === 1
+        ? `Remove “${rows[0]!.name}” from this folder? It will not be deleted from relays.`
+        : `Remove ${rows.length} items from this folder? They will not be deleted from relays.`;
+    if (!window.confirm(label)) return;
+
     selectionBusy = true;
     let parent = cwd;
     let removed = 0;
@@ -541,6 +708,7 @@
       }
       if (removed) {
         replaceStackEvent(cwd.id, parent);
+        publishOwnedUpdate(parent);
         resolved = nextResolved;
         clearSelection();
         showNotice(
@@ -557,10 +725,15 @@
     if (readOnly) return;
     const rows = selectedDeletableFolders;
     if (!rows.length || selectionBusy) return;
+    const hasMembership = rows.some((row) => row.entry);
     const label =
       rows.length === 1
-        ? `Delete folder “${rows[0]!.name}” and unlink it from this directory? Its contents stay on relays as orphaned events.`
-        : `Delete ${rows.length} folders and unlink them from this directory? Their contents stay on relays as orphaned events.`;
+        ? hasMembership
+          ? `Permanently delete folder “${rows[0]!.name}”? It will be unlinked here and a deletion event will be published. Nested items are not deleted.`
+          : `Permanently delete folder “${rows[0]!.name}”? A deletion event will be published. Nested items are not deleted.`
+        : `Permanently delete ${rows.length} folders? Deletion events will be published${
+            hasMembership ? ' and linked folders will be unlinked here' : ''
+          }. Nested items are not deleted.`;
     if (!window.confirm(label)) return;
 
     selectionBusy = true;
@@ -578,6 +751,10 @@
         const result = await deleteFolderFromParent(parent, folder);
         if ('error' in result) {
           showNotice(result.error);
+          // Still drop tombstoned folders from the owned list when deletion published.
+          if (result.error.startsWith('Folder deleted')) {
+            deletedFolderIds.add(folder.id);
+          }
           break;
         }
         parent = result.parent;
@@ -585,12 +762,19 @@
         deletedFolderIds.add(folder.id);
         deleted += 1;
       }
-      if (deleted) {
+      if (deletedFolderIds.size) {
         replaceStackEvent(cwd.id, parent);
         resolved = nextResolved;
         stack = stack.filter((ev) => !deletedFolderIds.has(ev.id));
         if (!stack.length) stack = [root];
+        const nextOwned = upsertDirectoryEvents(
+          ownedDirectories.filter((e) => !deletedFolderIds.has(e.id)),
+          parent
+        );
+        onOwnedDirectoriesChange?.(nextOwned);
         clearSelection();
+      }
+      if (deleted) {
         showNotice(
           deleted === 1 ? `Deleted “${rows[0]!.name}”` : `Deleted ${deleted} folders`,
           true
@@ -605,6 +789,8 @@
     if (readOnly) return;
     const row = singleRenameTarget;
     if (!row) return;
+    moveOpen = false;
+    moveDestId = '';
     renameOpen = true;
     renameName = row.dTag || row.name;
   }
@@ -633,6 +819,7 @@
         return;
       }
       replaceStackEvent(cwd.id, result.parent);
+      publishOwnedUpdate(result.parent, result.folder);
       const nextResolved = { ...resolved };
       delete nextResolved[row.key];
       if (row.entry) {
@@ -929,8 +1116,14 @@
                     <input
                       type="checkbox"
                       checked={!!selectedKeys[row.key]}
-                      disabled={selectionBusy || !row.entry}
-                      title={!row.entry ? 'Not linked under this folder' : undefined}
+                      disabled={selectionBusy || !rowSelectable(row)}
+                      title={
+                        !rowSelectable(row)
+                          ? 'Not available'
+                          : !row.entry
+                            ? 'Outside this folder — Delete only'
+                            : undefined
+                      }
                       aria-label={`Select ${row.name}`}
                       onchange={(e) =>
                         toggleRowSelected(row.key, (e.currentTarget as HTMLInputElement).checked)}
@@ -975,6 +1168,43 @@
             >Cancel</button
           >
         </form>
+      {:else if moveOpen}
+        <form
+          class="dir-browser-move"
+          onsubmit={(e) => {
+            e.preventDefault();
+            void submitMoveSelected();
+          }}
+        >
+          <label class="visually-hidden" for="dir-move-dest">Move to folder</label>
+          <select
+            id="dir-move-dest"
+            bind:value={moveDestId}
+            disabled={selectionBusy || moveFoldersLoading}
+          >
+            <option value="">
+              {moveFoldersLoading ? 'Loading folders…' : 'Move to…'}
+            </option>
+            {#each moveDestinations as folder (folder.id)}
+              <option value={folder.id}>
+                /{directoryDTag(folder) || directoryExplorerTitle(folder)}
+              </option>
+            {/each}
+          </select>
+          <button
+            class="btn btn-primary dir-browser-op-btn"
+            type="submit"
+            disabled={selectionBusy || moveFoldersLoading || !moveDestId}
+          >
+            {selectionBusy ? '…' : 'Move here'}
+          </button>
+          <button
+            class="btn dir-browser-op-btn"
+            type="button"
+            disabled={selectionBusy}
+            onclick={cancelMove}>Cancel</button
+          >
+        </form>
       {:else}
         <span class="muted dir-browser-selection-count">
           {selectedCount ? `${selectedCount} selected` : 'None selected'}
@@ -982,7 +1212,7 @@
         <button
           type="button"
           class="btn dir-browser-op-btn"
-          disabled={!selectedCount || selectionBusy}
+          disabled={!selectedMembershipRows.length || selectionBusy}
           title="Remove selected items from this folder"
           onclick={() => void removeSelected()}
         >
@@ -996,6 +1226,15 @@
           onclick={() => void deleteSelectedFolders()}
         >
           Delete
+        </button>
+        <button
+          type="button"
+          class="btn dir-browser-op-btn"
+          disabled={!selectedMoveRows.length || selectionBusy}
+          title="Move selected items to another folder"
+          onclick={() => void openMovePicker()}
+        >
+          Move
         </button>
         {#if singleRenameTarget}
           <button

@@ -583,6 +583,38 @@ export async function createFolderInParent(
   return { folder: nested, parent: nextParent };
 }
 
+/**
+ * Move a member from `from` into `to` (add first, then unlink).
+ * Preserves private membership when `opts.private` is set.
+ * If unlink fails after a successful add, returns both folders with `unlinked: false`.
+ */
+export async function moveMemberBetweenDirectories(
+  from: Event,
+  to: Event,
+  member: Event,
+  opts?: { private?: boolean }
+): Promise<{ from: Event; to: Event; unlinked: boolean } | { error: string }> {
+  if (from.kind !== KIND.DIRECTORY || to.kind !== KIND.DIRECTORY) {
+    return { error: 'Not a folder' };
+  }
+  const fromCoord = directoryCoordinateFromEvent(from);
+  const toCoord = directoryCoordinateFromEvent(to);
+  if (fromCoord === toCoord) return { error: 'Already in that folder' };
+  if (
+    member.kind === KIND.DIRECTORY &&
+    directoryCoordinateFromEvent(member) === toCoord
+  ) {
+    return { error: 'Cannot move a folder into itself' };
+  }
+  const added = await addMemberToDirectory(to, member, opts);
+  if ('error' in added) return added;
+  const removed = await removeMemberFromDirectory(from, { event: member });
+  if ('error' in removed) {
+    return { from, to: added, unlinked: false };
+  }
+  return { from: removed, to: added, unlinked: true };
+}
+
 /** Add (or no-op if already present) a member event under `parent`. */
 export async function addMemberToDirectory(
   parent: Event,
@@ -684,13 +716,19 @@ export async function deleteFolderFromParent(
     return { error: 'You can only delete your own folders' };
   }
 
-  const unlinked = await removeMemberFromDirectory(parent, { event: folder });
-  if ('error' in unlinked) return unlinked;
-
+  // Publish NIP-09 first so a failed delete never leaves a silent orphan under /root.
   const deleted = await signAndPublish(deletionDraft(folder), QUIET);
-  if (deleted) {
-    rememberDeletedTarget(folder, deleted);
-    void cacheDeleteEvent(folder.id).catch(() => {});
+  if (!deleted) return { error: 'Could not publish folder deletion' };
+  rememberDeletedTarget(folder, deleted);
+  void cacheDeleteEvent(folder.id).catch(() => {});
+
+  const unlinked = await removeMemberFromDirectory(parent, { event: folder });
+  if ('error' in unlinked) {
+    // Folder is tombstoned locally; still try to refresh parent cache.
+    invalidateDirectoryCaches(parent.pubkey);
+    return {
+      error: `Folder deleted, but could not unlink it from the parent: ${unlinked.error}`
+    };
   }
   invalidateDirectoryCaches(parent.pubkey);
   directoryByDCache.set(

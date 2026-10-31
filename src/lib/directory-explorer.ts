@@ -4,13 +4,24 @@ import { KIND } from './constants';
 import {
   MY_BOOK_COLLECTION_D_TAG,
   ROOT_DIRECTORY_D_TAG,
+  directoryCoordinateFromEvent,
   directoryDTag,
   directoryEntryDisplayName
 } from './bookshelf';
 import { parseAddress, parseEventCoordinate } from './library-scope';
 import { libraryDocumentPath, publicationPath } from './metadata';
-import { eventAddress, firstTag } from './nostr/verify';
+import { firstTag } from './nostr/verify';
 import { kindDescription } from './kind-label';
+
+/**
+ * Canonical `kind:hex:d` key for directory membership lookups.
+ * A-tags may use hex or `npub1…` pubkey segments — normalize before Map get/set.
+ */
+function directoryCoordKey(coordinate: string): string | null {
+  const parsed = parseEventCoordinate(coordinate);
+  if (!parsed) return null;
+  return `${parsed.kind}:${parsed.pubkey}:${parsed.d}`.toLowerCase();
+}
 
 function npubPath(pubkey: string): string {
   try {
@@ -163,7 +174,7 @@ export function directoryIdsReachableFrom(
   for (const ev of pool) {
     if (ev.kind !== KIND.DIRECTORY) continue;
     byId.set(ev.id.toLowerCase(), ev);
-    byCoord.set(eventAddress(ev).toLowerCase(), ev);
+    byCoord.set(directoryCoordinateFromEvent(ev).toLowerCase(), ev);
   }
   const seen = new Set<string>();
   const queue: Event[] = [root];
@@ -176,7 +187,10 @@ export function directoryIdsReachableFrom(
     for (const entry of directoryExplorerEntries(cur, priv)) {
       if (entry.role !== 'folder') continue;
       let child: Event | undefined;
-      if (entry.coordinate) child = byCoord.get(entry.coordinate.toLowerCase());
+      if (entry.coordinate) {
+        const key = directoryCoordKey(entry.coordinate);
+        if (key) child = byCoord.get(key);
+      }
       if (!child && entry.eventId) child = byId.get(entry.eventId.toLowerCase());
       if (child && !seen.has(child.id.toLowerCase())) queue.push(child);
     }
@@ -187,25 +201,32 @@ export function directoryIdsReachableFrom(
 /**
  * Author directories not reachable from `root`, excluding ones that are already
  * nested under another directory in `pool` (so only parallel tree tops appear).
+ * Never returns `/root` itself or a stale replaceable of the same coordinate
+ * (common after `/root` is republished while an older id remains in the pool).
  */
 export function directoriesUnreachableFrom(root: Event, pool: Event[]): Event[] {
   const reachable = directoryIdsReachableFrom(root, pool);
+  const rootId = root.id.toLowerCase();
+  const rootCoord = directoryCoordKey(directoryCoordinateFromEvent(root));
   const byCoord = new Map<string, Event>();
   for (const ev of pool) {
     if (ev.kind !== KIND.DIRECTORY) continue;
-    byCoord.set(eventAddress(ev).toLowerCase(), ev);
+    const key = directoryCoordKey(directoryCoordinateFromEvent(ev));
+    if (key) byCoord.set(key, ev);
   }
   const nestedUnderPeer = new Set<string>();
   for (const ev of pool) {
     if (ev.kind !== KIND.DIRECTORY) continue;
-    if (ev.id.toLowerCase() === root.id.toLowerCase()) continue;
+    if (ev.id.toLowerCase() === rootId) continue;
     for (const entry of directoryExplorerEntries(ev)) {
       if (entry.role !== 'folder') continue;
-      const child = entry.coordinate
-        ? byCoord.get(entry.coordinate.toLowerCase())
-        : entry.eventId
-          ? pool.find((e) => e.id.toLowerCase() === entry.eventId!.toLowerCase())
-          : undefined;
+      let child: Event | undefined;
+      if (entry.coordinate) {
+        const key = directoryCoordKey(entry.coordinate);
+        if (key) child = byCoord.get(key);
+      } else if (entry.eventId) {
+        child = byIdish(pool, entry.eventId);
+      }
       if (child) nestedUnderPeer.add(child.id.toLowerCase());
     }
   }
@@ -213,10 +234,40 @@ export function directoriesUnreachableFrom(root: Event, pool: Event[]): Event[] 
     .filter((ev) => {
       if (ev.kind !== KIND.DIRECTORY) return false;
       const id = ev.id.toLowerCase();
+      if (id === rootId) return false;
+      // Stale prior /root (or any same-coordinate replaceable) after republish.
+      const coord = directoryCoordKey(directoryCoordinateFromEvent(ev));
+      if (rootCoord && coord === rootCoord) return false;
+      if (directoryDTag(ev) === ROOT_DIRECTORY_D_TAG) return false;
       if (reachable.has(id) || nestedUnderPeer.has(id)) return false;
       return true;
     })
     .sort(compareDirectoryListing);
+}
+
+/**
+ * Replace pool entries that share a directory coordinate with `next` events
+ * (newest wins). Used to keep the owned list in sync after local publishes.
+ */
+export function upsertDirectoryEvents(pool: Event[], ...next: Event[]): Event[] {
+  const byCoord = new Map<string, Event>();
+  const order: string[] = [];
+  const remember = (ev: Event) => {
+    if (ev.kind !== KIND.DIRECTORY) return;
+    const key =
+      directoryCoordKey(directoryCoordinateFromEvent(ev)) ?? ev.id.toLowerCase();
+    if (!byCoord.has(key)) order.push(key);
+    const prev = byCoord.get(key);
+    if (!prev || ev.created_at >= prev.created_at) byCoord.set(key, ev);
+  };
+  for (const ev of pool) remember(ev);
+  for (const ev of next) remember(ev);
+  return order.map((k) => byCoord.get(k)!).filter(Boolean);
+}
+
+function byIdish(pool: Event[], eventId: string): Event | undefined {
+  const id = eventId.toLowerCase();
+  return pool.find((e) => e.id.toLowerCase() === id);
 }
 
 /**

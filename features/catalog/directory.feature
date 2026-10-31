@@ -23,11 +23,25 @@ Feature: Directory explorer (NKBIP-04)
     Then those membership a-tags are gone from the current folder
     And other children remain
 
+  Scenario: Move checked items to another folder
+    Given I am signed in on /directory inside a folder that lists publications and nested folders
+    When I check one or more rows and choose Move below the checkbox column
+    And I pick another owned folder as the destination
+    Then those memberships are a-tagged on the destination folder
+    And they are unlinked from the current folder
+
   Scenario: Delete checked folders
     Given I am signed in on /directory with nested folders I own
     When I check those folder rows and choose Delete below the checkbox column
-    Then the folders are unlinked from their parent
-    And a kind 5 deletion is published for each folder replaceable
+    And I confirm the permanent delete prompt
+    Then a kind 5 deletion is published for each folder replaceable
+    And the folders are unlinked from their parent
+    And they do not appear as directories outside /root
+
+  Scenario: Remove requires confirmation
+    Given I am signed in on /directory inside a folder that lists publications
+    When I check one or more rows and choose Remove below the checkbox column
+    Then I am asked to confirm before memberships are unlinked
 
   Scenario: Select all via the header checkbox
     Given I am signed in on /directory with several items listed
