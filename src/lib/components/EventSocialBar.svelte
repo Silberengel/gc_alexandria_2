@@ -6,7 +6,6 @@
   import TipButton from './TipButton.svelte';
   import CopyPointerButton from './CopyPointerButton.svelte';
   import CommentThread from './CommentThread.svelte';
-  import EventCard from './EventCard.svelte';
   import ThreadRefBadges from './ThreadRefBadges.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
   import { session } from '$lib/stores/session';
@@ -51,6 +50,7 @@
   let boosts = $state<Event[]>([]);
   let replyOpenId = $state<string | null>(null);
   const quoteNodes = new Map<string, ThreadNode>();
+  const otherNodes = new Map<string, ThreadNode>();
   let threadLoaded = $state(false);
   /** Bumps when the target event changes; drops stale thread paints. */
   let threadGen = 0;
@@ -226,7 +226,7 @@
     </ul>
   {/if}
   {#if allowReply && quotes.length}
-    <h3 class="work-comments-subhead">Quotes</h3>
+    <h2 class="section-title work-comments-section-title">Quotes</h2>
     <ul class="thread-list">
       {#each quotes as q (q.id)}
         <CommentThread
@@ -243,12 +243,19 @@
     </ul>
   {/if}
   {#if allowReply && other.length}
-    <h3 class="work-comments-subhead">Other responses</h3>
-    <ul class="thread-list work-response-list">
+    <h2 class="section-title work-comments-section-title">Other responses</h2>
+    <ul class="thread-list">
       {#each other as item (item.id)}
-        <li class="work-response-item">
-          <EventCard event={item} />
-        </li>
+        <CommentThread
+          node={stableThreadNode(otherNodes, item)}
+          target={event}
+          bind:replyOpenId
+          onPublished={showPublished}
+          {highlights}
+          {zaps}
+          {boosts}
+          lineEmbeds
+        />
       {/each}
     </ul>
   {/if}

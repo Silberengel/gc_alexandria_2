@@ -2,7 +2,6 @@
   import type { Event } from 'nostr-tools';
   import CommentThread from './CommentThread.svelte';
   import ThreadCompose from './ThreadCompose.svelte';
-  import EventCard from './EventCard.svelte';
   import WorkAttributionRows from './WorkAttributionRows.svelte';
   import {
     canOfferKind1Reply,
@@ -46,6 +45,7 @@
 
   let replyOpenId = $state<string | null>(null);
   const quoteNodes = new Map<string, ThreadNode>();
+  const otherNodes = new Map<string, ThreadNode>();
   let commentText = $state('');
   let commentImeta = $state<string[][]>([]);
   let composeEl = $state<HTMLDivElement | null>(null);
@@ -182,8 +182,7 @@
   {/if}
 
   {#if quotes.length}
-    <h3 class="work-comments-subhead">Quotes</h3>
-    <p class="muted work-comments-lede">Notes that quote this work.</p>
+    <h2 class="section-title work-comments-section-title">Quotes</h2>
     <ul class="thread-list">
       {#each quotes as event (event.id)}
         <CommentThread
@@ -202,13 +201,21 @@
   {/if}
 
   {#if other.length || hasAttributions}
-    <h3 class="work-comments-subhead">Other responses</h3>
+    <h2 class="section-title work-comments-section-title">Other responses</h2>
     {#if other.length}
-      <ul class="thread-list work-response-list">
+      <ul class="thread-list">
         {#each other as event (event.id)}
-          <li class="work-response-item">
-            <EventCard {event} />
-          </li>
+          <CommentThread
+            node={stableThreadNode(otherNodes, event)}
+            {target}
+            bind:replyOpenId
+            focusId={focusId}
+            onPublished={showPublished}
+            {highlights}
+            {zaps}
+            {boosts}
+            lineEmbeds
+          />
         {/each}
       </ul>
     {/if}

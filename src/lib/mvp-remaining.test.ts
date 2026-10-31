@@ -623,7 +623,7 @@ describe('comments nest', () => {
     expect(parts.thread.map((e) => e.id).sort()).toEqual([comment.id, nestedOnly.id].sort());
   });
 
-  it('does not put ratings, catalog documents, or wiki redirects in other responses', () => {
+  it('does not put ratings, catalog documents, wiki redirects, or draft wraps in other responses', () => {
     const pk = 'b'.repeat(64);
     const edition = ev({
       id: 'a'.repeat(64),
@@ -657,6 +657,17 @@ describe('comments nest', () => {
       content: 'A proper other response.',
       tags: [['a', `30040:${pk}:book`]]
     });
+    const draftWrap = ev({
+      id: '7'.repeat(64),
+      kind: KIND.DRAFT_WRAP,
+      pubkey: pk,
+      content: '',
+      tags: [
+        ['d', 'book-draft'],
+        ['k', '30040'],
+        ['e', edition.id]
+      ]
+    });
     const wiki = ev({
       id: '4'.repeat(64),
       kind: KIND.WIKI,
@@ -675,9 +686,13 @@ describe('comments nest', () => {
       content: 'A wiki other response.',
       tags: [['a', `30818:${pk}:bitcoin`]]
     });
-    const parts = partitionWorkResponses([edition, rating, catalogCopy, review], edition);
+    const parts = partitionWorkResponses(
+      [edition, rating, catalogCopy, review, draftWrap],
+      edition
+    );
     expect(parts.other.map((e) => e.id)).toEqual([review.id]);
     expect(parts.thread).toHaveLength(0);
+    expect(parts.other.some((e) => e.kind === KIND.DRAFT_WRAP)).toBe(false);
     const wikiParts = partitionWorkResponses([wiki, redirect, wikiNote], wiki);
     expect(wikiParts.other.map((e) => e.id)).toEqual([wikiNote.id]);
     expect(wikiParts.other.some((e) => e.kind === KIND.WIKI_REDIRECT)).toBe(false);
@@ -1083,7 +1098,7 @@ describe('booklist and shelves', () => {
     expect(publicationTargets(label).addresses).toEqual([addr(pubA)]);
   });
 
-  it('assigns mine, follows, curator, network with dedup and reference recency', () => {
+  it('assigns mine, follows, curator guides with dedup and reference recency', () => {
     const me = '6'.repeat(64);
     const follow = '7'.repeat(64);
     const other = '8'.repeat(64);
@@ -1107,21 +1122,37 @@ describe('booklist and shelves', () => {
       [addr(pubE), pubE]
     ]);
     const shelves = assignShelves(memberships, pubs, me, new Set([follow]));
-    expect(shelves.map((s) => s.id)).toEqual(['mine', 'follows', 'guides', 'network']);
+    expect(shelves.map((s) => s.id)).toEqual(['mine', 'follows', 'guides']);
     expect(shelves[0]?.events.map((e) => e.id)).toEqual([pubA.id, pubE.id]);
+    // Follow keeps pubB; pubE is mine-exclusive so not duplicated onto follows.
     expect(shelves[1]?.events.map((e) => e.id)).toEqual([pubB.id]);
+    // Guides keeps curator pubC; pubE also had a curator membership but mine won.
     expect(shelves[2]?.events.map((e) => e.id)).toEqual([pubC.id]);
-    expect(shelves[3]?.events.map((e) => e.id)).toEqual([pubD.id]);
+    // Stranger booklists (pubD) no longer get a landing shelf.
   });
 
-  it('puts curator labels on From follows when the viewer follows the curator, else guides', () => {
+  it('gives guides the edition when both a follow and the curator list it', () => {
+    const me = '6'.repeat(64);
+    const follow = '7'.repeat(64);
+    const labels = [
+      booklist(follow, pubA, 10),
+      booklist(GITCITADEL_CURATOR_HEX, pubA, 12)
+    ];
+    const memberships = membershipsFromEvents(labels);
+    const pubs = new Map([[addr(pubA), pubA]]);
+    const shelves = assignShelves(memberships, pubs, me, new Set([follow]));
+    expect(shelves.map((s) => s.id)).toEqual(['guides']);
+    expect(shelves[0]?.events.map((e) => e.id)).toEqual([pubA.id]);
+  });
+
+  it('always puts curator memberships on From the guides, even when the curator is followed', () => {
     const me = '6'.repeat(64);
     const labels = [booklist(GITCITADEL_CURATOR_HEX, pubC, 12)];
     const memberships = membershipsFromEvents(labels);
     const pubs = new Map([[addr(pubC), pubC]]);
     expect(
       assignShelves(memberships, pubs, me, new Set([GITCITADEL_CURATOR_HEX])).map((s) => s.id)
-    ).toEqual(['follows']);
+    ).toEqual(['guides']);
     expect(assignShelves(memberships, pubs, me, new Set()).map((s) => s.id)).toEqual(['guides']);
   });
 

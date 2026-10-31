@@ -80,26 +80,27 @@ describe('mergeLandingShelves', () => {
   it('keeps prior shelves and unions events during progressive paints', () => {
     const a = ev([['d', 'book-a'], ['title', 'A']], '1');
     a.pubkey = '1'.repeat(64);
-    const b = ev([['d', 'book-b'], ['title', 'B']], '2');
-    b.pubkey = '2'.repeat(64);
     const c = ev([['d', 'book-c'], ['title', 'C']], '3');
     c.pubkey = '1'.repeat(64);
+    const followBook = ev([['d', 'jane-eyre'], ['title', 'Jane Eyre']], '2');
+    followBook.pubkey = 'f'.repeat(64);
     const prev: LandingShelfSnap[] = [
-      { id: 'network', title: 'Network', events: [a, b] },
+      { id: 'follows', title: "From your follows' bookshelves", events: [followBook] },
       { id: 'mine', title: 'From your bookshelves', events: [a] }
     ];
     const next: LandingShelfSnap[] = [
       { id: 'mine', title: 'From your bookshelves', events: [c] }
     ];
     const merged = mergeLandingShelves(prev, next);
-    expect(merged.map((s) => s.id)).toEqual(['mine', 'network']);
+    expect(merged.map((s) => s.id)).toEqual(['mine', 'follows']);
     const mine = merged.find((s) => s.id === 'mine')!;
     expect(mine.events.map((e) => e.id).sort()).toEqual([a.id, c.id].sort());
-    // a is on mine (same author scrubbed from network) — network only keeps b
-    expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([b.id]);
+    expect(merged.find((s) => s.id === 'follows')?.events.map((e) => e.id)).toEqual([
+      followBook.id
+    ]);
   });
 
-  it('keeps Mercury network filler when follows resolve without a network shelf', () => {
+  it('drops retired From the network rows from progressive merges', () => {
     const nested = ev([['d', 'day-1'], ['title', 'Day 1']], '1');
     nested.pubkey = 'a'.repeat(64);
     const followBook = ev([['d', 'jane-eyre'], ['title', 'Jane Eyre']], '2');
@@ -112,24 +113,8 @@ describe('mergeLandingShelves', () => {
       { id: 'mine', title: 'From your bookshelves', events: [] }
     ];
     const merged = mergeLandingShelves(prev, next);
-    expect(merged.map((s) => s.id)).toEqual(['follows', 'network']);
-    expect(merged.find((s) => s.id === 'network')?.events.map((e) => e.id)).toEqual([nested.id]);
-  });
-
-  it('dedupes network covers that already appear on follows', () => {
-    const shared = ev([['d', 'classic'], ['title', 'Classic']], '1');
-    shared.pubkey = 'f'.repeat(64);
-    const stranger = ev([['d', 'other'], ['title', 'Other']], '3');
-    stranger.pubkey = 'c'.repeat(64);
-    const merged = mergeLandingShelves(
-      [{ id: 'network', title: 'From the network', events: [shared, stranger] }],
-      [
-        { id: 'follows', title: "From your follows' bookshelves", events: [shared] },
-        { id: 'network', title: 'From the network', events: [shared, stranger] }
-      ]
-    );
-    const network = merged.find((s) => s.id === 'network');
-    expect(network?.events.map((e) => e.id)).toEqual([stranger.id]);
+    expect(merged.map((s) => s.id)).toEqual(['follows']);
+    expect(merged.find((s) => s.id === 'network')).toBeUndefined();
   });
 
   it('keeps prior guide chips when a progressive pack omits them', () => {
@@ -213,7 +198,7 @@ describe('bookshelfChipsFromDirectories', () => {
 });
 
 describe('orderLandingShelves', () => {
-  it('puts Reading now first, then own bookshelves (folding legacy folders), follows, network, guides', () => {
+  it('puts Reading now first, then own bookshelves (folding legacy folders), follows, guides', () => {
     const ordered = orderLandingShelves([
       { id: 'network', title: 'From the network', events: [] },
       { id: 'folder:Mystery', title: 'Mystery', events: [] },
@@ -224,13 +209,7 @@ describe('orderLandingShelves', () => {
       { id: 'mine', title: 'From your bookshelves', events: [] },
       { id: 'reading-now', title: 'Reading now', events: [] }
     ]);
-    expect(ordered.map((s) => s.id)).toEqual([
-      'reading-now',
-      'mine',
-      'follows',
-      'network',
-      'guides'
-    ]);
+    expect(ordered.map((s) => s.id)).toEqual(['reading-now', 'mine', 'follows', 'guides']);
   });
 });
 
@@ -247,23 +226,24 @@ describe('dedupeLandingShelfEvents', () => {
     };
   }
 
-  it('keeps a cover only on the highest-priority curated shelf that has it', () => {
+  it('gives guides priority over follows on overlap; mine is exclusive', () => {
     const shared = pub('shared', '1');
-    const onlyGc = pub('gc-only', '2');
-    const onlyNet = pub('net-only', '3');
+    const onlyGuides = pub('guide-only', '2');
+    const onFollowsAndGuides = pub('classic', '3');
     const deduped = dedupeLandingShelfEvents([
-      { id: 'network', title: 'From the network', events: [shared, onlyNet] },
-      { id: 'gitcitadel', title: 'GitCitadel', events: [shared, onlyGc] },
+      { id: 'follows', title: "From your follows' bookshelves", events: [onFollowsAndGuides] },
+      { id: 'guides', title: 'From the guides', events: [shared, onlyGuides, onFollowsAndGuides] },
       { id: 'mine', title: 'From your bookshelves', events: [shared] }
     ]);
-    expect(deduped.map((s) => s.id)).toEqual(['mine', 'network']);
+    expect(deduped.map((s) => s.id)).toEqual(['mine', 'guides']);
     expect(deduped.find((s) => s.id === 'mine')?.events.map((e) => e.id)).toEqual([shared.id]);
-    expect(deduped.find((s) => s.id === 'network')?.events.map((e) => e.id).sort()).toEqual(
-      [onlyGc.id, onlyNet.id].sort()
+    expect(deduped.find((s) => s.id === 'follows')).toBeUndefined();
+    expect(deduped.find((s) => s.id === 'guides')?.events.map((e) => e.id).sort()).toEqual(
+      [onlyGuides.id, onFollowsAndGuides.id].sort()
     );
   });
 
-  it('folds legacy folder rows into From your bookshelves and drops duplicates lower down', () => {
+  it('folds legacy folder rows into From your bookshelves and drops retired network rows', () => {
     const shared = pub('shared', '1');
     const onlyMine = pub('mine-only', '2');
     const deduped = dedupeLandingShelfEvents([

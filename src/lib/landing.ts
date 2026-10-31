@@ -29,6 +29,8 @@ import {
   type LandingSnapshot
 } from './nostr/cache';
 import { fetchByAddress, fetchByIds, poolMap } from './nostr/fetch';
+import { loadCatalogRecent } from './catalog-hub';
+import { guideLibraryRelays } from './starter-guides';
 import { mercuryFilter } from './nostr/mercury';
 import { relayPool } from './nostr/pool';
 import {
@@ -48,6 +50,7 @@ import {
   isViewerBoundShelfId,
   membershipsFromEvents,
   dedupeLandingShelfEvents,
+  isRetiredLandingShelfId,
   SHELF_TITLES,
   topLevelShelfEvents,
   type Membership,
@@ -159,6 +162,19 @@ function persistLandingSoon(view: LandingView): void {
 
 export const LANDING_FEED_LIMIT = 10;
 
+/**
+ * Warm pub/wiki pool for membership resolve, subjects, and feeds.
+ * (From the network shelf is retired — no Mercury filler row.)
+ */
+export async function fetchLandingPublicationSeed(): Promise<Event[]> {
+  const [mercury, wiki, catalog] = await Promise.allSettled([
+    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 100 }),
+    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 }),
+    loadCatalogRecent(KIND.PUBLICATION, 100)
+  ]);
+  return mergeEvents(settled(catalog, []), settled(mercury, []), settled(wiki, []));
+}
+
 export function subjectsFromPublications(publications: Event[]): string[] {
   const subjectCounts = new Map<string, number>();
   for (const p of publications) {
@@ -191,20 +207,20 @@ function mergeEvents(...lists: Event[][]): Event[] {
  * (e.g. My shelf only). Union shelves/events so the UI does not flicker fewer→more→fewer.
  * Callers should still replace wholesale on identity change or final snapshot.
  * Always re-orders and cross-shelf dedupes via {@link dedupeLandingShelfEvents}.
- *
- * When `next` omits From the network, keep a prior Mercury network row and scrub it —
- * membership resolve often has no network bucket even though the landing still needs one.
+ * Retired rows (From the network) are dropped.
  */
 export function mergeLandingShelves(
   prev: LandingShelfSnap[],
   next: LandingShelfSnap[]
 ): LandingShelfSnap[] {
-  if (!prev.length) return dedupeLandingShelfEvents(next);
-  if (!next.length) return dedupeLandingShelfEvents(prev);
-  const prevById = new Map(prev.map((s) => [s.id, s]));
+  const livePrev = prev.filter((s) => !isRetiredLandingShelfId(s.id));
+  const liveNext = next.filter((s) => !isRetiredLandingShelfId(s.id));
+  if (!livePrev.length) return dedupeLandingShelfEvents(liveNext);
+  if (!liveNext.length) return dedupeLandingShelfEvents(livePrev);
+  const prevById = new Map(livePrev.map((s) => [s.id, s]));
   const seen = new Set<string>();
   const out: LandingShelfSnap[] = [];
-  for (const shelf of next) {
+  for (const shelf of liveNext) {
     seen.add(shelf.id);
     const older = prevById.get(shelf.id);
     const merged = older ? mergeEvents(older.events, shelf.events) : shelf.events;
@@ -218,79 +234,11 @@ export function mergeLandingShelves(
       events: topLevelShelfEvents(merged, merged)
     });
   }
-  for (const shelf of prev) {
+  for (const shelf of livePrev) {
     if (seen.has(shelf.id)) continue;
     out.push(shelf);
   }
-  return scrubNetworkShelfEvents(dedupeLandingShelfEvents(out));
-}
-
-/**
- * Network filler must not keep nested indexes once parents are known.
- * Cross-shelf address dedupe (mine/follows/guides win) happens in
- * {@link dedupeLandingShelfEvents}.
- */
-export function scrubNetworkShelfEvents(
-  shelves: LandingShelfSnap[]
-): LandingShelfSnap[] {
-  const network = shelves.find((s) => s.id === 'network');
-  if (!network?.events.length) return shelves;
-  const pool = shelves.flatMap((s) => s.events);
-  const cleaned = topLevelShelfEvents(network.events, pool).filter((event) =>
-    isTopLevel30040(event, pool)
-  );
-  if (cleaned.length === network.events.length) {
-    const same = cleaned.every((e, i) => e.id === network.events[i]?.id);
-    if (same) return shelves;
-  }
-  if (!cleaned.length) return shelves.filter((s) => s.id !== 'network');
-  return shelves.map((s) => (s.id === 'network' ? { ...s, events: cleaned } : s));
-}
-
-/**
- * Pubkeys to skip on Mercury network filler: the viewer, contact follows, and
- * the guides curator when Guides already has cover events.
- * Do not exclude every author that appears on mine/follows covers — those are
- * book publishers, and wiping them empties network when Mercury is curator-heavy.
- */
-function networkExcludePubkeys(viewer: string | null, shelves: LandingShelfSnap[]): Set<string> {
-  const exclude = new Set(followPubkeysFromMetadata(session.getMetadata()));
-  if (viewer) exclude.add(viewer.toLowerCase());
-  const guides = shelves.find((s) => s.id === 'guides');
-  if (guides && guides.events.length > 0) exclude.add(GITCITADEL_CURATOR_HEX);
-  return exclude;
-}
-
-/**
- * Ensure a From the network cover row from Mercury/cache pubs when membership
- * resolve left that bucket empty (common once mine/follows/guides painted).
- */
-export async function ensureNetworkShelf(
-  shelves: LandingShelfSnap[],
-  publications: Event[],
-  viewer: string | null
-): Promise<LandingShelfSnap[]> {
-  if (shelves.some((s) => s.id === 'network' && s.events.length)) {
-    return scrubNetworkShelfEvents(shelves);
-  }
-  const pubs = publications.filter((e) => e.kind === KIND.PUBLICATION);
-  if (!pubs.length) return shelves;
-  const excludePubkeys = networkExcludePubkeys(viewer, shelves);
-  let networkCovers = (
-    await resolveTopLevelShelfEvents(pubs, { excludePubkeys })
-  ).slice(0, 50);
-  // Mercury's newest slice is often all curator editions — if excludes emptied the
-  // pool, still show top-level pubs and let cross-shelf dedupe drop overlaps.
-  if (!networkCovers.length) {
-    networkCovers = (await resolveTopLevelShelfEvents(pubs)).slice(0, 50);
-  }
-  if (!networkCovers.length) return shelves;
-  return scrubNetworkShelfEvents(
-    dedupeLandingShelfEvents([
-      ...shelves.filter((s) => s.id !== 'network'),
-      { id: 'network', title: SHELF_TITLES.network, events: networkCovers }
-    ])
-  );
+  return dedupeLandingShelfEvents(out);
 }
 
 function settled<T>(result: PromiseSettledResult<T>, fallback: T): T {
@@ -948,11 +896,21 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
       navOpts
     )
   ]);
-  const [dirWs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
+  // Curator directories are required for From the guides covers. An unscoped
+  // limit:40 sample often misses them while chips still paint from starter-guides.
+  const [dirWs, curatorDirs, myBookmarks, myDirs, myOutboxLists] = await Promise.allSettled([
     relayPool.query(
       document,
       [{ kinds: [KIND.DIRECTORY], limit: 40 }],
       2500,
+      4,
+      undefined,
+      navOpts
+    ),
+    relayPool.query(
+      guideLibraryRelays(),
+      [{ kinds: [KIND.DIRECTORY], authors: [curator], limit: 80 }],
+      4_000,
       4,
       undefined,
       navOpts
@@ -1015,6 +973,7 @@ async function fetchShelfMembershipEvents(): Promise<ShelfMembershipPack> {
     ),
     liveDirs: mergeEvents(
       settled(dirWs, []),
+      settled(curatorDirs, []),
       settled(myDirs, []),
       outboxEvents.filter((e) => e.kind === KIND.DIRECTORY)
     )
@@ -1353,19 +1312,18 @@ export async function refreshLanding(
   // One priority feed query (not three parallel REQs) so shelf resolve keeps pool slots.
   const feedWsPromise = queryLandingFeeds();
 
-  const [pubsResult, wikiResult] = await Promise.allSettled([
-    mercuryFilter({ kinds: [KIND.PUBLICATION], limit: 50 }),
-    mercuryFilter({ kinds: [KIND.WIKI, KIND.SPEC], limit: 50 })
-  ]);
-
+  // Mercury newest is capped at 100/page and currently flooded with biblestr day
+  // indexes — page with until + merge a large document-relay recent set.
   const publications = preferLive(
-    mergeEvents(settled(pubsResult, []), settled(wikiResult, [])),
+    await fetchLandingPublicationSeed(),
     cacheOk ? cached?.publications : undefined
   );
 
   // When the viewer identity changed, still seed curated shelves + feeds from cache so the
   // first paint does not blank a landing that already had covers (Home applies onUpdate live).
-  const curatedCachedShelves = (cached?.shelves ?? []).filter((s) => !isViewerBoundShelfId(s.id));
+  const curatedCachedShelves = (cached?.shelves ?? []).filter(
+    (s) => !isViewerBoundShelfId(s.id) && !isRetiredLandingShelfId(s.id)
+  );
   let comments = newestCommentPerWork(
     cacheOk || cached ? (cached?.comments ?? []) : []
   ).slice(0, LANDING_FEED_LIMIT);
@@ -1374,10 +1332,12 @@ export async function refreshLanding(
   ).slice(0, LANDING_FEED_LIMIT);
   let ratings = landingRatings(cacheOk || cached ? (cached?.ratings ?? []) : []);
   // Re-collapse cached covers — older snapshots often stored every bible chapter.
-  const cachedShelves = (cacheOk ? (cached?.shelves ?? []) : curatedCachedShelves).map((s) => ({
-    ...s,
-    events: topLevelShelfEvents(s.events, s.events)
-  }));
+  const cachedShelves = (cacheOk ? (cached?.shelves ?? []) : curatedCachedShelves)
+    .filter((s) => !isRetiredLandingShelfId(s.id))
+    .map((s) => ({
+      ...s,
+      events: topLevelShelfEvents(s.events, s.events)
+    }));
   let shelves = cachedShelves;
   let labels = cacheOk ? (cached?.labels ?? []) : [];
   let referenced = cacheOk || cached ? (cached?.referenced ?? []) : [];
@@ -1403,22 +1363,10 @@ export async function refreshLanding(
 
   paint(snapshot());
 
-  // Immediate covers from Mercury pubs while label membership resolves (~5–8s).
-  if (publications.some((e) => e.kind === KIND.PUBLICATION)) {
-    shelves = await ensureNetworkShelf(shelves, publications, viewer);
-    if (shelvesHaveCovers(shelves)) paint(snapshot());
-  }
-
   const applyShelfPack = (pack: ShelfLabelPack): void => {
     if (!shelvesHaveCovers(pack.shelves) && !pack.labels.length) return;
     if (shelvesHaveCovers(pack.shelves)) shelves = mergeLandingShelves(shelves, pack.shelves);
     if (pack.labels.length) labels = pack.labels;
-    // Membership packs often omit network — refill from Mercury so the row stays.
-    void ensureNetworkShelf(shelves, publications, viewer).then((next) => {
-      if (next === shelves) return;
-      shelves = next;
-      paint(snapshot());
-    });
     paint(snapshot());
   };
 
@@ -1471,7 +1419,6 @@ export async function refreshLanding(
   if (shelvesHaveCovers(shelfPack.shelves)) {
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   }
-  shelves = await ensureNetworkShelf(shelves, publications, viewer);
   if (shelfPack.labels.length) labels = shelfPack.labels;
   paint(snapshot());
   // Re-hydrate with any newly resolved shelf editions as known parents.

@@ -11,7 +11,7 @@ Feature: Library home
     And I do not see publication cards on the landing page
     And I see the highlight list and What we are discussing, side by side on a wide screen
     And then subject buttons
-    And publication-label buttons (Booklists) appear below the core cover shelves (after From the network)
+    And publication-label buttons (Booklists) appear below the core cover shelves (after From the guides)
     And I do not see a kind-1 timeline
 
   Scenario: Signed-in reading now

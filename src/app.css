@@ -6741,6 +6741,12 @@ td:has(> .listing-table-content-col) {
 .op-reply-compose {
   margin: 0.75rem 0 1rem;
 }
+/* Quotes / Other responses share Comments heading + thread-row chrome. */
+.work-comments-panel > .section-title.work-comments-section-title,
+.event-social-rest > .section-title.work-comments-section-title {
+  margin-top: 1.35rem;
+  margin-bottom: 0.55rem;
+}
 .work-comments-subhead {
   margin: 1.35rem 0 0.25rem;
   font-family: var(--ui-font);

@@ -17,6 +17,7 @@ Feature: NIP-37 draft wraps
     And a local autosave that matches that wrap (same d or body) is not listed alongside it
     And opening a row restores that draft into the compose form
     And Delete publishes a blank-content 31234 for that d-tag
+    And kind 31234 wraps and kind 1234 checkpoints do not appear under Other responses on a thread
 
   Scenario: Kind switch starts blank
     Given I am on Compose with a document kind selected

@@ -690,7 +690,10 @@ const SKIP_OTHER_KINDS = new Set<number>([
   KIND.ISSUE_STATUS_CLOSED,
   KIND.ISSUE_STATUS_DRAFT,
   // Issues under a repo are listed on the Issues tab.
-  KIND.ISSUE
+  KIND.ISSUE,
+  // NIP-37 encrypted drafts belong in Compose, not thread responses.
+  KIND.DRAFT_WRAP,
+  KIND.DRAFT_CHECKPOINT
 ]);
 
 const ATTRIBUTION_KINDS = new Set<number>([

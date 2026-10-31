@@ -63,7 +63,8 @@ function guideSearchHref(d: string): string {
   return `#/search?${q.toString()}`;
 }
 
-function guideLibraryRelays(): string[] {
+/** Relays that host curator guide directories / memberships. */
+export function guideLibraryRelays(): string[] {
   // Guides live on theforest / thecitadel — do not rely on documentStack alone
   // (GitCitadel preset off, or a small cap that lands on dead third-party hosts).
   return [

@@ -700,11 +700,15 @@ export async function directoryPrivateMembershipTags(
 /**
  * Unlink `folder` from `parent`, then NIP-09 delete the folder replaceable
  * (unless it is a protected home d-tag).
+ *
+ * When deletion publishes but the parent unlink fails, returns `{ error, parent }`
+ * with the pre-unlink parent so callers can still tombstone the folder in UI
+ * without reading an undefined `parent`.
  */
 export async function deleteFolderFromParent(
   parent: Event,
   folder: Event
-): Promise<{ parent: Event } | { error: string }> {
+): Promise<{ parent: Event } | { error: string; parent?: Event }> {
   if (parent.kind !== KIND.DIRECTORY || folder.kind !== KIND.DIRECTORY) {
     return { error: 'Not a folder' };
   }
@@ -727,7 +731,8 @@ export async function deleteFolderFromParent(
     // Folder is tombstoned locally; still try to refresh parent cache.
     invalidateDirectoryCaches(parent.pubkey);
     return {
-      error: `Folder deleted, but could not unlink it from the parent: ${unlinked.error}`
+      error: `Folder deleted, but could not unlink it from the parent: ${unlinked.error}`,
+      parent
     };
   }
   invalidateDirectoryCaches(parent.pubkey);

@@ -752,8 +752,11 @@
         const result = await deleteFolderFromParent(parent, folder);
         if ('error' in result) {
           showNotice(result.error);
-          // Still drop tombstoned folders from the owned list when deletion published.
-          if (result.error.startsWith('Folder deleted')) {
+          // Deletion published but unlink failed — `parent` is still returned so
+          // stack/owned updates stay coherent (never read an undefined parent).
+          if (result.parent) {
+            parent = result.parent;
+            delete nextResolved[row.key];
             deletedFolderIds.add(folder.id);
             deletedFolderCoords.add(directoryCoordinateFromEvent(folder).toLowerCase());
           }

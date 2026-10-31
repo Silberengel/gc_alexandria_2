@@ -9,7 +9,6 @@
   import {
     LANDING_FEED_LIMIT,
     clearWarmLandingVisit,
-    ensureNetworkShelf,
     isWarmLandingRevisit,
     landingCoverSeed,
     loadCachedLanding,
@@ -33,6 +32,7 @@
   import {
     bookshelfChipsFromDirectories,
     guideCoverTrackCount,
+    isRetiredLandingShelfId,
     isViewerBoundShelfId,
     orderLandingShelves,
     dedupeLandingShelfEvents,
@@ -160,8 +160,8 @@
   }
 
   /**
-   * Signed-in: mine → follows → network → From the guides (×1, or more if mine/follows empty).
-   * Signed-out: network → From the guides ×3 (same cover-row budget).
+   * Signed-in: mine → follows → From the guides (×1, or more if mine/follows empty).
+   * Signed-out: From the guides ×3.
    * Multiple guides tracks share one heading; Booklists renders after guides.
    */
   const visibleShelves = $derived.by(() => {
@@ -169,23 +169,22 @@
     const signedIn = !!$session.pubkey;
     const rows: LandingShelfSnap[] = [
       ...(readingNowShelf ? [readingNowShelf] : []),
-      ...shelves.map((s) => {
-        if (s.id === 'network') {
-          return { ...s, events: filterMuted(s.events, $muteState) };
-        }
-        if ((s.id === 'mine' || s.id === 'guides') && s.chips?.length) {
-          const owner =
-            s.id === 'guides'
-              ? GITCITADEL_CURATOR_HEX
-              : ($session.pubkey ?? '').toLowerCase();
-          if (!owner) return s;
-          const nextChips = s.chips.filter(
-            (chip) => !isAddressDeleted(KIND.DIRECTORY, owner, chip.d)
-          );
-          return nextChips.length === s.chips.length ? s : { ...s, chips: nextChips };
-        }
-        return s;
-      })
+      ...shelves
+        .filter((s) => !isRetiredLandingShelfId(s.id))
+        .map((s) => {
+          if ((s.id === 'mine' || s.id === 'guides') && s.chips?.length) {
+            const owner =
+              s.id === 'guides'
+                ? GITCITADEL_CURATOR_HEX
+                : ($session.pubkey ?? '').toLowerCase();
+            if (!owner) return s;
+            const nextChips = s.chips.filter(
+              (chip) => !isAddressDeleted(KIND.DIRECTORY, owner, chip.d)
+            );
+            return nextChips.length === s.chips.length ? s : { ...s, chips: nextChips };
+          }
+          return s;
+        })
     ];
 
     // Own bookshelf chips — prefer shelf pack, else session directories.
@@ -231,12 +230,9 @@
             s.id === 'reading-now' ||
             s.id === 'mine' ||
             s.id === 'follows' ||
-            s.id === 'network' ||
             s.id.startsWith('folder:')
         )
-      : withMine.filter(
-          (s) => s.id === 'reading-now' || s.id === 'network'
-        );
+      : withMine.filter((s) => s.id === 'reading-now');
 
     const hasMine = base.some((s) => s.id === 'mine' && (s.events?.length ?? 0) > 0);
     const hasFollows = base.some((s) => s.id === 'follows' && (s.events?.length ?? 0) > 0);
@@ -247,9 +243,11 @@
       if (!hasFollows) guideRowCount += 1;
     }
 
-    // Guide covers only when upper shelves do not already show that publication.
+    // Guide covers lose only to your own shelves (assign/dedupe already give
+    // guides priority over follows on overlap).
     const upperCoverKeys = new Set<string>();
     for (const s of base) {
+      if (s.id !== 'mine' && s.id !== 'reading-now' && !s.id.startsWith('folder:')) continue;
       for (const event of s.events ?? []) {
         upperCoverKeys.add(eventAddress(event) || event.id.toLowerCase());
       }
@@ -472,8 +470,6 @@
     const nextShelves = view.shelves ?? [];
     const nextHasCovers = nextShelves.some((s) => s.events.length);
     // Never wipe painted covers with an empty final pack (relay starvation used to do that).
-    // Union into whatever is already painted — including network. Filtering to
-    // viewer-bound rows only used to drop curated shelves when the live pack timed out thin.
     if (nextHasCovers || !shelves.some((s) => s.events.length)) {
       shelves = mergeLandingShelves(shelves, nextShelves);
     }
@@ -494,9 +490,11 @@
     markViewerShelvesFoldedIfReady();
   }
 
-  /** Drop identity-bound rows and label chips; keep network while the next load runs. */
+  /** Drop identity-bound rows and label chips while the next load runs. */
   function clearIdentityShelves(): void {
-    shelves = shelves.filter((s) => !isViewerBoundShelfId(s.id));
+    shelves = shelves.filter(
+      (s) => !isViewerBoundShelfId(s.id) && !isRetiredLandingShelfId(s.id)
+    );
     // Labels can include the previous viewer's 1985s via session metadata — clear until reload.
     labels = [];
     viewerDirectories = [];
@@ -718,14 +716,6 @@
           identity: identity?.slice(0, 8) ?? null,
           metaEvents: metaKey ? metaKey.split(',').length : 0
         });
-        // Older snapshots often omitted network after follows resolved — refill from cache pubs.
-        if (
-          cached &&
-          !shelves.some((s) => s.id === 'network' && s.events.length) &&
-          cached.publications.length
-        ) {
-          shelves = await ensureNetworkShelf(shelves, cached.publications, identity);
-        }
         markViewerShelvesFoldedIfReady();
         recordWarmLandingVisit(identity, metaKey);
         landingStatus = '';

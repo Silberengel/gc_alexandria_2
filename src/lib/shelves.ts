@@ -23,7 +23,7 @@ function isBookmarkMembershipEvent(event: Event): boolean {
   return event.kind === KIND.BOOKMARK || deprecatedListD(event) === 'bookmark';
 }
 
-export type ShelfId = 'mine' | 'follows' | 'guides' | 'network';
+export type ShelfId = 'mine' | 'follows' | 'guides';
 
 export type Shelf = {
   id: ShelfId;
@@ -52,9 +52,13 @@ export type Membership = {
 export const SHELF_TITLES: Record<ShelfId, string> = {
   mine: 'From your bookshelves',
   follows: "From your follows' bookshelves",
-  guides: 'From the guides',
-  network: 'From the network'
+  guides: 'From the guides'
 };
+
+/** Retired landing rows (cached snapshots / legacy ids) — never paint. */
+export function isRetiredLandingShelfId(id: string): boolean {
+  return id === 'network' || id === 'gitcitadel';
+}
 
 /**
  * Do not open another guides cover track until each row can fill a scrollable shelf.
@@ -75,15 +79,14 @@ export function guideCoverTrackCount(coverCount: number, desired: number): numbe
 }
 
 /** Core bucket order for assignShelves. */
-const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'guides', 'network'];
+const SHELF_ORDER: ShelfId[] = ['mine', 'follows', 'guides'];
 
 /**
  * Home / landing row order:
  * 1. Reading now
  * 2. From your bookshelves (mine; legacy folder:* folded in)
  * 3. From your follows' bookshelves
- * 4. From the network
- * 5. From the guides (one or more cover tracks under a single heading, last)
+ * 4. From the guides (one or more cover tracks under a single heading)
  */
 export function orderLandingShelves<T extends { id: string; title?: string; events?: Event[] }>(
   shelves: T[]
@@ -93,21 +96,15 @@ export function orderLandingShelves<T extends { id: string; title?: string; even
   const legacyFolders: T[] = [];
   const follows: T[] = [];
   const guides: T[] = [];
-  const network: T[] = [];
   const other: T[] = [];
   for (const shelf of shelves) {
+    if (isRetiredLandingShelfId(shelf.id)) continue;
     if (shelf.id === 'reading-now') readingNow.push(shelf);
     else if (shelf.id === 'mine') mine.push(shelf);
     else if (shelf.id.startsWith('folder:')) legacyFolders.push(shelf);
     else if (shelf.id === 'follows') follows.push(shelf);
     else if (shelf.id === 'guides' || shelf.id.startsWith('guides-')) guides.push(shelf);
-    else if (shelf.id === 'network' || shelf.id === 'gitcitadel') {
-      network.push(
-        shelf.id === 'gitcitadel'
-          ? ({ ...shelf, id: 'network', title: SHELF_TITLES.network } as T)
-          : shelf
-      );
-    } else other.push(shelf);
+    else other.push(shelf);
   }
 
   const foldEvents = (rows: T[]): Event[] =>
@@ -136,52 +133,41 @@ export function orderLandingShelves<T extends { id: string; title?: string; even
     mineRow = mine.map((s) => ({ ...s, title: s.title || SHELF_TITLES.mine }));
   }
 
-  let networkRow: T[] = network;
-  if (network.length > 1) {
-    const first = network[0]!;
-    if (Array.isArray(first.events)) {
-      const events = foldEvents(network);
-      networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network, events } as T];
-    } else {
-      networkRow = [{ ...first, id: 'network', title: SHELF_TITLES.network } as T];
-    }
-  }
-
-  return [...readingNow, ...mineRow, ...follows, ...networkRow, ...guides, ...other];
+  return [...readingNow, ...mineRow, ...follows, ...guides, ...other];
 }
 
 /**
- * Drop covers on lower-priority rows that already appear higher.
+ * One cover per landing row. Claim priority (lower wins): mine → guides → follows.
+ * Guides beats follows so curator classics stay on From the guides instead of
+ * being emptied into a follows shelf that lists the same editions.
  * Empty shelves after dedupe are omitted — except chip-only rows (e.g. Guides).
  */
 export function dedupeLandingShelfEvents<
   T extends { id: string; title?: string; events: Event[]; chips?: { d: string }[] }
 >(shelves: T[]): T[] {
   const ordered = orderLandingShelves(shelves);
-  const seen = new Set<string>();
+  const claimOrder = [...ordered].sort(
+    (a, b) => shelfClaimPriority(a.id) - shelfClaimPriority(b.id)
+  );
+  const ownerByKey = new Map<string, string>();
+  for (const shelf of claimOrder) {
+    for (const event of pruneToLatestReplaceables(shelf.events ?? []).filter(
+      isRenderableCatalogEvent
+    )) {
+      const key = eventAddress(event) || event.id.toLowerCase();
+      if (!ownerByKey.has(key)) ownerByKey.set(key, shelf.id);
+    }
+  }
+
   const out: T[] = [];
   for (const shelf of ordered) {
     const listable = pruneToLatestReplaceables(shelf.events ?? []).filter(
       isRenderableCatalogEvent
     );
     const keepChipsOnly = (shelf.chips?.length ?? 0) > 0;
-    const owned = isViewerOwnedShelfId(shelf.id);
-    if (owned) {
-      for (const event of listable) {
-        seen.add(eventAddress(event) || event.id.toLowerCase());
-      }
-      if (!listable.length) {
-        if (keepChipsOnly) out.push({ ...shelf, events: [] });
-        continue;
-      }
-      out.push(listable === shelf.events ? shelf : { ...shelf, events: listable });
-      continue;
-    }
     const events = listable.filter((event) => {
       const key = eventAddress(event) || event.id.toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+      return ownerByKey.get(key) === shelf.id;
     });
     if (!events.length) {
       if (keepChipsOnly) out.push({ ...shelf, events: [] });
@@ -190,6 +176,14 @@ export function dedupeLandingShelfEvents<
     out.push(events === shelf.events ? shelf : { ...shelf, events });
   }
   return out;
+}
+
+/** Claim priority for exclusive covers (lower wins): mine → guides → follows. */
+function shelfClaimPriority(id: string): number {
+  if (isViewerOwnedShelfId(id)) return -1;
+  if (id === 'guides' || id.startsWith('guides-')) return 1;
+  if (id === 'follows') return 2;
+  return 50;
 }
 
 /** Reading now + own bookshelves — not follows/network/guides. */
@@ -247,21 +241,15 @@ function shelfForAuthor(
   author: string,
   viewer: string | null,
   follows: Set<string>
-): ShelfId {
+): ShelfId | null {
   if (viewer && author === viewer) return 'mine';
-  if (viewer && follows.has(author)) return 'follows';
-  // Curator lists paint as "From the guides" (unless the viewer follows them).
+  // Curator always paints From the guides — even when followed, so that row
+  // is not emptied into follows.
   if (author === GITCITADEL_CURATOR_HEX) return 'guides';
-  return 'network';
+  if (viewer && follows.has(author)) return 'follows';
+  // Stranger booklists no longer get a landing row (From the network retired).
+  return null;
 }
-
-/** Membership win priority when a pub appears on multiple lists (lower wins). */
-const PRIORITY: Record<ShelfId, number> = {
-  mine: 0,
-  follows: 1,
-  guides: 2,
-  network: 3
-};
 
 /**
  * Walk up a-tag parents within `known` until the root edition.
@@ -341,8 +329,12 @@ export function assignShelves(
   viewer: string | null,
   follows: Set<string>
 ): Shelf[] {
-  type Acc = { shelf: ShelfId; created_at: number };
-  const best = new Map<string, Acc>();
+  type Acc = { event: Event; created_at: number };
+  const buckets: Record<ShelfId, Map<string, Acc>> = {
+    mine: new Map(),
+    follows: new Map(),
+    guides: new Map()
+  };
   const knownPubs = [...publications.values()];
 
   for (const membership of memberships) {
@@ -351,38 +343,46 @@ export function assignShelves(
     const pub = publications.get(address);
     if (!pub) continue;
     const top = promoteToTopLevel(pub, knownPubs);
+    if (!isRenderableCatalogEvent(top)) continue;
     const topAddr = eventAddress(top);
     const shelf = shelfForAuthor(membership.author, viewer, follows);
+    if (!shelf) continue;
     if (!viewer && (shelf === 'mine' || shelf === 'follows')) continue;
-    const prev = best.get(topAddr);
-    if (!prev) {
-      best.set(topAddr, { shelf, created_at: membership.created_at });
+
+    if (shelf === 'mine') {
+      const prev = buckets.mine.get(topAddr);
+      if (!prev || membership.created_at > prev.created_at) {
+        buckets.mine.set(topAddr, { event: top, created_at: membership.created_at });
+      }
+      buckets.follows.delete(topAddr);
+      buckets.guides.delete(topAddr);
       continue;
     }
-    if (PRIORITY[shelf] < PRIORITY[prev.shelf]) {
-      best.set(topAddr, { shelf, created_at: membership.created_at });
-    } else if (shelf === prev.shelf && membership.created_at > prev.created_at) {
-      best.set(topAddr, { shelf, created_at: membership.created_at });
+
+    if (buckets.mine.has(topAddr)) continue;
+
+    if (shelf === 'guides') {
+      const prev = buckets.guides.get(topAddr);
+      if (!prev || membership.created_at > prev.created_at) {
+        buckets.guides.set(topAddr, { event: top, created_at: membership.created_at });
+      }
+      // Guides beat follows on overlap so curator covers are not emptied into follows.
+      buckets.follows.delete(topAddr);
+      continue;
     }
-  }
 
-  const buckets: Record<ShelfId, { event: Event; created_at: number }[]> = {
-    mine: [],
-    follows: [],
-    guides: [],
-    network: []
-  };
-
-  for (const [address, acc] of best) {
-    const event = publications.get(address) ?? knownPubs.find((e) => eventAddress(e) === address);
-    if (!event || !isRenderableCatalogEvent(event)) continue;
-    buckets[acc.shelf].push({ event, created_at: acc.created_at });
+    // follows — skip if guides already claimed this edition
+    if (buckets.guides.has(topAddr)) continue;
+    const prev = buckets.follows.get(topAddr);
+    if (!prev || membership.created_at > prev.created_at) {
+      buckets.follows.set(topAddr, { event: top, created_at: membership.created_at });
+    }
   }
 
   const shelves: Shelf[] = [];
   for (const id of SHELF_ORDER) {
     if (!viewer && (id === 'mine' || id === 'follows')) continue;
-    const items = buckets[id];
+    const items = [...buckets[id].values()];
     if (!items.length) continue;
     items.sort((a, b) => {
       if (b.created_at !== a.created_at) return b.created_at - a.created_at;
