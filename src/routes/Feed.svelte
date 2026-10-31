@@ -2325,8 +2325,8 @@
 
 <style>
   /*
-   * Feed uses the full `.shell` column (--max-page), same as catalog/settings —
-   * a nested 40rem strip left wide monitors looking empty.
+   * Feed OP + responses fill the shell (full monitor width), same as edition
+   * ratings/comments — a nested reading-measure strip left wide monitors empty.
    */
   .page-header {
     max-width: none;

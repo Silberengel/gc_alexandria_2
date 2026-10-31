@@ -37,7 +37,7 @@
   import UserBadge from './UserBadge.svelte';
   import { uniqueAppHandlers } from '$lib/app-handlers';
   import { muteState, filterMuted } from '$lib/mute';
-  import { displayTitle, libraryDocumentPath } from '$lib/metadata';
+  import { displayTitle, hasPublicationSection, libraryDocumentPath } from '$lib/metadata';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack } from '$lib/nostr/selector';
@@ -88,8 +88,13 @@
   const replyOpen = $derived($opComposeId === event.id.toLowerCase());
   const canReply = $derived(!!$session.pubkey);
   const showWikiForks = $derived(isWikiOrSpecKind(event.kind));
-  /** Signed-in readers can fan out a 30040 tree to their write relays. */
-  const showRepublish = $derived(event.kind === KIND.PUBLICATION && !!$session.pubkey);
+  /**
+   * Signed-in readers can fan out a 30040 tree to their write relays.
+   * Catalog stubs (no sections) have nothing to republish — hide the control.
+   */
+  const showRepublish = $derived(
+    event.kind === KIND.PUBLICATION && hasPublicationSection(event) && !!$session.pubkey
+  );
 
   let noteEditState = $state<ShortNoteEditState | null>(null);
   let noteEditTick = $state(0);

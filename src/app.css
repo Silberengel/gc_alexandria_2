@@ -24,10 +24,10 @@
   --text-muted: var(--ink-soft);
   --accent: var(--accent-strong);
   --border: var(--rule);
-  /* Book-like measure for prose. The publication reader frame can be wider (--max-read-frame). */
+  /* Book-like measure for in-reader prose only. The publication reader frame can be wider. */
   --max-read: 760px;
   --max-read-frame: 960px;
-  /* Shared page column — every route centers on this so the left edge does not jump. */
+  /* Shared page column — every route centers here so wide monitors stay readable. */
   --max-page: 72rem;
   --radius: 0.65rem;
   /* Paper on paper — faint edge, whisper of lift */
@@ -158,7 +158,7 @@ a:hover { text-decoration: underline; text-underline-offset: 0.15em; }
   max-width: min(var(--max-page), 100%);
   min-width: 0;
   margin-inline: auto;
-  padding: 1.25rem 1rem 2.5rem;
+  padding: 1.25rem clamp(0.85rem, 2vw, 1.75rem) 2.5rem;
 }
 
 /* Publication reader: same page column; prose stays on --max-read inside .reading-content. */
@@ -3462,8 +3462,11 @@ a.pub-card-rating:focus-visible .pub-card-rating-count {
   user-select: text;
   -webkit-user-select: text;
 }
-/* Nested reading panes keep the book measure; the page shell uses --max-page. */
-.reading-body:not(main.shell) {
+/*
+ * Page OP cards (.card.reading-body) fill the shell with responses.
+ * Only non-card nested reading panes keep the book measure.
+ */
+.reading-body:not(main.shell):not(.card) {
   max-width: min(var(--max-read), 100%);
 }
 
@@ -5438,10 +5441,15 @@ a.nostrdown-ref {
   background: transparent;
   box-shadow: none;
 }
-.wiki-defer-banner,
-.reading-width {
+.wiki-defer-banner {
   width: 100%;
   max-width: min(var(--max-read), 100%);
+  box-sizing: border-box;
+}
+/* Response panels match the OP / shell width (not the reading measure). */
+.reading-width {
+  width: 100%;
+  max-width: none;
   box-sizing: border-box;
 }
 .wiki-defer-banner {
@@ -7452,10 +7460,10 @@ a.embed-event-line:focus-visible {
     0 1px 2px color-mix(in srgb, #000 18%, transparent),
     0 0.55rem 1.6rem color-mix(in srgb, #000 28%, transparent);
 }
-/* Open editorial sections below the header card. */
+/* Open editorial sections below the header card — same width as the OP. */
 .edition-open-section {
   width: 100%;
-  max-width: min(var(--max-read), 100%);
+  max-width: none;
   box-sizing: border-box;
   margin: 1.35rem 0 0;
   padding: 1.1rem 0 0;

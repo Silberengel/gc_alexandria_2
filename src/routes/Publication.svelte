@@ -3799,7 +3799,7 @@
         focusId={(new URLSearchParams($querystring ?? '').get('rating') ?? '').trim().toLowerCase()}
       />
 
-      <section id="edition-comments" class="edition-open-section edition-comments-section reading-width">
+      <section id="edition-comments" class="edition-open-section edition-comments-section">
         <WorkCommentsPanel
           target={event}
           responses={editionResponses}

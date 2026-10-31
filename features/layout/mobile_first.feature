@@ -15,8 +15,8 @@ Feature: Mobile-first layout
     Then the catalog gains columns and the top bar fills the width
     And on a very wide screen the top bar keeps brand, tabs, search, and session on one row
     And I do not switch information architecture
-    And reading, wiki, profile, and other content shells keep the publication reading measure
-    And the home and search catalog shells stay wider so shelves and result grids can gain columns
+    And in-reader prose keeps the publication reading measure
+    And page shells (headers, OP cards, ratings, comments, issues, catalogs) share one centered column capped at the page max so wide monitors do not stretch edge to edge
     And on every width (phone through desktop) the table of contents is the same floating control: a quiet icon at the bottom-right over the text
     And that icon opens a fixed viewport panel in place and closes it again without covering the top bar or sliding under the site footer
     And the floating ToC stays inside the center scroll band (below the header, above the footer)
