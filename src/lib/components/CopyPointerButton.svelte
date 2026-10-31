@@ -52,6 +52,20 @@
     translatableBody
   } from '$lib/event-translation';
   import { translateDisplayName } from '$lib/libre-translate';
+  import {
+    conflictMessageForFollow,
+    conflictMessageForHide,
+    conflictMessageForNotifMute,
+    setThreadFollow,
+    setThreadNotifMute
+  } from '$lib/thread-watch-actions';
+  import {
+    effectiveThreadWatchState,
+    threadWatchListsFromMetadata
+  } from '$lib/thread-watch';
+  import { hideEventMembership, unhideEventMembership, eventHiddenOnMuteList } from '$lib/hide-event-actions';
+  import { muteState } from '$lib/mute';
+  import { pickLatestReplaceable } from '$lib/nostr/replaceable';
 
   interface Props {
     event: Event;
@@ -83,6 +97,8 @@
   let repostPending = $state(false);
   let reposted = $state(false);
   let broadcastPending = $state(false);
+  let threadActionPending = $state(false);
+  let metaEvents = $state<Event[]>([]);
   /** Viewer's existing kind 6/16 of this event (for Delete Repost). */
   let myRepost = $state<Event | null>(null);
   let timer = 0;
@@ -110,6 +126,29 @@
   );
   /** Repost only others' events (signed-out users see the item and get the login dialog). */
   const showRepost = $derived(!!$session.pubkey && !isOwnEvent);
+  const showThreadFollow = $derived(!!$session.pubkey && !isOwnEvent);
+  const showThreadNotifMute = $derived(!!$session.pubkey);
+  const showHideEvent = $derived(!!$session.pubkey && !isOwnEvent);
+
+  $effect(() => {
+    const unsub = session.metadata.subscribe((events) => {
+      metaEvents = events;
+    });
+    return unsub;
+  });
+
+  const threadWatchEffective = $derived.by(() => {
+    const lists = threadWatchListsFromMetadata(metaEvents);
+    return effectiveThreadWatchState(event, {
+      followList: lists.follow,
+      notifMuteList: lists.notifMute,
+      mute: $muteState
+    });
+  });
+  const eventHidden = $derived(
+    eventHiddenOnMuteList(event, pickLatestReplaceable(metaEvents, KIND.MUTE)) ||
+      threadWatchEffective.hidden
+  );
   /** Quote opens compose with a NIP-18 `q` seed (own posts are fine to quote). */
   const showQuote = $derived(event.kind !== KIND.DELETION);
   const showBroadcast = $derived(!!$session.pubkey);
@@ -532,6 +571,102 @@
     }
   }
 
+  async function onFollowThread(): Promise<void> {
+    if (threadActionPending || !showThreadFollow) return;
+    if (threadWatchEffective.followed) {
+      threadActionPending = true;
+      try {
+        await setThreadFollow(event, false);
+      } finally {
+        threadActionPending = false;
+        close();
+      }
+      return;
+    }
+    if (threadWatchEffective.notifMuted || eventHidden) {
+      const from = eventHidden ? 'hide' : 'notifMute';
+      if (!window.confirm(conflictMessageForFollow(from))) return;
+      threadActionPending = true;
+      try {
+        await setThreadFollow(event, true, { confirmConflict: true });
+      } finally {
+        threadActionPending = false;
+        close();
+      }
+      return;
+    }
+    threadActionPending = true;
+    try {
+      await setThreadFollow(event, true);
+    } finally {
+      threadActionPending = false;
+      close();
+    }
+  }
+
+  async function onMuteThreadNotifs(): Promise<void> {
+    if (threadActionPending || !showThreadNotifMute) return;
+    if (threadWatchEffective.notifMuted) {
+      threadActionPending = true;
+      try {
+        await setThreadNotifMute(event, false);
+      } finally {
+        threadActionPending = false;
+        close();
+      }
+      return;
+    }
+    if (threadWatchEffective.followed) {
+      if (!window.confirm(conflictMessageForNotifMute())) return;
+      threadActionPending = true;
+      try {
+        await setThreadNotifMute(event, true, { confirmConflict: true });
+      } finally {
+        threadActionPending = false;
+        close();
+      }
+      return;
+    }
+    threadActionPending = true;
+    try {
+      await setThreadNotifMute(event, true);
+    } finally {
+      threadActionPending = false;
+      close();
+    }
+  }
+
+  async function onHideEvent(): Promise<void> {
+    if (threadActionPending || !showHideEvent) return;
+    if (eventHidden) {
+      threadActionPending = true;
+      try {
+        await unhideEventMembership(event);
+      } finally {
+        threadActionPending = false;
+        close();
+      }
+      return;
+    }
+    if (threadWatchEffective.followed) {
+      if (!window.confirm(conflictMessageForHide())) return;
+    }
+    const muteAuthor = window.confirm(
+      'Also mute this author? Their events will be hidden and removed from the local cache.'
+    );
+    threadActionPending = true;
+    try {
+      await hideEventMembership(event, {
+        muteAuthor,
+        visibility: 'private',
+        confirmConflict: threadWatchEffective.followed
+      });
+    } finally {
+      threadActionPending = false;
+      close();
+    }
+  }
+
   async function broadcast(): Promise<void> {
     if (broadcastPending) return;
     broadcastPending = true;
@@ -833,6 +968,59 @@
             }}
           >
             Edit this event
+          </button>
+        </li>
+      {/if}
+      {#if showThreadFollow}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={threadActionPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void onFollowThread();
+            }}
+          >
+            {threadWatchEffective.followed ? 'Unfollow this thread' : 'Follow this thread'}
+          </button>
+        </li>
+      {/if}
+      {#if showThreadNotifMute}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={threadActionPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void onMuteThreadNotifs();
+            }}
+          >
+            {threadWatchEffective.notifMuted
+              ? 'Unmute thread notifications'
+              : 'Mute this thread'}
+          </button>
+        </li>
+      {/if}
+      {#if showHideEvent}
+        <li role="none">
+          <button
+            class="menu-item"
+            type="button"
+            role="menuitem"
+            disabled={threadActionPending}
+            onclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void onHideEvent();
+            }}
+          >
+            {eventHidden ? 'Unhide this event' : 'Hide this event'}
           </button>
         </li>
       {/if}

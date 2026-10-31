@@ -3,7 +3,12 @@ import { KIND } from '../constants';
 import { filterMuted, followPubkeysFromMetadata, type MuteState } from '../mute';
 import { authorOutbox, uniqueRelayUrls, withPreferredRelays } from '../nostr/mailboxes';
 import { cachedEventsByKind } from '../nostr/cache';
-import { rememberEvents } from '../nostr/event-memory';
+import { memoryGetEvent, rememberEvents } from '../nostr/event-memory';
+import {
+  parseThreadWatchList,
+  threadWatchListsFromMetadata
+} from '../thread-watch';
+import { session } from '../stores/session';
 import { relayPool } from '../nostr/pool';
 import {
   foreignRelaysAllowed,
@@ -31,10 +36,25 @@ import {
   isNotificationForViewer,
   isOriginalPost,
   isRepliesTimelineEvent,
-  NOTIFICATION_KINDS
+  NOTIFICATION_KINDS,
+  type NotificationInboxContext
 } from './taxonomy';
 
 const HEX_ID = /^[0-9a-f]{64}$/i;
+
+function notificationInboxContext(
+  muted: MuteState,
+  metadata?: Event[]
+): NotificationInboxContext {
+  const meta = metadata ?? session.getMetadata();
+  const lists = threadWatchListsFromMetadata(meta);
+  return {
+    followRefs: parseThreadWatchList(lists.follow),
+    notifMuteRefs: parseThreadWatchList(lists.notifMute),
+    mute: muted,
+    lookup: (id) => memoryGetEvent(id)
+  };
+}
 
 /**
  * Pubkeys whose original notes are added to a signed-in feed.
@@ -366,13 +386,18 @@ export function notificationRelays(): string[] {
   return uniqueRelayUrls([...personal, ...shipped, ...socialStack(), ...hunt]);
 }
 
-/** Cached events that `#p`-tag the viewer. */
-export async function recallNotifications(viewerPubkey: string): Promise<Event[]> {
+/** Cached events for the Notifications inbox (p-tags, own-thread, 19130). */
+export async function recallNotifications(
+  viewerPubkey: string,
+  muted: MuteState = emptyMute,
+  metadata?: Event[]
+): Promise<Event[]> {
+  const ctx = notificationInboxContext(muted, metadata);
   const stored = (
     await Promise.all(NOTIFICATION_KINDS.map((kind) => cachedEventsByKind(kind)))
   ).flat();
   return stored
-    .filter((event) => isNotificationForViewer(event, viewerPubkey))
+    .filter((event) => isNotificationForViewer(event, viewerPubkey, ctx))
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, 80);
 }
@@ -392,7 +417,8 @@ export async function loadNotifications(
   const since = feedSinceFromLookback(lookbackSeconds);
   const inWindow = (event: Event): boolean =>
     since == null || event.created_at >= since;
-  const cached = filterMuted(await recallNotifications(pk), muted);
+  const ctx = notificationInboxContext(muted);
+  const cached = filterMuted(await recallNotifications(pk, muted), muted);
   const byId = new Map<string, Event>();
   const paint = (): void => {
     const rows = filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
@@ -408,15 +434,21 @@ export async function loadNotifications(
     return filterMuted(sortFeedEvents([...byId.values()].filter(inWindow)), muted);
   }
   // Relays (and normalizeRelayFilters) cap around 100 — request that ceiling.
+  const followedE = [...ctx.followRefs!.eIds].slice(0, 20);
   const filters = withFeedSince(
-    [{ kinds: [...NOTIFICATION_KINDS], '#p': [pk], limit: 100 }],
+    [
+      { kinds: [...NOTIFICATION_KINDS], '#p': [pk], limit: 100 },
+      ...(followedE.length
+        ? [{ kinds: [...NOTIFICATION_KINDS], '#e': followedE, limit: 100 }]
+        : [])
+    ],
     since
   );
   const queryOpts = { includeCooling: true, priority: true as const };
   const absorb = (batch: Event[]): void => {
     let added = false;
     for (const event of batch) {
-      if (!isNotificationForViewer(event, pk) || !inWindow(event) || byId.has(event.id)) {
+      if (!isNotificationForViewer(event, pk, ctx) || !inWindow(event) || byId.has(event.id)) {
         continue;
       }
       byId.set(event.id, event);
@@ -429,7 +461,7 @@ export async function loadNotifications(
     .query(relays, filters, 8000, Math.min(Math.max(relays.length, 1), 12), absorb, queryOpts)
     .catch(() => [] as Event[]);
   for (const event of hits) {
-    if (!isNotificationForViewer(event, pk) || !inWindow(event)) continue;
+    if (!isNotificationForViewer(event, pk, ctx) || !inWindow(event)) continue;
     byId.set(event.id, event);
     rememberEvents([event]);
   }
@@ -456,7 +488,7 @@ export function recallForFeedSource(ctx: FeedSourceContext): Promise<Event[]> {
           .map((part) => Number(part))
       : []
   );
-  if (tab === 'notifications' && pubkey) return recallNotifications(pubkey);
+  if (tab === 'notifications' && pubkey) return recallNotifications(pubkey, muted, meta);
   if (author) {
     return tab === 'replies' ? recallAuthorFeedWithReplies(author) : recallAuthorFeedPosts(author);
   }

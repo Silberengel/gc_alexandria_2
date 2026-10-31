@@ -1,6 +1,15 @@
 import type { Event } from 'nostr-tools';
 import { isKind1Reply } from '../comments';
 import { KIND } from '../constants';
+import type { MuteState } from '../mute';
+import { isMutedEvent } from '../mute';
+import {
+  emptyThreadWatchRefs,
+  eventMatchesThreadWatchRefs,
+  interactionOnOwnThread,
+  isNotificationThreadInteraction,
+  type ThreadWatchRefs
+} from '../thread-watch';
 
 /**
  * Library / media / bookmark posts for the Original Posts tab (plus kind 1 notes).
@@ -146,11 +155,47 @@ export function isRepliesTimelineEvent(event: Event): boolean {
   return isOriginalPost(event);
 }
 
-/** Someone else's event that `#p`-tags the viewer (notification inbox row). */
-export function isNotificationForViewer(event: Event, viewerPubkey: string): boolean {
+export type NotificationInboxContext = {
+  followRefs?: ThreadWatchRefs;
+  notifMuteRefs?: ThreadWatchRefs;
+  mute?: MuteState;
+  lookup?: (id: string) => Event | null;
+};
+
+/**
+ * Someone else's notification-kind event for the viewer: `#p`, own-thread
+ * interaction, or 19130-watched subtree — excluding 19132 and muted events.
+ */
+export function isNotificationForViewer(
+  event: Event,
+  viewerPubkey: string,
+  ctx: NotificationInboxContext = {}
+): boolean {
   const pk = viewerPubkey.trim().toLowerCase();
   if (!pk || !/^[0-9a-f]{64}$/.test(pk)) return false;
   if (event.pubkey.toLowerCase() === pk) return false;
   if (!NOTIFICATION_KIND_SET.has(event.kind)) return false;
-  return event.tags.some((tag) => tag[0] === 'p' && (tag[1] ?? '').trim().toLowerCase() === pk);
+  if (ctx.mute && isMutedEvent(event, ctx.mute)) return false;
+
+  const followRefs = ctx.followRefs ?? emptyThreadWatchRefs();
+  const notifMuteRefs = ctx.notifMuteRefs ?? emptyThreadWatchRefs();
+  const interaction = isNotificationThreadInteraction(event);
+
+  if (
+    interaction &&
+    eventMatchesThreadWatchRefs(event, notifMuteRefs)
+  ) {
+    return false;
+  }
+
+  const pHit = event.tags.some(
+    (tag) => tag[0] === 'p' && (tag[1] ?? '').trim().toLowerCase() === pk
+  );
+  if (pHit) return true;
+
+  if (!interaction) return false;
+
+  if (interactionOnOwnThread(event, pk, ctx.lookup)) return true;
+  if (eventMatchesThreadWatchRefs(event, followRefs)) return true;
+  return false;
 }

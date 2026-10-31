@@ -480,6 +480,7 @@ describe('feedFollowAuthors', () => {
       feedFollowAuthors([contact], {
         pubkeys: new Set([muted]),
         eventIds: new Set(),
+        addresses: new Set(),
         hashtags: new Set(),
         words: new Set()
       })
@@ -506,6 +507,7 @@ describe('feedFollowAuthors', () => {
       feedFollowAuthors([contact], {
         pubkeys: new Set(),
         eventIds: new Set(),
+        addresses: new Set(),
         hashtags: new Set(),
         words: new Set()
       })

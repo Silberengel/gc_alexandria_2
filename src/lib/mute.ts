@@ -8,6 +8,13 @@ import {
   looksLikeNip04Ciphertext,
   looksLikeNip44Ciphertext
 } from './private-tags';
+import { isAddressableKind } from './nostr/replaceable';
+import { firstTag } from './nostr/verify';
+import {
+  applyViewerHideState,
+  isViewerHidden,
+  viewerHideFromMuteEventIds
+} from './viewer-hide';
 
 export { looksLikeNip04Ciphertext, looksLikeNip44Ciphertext };
 
@@ -20,6 +27,8 @@ const HEX64 = /^[0-9a-f]{64}$/i;
 export type MuteState = {
   pubkeys: Set<string>;
   eventIds: Set<string>;
+  /** Optional Alexandria `a` tags on kind 10000 (addressable hide). */
+  addresses: Set<string>;
   hashtags: Set<string>;
   words: Set<string>;
 };
@@ -27,6 +36,7 @@ export type MuteState = {
 export const emptyMuteState = (): MuteState => ({
   pubkeys: new Set(),
   eventIds: new Set(),
+  addresses: new Set(),
   hashtags: new Set(),
   words: new Set()
 });
@@ -52,6 +62,8 @@ function collectTags(tags: string[][], state: MuteState): void {
       state.pubkeys.add(value.toLowerCase());
     } else if (name === 'e' && HEX64.test(value)) {
       state.eventIds.add(value.toLowerCase());
+    } else if (name === 'a' && value.includes(':')) {
+      state.addresses.add(value.toLowerCase());
     } else if (name === 't') {
       const t = normalizeHashtag(value);
       if (t) state.hashtags.add(t);
@@ -73,13 +85,16 @@ export function applyMuteList(state: MuteState): void {
   muteState.set({
     pubkeys: new Set(state.pubkeys),
     eventIds: new Set(state.eventIds),
+    addresses: new Set(state.addresses),
     hashtags: new Set(state.hashtags),
     words: new Set(state.words)
   });
+  applyViewerHideState(viewerHideFromMuteEventIds(state.eventIds, state.addresses));
 }
 
 export function clearMute(): void {
   muteState.set(emptyMuteState());
+  applyViewerHideState(viewerHideFromMuteEventIds([]));
 }
 
 export function isMutedAuthor(pubkey: string, state: MuteState = get(muteState)): boolean {
@@ -141,12 +156,28 @@ function eventHasMutedWord(event: Event, words: Set<string> | undefined): boolea
 
 export function isMutedEvent(event: Event, state: MuteState = get(muteState)): boolean {
   if (isMutedAuthor(event.pubkey, state)) return true;
+  if (isViewerHidden(event)) return true;
   const id = event.id.toLowerCase();
   if (state.eventIds.has(id)) return true;
+  if (state.addresses.size && isAddressableKind(event.kind)) {
+    const d = firstTag(event, 'd');
+    if (d != null) {
+      const coord = `${event.kind}:${event.pubkey.toLowerCase()}:${d}`.toLowerCase();
+      if (state.addresses.has(coord)) return true;
+    }
+  }
   // Thread mute: hide replies whose root (or first e) is muted.
   if (state.eventIds.size) {
     const root = muteThreadRootId(event);
     if (state.eventIds.has(root)) return true;
+  }
+  // Comments / replies that a-tag a muted addressable root.
+  if (state.addresses.size) {
+    for (const tag of event.tags) {
+      if ((tag[0] === 'a' || tag[0] === 'A') && tag[1] && state.addresses.has(tag[1].toLowerCase())) {
+        return true;
+      }
+    }
   }
   if (eventHasMutedHashtag(event, state.hashtags)) return true;
   if (eventHasMutedWord(event, state.words)) return true;

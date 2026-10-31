@@ -197,6 +197,7 @@ describe('read marks', () => {
       mute: {
         pubkeys: new Set([mutedPk]),
         eventIds: new Set(),
+        addresses: new Set(),
         hashtags: new Set(),
         words: new Set()
       }

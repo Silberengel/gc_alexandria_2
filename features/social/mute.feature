@@ -31,7 +31,9 @@ Feature: Mute list
     Then content can appear before the mute list arrives
     And muted authors are then removed without a full reload
 
-  Scenario: Mute list is read-only in the app
+  Scenario: Mute list can be updated from the app
     Given I am signed in
     Then my kind 10000 is applied from the login metadata cache
-    And I cannot add or remove mutes in this app
+    And Profile can mute or unmute another pubkey publicly or privately
+    And Hide this event on someone else's card can add an e tag (and optional author p)
+    And muted authors and hidden events are scrubbed from the local cache when newly added

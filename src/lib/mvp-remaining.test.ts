@@ -873,6 +873,7 @@ describe('comments nest', () => {
     const mute = {
       pubkeys: new Set([parent.pubkey]),
       eventIds: new Set<string>(),
+      addresses: new Set<string>(),
       hashtags: new Set<string>(),
       words: new Set<string>()
     };

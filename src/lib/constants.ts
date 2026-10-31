@@ -191,6 +191,16 @@ export const KIND = {
   PIN: 10001,
   BOOKMARK: 10003,
   MUTE: 10000,
+  /**
+   * Imwald / catalog: thread roots whose interactions appear in Notifications
+   * without a direct `#p` mention (`e` / `a` tags).
+   */
+  THREAD_NOTIFICATION_FOLLOW: 19130,
+  /**
+   * Imwald / catalog: thread roots whose interaction notifications are hidden
+   * from Notifications (`e` / `a` tags).
+   */
+  THREAD_NOTIFICATION_MUTE: 19132,
   /** NIP-51 communities list (NIP-72). */
   COMMUNITIES: 10004,
   RELAY_LIST: 10002,
@@ -322,6 +332,8 @@ export const LOGIN_METADATA_KINDS = [
   KIND.PIN,
   KIND.RELAY_LIST,
   KIND.BOOKMARK,
+  KIND.THREAD_NOTIFICATION_FOLLOW,
+  KIND.THREAD_NOTIFICATION_MUTE,
   KIND.COMMUNITIES,
   KIND.BLOCKED,
   KIND.FAVORITE,

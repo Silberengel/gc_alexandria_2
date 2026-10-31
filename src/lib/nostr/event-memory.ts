@@ -236,6 +236,43 @@ export function memoryFindBibleChapter(
   return best;
 }
 
+/** Drop one event from session memory (mute hide / local scrub). */
+export function memoryForgetEvent(id: string): void {
+  const key = id.toLowerCase();
+  const event = byId.get(key);
+  byId.delete(key);
+  if (!event) return;
+  const social = bySocialKind.get(event.kind);
+  social?.delete(key);
+  for (const refs of byRef.values()) refs.delete(key);
+  if (event.kind === 0) {
+    const pk = event.pubkey.toLowerCase();
+    const meta = byMetaPubkey.get(pk);
+    if (meta && meta.id.toLowerCase() === key) byMetaPubkey.delete(pk);
+  }
+  const d = firstTag(event, 'd');
+  if (d == null) return;
+  const pk = event.pubkey.toLowerCase();
+  for (const variant of new Set([d, ...dTagVariants(d), normalizeDTag(d)].filter(Boolean))) {
+    const addr = addrKey(event.kind, pk, variant);
+    const cur = byAddr.get(addr);
+    if (cur && cur.id.toLowerCase() === key) byAddr.delete(addr);
+  }
+}
+
+/** Drop every remembered event authored by `pubkey` (author mute scrub). */
+export function memoryForgetByPubkey(pubkey: string): number {
+  const pk = pubkey.trim().toLowerCase();
+  if (!pk) return 0;
+  const ids: string[] = [];
+  for (const [id, event] of byId) {
+    if (event.pubkey.toLowerCase() === pk) ids.push(id);
+  }
+  for (const id of ids) memoryForgetEvent(id);
+  byMetaPubkey.delete(pk);
+  return ids.length;
+}
+
 /** @internal tests */
 export function resetEventMemoryForTests(): void {
   byId.clear();

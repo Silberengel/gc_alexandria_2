@@ -1,7 +1,15 @@
 import type { Event } from 'nostr-tools';
 import { CACHE_KINDS, KIND } from '../constants';
 import { dTagVariants, normalizeDTag } from '../dtag';
-import { memoryEventsByKind, memoryEventsReferencing, memoryFindByAddress, memoryGetEvent, rememberEvents } from './event-memory';
+import {
+  memoryEventsByKind,
+  memoryEventsReferencing,
+  memoryFindByAddress,
+  memoryForgetByPubkey,
+  memoryForgetEvent,
+  memoryGetEvent,
+  rememberEvents
+} from './event-memory';
 import { cachedIdentityEvent, clearIdentityCache, isIdentityKind, rememberIdentityEvent } from './identity-cache';
 import { getSelectorContext } from './selector';
 import { isNewerReplaceable, pruneToLatestReplaceables } from './replaceable';
@@ -817,6 +825,43 @@ export async function cacheDeleteEvent(id: string): Promise<void> {
   m.ids = m.ids.filter((x) => x !== id.toLowerCase());
   m.bytes = Math.max(0, m.bytes - bodyLen);
   saveMeta(m);
+}
+
+/** Scrub one event from Cache Storage + session memory (hide / unmute heal). */
+export async function scrubCachedEvent(id: string): Promise<void> {
+  memoryForgetEvent(id);
+  await cacheDeleteEvent(id);
+}
+
+/** Scrub every cached event by author (kind 10000 `p` mute). */
+export async function scrubCachedAuthor(pubkey: string): Promise<number> {
+  const pk = pubkey.trim().toLowerCase();
+  if (!pk) return 0;
+  const forgotten = memoryForgetByPubkey(pk);
+  const cache = await openCache();
+  const m = meta();
+  const keep: string[] = [];
+  let removed = 0;
+  for (const id of m.ids) {
+    const res = await cache.match(`/event/${id}`);
+    if (!res) continue;
+    try {
+      const raw = (await res.json()) as { pubkey?: string };
+      if ((raw.pubkey ?? '').toLowerCase() === pk) {
+        const bodyLen = (await res.clone().text()).length;
+        await cache.delete(`/event/${id}`);
+        m.bytes = Math.max(0, m.bytes - bodyLen);
+        removed += 1;
+        continue;
+      }
+    } catch {
+      /* keep */
+    }
+    keep.push(id);
+  }
+  m.ids = keep;
+  saveMeta(m);
+  return forgotten + removed;
 }
 
 export async function cacheScanText(q: string, limit = 100): Promise<Event[]> {
