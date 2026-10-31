@@ -435,11 +435,20 @@ export async function loadNotifications(
   }
   // Relays (and normalizeRelayFilters) cap around 100 — request that ceiling.
   const followedE = [...ctx.followRefs!.eIds].slice(0, 20);
+  const followedA = [...ctx.followRefs!.aCoords].slice(0, 20);
   const filters = withFeedSince(
     [
       { kinds: [...NOTIFICATION_KINDS], '#p': [pk], limit: 100 },
       ...(followedE.length
         ? [{ kinds: [...NOTIFICATION_KINDS], '#e': followedE, limit: 100 }]
+        : []),
+      // Addressable thread watches (publications/wiki/…) use `a` membership;
+      // NIP-22 replies often uppercase as `#A` — query both.
+      ...(followedA.length
+        ? [
+            { kinds: [...NOTIFICATION_KINDS], '#a': followedA, limit: 100 },
+            { kinds: [...NOTIFICATION_KINDS], '#A': followedA, limit: 100 }
+          ]
         : [])
     ],
     since
