@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
+import { MY_BOOK_COLLECTION_D_TAG } from './bookshelf';
 import { GITCITADEL_CURATOR_HEX } from './hex';
 import {
-  GC_STARTER_GENRE_D_TAGS,
-  GC_STARTER_GUIDES_D_TAG,
   childGuideFolderDTags,
   defaultStarterGuideChips,
+  starterGuideChipsFromBookshelf,
   starterGuideChipsFromDirectories,
   starterGuideCoordinate,
   starterGuideTitle
@@ -28,16 +28,23 @@ function dir(d: string, childDs: string[], created_at = 1): Event {
   };
 }
 
-function leaf(d: string, created_at = 1): Event {
-  return dir(d, [], created_at);
+function leaf(d: string, created_at = 1, title?: string): Event {
+  const tags: string[][] = [['d', d]];
+  if (title) tags.push(['title', title]);
+  return {
+    ...dir(d, [], created_at),
+    tags
+  };
 }
 
 describe('starter guides', () => {
-  it('maps display titles for genres', () => {
+  it('maps display titles for genres and humanizes unknown d-tags', () => {
     expect(starterGuideTitle('ancient-classics')).toBe('Ancient classics');
     expect(starterGuideTitle('classic-novels')).toBe('Classic novels');
     expect(starterGuideTitle('catholic-classics')).toBe('Catholic classics');
     expect(starterGuideTitle('black-authors')).toBe('Black authors');
+    expect(starterGuideTitle('reading-guides')).toBe('Reading guides');
+    expect(starterGuideTitle('new-shelf-folder')).toBe('New shelf folder');
   });
 
   it('builds curator coordinates', () => {
@@ -46,39 +53,68 @@ describe('starter guides', () => {
     );
   });
 
-  it('lists nested folder d-tags from a parent', () => {
-    const root = dir(GC_STARTER_GUIDES_D_TAG, ['ancient-classics', 'great-books']);
-    expect(childGuideFolderDTags(root)).toEqual(['ancient-classics', 'great-books']);
+  it('lists nested folder d-tags from my-book-collection in tag order', () => {
+    const shelf = dir(MY_BOOK_COLLECTION_D_TAG, [
+      'reading-guides',
+      'ancient-classics',
+      'great-books'
+    ]);
+    expect(childGuideFolderDTags(shelf)).toEqual([
+      'reading-guides',
+      'ancient-classics',
+      'great-books'
+    ]);
   });
 
-  it('orders genre chips when the full tree is present', () => {
-    const events = [
-      dir(GC_STARTER_GUIDES_D_TAG, [...GC_STARTER_GENRE_D_TAGS]),
-      ...GC_STARTER_GENRE_D_TAGS.map((d) => leaf(d))
-    ];
-    const chips = starterGuideChipsFromDirectories(events);
-    expect(chips.map((c) => c.d)).toEqual([...GC_STARTER_GENRE_D_TAGS]);
+  it('builds chips from bookshelf membership, preferring title tags', () => {
+    const shelf = dir(MY_BOOK_COLLECTION_D_TAG, [
+      'ancient-classics',
+      'great-books',
+      'reading-guides'
+    ]);
+    const chips = starterGuideChipsFromBookshelf(shelf, [
+      leaf('ancient-classics', 1, 'Ancient Classics'),
+      leaf('great-books'),
+      leaf('reading-guides')
+    ]);
+    expect(chips.map((c) => c.d)).toEqual([
+      'ancient-classics',
+      'great-books',
+      'reading-guides'
+    ]);
+    expect(chips[0]?.title).toBe('Ancient Classics');
+    expect(chips[1]?.title).toBe('Great books');
     expect(chips[0]?.href).toContain('bookshelf=ancient-classics');
     expect(chips[0]?.href).toContain('npub=');
-    expect(chips.every((c) => c.title.length > 0)).toBe(true);
   });
 
-  it('returns empty chips when no curator directories are loaded', () => {
+  it('returns empty chips when the bookshelf is missing', () => {
+    expect(starterGuideChipsFromBookshelf(null)).toEqual([]);
     expect(starterGuideChipsFromDirectories([])).toEqual([]);
   });
 
-  it('paints default genre chips without waiting on relays', () => {
-    const chips = defaultStarterGuideChips();
-    expect(chips.map((c) => c.d)).toEqual([...GC_STARTER_GENRE_D_TAGS]);
-    expect(chips[0]?.href).toContain('bookshelf=ancient-classics');
+  it('starts with no default chips (live bookshelf only)', () => {
+    expect(defaultStarterGuideChips()).toEqual([]);
   });
 
-  it('ignores directories from other authors', () => {
-    const foreign: Event = {
-      ...leaf('ancient-classics'),
+  it('ignores a bookshelf from another author', () => {
+    const foreign = {
+      ...dir(MY_BOOK_COLLECTION_D_TAG, ['ancient-classics']),
       pubkey: 'f'.repeat(64),
       id: 'c'.repeat(64)
     };
-    expect(starterGuideChipsFromDirectories([foreign])).toEqual([]);
+    expect(starterGuideChipsFromBookshelf(foreign)).toEqual([]);
+  });
+
+  it('still accepts a mixed event bag via starterGuideChipsFromDirectories', () => {
+    const events = [
+      dir(MY_BOOK_COLLECTION_D_TAG, ['classic-documents', 'protestant-classics']),
+      leaf('classic-documents'),
+      leaf('protestant-classics')
+    ];
+    expect(starterGuideChipsFromDirectories(events).map((c) => c.d)).toEqual([
+      'classic-documents',
+      'protestant-classics'
+    ]);
   });
 });

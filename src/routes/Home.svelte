@@ -663,7 +663,10 @@
     <section class="landing-section landing-guides">
       <div class="landing-section-heading">
         <h2 class="section-title">Guides</h2>
-        <p class="landing-section-hint">Curated bookshelves and topical-library clients from GitCitadel</p>
+        <p class="landing-section-hint">
+          Folders from GitCitadel Publishing’s bookshelf — add or remove them under
+          <code>/root/my-book-collection</code>
+        </p>
       </div>
       <nav class="guide-links" aria-label="Starter guides">
         {#each visibleGuides as guide, i (guide.d)}
