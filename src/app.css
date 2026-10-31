@@ -819,7 +819,16 @@ body:has(main.reading-page) .top-bar {
  */
 .landing-shelf .shelf-scroller {
   position: relative;
+  z-index: 0;
   margin: 0 0 0.55rem;
+}
+.landing-shelf .shelf-scroller:has(.cover:focus-visible) {
+  z-index: 4;
+}
+@media (hover: hover) {
+  .landing-shelf .shelf-scroller:has(.cover:hover) {
+    z-index: 4;
+  }
 }
 .landing-shelf .shelf-scroller > .shelf-track {
   margin-bottom: 0;
@@ -888,6 +897,20 @@ body:has(main.reading-page) .top-bar {
   scrollbar-width: none;
   -ms-overflow-style: none;
   touch-action: pan-x;
+}
+/*
+ * Hover zoom paints at 2× outside the cell. Drop clip only while a cover is
+ * hovered/focused so Firefox does not keep an inflated scrollWidth.
+ */
+.landing-shelf .shelf-track:has(.cover:focus-visible),
+.landing-shelf .shelf-track:has(.cover:focus-visible) .shelf-bar {
+  overflow: visible;
+}
+@media (hover: hover) {
+  .landing-shelf .shelf-track:has(.cover:hover),
+  .landing-shelf .shelf-track:has(.cover:hover) .shelf-bar {
+    overflow: visible;
+  }
 }
 .landing-shelf .shelf-track.shelf-track-dragging {
   cursor: grabbing;
@@ -966,6 +989,7 @@ body:has(main.reading-page) .top-bar {
 }
 .landing-shelf .cover:hover,
 .landing-shelf .cover:focus-visible {
+  z-index: 6;
   transform: translateY(-4px);
   box-shadow:
     0 2px 0 color-mix(in srgb, var(--text) 14%, transparent),
@@ -974,9 +998,28 @@ body:has(main.reading-page) .top-bar {
     0 22px 34px -6px color-mix(in srgb, var(--text) 14%, transparent);
   text-decoration: none;
 }
-.landing-shelf .cover:hover .cover-frame,
 .landing-shelf .cover:focus-visible .cover-frame {
-  transform: perspective(820px) rotateX(-2deg);
+  /* Scale the artwork (not the flex cell) so scrollWidth stays stable. */
+  transform: perspective(820px) rotateX(0deg) scale(2);
+  box-shadow:
+    0 2px 0 color-mix(in srgb, var(--text) 12%, transparent),
+    0 8px 14px color-mix(in srgb, var(--text) 16%, transparent),
+    0 22px 36px -4px color-mix(in srgb, var(--text) 22%, transparent),
+    0 40px 56px -8px color-mix(in srgb, var(--text) 16%, transparent);
+}
+@media (hover: hover) {
+  .landing-shelf .cover:hover .cover-frame {
+    transform: perspective(820px) rotateX(0deg) scale(2);
+    box-shadow:
+      0 2px 0 color-mix(in srgb, var(--text) 12%, transparent),
+      0 8px 14px color-mix(in srgb, var(--text) 16%, transparent),
+      0 22px 36px -4px color-mix(in srgb, var(--text) 22%, transparent),
+      0 40px 56px -8px color-mix(in srgb, var(--text) 16%, transparent);
+  }
+  .landing-shelf .shelf-track.shelf-track-dragging .cover:hover .cover-frame {
+    transform: perspective(820px) rotateX(-5deg);
+    box-shadow: none;
+  }
 }
 :root.dark .landing-shelf .shelf-bar::after {
   background:
@@ -1035,9 +1078,13 @@ body:has(main.reading-page) .top-bar {
   /* Keep the full cover visible in Firefox under overflow:clip. */
   transform: perspective(820px) rotateX(-5deg);
 }
-.landing-shelf.landing-shelf-reading .cover:hover .cover-frame,
 .landing-shelf.landing-shelf-reading .cover:focus-visible .cover-frame {
-  transform: perspective(820px) rotateX(-2deg);
+  transform: perspective(820px) rotateX(0deg) scale(2);
+}
+@media (hover: hover) {
+  .landing-shelf.landing-shelf-reading .cover:hover .cover-frame {
+    transform: perspective(820px) rotateX(0deg) scale(2);
+  }
 }
 .landing-shelf.landing-shelf-reading .shelf-reading-captions {
   display: flex;
