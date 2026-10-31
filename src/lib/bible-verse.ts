@@ -2,6 +2,12 @@ import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { firstTag } from './nostr/verify';
 
+/** Shipped reading-plan d-tags — keep in sync with index-scope PLAN_D. */
+const READING_PLAN_D = new Set([
+  'biblestr-plan-bible-in-a-year',
+  'biblestr-plan-chronological'
+]);
+
 /** Kind-30041 sections published as bible verses (`type` = bible). */
 export function isBibleSection(event: Event): boolean {
   if (event.kind !== KIND.SECTION) return false;
@@ -19,6 +25,10 @@ export function offersVerseStyling(
     if (event.tags.some((t) => t[0] === 'C' && (t[1] ?? '').trim().toLowerCase() === 'bible')) {
       return true;
     }
+    // Chronological / bible-in-a-year roots host bible leaves; show the control
+    // before those verses are painted into the pane.
+    const d = (firstTag(event, 'd') ?? '').trim();
+    if (event.kind === KIND.PUBLICATION && READING_PLAN_D.has(d)) return true;
   }
   return sections.some(isBibleSection);
 }

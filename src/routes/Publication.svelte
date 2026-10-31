@@ -143,8 +143,10 @@
     bibleDisplay,
     groupReaderSections,
     isBibleSection,
-    isPreambleHeading
+    isPreambleHeading,
+    offersVerseStyling
   } from '$lib/bible-verse';
+  import VerseStylingToggle from '$lib/components/VerseStylingToggle.svelte';
   import {
     findDouayChapterIndex,
     parseVerseQuery,
@@ -548,6 +550,7 @@
     if (changed) tocExpanded = next;
   });
   const paintedSections = $derived(sections);
+  const showVerseStylingToggle = $derived(offersVerseStyling(event, sections));
   const readerGroups = $derived(
     $verseStyling
       ? groupReaderSections(paintedSections)
@@ -3865,6 +3868,11 @@
             <div class="toc-chrome">
               <h2>Contents</h2>
               <div class="toc-chrome-actions">
+                {#if showVerseStylingToggle}
+                  <div class="toc-verse-styling">
+                    <VerseStylingToggle />
+                  </div>
+                {/if}
                 <button
                   class="toc-create-highlight"
                   type="button"
@@ -4326,7 +4334,7 @@
                           event={{ ...section, content: parts.text }}
                           applyTranslation={false}
                           quotes={quotesFor(section)}
-                          dedupeHeroImage
+                          dedupeHeroImage={Boolean(showHero)}
                           dedupeHeroUrls={publicationHeroUrls}
                         />
                       {/if}
@@ -4339,7 +4347,7 @@
                       <EventBody
                         event={section}
                         quotes={quotesFor(section)}
-                        dedupeHeroImage
+                        dedupeHeroImage={Boolean(showHero)}
                         dedupeHeroUrls={publicationHeroUrls}
                       />
                     </div>

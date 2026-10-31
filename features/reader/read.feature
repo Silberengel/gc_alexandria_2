@@ -90,6 +90,8 @@ Feature: In-browser reader
     And ancestors of that row stay expanded so the current location stays visible
     And a Go to top control stays in view in the ToC panel and jumps to the edition start
     And a Find control in the ToC chrome focuses the publication page filter
+    And bible and reading-plan editions show a Verse styling switch in the ToC chrome (compact verse flow vs section cards)
+    And that switch also appears under the edition cover meta when the root is in the pane
     And when non-empty text is selected in the reading pane, a Create highlight control appears in the ToC chrome next to Go to top
     And that control signs a NIP-84 highlight for the selection, marks it inline immediately, then publishes
     And the Create highlight control is hidden when the reading-pane selection is empty

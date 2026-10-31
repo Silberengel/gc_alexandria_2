@@ -138,6 +138,17 @@ describe('offersVerseStyling', () => {
       ])
     ).toBe(true);
   });
+
+  it('matches known reading-plan editions before verses are painted', () => {
+    expect(
+      offersVerseStyling(
+        section({
+          kind: 30040,
+          tags: [['d', 'biblestr-plan-chronological'], ['title', 'Chronological']]
+        })
+      )
+    ).toBe(true);
+  });
 });
 
 describe('groupReaderSections', () => {

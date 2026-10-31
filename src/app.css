@@ -8079,6 +8079,27 @@ a.embed-event-line:focus-visible {
   gap: 0.35rem;
   min-width: 0;
 }
+.toc-verse-styling {
+  flex: 1 1 100%;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.1rem 0 0.15rem;
+}
+.toc-verse-styling .verse-styling-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.toc-verse-styling .verse-styling-switch {
+  width: 2.2rem;
+  height: 1.2rem;
+}
+.toc-verse-styling .verse-styling-thumb {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+.toc-verse-styling .verse-styling-switch.on .verse-styling-thumb {
+  transform: translate(0.9rem, -50%);
+}
 .toc-goto-top,
 .toc-create-highlight,
 .toc-find {
