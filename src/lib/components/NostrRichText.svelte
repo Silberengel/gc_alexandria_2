@@ -105,6 +105,14 @@
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   }
 
+  function openInlineImage(url: string): void {
+    openMediaViewer({ url, urls: [url] });
+  }
+
+  function bitHasText(bit: { value: string }, inline: boolean): boolean {
+    return inline ? bit.value.length > 0 : bit.value.trim().length > 0;
+  }
+
   /** Bare URLs + hashtags inside a run that is not already a markdown link. */
   function linkifyBareAndTags(text: string): string {
     const parts: string[] = [];
@@ -433,7 +441,7 @@
             type="button"
             title="View image"
             aria-label="View image"
-            onclick={() => openMediaViewer({ url: bit.value, urls: [bit.value] })}
+            onclick={() => openInlineImage(bit.value)}
           >
             <img class="event-imeta" src={bit.value} alt="" loading="lazy" decoding="async" />
           </button>
@@ -443,7 +451,7 @@
         {:else if bit.type === 'audio'}
           <!-- svelte-ignore a11y_media_has_caption -->
           <audio class="event-imeta" src={bit.value} controls preload="metadata"></audio>
-        {:else if inline ? bit.value.length > 0 : bit.value.trim()}
+        {:else if bitHasText(bit, inline)}
           {@html expandCustomEmojiPlaceholders(
             inline ? renderFlowText(bit.value) : renderPlainBlock(bit.value),
             emojiSlots
