@@ -95,6 +95,55 @@ function raceWithTimeout<T>(
   ]);
 }
 
+const EMPTY_SHELF_PACK: ShelfLabelPack = { shelves: [], labels: [] };
+
+function isEmptyShelfPack(pack: ShelfLabelPack): boolean {
+  return !shelvesHaveCovers(pack.shelves) && !pack.labels.length;
+}
+
+/**
+ * Await a shelf pack with a soft timeout. When the first attempt times out or
+ * returns empty, wait once more on the same in-flight work (covers late
+ * membership/resolve). Optionally start one fresh attempt if still empty.
+ */
+export async function raceShelfPackWithEmptyRetry(
+  work: Promise<ShelfLabelPack>,
+  opts?: {
+    timeoutMs?: number;
+    label?: string;
+    /** Start a new load when the in-flight work also settled empty. */
+    fresh?: () => Promise<ShelfLabelPack>;
+  }
+): Promise<ShelfLabelPack> {
+  const ms = opts?.timeoutMs ?? 8_000;
+  const label = opts?.label ?? 'shelves';
+  let pack = await raceWithTimeout(
+    work,
+    ms,
+    () => EMPTY_SHELF_PACK,
+    `[alexandria:landing] ${label} timed out after ${ms}ms`
+  );
+  if (!isEmptyShelfPack(pack)) return pack;
+
+  // Soft timeout already fired — do not cut the same promise again; wait for it.
+  console.info(`[alexandria:landing] ${label} empty — retrying once (await in-flight)`);
+  try {
+    pack = await work;
+  } catch (err) {
+    console.warn(`[alexandria:landing] ${label} in-flight retry failed`, err);
+    pack = EMPTY_SHELF_PACK;
+  }
+  if (!isEmptyShelfPack(pack) || !opts?.fresh) return pack;
+
+  console.info(`[alexandria:landing] ${label} still empty — starting one fresh attempt`);
+  return raceWithTimeout(
+    opts.fresh(),
+    ms,
+    () => EMPTY_SHELF_PACK,
+    `[alexandria:landing] ${label} fresh retry timed out after ${ms}ms`
+  );
+}
+
 function currentViewerPubkey(): string | null {
   return session.getPubkey()?.toLowerCase() ?? null;
 }
@@ -1410,12 +1459,12 @@ export async function refreshLanding(
   hydrateRefs();
 
   // Never block Home forever on shelf author lookups — race and paint whatever we have.
-  const shelfPack = await raceWithTimeout(
-    shelvesPromise,
-    8_000,
-    () => ({ shelves: [] as LandingShelfSnap[], labels: [] as string[] }),
-    '[alexandria:landing] shelvesPromise timed out after 8s'
-  );
+  // Soft empty timeouts used to clear busy with blank shelves; retry the in-flight
+  // work once before giving up (covers late membership / resolve).
+  const shelfPack = await raceShelfPackWithEmptyRetry(shelvesPromise, {
+    timeoutMs: 8_000,
+    label: 'shelvesPromise'
+  });
   if (shelvesHaveCovers(shelfPack.shelves)) {
     shelves = mergeLandingShelves(shelves, shelfPack.shelves);
   }

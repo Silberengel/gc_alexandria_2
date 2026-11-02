@@ -15,6 +15,7 @@
     loadViewerShelves,
     mergeLandingShelves,
     orderShelfCovers,
+    raceShelfPackWithEmptyRetry,
     recordWarmLandingVisit,
     refreshLanding,
     subjectsFromPublications,
@@ -586,7 +587,6 @@
     });
     shelfBusy = true;
     landingStatus = 'Loading your shelves…';
-    let timeoutId: ReturnType<typeof setTimeout> | 0 = 0;
     try {
       const known = [
         ...shelves.flatMap((s) => s.events),
@@ -594,31 +594,23 @@
         ...highlights,
         ...comments
       ];
-      let raceDone = false;
-      const pack = await Promise.race([
-        loadViewerShelves(known, (progress) => {
-          // Parent-enrichment rematch after the first fold — keep progressive paint.
-          if (!progress.shelves.some((s) => s.events.length) && !progress.labels.length) return;
-          shelves = mergeLandingShelves(shelves, progress.shelves);
-          if (progress.labels.length) labels = progress.labels;
-          if (hasViewerBoundCovers()) {
-            lastFoldedMetaKey = foldKey;
-            landingStatus = 'Your shelves are ready';
-          }
-        }).then((value) => {
-          raceDone = true;
-          if (timeoutId) clearTimeout(timeoutId);
-          return value;
-        }),
-        new Promise<{ shelves: LandingShelfSnap[]; labels: string[] }>((resolve) => {
-          timeoutId = setTimeout(() => {
-            if (raceDone) return;
-            raceDone = true;
-            console.warn(LOG, 'mergeViewerShelves timed out after 8s');
-            resolve({ shelves: [], labels: [] });
-          }, 8_000);
-        })
-      ]);
+      const onProgress = (progress: { shelves: LandingShelfSnap[]; labels: string[] }) => {
+        // Parent-enrichment rematch after the first fold — keep progressive paint.
+        if (!progress.shelves.some((s) => s.events.length) && !progress.labels.length) return;
+        shelves = mergeLandingShelves(shelves, progress.shelves);
+        if (progress.labels.length) labels = progress.labels;
+        if (hasViewerBoundCovers()) {
+          lastFoldedMetaKey = foldKey;
+          landingStatus = 'Your shelves are ready';
+        }
+      };
+      const work = loadViewerShelves(known, onProgress);
+      // Soft empty timeouts used to leave My shelf blank with no second chance.
+      const pack = await raceShelfPackWithEmptyRetry(work, {
+        timeoutMs: 8_000,
+        label: 'mergeViewerShelves',
+        fresh: () => loadViewerShelves(known, onProgress)
+      });
       const summary = pack.shelves.map((s) => `${s.id}:${s.events.length}`).join(', ') || '(none)';
       console.info(LOG, 'mergeViewerShelves result', {
         shelfRows: summary,
@@ -661,7 +653,6 @@
       console.warn(LOG, 'mergeViewerShelves failed', err);
       landingStatus = 'Could not load your shelves (see console)';
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
       mergeInFlight = false;
       shelfBusy = false;
       maybeWarmReadingQueue();

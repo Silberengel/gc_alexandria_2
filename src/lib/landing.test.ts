@@ -15,7 +15,8 @@ import {
   landingRefHasRenderableTarget,
   recordWarmLandingVisit,
   clearWarmLandingVisit,
-  isWarmLandingRevisit
+  isWarmLandingRevisit,
+  raceShelfPackWithEmptyRetry
 } from './landing';
 import {
   bookshelfChipsFromDirectories,
@@ -502,5 +503,49 @@ describe('warm landing revisit', () => {
       labels: []
     };
     expect(isWarmLandingRevisit(viewer, '', cached)).toBe(true);
+  });
+});
+
+describe('raceShelfPackWithEmptyRetry', () => {
+  const filled = {
+    shelves: [{ id: 'mine', title: 'My shelf', events: [ev([['d', 'book']], '1')] }],
+    labels: [] as string[]
+  };
+
+  it('returns the first non-empty result without retrying', async () => {
+    let freshCalls = 0;
+    const pack = await raceShelfPackWithEmptyRetry(Promise.resolve(filled), {
+      timeoutMs: 50,
+      fresh: () => {
+        freshCalls += 1;
+        return Promise.resolve(filled);
+      }
+    });
+    expect(pack.shelves[0]?.id).toBe('mine');
+    expect(freshCalls).toBe(0);
+  });
+
+  it('awaits a late in-flight pack after the first soft timeout', async () => {
+    const late = new Promise<typeof filled>((resolve) => {
+      setTimeout(() => resolve(filled), 40);
+    });
+    const pack = await raceShelfPackWithEmptyRetry(late, { timeoutMs: 10 });
+    expect(pack.shelves[0]?.id).toBe('mine');
+  });
+
+  it('starts one fresh attempt when in-flight work settles empty', async () => {
+    let freshCalls = 0;
+    const pack = await raceShelfPackWithEmptyRetry(
+      Promise.resolve({ shelves: [], labels: [] }),
+      {
+        timeoutMs: 50,
+        fresh: () => {
+          freshCalls += 1;
+          return Promise.resolve(filled);
+        }
+      }
+    );
+    expect(freshCalls).toBe(1);
+    expect(pack.shelves[0]?.id).toBe('mine');
   });
 });

@@ -7,7 +7,7 @@
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import { eventPreview } from '$lib/event-preview';
   import { isDeprecatedNip51List } from '$lib/nip51-deprecated-lists';
-  import { dedupeMediaUrls, mediaAltForUrl, orphanMedia } from '$lib/media';
+  import { dedupeMediaUrls, mediaAltForUrl, omitMediaUrls, uniqueMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import { webBookmarkUrl } from '$lib/web-bookmark';
@@ -22,8 +22,12 @@
   let { event, showMenu = true }: Props = $props();
 
   const preview = $derived(eventPreview(event));
-  /** Tag-only media; content-listed files stay in the body text. */
-  const media = $derived(orphanMedia(event));
+  /**
+   * Card previews are plain text (no inline embeds), so show content + tag media
+   * in the gallery and strip those URLs from the blurb to avoid bare-link duplicates.
+   * Full note bodies (EventBody) keep content media inline instead.
+   */
+  const media = $derived(uniqueMedia(event));
   const bookmarkUrl = $derived(webBookmarkUrl(event));
   const galleryUrls = $derived(
     dedupeMediaUrls([
@@ -32,6 +36,9 @@
     ]).filter((url) => isAllowedMediaUrl(url))
   );
   const galleryAlts = $derived(galleryUrls.map((url) => mediaAltForUrl(media, url)));
+  const bodyText = $derived(
+    preview.body ? omitMediaUrls(preview.body, media).trim() || undefined : undefined
+  );
   const showNip51Migrate = $derived(isDeprecatedNip51List(event));
   let brokenUrls = $state<Record<string, true>>({});
 
@@ -106,11 +113,11 @@
   {#if bookmarkUrl}
     <WebBookmarkEmbed url={bookmarkUrl} />
   {/if}
-  {#if preview.summary && preview.summary !== preview.body}
+  {#if preview.summary && preview.summary !== bodyText}
     <p class="generic-card-summary muted">{preview.summary}</p>
   {/if}
-  {#if preview.body}
-    <p class="generic-card-body muted">{preview.body}</p>
+  {#if bodyText}
+    <p class="generic-card-body muted">{bodyText}</p>
   {:else if !preview.summary && !media.length && !preview.imageUrls.length && !bookmarkUrl}
     <p class="muted generic-card-empty">No text in this event.</p>
   {/if}

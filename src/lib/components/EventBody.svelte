@@ -16,7 +16,7 @@
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { attachYoutubeEmbeds } from '$lib/attach-youtube';
   import { eventHeroImageUrls, isContentHeroKind, stripEarlyDuplicateHeroImage } from '$lib/cover';
-  import { orphanMedia, sameMedia, stripRenderedMedia, uniqueMedia } from '$lib/media';
+  import { orphanMedia, sameMedia, stripRenderedMedia } from '$lib/media';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
@@ -201,14 +201,8 @@
     }
     return items;
   });
-  /** Full media set (content + tags) for lightbox alts when tapping an inline image. */
-  const allMedia = $derived.by(() => {
-    if (!displayEvent) return [];
-    return uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
-  });
-  const images = $derived(
-    (media.length ? media : allMedia).filter((item) => item.type === 'image')
-  );
+  /** Lightbox set for orphan-gallery taps only — never fall back to content-listed media. */
+  const images = $derived(media.filter((item) => item.type === 'image'));
   const imageUrls = $derived(images.map((item) => item.url));
   const imageAlts = $derived(images.map((item) => item.alt?.trim() || ''));
   /** NIP-B0 URL from tags when content is empty / does not already include it. */
