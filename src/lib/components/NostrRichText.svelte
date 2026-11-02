@@ -33,6 +33,9 @@
   import { webBookmarkHrefFromD } from '$lib/web-bookmark';
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import { renderKatexHtml, splitMathSegments } from '$lib/katex-math';
+  import { classifyMediaUrl } from '$lib/media';
+  import { isAllowedMediaUrl } from '$lib/markup';
+  import { openMediaViewer } from '$lib/stores/media-viewer';
 
   /** Kinds that need a full card (player, gallery, …) instead of a one-line blurb. */
   function useRichEmbedCard(event: Event): boolean {
@@ -87,7 +90,8 @@
     /\b(4[0-9AB][1-9A-HJ-NP-Za-km-z]{93}|8[0-9AB][1-9A-HJ-NP-Za-km-z]{93})\b/g;
   const URL_RE = /(https?:\/\/[^\s<>"')\]]+)/gi;
   // Skip `[#id]` AsciiDoc-style anchors (parity with markup.linkifyTopicHashtags).
-  const HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{1,64})/gu;
+  // ≥ 2 letters/digits — skip #5 / #e / #A (catalog inlineHashtags.pattern).
+  const HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{2,64})/gu;
 
   function escapeHtml(s: string): string {
     return s
@@ -110,8 +114,13 @@
     while ((m = URL_RE.exec(text))) {
       const url = m[1] ?? m[0];
       if (m.index > last) parts.push(escapeHtml(text.slice(last, m.index)));
-      // YouTube / OG / njump-event links are lifted out — leave raw escaped text.
-      if (parseYouTubeUrl(url) || urlEmbedsNostrEvent(url) || shouldOgPreview(url)) {
+      // YouTube / OG / njump-event / media file links are lifted out as embeds.
+      if (
+        parseYouTubeUrl(url) ||
+        urlEmbedsNostrEvent(url) ||
+        shouldOgPreview(url) ||
+        (classifyMediaUrl(url) && isAllowedMediaUrl(url))
+      ) {
         parts.push(escapeHtml(url));
       } else if (!isAllowedHref(url)) {
         parts.push(escapeHtml(url));
@@ -155,14 +164,17 @@
       .join('');
   }
 
-  type LinkEmbedBit = { type: 'text' | 'youtube' | 'og' | 'url-event'; value: string };
+  type LinkEmbedBit =
+    | { type: 'text'; value: string }
+    | { type: 'youtube' | 'og' | 'url-event'; value: string }
+    | { type: 'image' | 'video' | 'audio'; value: string };
 
-  /** Pull YouTube, njump-event chevrons, and Open Graph cards out of plaintext. */
+  /** Pull YouTube, media files, njump-event chevrons, and Open Graph cards out of plaintext. */
   function splitLinkEmbeds(text: string): LinkEmbedBit[] {
     const hits: Array<{
       index: number;
       end: number;
-      type: 'youtube' | 'og' | 'url-event';
+      type: 'youtube' | 'og' | 'url-event' | 'image' | 'video' | 'audio';
       value: string;
     }> = [];
     URL_RE.lastIndex = 0;
@@ -170,10 +182,14 @@
     while ((m = URL_RE.exec(text))) {
       const raw = m[1] ?? m[0];
       const value = tidyLinkUrl(raw);
-      let type: 'youtube' | 'og' | 'url-event' | null = null;
+      let type: 'youtube' | 'og' | 'url-event' | 'image' | 'video' | 'audio' | null = null;
       if (parseYouTubeUrl(value)) type = 'youtube';
       else if (urlEmbedsNostrEvent(value)) type = 'url-event';
       else if (shouldOgPreview(value)) type = 'og';
+      else {
+        const media = classifyMediaUrl(value);
+        if (media && isAllowedMediaUrl(value)) type = media;
+      }
       if (!type) continue;
       hits.push({ index: m.index, end: m.index + m[0].length, type, value });
     }
@@ -411,6 +427,22 @@
           <ExpandableUrlEventLink url={bit.value} />
         {:else if bit.type === 'og'}
           <OgLinkPreviewCard url={bit.value} />
+        {:else if bit.type === 'image'}
+          <button
+            class="event-imeta-btn"
+            type="button"
+            title="View image"
+            aria-label="View image"
+            onclick={() => openMediaViewer({ url: bit.value, urls: [bit.value] })}
+          >
+            <img class="event-imeta" src={bit.value} alt="" loading="lazy" decoding="async" />
+          </button>
+        {:else if bit.type === 'video'}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video class="event-imeta" src={bit.value} controls playsinline preload="metadata"></video>
+        {:else if bit.type === 'audio'}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <audio class="event-imeta" src={bit.value} controls preload="metadata"></audio>
         {:else if inline ? bit.value.length > 0 : bit.value.trim()}
           {@html expandCustomEmojiPlaceholders(
             inline ? renderFlowText(bit.value) : renderPlainBlock(bit.value),

@@ -385,8 +385,8 @@ export function cropPaymentAddress(value: string, max = 50): string {
 const ABOUT_URL = /https?:\/\/[^\s<>"')\]]+/gi;
 /** Bare or `nostr:`-prefixed NIP-19 entities in about text. */
 const ABOUT_NOSTR = /(?:nostr:)?((?:npub|nprofile|note|nevent|naddr)1[02-9ac-hj-np-z]+)/gi;
-/** Hashtag after start/non-word; tag body is letters, numbers, underscore. */
-const ABOUT_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{1,64})/gu;
+/** Hashtag after start/non-word; body ≥ 2 letters/numbers/underscore (skip #5 / #e / #A). */
+const ABOUT_HASHTAG = /(^|[^\p{L}\p{N}_])#([\p{L}\p{N}_]{2,64})/gu;
 
 function escapeHtml(text: string): string {
   return text

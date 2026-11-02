@@ -26,7 +26,17 @@ import { landingLabels } from './labels';
 import { assignShelves, collapseSameCoverEditions, membershipsFromEvents, topLevelShelfEvents, withBookmarkTag } from './shelves';
 import { aggregateRating, ratingValue, newestRatingPerAuthor, newestRatingPerPublication } from './ratings';
 import { parseKind0, paymentRows } from './profile-fields';
-import { uniqueMedia, contentWithoutMediaUrls, imetaMedia, omitMediaUrls, rewriteBareImageUrls, promoteImageAutolinks, sameMedia, stripRenderedMedia } from './media';
+import {
+  uniqueMedia,
+  contentWithoutMediaUrls,
+  imetaMedia,
+  omitMediaUrls,
+  orphanMedia,
+  rewriteBareImageUrls,
+  promoteImageAutolinks,
+  sameMedia,
+  stripRenderedMedia
+} from './media';
 import { nip19, type Event } from 'nostr-tools';
 import { GITCITADEL_CURATOR_HEX } from './hex';
 
@@ -1573,9 +1583,34 @@ describe('media once', () => {
       tags: [['client', 'Primal iOS']]
     });
     expect(uniqueMedia(event)).toEqual([{ type: 'video', url: video }]);
+    // Content-listed media stays inline — not an orphan gallery item.
+    expect(orphanMedia(event)).toEqual([]);
     expect(omitMediaUrls(event.content, uniqueMedia(event))).toBe(
       "⚡️🇺🇸 NEW - Obama: Iran didn't have nuclear weapons."
     );
+  });
+
+  it('keeps mid-content gifs out of the orphan gallery', () => {
+    const gif =
+      'https://pipe.imwald.eu/1d8e20bfdacbf2c22ad407611af2ff52989ca635e3fe1af3f5b7ee2fd06539e5.gif';
+    const event = ev({
+      kind: 1,
+      content: `I've always been like\n\n${gif}\n\nI'm bewildered.`,
+      tags: [['imeta', `url ${gif}`, 'm image/gif']]
+    });
+    expect(uniqueMedia(event)).toHaveLength(1);
+    expect(orphanMedia(event)).toEqual([]);
+    expect(rewriteBareImageUrls(event.content, 'djot')).toContain(`![](${gif})`);
+  });
+
+  it('puts tag-only imeta in the orphan gallery', () => {
+    const hidden = 'https://cdn.example/hidden-only.jpg';
+    const event = ev({
+      kind: 1,
+      content: 'No media URL in the body.',
+      tags: [['imeta', `url ${hidden}`, 'm image/jpeg']]
+    });
+    expect(orphanMedia(event)).toEqual([{ type: 'image', url: hidden }]);
   });
 
   it('uses the imeta mime when the file URL has no extension', () => {

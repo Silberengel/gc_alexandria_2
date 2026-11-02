@@ -6,7 +6,12 @@ import { KIND } from './constants';
 import { normalizeDTag } from './dtag';
 import { cropRenderedUrlsInHtml } from './crop-url';
 import { preprocessDjotDollarMath } from './katex-math';
-import { promoteImageAutolinks, rewriteBareImageUrls } from './media';
+import {
+  promoteAvAutolinks,
+  promoteImageAutolinks,
+  rewriteBareAvUrls,
+  rewriteBareImageUrls
+} from './media';
 
 /** Catalog-driven body formats. Markdown is not a catalog encoding. */
 export type MarkupFormat = 'asciidoc' | 'djot' | 'plaintext';
@@ -589,8 +594,11 @@ async function applyMathToHtml(html: string): Promise<string> {
   return renderMathInHtml(html);
 }
 
-/** Hashtag after start or a non-word character. Skip `[#id]` AsciiDoc-style anchors. */
-const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{1,64})/gu;
+/**
+ * Hashtag after start or a non-word character. Skip `[#id]` AsciiDoc-style anchors.
+ * ≥ 2 letters/digits — skip #5 / #e / #A (catalog inlineHashtags.pattern).
+ */
+const TOPIC_HASHTAG = /(^|[^\p{L}\p{N}_\[])#([\p{L}\p{N}_]{2,64})/gu;
 /** Bare http(s) URL in text nodes (Djot does not autolink). */
 const BARE_HTTP_URL = /(https?:\/\/[^\s<>"')\]]+)/gi;
 const LINKIFY_SKIP_TAGS = new Set(['a', 'pre', 'code', 'script', 'style']);
@@ -706,16 +714,28 @@ export function honorHtmlImageSizeAttrs(html: string): string {
 function presentHtml(html: string): string {
   return linkifyTopicHashtags(
     cropRenderedUrlsInHtml(
-      sanitizeHtml(honorHtmlImageSizeAttrs(promoteImageAutolinks(linkifyBareHttpUrls(html))))
+      sanitizeHtml(
+        honorHtmlImageSizeAttrs(
+          promoteAvAutolinks(promoteImageAutolinks(linkifyBareHttpUrls(html)))
+        )
+      )
     )
   );
 }
 
 export async function renderFormat(format: MarkupFormat, content: string): Promise<string> {
   if (format === 'plaintext') {
-    return presentHtml(await applyMathToHtml(renderPlaintextHtml(content ?? '')));
+    // Keep bare media URLs for NostrRichText / promoteAutolinks — do not strip them.
+    const withMedia = rewriteBareAvUrls(
+      rewriteBareImageUrls(content ?? '', 'plaintext'),
+      'plaintext'
+    );
+    return presentHtml(await applyMathToHtml(renderPlaintextHtml(withMedia)));
   }
-  const rewritten = rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format);
+  const rewritten = rewriteBareAvUrls(
+    rewriteBareImageUrls(rewriteWikilinks(content ?? '', format), format),
+    format
+  );
   try {
     if (format === 'asciidoc') return presentHtml(await renderAsciidocHtml(rewritten));
     return presentHtml(await highlightRenderedHtml(renderDjotHtml(rewritten)));

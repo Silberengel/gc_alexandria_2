@@ -195,6 +195,39 @@ export function imetaMedia(event: Event): MediaItem[] {
   return out;
 }
 
+/** Classify a bare http(s) URL as image / video / audio, or null. */
+export function classifyMediaUrl(url: string, mimeHint?: string): MediaItem['type'] | null {
+  if (!isHttpUrl(url)) return null;
+  return classify(url, mimeHint);
+}
+
+/** True when [url] appears as an http(s) media file URL in [content]. */
+export function contentMentionsMediaUrl(content: string, url: string): boolean {
+  if (!content || !url) return false;
+  const keys = mediaKeySet([url]);
+  if (!keys.size) return false;
+  for (const match of content.matchAll(CONTENT_URL_RE)) {
+    for (const variant of contentUrlVariants(match[0] ?? '')) {
+      if (matchesMedia(variant, keys)) return true;
+    }
+  }
+  for (const blossom of findBlossomUris(content)) {
+    const candidates = blossomBlobCandidates(blossom);
+    if (candidates.some((c) => matchesMedia(c, keys))) return true;
+  }
+  return false;
+}
+
+/**
+ * Tag/imeta media that is not already listed in the note body.
+ * Content-listed files stay inline at their URL position; only these orphans
+ * belong in a post-body gallery.
+ */
+export function orphanMedia(event: Event): MediaItem[] {
+  const content = event.content ?? '';
+  return uniqueMedia(event).filter((item) => !contentMentionsMediaUrl(content, item.url));
+}
+
 export function uniqueMedia(event: Event): MediaItem[] {
   const out: MediaItem[] = [];
   for (const tag of event.tags) {
@@ -368,11 +401,43 @@ export function rewriteBareImageUrls(
     if (!isImageUrl(url)) return url;
     const before = src.slice(Math.max(0, offset - 16), offset);
     // Skip URLs already used as markdown/djot/asciidoc image or link targets.
-    if (/(?:!\[|\]\(|image::?|src=["']|href=["']|link:)$/i.test(before)) return url;
+    if (/(?:!\[|\]\(|image::?|video::?|audio::?|src=["']|href=["']|link:)$/i.test(before)) {
+      return url;
+    }
     if (/\[[^\]]*$/.test(before) && !before.includes('](')) return url;
     if (format === 'asciidoc') return `\nimage::${url}[]\n`;
     return `![](${url})`;
   });
+}
+
+const BARE_VIDEO_URL_RE =
+  /https?:\/\/[^\s<>"'\)\]]+\.(?:mp4|webm|ogv|mov)(?:\?[^\s<>"'\)\]]*)?/gi;
+const BARE_AUDIO_URL_RE =
+  /https?:\/\/[^\s<>"'\)\]]+\.(?:mp3|ogg|wav|m4a|aac)(?:\?[^\s<>"'\)\]]*)?/gi;
+
+/**
+ * Bare video/audio URLs → format macros (AsciiDoc) or raw HTML (Djot/plaintext)
+ * so they render inline at their content position.
+ */
+export function rewriteBareAvUrls(
+  src: string,
+  format: 'asciidoc' | 'djot' | 'plaintext'
+): string {
+  if (!src) return src;
+  const rewrite =
+    (kind: 'video' | 'audio', re: RegExp) =>
+    (input: string): string =>
+      input.replace(re, (url, offset: number) => {
+        if (classify(url) !== kind) return url;
+        const before = input.slice(Math.max(0, offset - 16), offset);
+        if (/(?:!\[|\]\(|image::?|video::?|audio::?|src=["']|href=["']|link:)$/i.test(before)) {
+          return url;
+        }
+        if (/\[[^\]]*$/.test(before) && !before.includes('](')) return url;
+        if (format === 'asciidoc') return `\n${kind}::${url}[]\n`;
+        return `\n<${kind} src="${url}" controls playsinline preload="metadata"></${kind}>\n`;
+      });
+  return rewrite('audio', BARE_AUDIO_URL_RE)(rewrite('video', BARE_VIDEO_URL_RE)(src));
 }
 
 /** After linkify, turn identical-text image anchors into <img>. */
@@ -386,4 +451,23 @@ export function promoteImageAutolinks(html: string): string {
       return `<img src="${url}" alt="" loading="lazy" />`;
     }
   );
+}
+
+/** After linkify, turn identical-text video/audio anchors into players. */
+export function promoteAvAutolinks(html: string): string {
+  return html
+    .replace(
+      /<a\s+([^>]*?)href=(["'])(https?:\/\/[^"']+\.(?:mp4|webm|ogv|mov)(?:\?[^"']*)?)\2([^>]*)>\s*\3\s*<\/a>/gi,
+      (_full, _pre: string, _q: string, url: string) => {
+        if (!isHttpUrl(url)) return _full;
+        return `<video src="${url}" controls playsinline preload="metadata"></video>`;
+      }
+    )
+    .replace(
+      /<a\s+([^>]*?)href=(["'])(https?:\/\/[^"']+\.(?:mp3|ogg|wav|m4a|aac)(?:\?[^"']*)?)\2([^>]*)>\s*\3\s*<\/a>/gi,
+      (_full, _pre: string, _q: string, url: string) => {
+        if (!isHttpUrl(url)) return _full;
+        return `<audio src="${url}" controls preload="metadata"></audio>`;
+      }
+    );
 }

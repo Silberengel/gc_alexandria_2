@@ -7,7 +7,7 @@
   import WebBookmarkEmbed from './WebBookmarkEmbed.svelte';
   import { eventPreview } from '$lib/event-preview';
   import { isDeprecatedNip51List } from '$lib/nip51-deprecated-lists';
-  import { dedupeMediaUrls, mediaAltForUrl, uniqueMedia } from '$lib/media';
+  import { dedupeMediaUrls, mediaAltForUrl, orphanMedia } from '$lib/media';
   import { isAllowedMediaUrl } from '$lib/markup';
   import { openMediaViewer } from '$lib/stores/media-viewer';
   import { webBookmarkUrl } from '$lib/web-bookmark';
@@ -22,7 +22,8 @@
   let { event, showMenu = true }: Props = $props();
 
   const preview = $derived(eventPreview(event));
-  const media = $derived(uniqueMedia(event));
+  /** Tag-only media; content-listed files stay in the body text. */
+  const media = $derived(orphanMedia(event));
   const bookmarkUrl = $derived(webBookmarkUrl(event));
   const galleryUrls = $derived(
     dedupeMediaUrls([

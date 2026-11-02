@@ -387,6 +387,17 @@ describe('topic hashtags', () => {
     );
     expect(linkifyTopicHashtags('<code>#archjourney</code>')).toBe('<code>#archjourney</code>');
   });
+
+  it('does not linkify single-character hashtags', () => {
+    const plain = linkifyTopicHashtags('We use #5 for the death bell, #5-#2 for minor Masses, and #A #e markers.');
+    expect(plain).not.toContain('subject=');
+    expect(plain).toContain('#5');
+    expect(plain).toContain('#2');
+    expect(plain).toContain('#A');
+    expect(plain).toContain('#e');
+    expect(linkifyTopicHashtags('See #nostr and #5 together.')).toContain('subject=nostr');
+    expect(linkifyTopicHashtags('See #nostr and #5 together.')).not.toContain('subject=5');
+  });
 });
 
 describe('NIP-84 highlight passage', () => {

@@ -16,7 +16,7 @@
   import { attachHighlightBadges } from '$lib/text-highlights';
   import { attachYoutubeEmbeds } from '$lib/attach-youtube';
   import { eventHeroImageUrls, isContentHeroKind, stripEarlyDuplicateHeroImage } from '$lib/cover';
-  import { omitMediaUrls, sameMedia, stripRenderedMedia, uniqueMedia } from '$lib/media';
+  import { orphanMedia, sameMedia, stripRenderedMedia, uniqueMedia } from '$lib/media';
   import {
     coalesceInlineMentions,
     expandNostrRefPlaceholders,
@@ -180,14 +180,15 @@
     return [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
   });
   /**
-   * NIP-92 imeta tags plus bare image/video/audio URLs in the content.
+   * Gallery = tag/imeta media not already written in the body. Content-listed
+   * files stay inline at their URL position (NostrRichText / markup rewrite).
    * Cover `image` tags for article kinds are only in the header — omit them here.
    * Parent {@link dedupeHeroUrls} always win (nested sections that copy an index
    * plate must not dump that cover into every leaf body).
    */
   const media = $derived.by(() => {
     if (hideMedia || !displayEvent) return [];
-    let items = uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
+    let items = orphanMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
     const parentCovers = dedupeHeroUrls.map((u) => u.trim()).filter(Boolean);
     if (parentCovers.length) {
       items = items.filter((item) => !parentCovers.some((hero) => sameMedia(item.url, hero)));
@@ -200,7 +201,14 @@
     }
     return items;
   });
-  const images = $derived(media.filter((item) => item.type === 'image'));
+  /** Full media set (content + tags) for lightbox alts when tapping an inline image. */
+  const allMedia = $derived.by(() => {
+    if (!displayEvent) return [];
+    return uniqueMedia(displayEvent).filter((item) => isAllowedMediaUrl(item.url));
+  });
+  const images = $derived(
+    (media.length ? media : allMedia).filter((item) => item.type === 'image')
+  );
   const imageUrls = $derived(images.map((item) => item.url));
   const imageAlts = $derived(images.map((item) => item.alt?.trim() || ''));
   /** NIP-B0 URL from tags when content is empty / does not already include it. */
@@ -250,12 +258,11 @@
     const id = displayEvent?.id?.trim().toLowerCase() ?? event?.id?.trim().toLowerCase() ?? '';
     return id ? $eventTranslations[id] : undefined;
   });
-  /** Drop played file URLs from the prose so a note is not a link and a player. */
-  const source = $derived(
-    translationEntry?.content
-      ? translationEntry.content
-      : omitMediaUrls(displayEvent?.content ?? content, media)
-  );
+  /**
+   * Keep content-listed media URLs in the prose so they render inline where the
+   * author placed them. Orphan (tag-only) media is shown in the gallery below.
+   */
+  const source = $derived(translationEntry?.content ?? displayEvent?.content ?? content);
   const sourceTags = $derived(displayEvent?.tags ?? []);
   const markupFormat = $derived(resolveMarkup(sourceKind, source, sourceTags));
   /** Kind 9802 paints context + marked quote via HTML, not the plaintext rich path. */
