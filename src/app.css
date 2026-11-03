@@ -7065,22 +7065,6 @@ a.embed-event-line:focus-visible {
   flex: 0 0 auto;
   line-height: 1.2;
 }
-.thread-kind,
-.feed-kind {
-  font-size: 0.62rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.75;
-  white-space: nowrap;
-  flex: 0 0 auto;
-  line-height: 1.2;
-}
-/* One auto margin only — kind pins right; actions sit beside it (not a second auto). */
-.thread-head .thread-kind,
-.thread-head .feed-kind {
-  margin-left: auto;
-}
 .thread-body {
   min-width: 0;
 }

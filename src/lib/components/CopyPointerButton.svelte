@@ -66,6 +66,7 @@
   import { hideEventMembership, unhideEventMembership, eventHiddenOnMuteList } from '$lib/hide-event-actions';
   import { muteState } from '$lib/mute';
   import { pickLatestReplaceable } from '$lib/nostr/replaceable';
+  import { eventKindDescription } from '$lib/kind-label';
 
   interface Props {
     event: Event;
@@ -767,6 +768,9 @@
         }
       }}
     >
+      <li class="menu-heading" role="presentation" title={`Kind ${event.kind}`}>
+        {eventKindDescription(event)}
+      </li>
       {#if before}
         {@render before()}
       {/if}

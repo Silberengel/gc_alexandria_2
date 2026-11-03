@@ -60,7 +60,7 @@
   import { eventPreview } from '$lib/event-preview';
   import { isAllowedMediaUrl } from '$lib/markup';
   import { uniqueMedia } from '$lib/media';
-  import { eventKindDescription, kindDescription } from '$lib/kind-label';
+  import { kindDescription } from '$lib/kind-label';
   import { eventHref } from '$lib/listing-table';
   import { libraryDocumentPath } from '$lib/metadata';
   import { fetchById } from '$lib/nostr/fetch';
@@ -1629,7 +1629,6 @@
                   datetime={new Date(event.created_at * 1000).toISOString()}
                   title={formatAbsoluteTime(event.created_at)}
                 >{formatRelativeTime(event.created_at)}</time>
-                <span class="feed-kind muted">{eventKindDescription(event)}</span>
               </header>
             {/if}
             {#if event.kind === KIND.POLL}
@@ -2114,7 +2113,6 @@
                       title={formatAbsoluteTime(item.created_at)}
                       onclick={() => openThreadLink(item)}
                     >{formatRelativeTime(item.created_at)}</a>
-                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
                   </div>
                   <div class="feed-body">
                     <InteractivePollCard
@@ -2146,9 +2144,6 @@
                       title={formatAbsoluteTime(item.created_at)}
                       onclick={() => openThreadLink(item)}
                     >{formatRelativeTime(item.created_at)}</a>
-                    {#if !reactionRow && !tipOneline}
-                      <span class="feed-kind muted">{eventKindDescription(item)}</span>
-                    {/if}
                   </div>
                   <div class="feed-body">
                     {#if tipRow && (shown[item.id.toLowerCase()] || feedNeedsFullBody(item))}
@@ -2159,9 +2154,6 @@
                       <p class="feed-preview">{rowText(item)}</p>
                     {/if}
                   </div>
-                  {#if reactionRow || tipOneline}
-                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
-                  {/if}
                 {/if}
                 {#if feedTab === 'notifications'}
                   <div class="thread-actions feed-notif-more">
@@ -2217,7 +2209,6 @@
                       title={formatAbsoluteTime(target.created_at)}
                       onclick={() => openThreadLink(target, row.targetId)}
                     >{formatRelativeTime(target.created_at)}</a>
-                    <span class="feed-kind muted">{eventKindDescription(target)}</span>
                   </div>
                   <div class="feed-body">
                     <InteractivePollCard
@@ -2249,7 +2240,6 @@
                       title={formatAbsoluteTime(target.created_at)}
                       onclick={() => openThreadLink(target, row.targetId)}
                     >{formatRelativeTime(target.created_at)}</a>
-                    <span class="feed-kind muted">{eventKindDescription(target)}</span>
                   </div>
                   <div class="feed-body">
                     {#if shown[row.targetId] || feedNeedsFullBody(target)}
@@ -2851,14 +2841,10 @@
     min-width: 0;
     max-width: 100%;
   }
-  /* Pin kind to the right; ⋯ follows it on oneline rows. */
-  .feed-hit-oneline .feed-kind {
-    margin-left: auto;
-    flex: 0 0 auto;
-  }
+  /* Pin ⋯ to the card’s right edge after the emoji. */
   .feed-hit-oneline > .feed-notif-more {
     position: static;
-    margin: 0;
+    margin-left: auto;
     flex: 0 0 auto;
   }
   .feed-notif-more {
@@ -2901,13 +2887,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .feed-kind {
-    font-size: 0.62rem;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    opacity: 0.75;
   }
   .feed-body {
     flex: 1 1 auto;
