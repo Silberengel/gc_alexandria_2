@@ -7756,7 +7756,8 @@ a.embed-event-line:focus-visible {
      wrapping just that accordion keeps icons from floating up over republish. */
   position: relative;
 }
-.details-panel-wrap > .details-panel > summary,
+/* Profile still nests .details-panel directly under the wrap; publication
+   DetailsPanel uses .details-panel-head (padding below). */
 .profile-details-wrap > .details-panel > summary {
   padding-right: 7.25rem;
 }
