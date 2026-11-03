@@ -7044,15 +7044,18 @@ a.embed-event-line:focus-visible {
 
 .thread-head {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  column-gap: 0.5rem;
+  row-gap: 0.2rem;
   margin-bottom: 0.35rem;
   min-width: 0;
 }
 .thread-head .userbadge {
+  /* Prefer a full name line; date/kind wrap under instead of crushing the badge. */
+  flex: 1 1 12rem;
   min-width: 0;
-  flex: 0 1 auto;
+  max-width: 100%;
 }
 .thread-time {
   font-size: 0.85rem;
@@ -7060,15 +7063,13 @@ a.embed-event-line:focus-visible {
   flex: 0 0 auto;
   line-height: 1.2;
 }
-.thread-kind {
+.thread-kind,
+.thread-head .feed-kind {
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
   line-height: 1.2;
 }
 .thread-body {
@@ -7080,12 +7081,16 @@ a.embed-event-line:focus-visible {
   align-items: center;
   justify-content: flex-end;
   gap: 0.25rem;
-  margin-top: 0.35rem;
+  margin-top: 0.55rem;
+  margin-bottom: 0.65rem;
 }
+/* Feed list rows still tuck a lone ⋯ into the badge line. */
 .thread-head .thread-actions {
   margin-top: 0;
+  margin-bottom: 0;
   margin-left: auto;
   flex: 0 0 auto;
+  justify-content: flex-end;
 }
 .thread-ref-badge {
   display: inline-flex;
