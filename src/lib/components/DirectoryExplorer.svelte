@@ -204,7 +204,7 @@
           <span>{entries.length} {entries.length === 1 ? 'item' : 'items'}</span>
         </p>
       </div>
-      {#if showMenu && !headerOnly}
+      {#if showMenu}
         <CopyPointerButton {event} class="directory-explorer-copy" />
       {/if}
     </header>

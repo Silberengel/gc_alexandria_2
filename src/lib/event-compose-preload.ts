@@ -198,7 +198,7 @@ const COPY_EXCLUDED = new Set<number>([
   30819
 ]);
 
-/** Kinds we offer “Copy this event” for (compose-capable, not pure actions). */
+/** Kinds we offer “Clone this event” for (compose-capable, not pure actions). */
 export function canCopyEventToCompose(kind: number): boolean {
   if (COPY_EXCLUDED.has(kind)) return false;
   return isCatalogued(kind) || kind === 0 || kind === 1;

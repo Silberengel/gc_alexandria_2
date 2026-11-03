@@ -2094,27 +2094,15 @@
                 <FeedBoosters boosts={row.boosts} targetId={item.id} />
                 {#if item.kind === KIND.DIRECTORY}
                   <div class="feed-body feed-body-directory">
-                    <DirectoryExplorer
-                      event={item}
-                      showMenu={feedTab === 'notifications'}
-                      headerOnly
-                    />
+                    <DirectoryExplorer event={item} showMenu={false} headerOnly />
                   </div>
                 {:else if item.kind === KIND.METADATA}
                   <div class="feed-body feed-body-profile">
-                    <ProfileMetadataCard
-                      event={item}
-                      showMenu={feedTab === 'notifications'}
-                      compact
-                    />
+                    <ProfileMetadataCard event={item} showMenu={false} compact />
                   </div>
                 {:else if item.kind === KIND.LONG_FORM}
                   <div class="feed-body feed-body-card">
-                    <PublicationCard
-                      event={item}
-                      showMenu={feedTab === 'notifications'}
-                      enlargeOnClick={false}
-                    />
+                    <PublicationCard event={item} showMenu={false} enlargeOnClick={false} />
                   </div>
                 {:else if item.kind === KIND.POLL}
                   <div class="thread-head">
@@ -2127,11 +2115,6 @@
                       onclick={() => openThreadLink(item)}
                     >{formatRelativeTime(item.created_at)}</a>
                     <span class="feed-kind muted">{eventKindDescription(item)}</span>
-                    {#if feedTab === 'notifications'}
-                      <div class="thread-actions">
-                        <CopyPointerButton event={item} class="thread-more feed-row-more" />
-                      </div>
-                    {/if}
                   </div>
                   <div class="feed-body">
                     <InteractivePollCard
@@ -2143,22 +2126,15 @@
                   </div>
                 {:else if item.kind === KIND.GIT_REPO}
                   <div class="feed-body feed-body-card">
-                    <GitRepositoryCard event={item} showMenu={feedTab === 'notifications'} />
+                    <GitRepositoryCard event={item} showMenu={false} />
                   </div>
                 {:else if item.kind === KIND.ISSUE}
                   <div class="feed-body feed-body-card">
-                    <GitIssueCard
-                      event={item}
-                      showMenu={feedTab === 'notifications'}
-                      compact
-                    />
+                    <GitIssueCard event={item} showMenu={false} compact />
                   </div>
                 {:else if item.kind === KIND.CALENDAR_DATE || item.kind === KIND.CALENDAR_TIME}
                   <div class="feed-body feed-body-card">
-                    <CalendarEventCard
-                      event={item}
-                      showMenu={feedTab === 'notifications'}
-                    />
+                    <CalendarEventCard event={item} showMenu={false} />
                   </div>
                 {:else}
                   <div class="thread-head">
@@ -2170,13 +2146,8 @@
                       title={formatAbsoluteTime(item.created_at)}
                       onclick={() => openThreadLink(item)}
                     >{formatRelativeTime(item.created_at)}</a>
-                    {#if !reactionRow}
+                    {#if !reactionRow && !tipOneline}
                       <span class="feed-kind muted">{eventKindDescription(item)}</span>
-                    {/if}
-                    {#if feedTab === 'notifications'}
-                      <div class="thread-actions">
-                        <CopyPointerButton event={item} class="thread-more feed-row-more" />
-                      </div>
                     {/if}
                   </div>
                   <div class="feed-body">
@@ -2187,6 +2158,14 @@
                     {:else}
                       <p class="feed-preview">{rowText(item)}</p>
                     {/if}
+                  </div>
+                  {#if reactionRow || tipOneline}
+                    <span class="feed-kind muted">{eventKindDescription(item)}</span>
+                  {/if}
+                {/if}
+                {#if feedTab === 'notifications'}
+                  <div class="thread-actions feed-notif-more">
+                    <CopyPointerButton event={item} class="thread-more feed-row-more" />
                   </div>
                 {/if}
               </div>
@@ -2283,6 +2262,11 @@
                   <p class="muted feed-boost-missing">That note was not on your relays.</p>
                 {:else}
                   <p class="muted feed-boost-missing">Loading reposted note…</p>
+                {/if}
+                {#if feedTab === 'notifications' && target}
+                  <div class="thread-actions feed-notif-more">
+                    <CopyPointerButton event={target} class="thread-more feed-row-more" />
+                  </div>
                 {/if}
               </div>
             </li>
@@ -2822,6 +2806,7 @@
     font-size: 0.92rem;
   }
   .feed-hit {
+    position: relative;
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
@@ -2832,6 +2817,16 @@
     overflow: hidden;
     cursor: pointer;
   }
+  .feed-hit:not(.feed-hit-oneline):has(> .feed-notif-more) {
+    padding-right: 2.25rem;
+  }
+  .feed-hit:not(.feed-hit-oneline) > .feed-notif-more {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 3;
+    margin: 0;
+  }
   .feed-hit-oneline {
     flex-direction: row;
     flex-wrap: nowrap;
@@ -2839,27 +2834,35 @@
     gap: 0.45rem;
   }
   .feed-hit-oneline .thread-head {
+    /* Keep badge + time on one line beside the reaction; never wrap under. */
+    flex-wrap: nowrap;
     margin-bottom: 0;
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 70%;
+    max-width: 55%;
+  }
+  .feed-hit-oneline .thread-head :global(.userbadge) {
+    flex: 0 1 auto;
+    max-width: 100%;
   }
   .feed-hit-oneline .feed-body {
     margin-top: 0;
-    flex: 1 1 0;
+    flex: 0 1 auto;
     min-width: 0;
     max-width: 100%;
   }
-  .feed-hit .thread-actions {
-    opacity: 0.45;
+  /* Pin kind to the right; ⋯ follows it on oneline rows. */
+  .feed-hit-oneline .feed-kind {
+    margin-left: auto;
+    flex: 0 0 auto;
   }
-  .feed-hit:hover .thread-actions,
-  .feed-hit:focus-within .thread-actions,
-  .feed-hit .thread-actions:focus-within {
+  .feed-hit-oneline > .feed-notif-more {
+    position: static;
+    margin: 0;
+    flex: 0 0 auto;
+  }
+  .feed-notif-more {
     opacity: 1;
-  }
-  .feed-hit-oneline .thread-actions {
-    margin-left: 0.15rem;
   }
   .feed-hit :global(.feed-row-more .copy-pointer-btn) {
     width: 1.85rem;
@@ -2900,9 +2903,11 @@
     text-overflow: ellipsis;
   }
   .feed-kind {
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
+    opacity: 0.75;
   }
   .feed-body {
     flex: 1 1 auto;

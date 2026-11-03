@@ -158,11 +158,11 @@
       canReplaceOwnWikiEvent(event, $session.pubkey) ||
       canReplaceOwnDirectoryEvent(event, $session.pubkey)
   );
-  /** Own replaceable/addressable → "Replace"; others → "Copy". */
+  /** Own replaceable/addressable → "Replace"; others → "Clone". */
   const copyEventLabel = $derived(
     isOwnEvent && (isReplaceableKind(event.kind) || isAddressableKind(event.kind))
       ? 'Replace this event'
-      : 'Copy this event'
+      : 'Clone this event'
   );
   const showEditEvent = $derived(canEditAsShortNote(event, $session.pubkey));
   /** Fork is for others' wiki/spec; own articles use Replace (one d per author+kind). */

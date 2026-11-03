@@ -7052,25 +7052,34 @@ a.embed-event-line:focus-visible {
   min-width: 0;
 }
 .thread-head .userbadge {
-  /* Prefer a full name line; date/kind wrap under instead of crushing the badge. */
-  flex: 1 1 12rem;
+  /* Size to the name — do not grow, or short badges force date/kind onto a new line. */
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(100%, 16rem);
 }
 .thread-time {
-  font-size: 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: 0.85;
   white-space: nowrap;
   flex: 0 0 auto;
   line-height: 1.2;
 }
 .thread-kind,
-.thread-head .feed-kind {
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
+.feed-kind {
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  opacity: 0.75;
   white-space: nowrap;
   flex: 0 0 auto;
   line-height: 1.2;
+}
+/* One auto margin only — kind pins right; actions sit beside it (not a second auto). */
+.thread-head .thread-kind,
+.thread-head .feed-kind {
+  margin-left: auto;
 }
 .thread-body {
   min-width: 0;
@@ -7084,11 +7093,11 @@ a.embed-event-line:focus-visible {
   margin-top: 0.55rem;
   margin-bottom: 0.65rem;
 }
-/* Feed list rows still tuck a lone ⋯ into the badge line. */
+/* Feed list rows still tuck a lone ⋯ into the badge line, after the kind. */
 .thread-head .thread-actions {
   margin-top: 0;
   margin-bottom: 0;
-  margin-left: auto;
+  margin-left: 0;
   flex: 0 0 auto;
   justify-content: flex-end;
 }
