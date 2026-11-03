@@ -539,75 +539,6 @@
   {@render detailsList()}
 {:else}
   <div class="details-panel-wrap">
-    <div class="details-toolbar">
-      <TipButton {event} />
-      <HeartButton {event} />
-      <BookmarkButton {event} />
-      <button
-        class="btn btn-icon icon-action-btn thread-reply"
-        type="button"
-        aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-        title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
-        aria-expanded={replyOpen}
-        onclick={onReplyClick}
-      >
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
-          />
-        </svg>
-      </button>
-      <CopyPointerButton {event} class="details-more-menu">
-        {#snippet after()}
-          {#if showRepublish}
-            <li class="menu-sep" role="separator"></li>
-            <li class="menu-heading" role="presentation">Relays</li>
-            <li role="none">
-              <button
-                class="menu-item"
-                type="button"
-                role="menuitem"
-                disabled={!!busy || republishing}
-                onclick={() => void onRepublish()}
-              >
-                {republishing ? 'Republishing…' : 'Republish entire publication'}
-              </button>
-            </li>
-          {/if}
-          {#if showDownloadMenu}
-            <li class="menu-sep" role="separator"></li>
-            <li class="menu-heading" role="presentation">Download</li>
-            <li role="none">
-              <button
-                class="menu-item"
-                type="button"
-                role="menuitem"
-                disabled={!!busy || republishing}
-                onclick={() => void onDownloadSource()}
-              >
-                {busy === 'source' ? 'Downloading…' : 'Download as a file'}
-              </button>
-            </li>
-            {#if canExport}
-              {#each formats as opt (opt.format)}
-                <li role="none">
-                  <button
-                    class="menu-item"
-                    type="button"
-                    role="menuitem"
-                    disabled={!!busy || republishing}
-                    onclick={() => void onExport(opt.format)}
-                  >
-                    {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
-                  </button>
-                </li>
-              {/each}
-            {/if}
-          {/if}
-        {/snippet}
-      </CopyPointerButton>
-    </div>
     {#if showRepublish}
       <div class="details-republish">
         <button
@@ -623,10 +554,83 @@
         </p>
       </div>
     {/if}
-    <details class="accordion details-panel">
-      <summary>Details</summary>
-      {@render detailsList()}
-    </details>
+    <!-- Toolbar is absolute over the Details summary — keep it in this head so a
+         preceding republish block cannot pull the icons up away from Details. -->
+    <div class="details-panel-head">
+      <div class="details-toolbar">
+        <TipButton {event} />
+        <HeartButton {event} />
+        <BookmarkButton {event} />
+        <button
+          class="btn btn-icon icon-action-btn thread-reply"
+          type="button"
+          aria-label={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+          title={canReply ? (replyOpen ? 'Cancel reply' : 'Reply') : 'Sign in to reply'}
+          aria-expanded={replyOpen}
+          onclick={onReplyClick}
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+            />
+          </svg>
+        </button>
+        <CopyPointerButton {event} class="details-more-menu">
+          {#snippet after()}
+            {#if showRepublish}
+              <li class="menu-sep" role="separator"></li>
+              <li class="menu-heading" role="presentation">Relays</li>
+              <li role="none">
+                <button
+                  class="menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={!!busy || republishing}
+                  onclick={() => void onRepublish()}
+                >
+                  {republishing ? 'Republishing…' : 'Republish entire publication'}
+                </button>
+              </li>
+            {/if}
+            {#if showDownloadMenu}
+              <li class="menu-sep" role="separator"></li>
+              <li class="menu-heading" role="presentation">Download</li>
+              <li role="none">
+                <button
+                  class="menu-item"
+                  type="button"
+                  role="menuitem"
+                  disabled={!!busy || republishing}
+                  onclick={() => void onDownloadSource()}
+                >
+                  {busy === 'source' ? 'Downloading…' : 'Download as a file'}
+                </button>
+              </li>
+              {#if canExport}
+                {#each formats as opt (opt.format)}
+                  <li role="none">
+                    <button
+                      class="menu-item"
+                      type="button"
+                      role="menuitem"
+                      disabled={!!busy || republishing}
+                      onclick={() => void onExport(opt.format)}
+                    >
+                      {busy === opt.format ? `Exporting ${opt.label}…` : opt.label}
+                    </button>
+                  </li>
+                {/each}
+              {/if}
+            {/if}
+          {/snippet}
+        </CopyPointerButton>
+      </div>
+      <details class="accordion details-panel">
+        <summary>Details</summary>
+        {@render detailsList()}
+      </details>
+    </div>
     {#if republishing && republishProgress}
       <LoadingHint message={republishProgress.message} compact />
     {:else if busy && formatLabel}

@@ -2,6 +2,7 @@
  * Absolute share URLs for reader panes (Douay Biblestr paths when possible).
  */
 import type { Event } from 'nostr-tools';
+import { KIND } from './constants';
 import { douayBookByCode } from './douay-canon';
 import { readableEventAddress } from './library-scope';
 import { publicationPath } from './metadata';
@@ -24,6 +25,23 @@ function douayBookFromTags(event: Event) {
 /** Normalize a search/highlight snippet for `?quote=` (matches Publication focus). */
 export function readerFocusQuote(raw: string | null | undefined): string {
   return (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+/**
+ * Search-result `?quote=` for a card/row: only when the hit looks like an in-document
+ * full-text match. Publication indexes (30040) never get it — title/catalog hits should
+ * open the edition page, not jump the reader to the same-named phrase.
+ */
+export function searchListingFocusQuote(
+  event: Event,
+  quote: string | null | undefined
+): string {
+  const q = readerFocusQuote(quote);
+  if (!q) return '';
+  if (event.kind === KIND.PUBLICATION) return '';
+  const needle = q.toLowerCase();
+  const content = (event.content ?? '').replace(/\s+/g, ' ').toLowerCase();
+  return content.includes(needle) ? q : '';
 }
 
 /** Append or replace `quote` on a SPA location (`/path` or `/path?a=1`). */

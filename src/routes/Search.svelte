@@ -409,7 +409,7 @@
     if (untrack(() => page) !== 1) page = 1;
   });
 
-  /** Full-text `q` from the active search — opens library cards with `?quote=`. */
+  /** Candidate full-text `q`; cards only attach `?quote=` for in-document body hits. */
   const searchFocusQuote = $derived.by(() => {
     const mercuryQ = advancedReq?.mercury?.q?.trim();
     if (mercuryQ) return readerFocusQuote(mercuryQ);

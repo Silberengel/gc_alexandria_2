@@ -134,7 +134,7 @@ function grapevineContext(): GrapevineTrustContext {
 function rankEvents(
   events: Event[],
   grapevine?: GrapevineTrustContext | null,
-  opts?: { exactD?: string }
+  opts?: { exactD?: string; query?: string }
 ): Event[] {
   const counts = new Map(events.map((e) => [e.id, sectionCount(e)]));
   return sortSearchResults(preferTopLevelPublications(events), counts, grapevine, opts);
@@ -170,15 +170,20 @@ export function profilesMatchingQuery(events: Event[], query: string): Event[] {
 /**
  * Catalog cards plus matching profiles, in search kind order
  * (library, spec, wiki, profile, article, then the rest).
+ * When `opts.query` is set, verbatim body hits rank above kind tier.
  */
-export function composeSearchResults(events: Event[], pins: Event[] = []): Event[] {
+export function composeSearchResults(
+  events: Event[],
+  pins: Event[] = [],
+  opts?: { exactD?: string; query?: string }
+): Event[] {
   const kept = pruneToLatestReplaceables(filterDeletedEvents(events));
   const catalog = filterRenderableCatalogEvents(kept);
   const pinned = profilePins(pins);
   const pinIds = new Set(pinned.map((event) => event.id));
   const merged = [...pinned, ...catalog.filter((event) => !pinIds.has(event.id))];
   const counts = new Map(merged.map((event) => [event.id, publicationSectionCount(event)]));
-  return sortSearchResults(merged, counts);
+  return sortSearchResults(merged, counts, null, opts);
 }
 
 async function resolveProfileForNip05(query: string): Promise<Event | null> {
@@ -193,7 +198,7 @@ async function finishWithGrapevine(
   live: Event[],
   cached: Event[],
   onUpdate: (r: SearchResult) => void,
-  opts?: { exactD?: string; pins?: Event[] }
+  opts?: { exactD?: string; pins?: Event[]; query?: string }
 ): Promise<Event[]> {
   const merged = preferLive(live, cached);
   try {
@@ -216,14 +221,15 @@ async function finishWithGrapevine(
     /* FoF optional */
   }
   const ctx = grapevineContext();
-  let events = rankEvents(visible, ctx, opts);
+  const sortOpts = { exactD: opts?.exactD, query: opts?.query };
+  let events = rankEvents(visible, ctx, sortOpts);
   // Deny-by-default only when at least one author score hydrated — otherwise a
   // dead scores relay would wipe Mercury / cache hits for anonymous visitors.
   const anyKnown = authors.some((pk) => hasKnownRank(trustedAssertions.getScore(pk)));
   if (ctx.trustFilterEnabled && anyKnown) {
     events = events.filter((e) => !shouldHideEventByGrapevine(e, ctx));
   }
-  events = composeSearchResults(events.slice(0, 100), opts?.pins ?? []).slice(0, 100);
+  events = composeSearchResults(events.slice(0, 100), opts?.pins ?? [], sortOpts).slice(0, 100);
   rememberEvents(events);
   void cachePutSearchSnapshot(key, events, session.getPubkey());
   void cachePutMany(events);
@@ -257,7 +263,8 @@ export function exactEventQuery(
 
 async function paintCached(
   key: string,
-  onUpdate: (r: SearchResult) => void
+  onUpdate: (r: SearchResult) => void,
+  opts?: { exactD?: string; query?: string }
 ): Promise<{ events: Event[]; fresh: boolean }> {
   const viewer = session.getPubkey()?.toLowerCase() ?? null;
   const snap = await cacheGetSearchSnapshot(key);
@@ -269,7 +276,8 @@ async function paintCached(
   const raw = filterDeletedEvents(snap?.events ?? []);
   const cached = composeSearchResults(
     raw,
-    raw.filter((event) => event.kind === KIND.METADATA)
+    raw.filter((event) => event.kind === KIND.METADATA),
+    opts
   );
   const fresh = searchSnapshotFresh(snap, undefined, viewer);
   rememberEvents(cached);
@@ -282,9 +290,9 @@ async function cachedOrLive(
   key: string,
   onUpdate: (r: SearchResult) => void,
   live: () => Promise<Event[]>,
-  opts?: { exactD?: string }
+  opts?: { exactD?: string; query?: string }
 ): Promise<void> {
-  const { events: cached, fresh } = await paintCached(key, onUpdate);
+  const { events: cached, fresh } = await paintCached(key, onUpdate, opts);
   if (fresh) return;
   void trustedAssertions.resolveProvider(session.getPubkey());
   await finishWithGrapevine(key, await live(), cached, onUpdate, opts);
@@ -318,7 +326,8 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
 
   // q2: older q: snapshots dropped matching profiles after they had already painted.
   const key = `q2:${normalizeSearchKey(q)}`;
-  const { events: cached, fresh } = await paintCached(key, onUpdate);
+  const sortOpts = { query: q };
+  const { events: cached, fresh } = await paintCached(key, onUpdate, sortOpts);
 
   const profileNpub = npubFromInput(q);
   if (profileNpub) {
@@ -331,7 +340,7 @@ export async function runSearch(query: string, onUpdate: (r: SearchResult) => vo
     if (fresh) {
       const profile = await resolveProfileForNip05(q);
       if (profile) {
-        const events = composeSearchResults(cached, [profile]);
+        const events = composeSearchResults(cached, [profile], sortOpts);
         rememberEvents(events);
         void cachePutSearchSnapshot(key, events, session.getPubkey());
         void cachePutMany([profile]);
@@ -495,6 +504,7 @@ async function fanOutSearch(
     mercuryFilter({ kinds: [KIND.LONG_FORM], '#N': [tagSlug], limit: 100 })
   ];
 
+  const sortOpts = { query: q };
   const merge = (batch: Event[]) => {
     for (const e of batch) {
       const prev = byId.get(e.id);
@@ -502,7 +512,8 @@ async function fanOutSearch(
     }
     const events = rankEvents(
       filterDeletedEvents(pruneToLatestReplaceables([...byId.values()])),
-      grapevineContext()
+      grapevineContext(),
+      sortOpts
     );
     onUpdate({ events: events.slice(0, 100), loading: true, done: false });
   };
@@ -525,7 +536,7 @@ async function fanOutSearch(
     ...profilesMatchingQuery([...byId.values()], q)
   ]);
 
-  await finishWithGrapevine(key, [...byId.values()], cached, onUpdate, { pins });
+  await finishWithGrapevine(key, [...byId.values()], cached, onUpdate, { pins, query: q });
 }
 
 export async function runAuthorSearch(author: string, onUpdate: (r: SearchResult) => void): Promise<void> {

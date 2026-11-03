@@ -7,6 +7,7 @@ import {
   libraryDocumentPath,
   normalizeSubjectTag,
   preferRicherEvent,
+  searchContentMatchScore,
   sortSearchResults,
   specPath,
   subjectTagsFromEvent,
@@ -187,5 +188,34 @@ describe('sortSearchResults', () => {
     const counts = new Map<string, number>();
     const sorted = sortSearchResults([other, exact], counts, null, { exactD: slug });
     expect(sorted[0]?.id).toBe(exact.id);
+  });
+
+  it('ranks verbatim body matches above kind tier (section over wiki)', () => {
+    const quote = "give Pirrip as my father's family name";
+    const section = ev(
+      KIND.SECTION,
+      [['d', 'ch-1'], ['title', 'I']],
+      `My father's family name being Pirrip, and my Christian name Philip, I called myself Pip. ${quote}.`,
+      '1'.repeat(64)
+    );
+    const wiki = ev(
+      KIND.WIKI,
+      [['d', 'pip'], ['title', 'Pip']],
+      'A character in Great Expectations by Charles Dickens.',
+      '2'.repeat(64)
+    );
+    wiki.created_at = 9_999;
+    const sorted = sortSearchResults([wiki, section], new Map(), null, { query: quote });
+    expect(sorted[0]?.id).toBe(section.id);
+    expect(searchContentMatchScore(section, quote)).toBeGreaterThan(0);
+    expect(searchContentMatchScore(wiki, quote)).toBe(0);
+  });
+
+  it('keeps library sections with publications above specs and wikis when there is no body hit', () => {
+    const section = ev(KIND.SECTION, [['d', 'ch-1']], '', '1'.repeat(64));
+    const wiki = ev(KIND.WIKI, [['d', 'w']], '', '2'.repeat(64));
+    const spec = ev(KIND.SPEC, [['d', 's']], '', '3'.repeat(64));
+    const sorted = sortSearchResults([wiki, section, spec], new Map());
+    expect(sorted.map((e) => e.kind)).toEqual([KIND.SECTION, KIND.SPEC, KIND.WIKI]);
   });
 });

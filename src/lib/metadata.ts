@@ -202,7 +202,7 @@ export function preferRicherEvent(a: Event, b: Event): Event {
 
 /** Search kind tier: library cards, specs, wikis, profiles, articles, then the rest. */
 export function searchKindTier(kind: number): number {
-  if (kind === KIND.PUBLICATION) return 0;
+  if (kind === KIND.PUBLICATION || kind === KIND.SECTION) return 0;
   if (kind === KIND.SPEC) return 1;
   if (kind === KIND.WIKI) return 2;
   if (kind === KIND.METADATA) return 3;
@@ -219,9 +219,28 @@ export function eventMatchesSearchD(event: Event, exactD: string): boolean {
   return normalizeDTag(d) === want;
 }
 
+/**
+ * How strongly an event's body contains the search phrase (case/whitespace folded).
+ * Verbatim content hits beat kind-tier ordering so a quoted section floats above
+ * weaker wiki/title fan-out matches.
+ */
+export function searchContentMatchScore(
+  event: Event,
+  query: string | null | undefined
+): number {
+  const q = (query ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!q) return 0;
+  const content = (event.content ?? '').replace(/\s+/g, ' ').toLowerCase();
+  if (!content || !content.includes(q)) return 0;
+  // Longer phrases are stronger (unique quotes); stay in a band above "no match".
+  return 100 + Math.min(q.length, 80);
+}
+
 export type SearchSortOpts = {
   /** Prefer events whose d-tag equals this slug (wikilink / ?d= searches). */
   exactD?: string;
+  /** Free-text / fan-out query — prefer events whose body contains this phrase. */
+  query?: string;
 };
 
 export function sortSearchResults(
@@ -231,7 +250,13 @@ export function sortSearchResults(
   opts?: SearchSortOpts
 ): Event[] {
   const exactD = opts?.exactD ? normalizeDTag(opts.exactD) : '';
+  const query = opts?.query?.trim() ?? '';
   return [...events].sort((a, b) => {
+    if (query) {
+      const aHit = searchContentMatchScore(a, query);
+      const bHit = searchContentMatchScore(b, query);
+      if (aHit !== bHit) return bHit - aHit;
+    }
     const kindDiff = searchKindTier(a.kind) - searchKindTier(b.kind);
     if (kindDiff !== 0) return kindDiff;
     if (a.kind === KIND.DIRECTORY && b.kind === KIND.DIRECTORY) {

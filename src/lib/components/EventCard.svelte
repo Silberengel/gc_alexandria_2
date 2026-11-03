@@ -28,7 +28,8 @@
   import { feedThreadPath } from '$lib/feed';
   import { warmNavEvent } from '$lib/nav-warm';
   import { hasNonEmptySelection } from '$lib/pointer-activate';
-  import { withReaderQuote } from '$lib/reader-share-url';
+  import { searchListingFocusQuote, withReaderQuote } from '$lib/reader-share-url';
+
   import { formatAbsoluteTime, formatChatTime, formatRelativeTime } from '$lib/relative-time';
   import type { LivePresencePerson } from '$lib/live-chat';
   import { isMoneroTipEvent, parseZap, tipActorPubkey } from '$lib/zaps';
@@ -70,15 +71,17 @@
       event.kind === KIND.SPEC ||
       event.kind === KIND.LONG_FORM
   );
+  /** Search `?quote=` only for in-document hits — never on bare 30040 title cards. */
+  const listingQuote = $derived(searchListingFocusQuote(event, focusQuote));
   /** Thread path when listing; library/event href for embeds / search docs. */
   const href = $derived.by(() => {
     if (openAsThread && isPubLike) {
       const lib = eventHref(event);
-      if (lib) return withReaderQuote(lib, focusQuote);
+      if (lib) return withReaderQuote(lib, listingQuote);
     }
     if (openAsThread && event.id) return `#${feedThreadPath(event)}`;
     const lib = eventHref(event);
-    if (lib) return withReaderQuote(lib, focusQuote);
+    if (lib) return withReaderQuote(lib, listingQuote);
     return event.id ? `#${feedThreadPath(event)}` : '';
   });
   /**
@@ -136,7 +139,7 @@
       {event}
       {showMenu}
       enlargeOnClick={!openAsThread && !embedded}
-      {focusQuote}
+      focusQuote={listingQuote}
     />
   {:else if event.kind === KIND.PICTURE}
     <div class="result-card-wrap">

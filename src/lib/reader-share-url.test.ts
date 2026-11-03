@@ -4,6 +4,7 @@ import {
   readerFocusQuote,
   readerShareLocation,
   readerShareUrl,
+  searchListingFocusQuote,
   withReaderQuote
 } from './reader-share-url';
 
@@ -89,5 +90,21 @@ describe('readerShareUrl', () => {
     expect(
       readerShareLocation(edition, section, { quote: 'on the whole, sublime' })
     ).toContain('quote=on+the+whole%2C+sublime');
+  });
+
+  it('searchListingFocusQuote skips publication indexes and title-only hits', () => {
+    expect(searchListingFocusQuote(edition, 'Great Expectations')).toBe('');
+    const sectionHit = ev({
+      kind: 30041,
+      content: 'It was the best of times. Great Expectations followed.',
+      tags: [['d', 'ch-1'], ['title', 'I']]
+    });
+    expect(searchListingFocusQuote(sectionHit, 'Great Expectations')).toBe('Great Expectations');
+    const titleOnlyWiki = ev({
+      kind: 30818,
+      content: 'A stub about Dickens.',
+      tags: [['d', 'great-expectations'], ['title', 'Great Expectations']]
+    });
+    expect(searchListingFocusQuote(titleOnlyWiki, 'Great Expectations')).toBe('');
   });
 });

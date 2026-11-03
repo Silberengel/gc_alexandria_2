@@ -7746,11 +7746,21 @@ a.embed-event-line:focus-visible {
   min-width: 12.5rem;
 }
 .details-panel-wrap {
+  /* Profile (and similar) still position .details-toolbar against this wrap. */
   position: relative;
   margin-top: 1rem;
 }
 .details-panel-wrap .accordion {
   margin-top: 0;
+}
+.details-panel-head {
+  /* Publication DetailsPanel: toolbar must sit on the Details summary only —
+     wrapping just that accordion keeps icons from floating up over republish. */
+  position: relative;
+}
+.details-panel-wrap > .details-panel > summary,
+.profile-details-wrap > .details-panel > summary {
+  padding-right: 7.25rem;
 }
 .details-republish {
   margin: 0 0 0.85rem;
@@ -7846,7 +7856,7 @@ a.embed-event-line:focus-visible {
   right: auto;
   z-index: 4;
 }
-.details-panel-wrap > .details-panel > summary {
+.details-panel-head > .details-panel > summary {
   padding-right: 7.25rem;
 }
 .details-export-status,

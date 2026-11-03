@@ -11,7 +11,8 @@
     type ListingTableColumn
   } from '$lib/listing-table';
   import { warmNavEvent } from '$lib/nav-warm';
-  import { withReaderQuote } from '$lib/reader-share-url';
+  import { searchListingFocusQuote, withReaderQuote } from '$lib/reader-share-url';
+
 
   interface Props {
     events: Event[];
@@ -111,7 +112,10 @@
             <td title={row.titleFull !== row.title ? row.titleFull : undefined}>
               {#if row.href}
                 <a
-                  href={withReaderQuote(row.href, focusQuote)}
+                  href={withReaderQuote(
+                    row.href,
+                    ev ? searchListingFocusQuote(ev, focusQuote) : ''
+                  )}
                   use:link
                   onpointerdown={() => warmRow(row.id)}>{row.title}</a
                 >

@@ -22,6 +22,7 @@ Feature: Search
     And kind 30040 results prefer top-level hits and show subindexes only when no top-level 30040 matched
     And replaceable events (kinds 0, 3, and 10000–19999) keep only the newest per kind and pubkey
     And addressable events (kinds 30000–39999) keep only the newest per kind, pubkey, and d-tag
+    And when a free-text query is present, events whose body contains that phrase rank above other hits (before kind tier)
     And when GrapeRank scores are available, search ranks by section boost, then author GrapeRank, then newest created_at
     And when the Trust filter is on and scores hydrated, authors below the GrapeRank minimum are hidden (self and follows never; unknown-rank follows-of-follows soft-pass)
 
@@ -143,7 +144,8 @@ Feature: Search
   Scenario: Search results are ordered
     When a search has more matching cards than one page
     Then later-arriving cards fill remaining slots up to the paging caps
-    And library cards are ordered above specs, then wikis, then profiles, then articles, then other cards
+    And cards whose body contains the free-text query verbatim are ordered above cards that do not
+    And otherwise library cards and sections are ordered above specs, then wikis, then profiles, then articles, then other cards
     And within that, cards whose d-tag equals the query slug (for ?d= / wikilink search) are ordered above other matches
     And within that, publication cards with at least two sections are ordered above publications with fewer
     And within that, higher GrapeRank authors are ordered above lower or unknown when scores are available
@@ -156,6 +158,12 @@ Feature: Search
     And when Trust filter is on, it includes filter:rank:gte with the configured minimum
     And when Trust filter is off, it includes include:spam
     And those Brainstorm extensions are not sent to Mercury or the document/search stack
+
+  Scenario: Search quote focus only for in-document body hits
+    When I open a search result card after a fan-out query
+    Then a 30040 publication index does not get ?quote= even when the query matches its title
+    And a section, wiki, spec, or article only gets ?quote= when its content contains the query
+    And intentional deep links (?section=&quote= or landing View highlight) are unchanged
 
   Scenario: Searching an npub or nprofile opens their profile
     When I search with an npub or nprofile

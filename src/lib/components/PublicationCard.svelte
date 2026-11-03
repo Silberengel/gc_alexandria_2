@@ -10,6 +10,7 @@
   import {
     readerShareLocation,
     readerShareUrl,
+    searchListingFocusQuote,
     withReaderQuote
   } from '$lib/reader-share-url';
   import { warmWikiDeferTarget } from '$lib/wiki-defer';
@@ -114,15 +115,17 @@
   const isSection = $derived(event.kind === KIND.SECTION);
   /** Teaser beside the cover on full listing cards. */
   const summary = $derived(meta.summary?.trim() ?? '');
+  /** Search listings only — never forces ?quote= on title-matched 30040 cards. */
+  const listingQuote = $derived(searchListingFocusQuote(event, focusQuote));
   /** Fallback: section d-path — Publication route promotes it to the parent reader. */
   const href = $derived(
     isSection && sectionEdition
-      ? readerShareLocation(sectionEdition, event, { quote: focusQuote })
-      : withReaderQuote(libraryDocumentPath(event), focusQuote)
+      ? readerShareLocation(sectionEdition, event, { quote: listingQuote })
+      : withReaderQuote(libraryDocumentPath(event), listingQuote)
   );
   const shareUrl = $derived(
     isSection && sectionEdition
-      ? readerShareUrl(sectionEdition, event, { quote: focusQuote })
+      ? readerShareUrl(sectionEdition, event, { quote: listingQuote })
       : ''
   );
   const kindLabel = $derived(
@@ -176,7 +179,7 @@
     if (!isSection || !sectionEdition) return;
     e.preventDefault();
     warmSelf();
-    replace(readerShareLocation(sectionEdition, event, { quote: focusQuote }));
+    replace(readerShareLocation(sectionEdition, event, { quote: listingQuote }));
   }
 </script>
 
