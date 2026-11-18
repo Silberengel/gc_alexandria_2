@@ -185,7 +185,8 @@ describe('publication labels', () => {
     expect(draft.tags).toEqual([
       ['L', NIP32_UGC_NAMESPACE],
       ['l', 'romance', NIP32_UGC_NAMESPACE],
-      ['a', `30040:${pk}:mansfield-park`]
+      ['a', `30040:${pk}:mansfield-park`],
+      ['client', 'Alexandria']
     ]);
     const booklist = publicationLabelDraft(pub);
     expect(booklist.tags.find((t) => t[0] === 'l')?.[1]).toBe(NIP32_BOOKLIST_LABEL);

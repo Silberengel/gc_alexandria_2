@@ -71,8 +71,9 @@ describe('buildBrainstormSearchQuery', () => {
 });
 
 describe('isBrainstormSearchRelay', () => {
-  it('matches the staging Brainstorm host', () => {
+  it('matches the production Brainstorm host', () => {
     expect(isBrainstormSearchRelay('wss://search.brainstorm.world')).toBe(true);
+    expect(isBrainstormSearchRelay('wss://search-staging.brainstorm.world')).toBe(false);
     expect(isBrainstormSearchRelay('wss://thecitadel.nostr1.com')).toBe(false);
   });
 });
@@ -95,7 +96,7 @@ describe('fetchBrainstormNip50Events', () => {
     expect(filters[0]?.search).toContain('aristotle');
   });
 
-  it('requests wiki kinds on the staging Brainstorm relay', async () => {
+  it('requests wiki kinds on the production Brainstorm relay', async () => {
     query.mockResolvedValue([wikiEvent('1'.repeat(64))]);
     const events = await fetchBrainstormNip50Events({
       query: 'aristotle',
@@ -106,7 +107,8 @@ describe('fetchBrainstormNip50Events', () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.kind).toBe(KIND.WIKI);
     const [urls, filters] = query.mock.calls[0] as [string[], { search: string; kinds: number[] }[]];
-    expect(urls[0]).toContain('search-staging.brainstorm.world');
+    expect(urls[0]).toContain('search.brainstorm.world');
+    expect(urls[0]).not.toContain('search-staging');
     expect(filters[0]?.kinds).toEqual([...BRAINSTORM_WIKI_SEARCH_KINDS]);
     expect(filters[0]?.search).toContain('aristotle');
     expect(filters[0]?.search).toContain('include:spam');

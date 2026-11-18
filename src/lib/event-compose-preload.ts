@@ -193,6 +193,7 @@ const COPY_EXCLUDED = new Set<number>([
   1010,
   818,
   819,
+  30045, // directories: Replace from the menu, not generic Clone
   30817,
   30818,
   30819

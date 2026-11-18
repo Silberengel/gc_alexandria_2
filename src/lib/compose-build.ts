@@ -189,6 +189,18 @@ export function buildComposePartial(state: ComposeFormState): {
         return !!name && name !== 'a' && name !== 'e';
       })
     });
+  } else if (
+    kind === KIND.RELAY_LIST ||
+    getKind(kind)?.handler === 'nip65_relay_list'
+  ) {
+    // Public NIP-65 lists leave content empty; private relay items use NIP-44 later.
+    content = '';
+    tags = buildTagsForKind(kind, values, {
+      app: 'alexandria',
+      content: '',
+      hashtags: state.hashtags,
+      freeformTags
+    });
   } else if (isPollComposeKind(kind)) {
     content = scrubProseText(
       state.content?.trim() ? state.content : String(values.content ?? '')

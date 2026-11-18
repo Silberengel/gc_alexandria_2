@@ -170,6 +170,15 @@ function chapterSourceUrl(chapter: Event): string | null {
   return null;
 }
 
+/** Document source URLs — drop trackers and `#fragment` anchors. */
 function cleanSourceUrl(raw: string | undefined): string | null {
-  return cleanTrackingUrl(raw);
+  const cleaned = cleanTrackingUrl(raw);
+  if (!cleaned) return null;
+  try {
+    const url = new URL(cleaned);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return cleaned;
+  }
 }
