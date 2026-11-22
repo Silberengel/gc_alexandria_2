@@ -2976,8 +2976,8 @@
         </div>
 
         {#if editorTab === 'edit'}
+          {#key formResetKey}
           <div class="compose-tab-panel" role="tabpanel">
-            {#key formResetKey}
             {#if kind === 0}
               <div class="compose-field">
                 <ComposeKind0Editor bind:tags={kind0Tags} />
@@ -3353,8 +3353,8 @@
                 {/each}
               </div>
             {/if}
-            {/key}
           </div>
+          {/key}
         {:else if editorTab === 'preview'}
           <div class="compose-tab-panel compose-tab-preview" role="tabpanel">
             {#key `${previewGen}-${kind}`}

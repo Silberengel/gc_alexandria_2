@@ -28,12 +28,14 @@
   import VerseStylingToggle from './VerseStylingToggle.svelte';
   import type { Snippet } from 'svelte';
   import Stars from './Stars.svelte';
-  import { isWikiOrSpecKind } from '$lib/wiki-fork';
+  import { isWikiOrSpecKind, loadWikiForks } from '$lib/wiki-fork';
   import { wikiHubKindLabel } from '$lib/wiki-hub';
   import {
     wikiAliasesFromRedirects,
     type WikiAliasLink
   } from '$lib/wiki-redirect';
+  import { displayTitle, libraryDocumentPath } from '$lib/metadata';
+  import { diffHasChanges, diffLines, type DiffLine } from '$lib/text-diff';
   import { mercuryFilter } from '$lib/nostr/mercury';
   import { relayPool } from '$lib/nostr/pool';
   import { wikiStack } from '$lib/nostr/selector';
@@ -60,6 +62,11 @@
   const showWikiAliases = $derived(isWikiOrSpec);
 
   let wikiAliases = $state<WikiAliasLink[]>([]);
+  let forksFrom = $state<Event | null>(null);
+  let forksFromHref = $state<string | null>(null);
+  let forksOf = $state<Event[]>([]);
+  let forksLoading = $state(false);
+  let forkCompareId = $state<string | null>(null);
   /** Soft-404 / decode failures — hide the remote hero without waiting on confirm. */
   let brokenHeroUrl = $state('');
 
@@ -67,17 +74,46 @@
     const ev = event;
     if (!isWikiOrSpecKind(ev.kind)) {
       wikiAliases = [];
+      forksFrom = null;
+      forksFromHref = null;
+      forksOf = [];
+      forksLoading = false;
+      forkCompareId = null;
       return;
     }
     let cancelled = false;
     wikiAliases = [];
+    forksLoading = true;
+    forksFrom = null;
+    forksFromHref = null;
+    forksOf = [];
+    forkCompareId = null;
     void loadWikiAliases(ev).then((hits) => {
       if (!cancelled) wikiAliases = hits;
+    });
+    void loadWikiForks(ev).then((hit) => {
+      if (cancelled) return;
+      forksFrom = hit.origin;
+      forksFromHref = hit.originHref;
+      forksOf = hit.forks;
+      forksLoading = false;
     });
     return () => {
       cancelled = true;
     };
   });
+
+  function forkHref(ev: Event): string {
+    return `#${libraryDocumentPath(ev)}`;
+  }
+
+  function forkDiffLines(other: Event): DiffLine[] {
+    return diffLines(event.content ?? '', other.content ?? '');
+  }
+
+  function toggleForkCompare(id: string): void {
+    forkCompareId = forkCompareId === id ? null : id;
+  }
 
   async function loadWikiAliases(target: Event): Promise<WikiAliasLink[]> {
     const addr = eventAddress(target);
@@ -186,6 +222,8 @@
   const hasLangTopics = $derived(Boolean(meta.language || meta.subjects.length));
   const hasAliases = $derived(showWikiAliases && wikiAliases.length > 0);
   const hasKinds = $derived(meta.affectedKinds.length > 0);
+  /** Always surface fork rows for wiki/spec — too important to bury in Details. */
+  const hasForkMeta = $derived(isWikiOrSpec);
 
   async function onProvenanceClick(chip: ProvenanceChip): Promise<void> {
     if (!chip.copyText) return;
@@ -198,7 +236,7 @@
 </script>
 
 {#snippet metaTable(includeVerse: boolean)}
-  {#if facts.length || hasKinds || hasLangTopics || hasAliases || meta.provenance.length || (includeVerse && showVerseStyling)}
+  {#if facts.length || hasKinds || hasLangTopics || hasAliases || hasForkMeta || meta.provenance.length || (includeVerse && showVerseStyling)}
     <dl class="edition-facts">
       {#each facts as fact}
         <div class="edition-fact">
@@ -311,6 +349,113 @@
               </dd>
             </div>
           {/if}
+        </div>
+      {/if}
+      {#if hasForkMeta}
+        <div class="edition-fact edition-fact-forks">
+          <dt>Forked from</dt>
+          <dd class="edition-forks">
+            {#if forksLoading && !forksFrom && !forksFromHref}
+              <span class="muted">Looking up origin…</span>
+            {:else if forksFrom || forksFromHref}
+              <div class="edition-fork-row">
+                {#if forksFromHref}
+                  <a
+                    class="edition-fork-title"
+                    href={forksFromHref.startsWith('#') ? forksFromHref : `#${forksFromHref}`}
+                    use:link
+                    >{forksFrom ? displayTitle(forksFrom) : 'Origin article'}</a
+                  >
+                {:else if forksFrom}
+                  <a class="edition-fork-title" href={forkHref(forksFrom)} use:link
+                    >{displayTitle(forksFrom)}</a
+                  >
+                {/if}
+                {#if forksFrom}
+                  <span class="muted">by</span>
+                  <UserBadge pubkey={forksFrom.pubkey} compact />
+                  <button
+                    class="btn edition-fork-compare"
+                    type="button"
+                    aria-expanded={forkCompareId === forksFrom.id}
+                    onclick={() => toggleForkCompare(forksFrom!.id)}
+                    >{forkCompareId === forksFrom.id ? 'Hide differences' : 'Show differences'}</button
+                  >
+                  {#if forkCompareId === forksFrom.id}
+                    {@const lines = forkDiffLines(forksFrom)}
+                    {#if diffHasChanges(lines)}
+                      <pre
+                        class="edition-fork-diff"
+                        aria-label="Diff against origin"
+                      ><code
+                          >{#each lines as line, i (i)}<span
+                              class="diff-line"
+                              class:diff-add={line.type === 'add'}
+                              class:diff-del={line.type === 'del'}
+                              class:diff-same={line.type === 'same'}
+                              >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                        ></pre
+                      >
+                    {:else}
+                      <p class="muted edition-fork-empty">No content differences.</p>
+                    {/if}
+                  {/if}
+                {/if}
+              </div>
+            {:else}
+              <span class="muted">Not a fork of another page</span>
+            {/if}
+          </dd>
+        </div>
+        <div class="edition-fact edition-fact-forks">
+          <dt>Forks of this page</dt>
+          <dd class="edition-forks">
+            {#if forksLoading && !forksOf.length}
+              <span class="muted">Looking up forks…</span>
+            {:else if forksOf.length}
+              <ul class="edition-fork-list">
+                {#each forksOf as fork (fork.id)}
+                  <li class="edition-fork-row">
+                    <a class="edition-fork-title" href={forkHref(fork)} use:link
+                      >{displayTitle(fork)}</a
+                    >
+                    <span class="muted">by</span>
+                    <UserBadge pubkey={fork.pubkey} compact />
+                    <button
+                      class="btn edition-fork-compare"
+                      type="button"
+                      aria-expanded={forkCompareId === fork.id}
+                      onclick={() => toggleForkCompare(fork.id)}
+                      >{forkCompareId === fork.id ? 'Hide differences' : 'Show differences'}</button
+                    >
+                    {#if forkCompareId === fork.id}
+                      {@const lines = forkDiffLines(fork)}
+                      {#if diffHasChanges(lines)}
+                        <pre
+                          class="edition-fork-diff"
+                          aria-label={`Diff against fork ${displayTitle(fork)}`}
+                        ><code
+                            >{#each lines as line, i (i)}<span
+                                class="diff-line"
+                                class:diff-add={line.type === 'add'}
+                                class:diff-del={line.type === 'del'}
+                                class:diff-same={line.type === 'same'}
+                                >{line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}{line.text}
+</span>{/each}</code
+                          ></pre
+                        >
+                      {:else}
+                        <p class="muted edition-fork-empty">No content differences.</p>
+                      {/if}
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <span class="muted">No known forks</span>
+            {/if}
+          </dd>
         </div>
       {/if}
       {#if includeVerse && showVerseStyling}

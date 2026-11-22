@@ -6,6 +6,7 @@ import {
   eventIsWikiForkOf,
   getWikiForkTarget,
   isWikiFork,
+  loadWikiForks,
   uniqueWikiForks,
   wikiForkDraftFrom,
   wikiForkOriginHref
@@ -23,6 +24,11 @@ function ev(partial: Partial<Event> & Pick<Event, 'kind' | 'pubkey'>): Event {
 }
 
 describe('wiki-fork', () => {
+  it('loadWikiForks returns empty for non-wiki kinds', async () => {
+    const hit = await loadWikiForks(ev({ kind: 1, pubkey: 'a'.repeat(64) }));
+    expect(hit).toEqual({ origin: null, originHref: null, forks: [] });
+  });
+
   it('reads fork markers', () => {
     const pk = 'b'.repeat(64);
     const article = ev({

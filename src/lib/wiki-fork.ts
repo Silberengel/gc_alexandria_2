@@ -6,9 +6,21 @@ import {
 import type { ComposeDraftState } from './compose-drafts';
 import { KIND } from './constants';
 import { eventToComposeDraft } from './event-compose-preload';
+import { fetchByAddress, fetchById } from './nostr/fetch';
+import { rememberEvents } from './nostr/event-memory';
+import { mercuryFilter } from './nostr/mercury';
+import { relayPool } from './nostr/pool';
+import { pruneToLatestReplaceables } from './nostr/replaceable';
+import { wikiStack } from './nostr/selector';
 import { eventAddress, firstTag } from './nostr/verify';
 import { publicationCoordinateLookupKeys } from './publication-coordinate';
 import { wikiPathFromCoordinate, type WikiReference } from './wiki-defer';
+
+export type WikiForkLookup = {
+  origin: Event | null;
+  originHref: string | null;
+  forks: Event[];
+};
 
 export function isWikiOrSpecKind(kind: number): boolean {
   return kind === KIND.WIKI || kind === KIND.SPEC;
@@ -55,6 +67,54 @@ export function uniqueWikiForks(candidates: readonly Event[], target: Event): Ev
     if (!prev || event.created_at > prev.created_at) byAuthor.set(pk, event);
   }
   return [...byAuthor.values()].sort((a, b) => b.created_at - a.created_at);
+}
+
+/**
+ * Resolve outbound fork origin + inbound forks for a wiki/spec article.
+ * Mercury first, then wiki relay stack when the index is thin.
+ */
+export async function loadWikiForks(target: Event): Promise<WikiForkLookup> {
+  if (!isWikiOrSpecKind(target.kind)) {
+    return { origin: null, originHref: null, forks: [] };
+  }
+  const addr = eventAddress(target);
+  const dTag = target.tags.find((t) => t[0] === 'd')?.[1];
+  const filters = [
+    { kinds: [KIND.WIKI, KIND.SPEC], '#a': [addr], limit: 40 },
+    { kinds: [KIND.WIKI, KIND.SPEC], '#e': [target.id], limit: 40 },
+    ...(dTag ? [{ kinds: [KIND.WIKI, KIND.SPEC], '#d': [dTag], limit: 40 }] : [])
+  ];
+  const batches = await Promise.all(
+    filters.map((filter) => mercuryFilter(filter).catch(() => [] as Event[]))
+  );
+  const byId = new Map<string, Event>();
+  for (const batch of batches) for (const e of batch) byId.set(e.id, e);
+  if (byId.size < 2) {
+    const relayHits = await relayPool.query(wikiStack(), filters, 4000).catch(() => [] as Event[]);
+    for (const e of relayHits) byId.set(e.id, e);
+  }
+  const candidates = pruneToLatestReplaceables([...byId.values()]);
+  rememberEvents(candidates);
+  const forks = uniqueWikiForks(candidates, target);
+
+  const ref = getWikiForkTarget(target);
+  let origin: Event | null = null;
+  if (ref?.eventId) {
+    origin = await fetchById(ref.eventId, {
+      hintRelays: ref.relayHint ? [ref.relayHint] : undefined
+    });
+  }
+  if (!origin && ref?.coordinate) {
+    origin = await fetchByAddress(ref.coordinate, {
+      hintRelays: ref.relayHint ? [ref.relayHint] : undefined
+    });
+  }
+  if (origin) rememberEvents([origin]);
+  return {
+    origin,
+    originHref: wikiForkOriginHref(origin, ref ?? undefined),
+    forks
+  };
 }
 
 /**
