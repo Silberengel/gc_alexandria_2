@@ -14,10 +14,8 @@ ProxyRequests Off
 ProxyPass        /api/asciidoctor/ https://jumble.imwald.eu/api/asciidoctor/
 ProxyPassReverse /api/asciidoctor/ https://jumble.imwald.eu/api/asciidoctor/
 
-# Open Graph previews — unfold embed/embed (same as Vite /api/og-preview).
-# Also proxied inside the container; Apache path is a belt-and-suspenders option.
-ProxyPass        /api/og-preview https://blog.imwald.eu/og-preview/
-ProxyPassReverse /api/og-preview https://blog.imwald.eu/og-preview/
+# Open Graph previews POST /api/og-preview — handled inside the container
+# (nginx → blog.imwald.eu/og-preview/). Leave on the catch-all below.
 
 # GIF Search (gifs.nostr.build) is proxied inside the container at /api/gifs/
 # with Authorization from GIFS_NOSTR_BUILD_API_KEY — leave this path on the
