@@ -189,10 +189,15 @@ function escapeAttr(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
+/** Escape text for HTML element content (not attributes). */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /** Prose link for a nostrdown / citation inline reference. */
 export function inlineNostrRefHtml(seg: RefSegment): string {
   const label = (seg.displayLabel || seg.bech32).trim() || seg.bech32;
-  return `<a class="nostrdown-ref" href="${escapeAttr(nostrRefHref(seg))}">${escapeAttr(label)}</a>`;
+  return `<a class="nostrdown-ref" href="${escapeAttr(nostrRefHref(seg))}">${escapeHtml(label)}</a>`;
 }
 
 type NostrdownParsed = {
@@ -579,7 +584,7 @@ export function isHtmlEmbeddedInlineRef(seg: RefSegment): boolean {
 function inlineRefAsHtml(seg: RefSegment): string {
   if (isInlineLabeledRef(seg)) return inlineNostrRefHtml(seg);
   if (seg.pubkey) return inlineMentionSlotHtml(seg.pubkey);
-  return escapeAttr(seg.raw);
+  return escapeHtml(seg.raw);
 }
 
 function pushHtmlChunk(segments: RenderSegment[], html: string): void {
