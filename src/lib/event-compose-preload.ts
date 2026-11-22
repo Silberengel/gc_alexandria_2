@@ -1,5 +1,9 @@
 import type { Event } from 'nostr-tools';
-import { composerFieldSpecs, isCatalogued } from '@silberengel/kind-compose-catalog';
+import {
+  composerFieldSpecs,
+  isCatalogued,
+  readNip54Pointer
+} from '@silberengel/kind-compose-catalog';
 import { directoryMembersRawFromTags } from './compose-directory-members';
 import { mutedRawFromTags } from './compose-mute-list';
 import { authorsRawFromTags } from './compose-people-list';
@@ -13,6 +17,7 @@ import {
   contentWarningLabel,
   isContentWarningTagName
 } from './content-warning';
+import { markupFromTags } from './markup';
 import {
   ensureMinPollOptionRows,
   isPollTagName,
@@ -24,6 +29,7 @@ const ALWAYS_SKIP = new Set([
   'published_at',
   'imeta',
   't', // owned by hashtags UI
+  'm', // owned by markup picker / draft.markup
   CONTENT_WARNING_TAG, // owned by content-warning UI
   'option',
   'polltype',
@@ -81,6 +87,35 @@ function publicationSectionsField(event: Event): string {
     .join('\n');
 }
 
+/** Reverse of catalog `spec_k_tags` emit (`k` / `k name`). */
+function specKindsField(event: Event): string {
+  return event.tags
+    .filter((t) => t[0] === 'k' && t[1])
+    .map((t) => {
+      const kindNum = t[1]!.trim();
+      const name = (t[2] ?? '').trim();
+      return name ? `${kindNum} ${name}` : kindNum;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function applyNip54PointerFields(event: Event, values: Record<string, string>): void {
+  for (const marker of ['fork', 'defer'] as const) {
+    const ref = readNip54Pointer(event, marker);
+    if (!ref) continue;
+    if (ref.coordinate) values[`${marker}_a`] = ref.coordinate;
+    if (ref.eventId) values[`${marker}_e`] = ref.eventId;
+  }
+}
+
+function isNip54ForkDeferTag(tag: string[]): boolean {
+  const name = tag[0] ?? '';
+  if (name !== 'a' && name !== 'e') return false;
+  const marker = (tag[3] ?? '').trim();
+  return marker === 'fork' || marker === 'defer';
+}
+
 /**
  * Map an existing event into compose draft fields for Copy / clone.
  * Does not copy id, sig, pubkey, or created_at — those are minted on publish.
@@ -127,6 +162,12 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         for (const name of field.produces ?? ['a', 'e']) consumed.add(name);
         continue;
       }
+      if (field.emit === 'spec_k_tags' || field.id === 'spec_kinds') {
+        const v = specKindsField(event);
+        if (v) values[field.id] = v;
+        consumed.add('k');
+        continue;
+      }
       if (field.emit === 'p_list' || field.id === 'authors') {
         const v = authorsRawFromTags(event.tags);
         if (v) values[field.id] = v;
@@ -152,6 +193,10 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
     consumed.add('e');
   }
 
+  if (event.kind === KIND.WIKI || event.kind === KIND.SPEC) {
+    applyNip54PointerFields(event, values);
+  }
+
   if (event.kind === 1) {
     for (const name of KIND1_SKIP) consumed.add(name);
   }
@@ -165,12 +210,17 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
       if (ALWAYS_SKIP.has(name)) return false;
       if (isContentWarningTagName(name)) return false;
       if (isPollTagName(name)) return false;
+      // Fork/defer a|e already mapped into catalog fields.
+      if (isNip54ForkDeferTag(t)) return false;
       return true;
     })
     .map((t) => [...t]);
 
   const warning = contentWarningLabel(event);
   const poll = pollComposeFieldsFromEvent(event);
+  const taggedMarkup = markupFromTags(event.tags);
+  const markup =
+    taggedMarkup === 'djot' || taggedMarkup === 'asciidoc' ? taggedMarkup : undefined;
 
   return {
     kind: event.kind,
@@ -179,6 +229,7 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
     hashtags,
     imetaTags,
     freeformTags,
+    ...(markup ? { markup } : {}),
     contentWarningEnabled: warning != null,
     contentWarningLabel: warning ?? CONTENT_WARNING_DEFAULT_LABEL,
     pollOptions: ensureMinPollOptionRows(poll.options),

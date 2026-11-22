@@ -323,6 +323,11 @@
   let shortNoteEditSource = $state<NostrEvent | null>(null);
   /** Last `?copy=` / `?edit=` / `?quote=` (etc.) id we applied, so the effect does not loop. */
   let appliedIntentKey = $state<string | null>(null);
+  /**
+   * Bumped on applyDraft / loadKind so catalog inputs remount. `bind:value={values[id]}`
+   * can keep a stale empty DOM value after Replace/Clone swaps the values object.
+   */
+  let formResetKey = $state(0);
   /** True when the form was filled from the viewer's newest replaceable of this kind. */
   let replaceablePreloaded = $state(false);
   /** Fingerprint of the pristine preload; drafts stay off until the form diverges. */
@@ -1141,6 +1146,7 @@
       d.markup === 'djot' || d.markup === 'asciidoc'
         ? d.markup
         : composeMarkupFormat(d.kind, d.content, d.freeformTags);
+    formResetKey += 1;
   }
 
   function clearPublicationManuscriptFields(): void {
@@ -1412,13 +1418,19 @@
 
   async function applyCopyIntent(source: NostrEvent): Promise<void> {
     persistCurrent();
-    shortNoteEditSource = null;
-    const draft = eventToComposeDraft(source);
-    applyDraft(draft);
-    publicationCopyRoot = source.kind === KIND.PUBLICATION ? source : null;
-    formError = '';
-    editorTab = 'edit';
-    bumpPreview();
+    draftPersistSuspended = true;
+    try {
+      shortNoteEditSource = null;
+      markReplaceablePreloaded(false);
+      const draft = eventToComposeDraft(source);
+      applyDraft(draft);
+      publicationCopyRoot = source.kind === KIND.PUBLICATION ? source : null;
+      formError = '';
+      editorTab = 'edit';
+      bumpPreview();
+    } finally {
+      draftPersistSuspended = false;
+    }
   }
 
   /** True while a copied 30040 is still in link mode — form Preview cannot render the tree. */
@@ -1654,6 +1666,7 @@
       const preloaded = await applyReplaceablePreload(nextKind);
       resetEditorMarkup(nextKind, content, freeformTags);
       markReplaceablePreloaded(preloaded);
+      formResetKey += 1;
     } finally {
       draftPersistSuspended = false;
     }
@@ -1743,6 +1756,7 @@
       const preloaded = await applyReplaceablePreload(n);
       resetEditorMarkup(n, content, freeformTags);
       markReplaceablePreloaded(preloaded);
+      formResetKey += 1;
     } finally {
       draftPersistSuspended = false;
     }
@@ -2962,6 +2976,7 @@
 
         {#if editorTab === 'edit'}
           <div class="compose-tab-panel" role="tabpanel">
+            {#key formResetKey}
             {#if kind === 0}
               <div class="compose-field">
                 <ComposeKind0Editor bind:tags={kind0Tags} />
@@ -3337,6 +3352,7 @@
                 {/each}
               </div>
             {/if}
+            {/key}
           </div>
         {:else if editorTab === 'preview'}
           <div class="compose-tab-panel compose-tab-preview" role="tabpanel">

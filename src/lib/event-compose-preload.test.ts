@@ -121,6 +121,44 @@ describe('eventToComposeDraft', () => {
     expect(draft.values.members).toContain(id);
     expect(draft.freeformTags.some((t) => t[0] === 'a')).toBe(false);
   });
+
+  it('maps spec title, summary, d, hashtags, k; peels m into markup', () => {
+    const pk = 'f'.repeat(64);
+    const forkId = 'b'.repeat(64);
+    const draft = eventToComposeDraft(
+      ev({
+        kind: 30817,
+        pubkey: pk,
+        content: '# Animated Media',
+        tags: [
+          ['d', 'animated-media-reaction-clips'],
+          ['title', 'Animated Media (Reaction Clips)'],
+          ['summary', 'Defines a content-addressed event'],
+          ['t', 'gifs'],
+          ['t', 'storage'],
+          ['m', 'text/djot'],
+          ['k', '1111', 'comment'],
+          ['k', '7'],
+          ['a', `30817:${pk}:prior`, '', 'fork'],
+          ['e', forkId, '', 'fork'],
+          ['client', 'Alexandria'],
+          ['custom', 'keep-me']
+        ]
+      })
+    );
+    expect(draft.values.d).toBe('animated-media-reaction-clips');
+    expect(draft.values.title).toBe('Animated Media (Reaction Clips)');
+    expect(draft.values.summary).toBe('Defines a content-addressed event');
+    expect(draft.hashtags).toEqual(['gifs', 'storage']);
+    expect(draft.markup).toBe('djot');
+    expect(draft.values.spec_kinds).toContain('1111 comment');
+    expect(draft.values.spec_kinds).toContain('7');
+    expect(draft.values.fork_a).toBe(`30817:${pk}:prior`);
+    expect(draft.values.fork_e).toBe(forkId);
+    expect(draft.freeformTags).toEqual([['custom', 'keep-me']]);
+    expect(draft.freeformTags.some((t) => t[0] === 'm')).toBe(false);
+    expect(draft.freeformTags.some((t) => t[0] === 'k')).toBe(false);
+  });
 });
 
 describe('canCopy / canEdit / canFork gates', () => {
