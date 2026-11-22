@@ -1,9 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { parseKind0Json } from './kind-compose';
 import { buildKind0TagListFromEvent } from './compose-kind0';
-import { mutedRawFromTags } from './compose-mute-list';
-import { authorsRawFromTags } from './compose-people-list';
-import { KIND } from './constants';
 import { eventToComposeDraft } from './event-compose-preload';
 import { isReplaceableKind } from './nostr/replaceable';
 
@@ -19,7 +16,7 @@ export type ReplaceableComposePreload = {
 
 /**
  * Map a live replaceable event into compose form state.
- * Relay-list / payto / kind-0 keep hand-tuned parsers; everything else uses
+ * Kind 0 keeps a hand-tuned JSON/tag mirror parser; everything else uses
  * {@link eventToComposeDraft}.
  */
 export function valuesFromReplaceableEvent(event: Event): ReplaceableComposePreload {
@@ -40,27 +37,6 @@ export function valuesFromReplaceableEvent(event: Event): ReplaceableComposePrel
       if (v) values[key] = v;
     }
     return { content: '', values, existingKind0: existing, kind0Tags };
-  }
-
-  if (kind === 10133) {
-    const lines = event.tags.filter((t) => t[0] === 'payto').map((t) => t.slice(1).join(' '));
-    return { content: '', values: { payto: lines.join('\n') } };
-  }
-
-  if (kind === KIND.CONTACT_LIST) {
-    return { content: '', values: { authors: authorsRawFromTags(event.tags) } };
-  }
-
-  if (kind === KIND.MUTE) {
-    // Public tags only here; Compose merges decrypted private tags asynchronously.
-    return { content: '', values: { muted: mutedRawFromTags(event.tags, []) } };
-  }
-
-  if (kind === 10002 || kind === 10006 || kind === 10012 || kind === 10243) {
-    const lines = event.tags
-      .filter((t) => t[0] === 'r' || t[0] === 'relay' || t[0] === 'server')
-      .map((t) => t.slice(1).join(' '));
-    return { content: '', values: { relays: lines.join('\n') } };
   }
 
   const draft = eventToComposeDraft(event);

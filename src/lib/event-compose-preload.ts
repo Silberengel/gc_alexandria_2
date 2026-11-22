@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools';
 import {
   composerFieldSpecs,
+  highlightSourceRef,
   isCatalogued,
   readNip54Pointer
 } from '@silberengel/kind-compose-catalog';
@@ -100,6 +101,70 @@ function specKindsField(event: Event): string {
     .join('\n');
 }
 
+/** Reverse of relay_list / relay_list_rw / bare relays textarea. */
+function relayListField(event: Event): string {
+  return event.tags
+    .filter((t) => {
+      const name = t[0] ?? '';
+      return name === 'r' || name === 'relay' || name === 'server';
+    })
+    .map((t) => t.slice(1).join(' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** Reverse of payto_list (`type authority` or payto URI). */
+function paytoListField(event: Event): string {
+  return event.tags
+    .filter((t) => t[0] === 'payto' && t[1])
+    .map((t) => t.slice(1).join(' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function pointerListLines(event: Event, name: 'e' | 'a'): string[] {
+  const lines: string[] = [];
+  for (const t of event.tags) {
+    if (t[0] !== name || !t[1]?.trim()) continue;
+    const value = t[1].trim();
+    const relay = (t[2] ?? '').trim();
+    lines.push(relay ? `${value}|${relay}` : value);
+  }
+  return lines;
+}
+
+/** Reverse of e_list (one id per line, optional `|relay`). */
+function eListField(event: Event): string {
+  return pointerListLines(event, 'e').join('\n');
+}
+
+/** Reverse of a_list (one coordinate per line, optional `|relay`). */
+function aListField(event: Event): string {
+  return pointerListLines(event, 'a').join('\n');
+}
+
+/**
+ * Reverse of bookmark_list. Catalog emit currently builds `e` only; still surface
+ * `a` coordinates so Clone/Replace does not drop article bookmarks from the form.
+ */
+function bookmarkListField(event: Event): string {
+  return [...pointerListLines(event, 'e'), ...pointerListLines(event, 'a')].join('\n');
+}
+
+/** Reverse of highlight_source (HTTP / e / a). */
+function highlightSourceField(event: Event): string {
+  const ref = highlightSourceRef(event);
+  if (!ref) return '';
+  if (ref.type === 'http') return ref.url;
+  if (ref.type === 'event') return ref.eventId;
+  return ref.coordinate;
+}
+
+/** Reverse of web_comment_scope (NIP-22/73 `I` / `i`). */
+function webCommentUrlField(event: Event): string {
+  return tagValue(event, 'I') || tagValue(event, 'i');
+}
+
 function applyNip54PointerFields(event: Event, values: Record<string, string>): void {
   for (const marker of ['fork', 'defer'] as const) {
     const ref = readNip54Pointer(event, marker);
@@ -114,6 +179,14 @@ function isNip54ForkDeferTag(tag: string[]): boolean {
   if (name !== 'a' && name !== 'e') return false;
   const marker = (tag[3] ?? '').trim();
   return marker === 'fork' || marker === 'defer';
+}
+
+function consumeProduces(
+  consumed: Set<string>,
+  field: { produces?: string[] },
+  fallback: string[] = []
+): void {
+  for (const name of field.produces ?? fallback) consumed.add(name);
 }
 
 /**
@@ -131,19 +204,19 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         const v = tagValue(event, field.tag);
         if (v) values[field.id] = v;
         consumed.add(field.tag);
-        for (const name of field.produces ?? []) consumed.add(name);
+        consumeProduces(consumed, field);
         continue;
       }
       if (field.emit === 'publication_author') {
         const v = publicationAuthorField(event);
         if (v) values[field.id] = v;
-        for (const name of field.produces ?? ['author', 'N']) consumed.add(name);
+        consumeProduces(consumed, field, ['author', 'N']);
         continue;
       }
       if (field.emit === 'publication_language') {
         const v = publicationLanguageField(event);
         if (v) values[field.id] = v;
-        for (const name of field.produces ?? ['l', 'L']) consumed.add(name);
+        consumeProduces(consumed, field, ['l', 'L']);
         continue;
       }
       if (field.emit === 'publication_identifiers' || field.id === 'publication_identifiers') {
@@ -159,13 +232,47 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
       ) {
         const v = publicationSectionsField(event);
         if (v) values[field.id] = v;
-        for (const name of field.produces ?? ['a', 'e']) consumed.add(name);
+        consumeProduces(consumed, field, ['a', 'e']);
         continue;
       }
       if (field.emit === 'spec_k_tags' || field.id === 'spec_kinds') {
         const v = specKindsField(event);
         if (v) values[field.id] = v;
         consumed.add('k');
+        continue;
+      }
+      if (
+        field.emit === 'relay_list' ||
+        field.emit === 'relay_list_rw' ||
+        field.id === 'relays'
+      ) {
+        const v = relayListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['r', 'relay', 'server']);
+        continue;
+      }
+      if (field.emit === 'payto_list' || field.id === 'payto') {
+        const v = paytoListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['payto']);
+        continue;
+      }
+      if (field.emit === 'e_list') {
+        const v = eListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['e']);
+        continue;
+      }
+      if (field.emit === 'a_list') {
+        const v = aListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['a']);
+        continue;
+      }
+      if (field.emit === 'bookmark_list') {
+        const v = bookmarkListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['e', 'a', 't', 'r']);
         continue;
       }
       if (field.emit === 'p_list' || field.id === 'authors') {
@@ -178,15 +285,40 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         // Private mute ciphertext needs an async decrypt — public tags only on copy.
         const v = mutedRawFromTags(event.tags, []);
         if (v) values[field.id] = v;
-        for (const name of field.produces ?? ['p', 'e', 'word', 't']) consumed.add(name);
+        consumeProduces(consumed, field, ['p', 'e', 'word', 't']);
         continue;
       }
-      for (const name of field.produces ?? []) consumed.add(name);
+      if (field.emit === 'directory_members' || field.id === 'members') {
+        const v = directoryMembersRawFromTags(event.tags);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['a', 'e']);
+        continue;
+      }
+      if (field.emit === 'highlight_source' || field.id === 'highlight_source') {
+        const v = highlightSourceField(event);
+        if (v) {
+          values[field.id] = v;
+          // Only own source pointers when we mapped one — leave unrelated tags freeform.
+          consumeProduces(consumed, field, ['e', 'a', 'r']);
+        }
+        continue;
+      }
+      if (field.emit === 'web_comment_scope' || field.id === 'web_url') {
+        const v = webCommentUrlField(event);
+        if (v) {
+          values[field.id] = v;
+          // Web-scoped comments only — do not strip event-comment K/k/E/e.
+          consumed.add('I');
+          consumed.add('i');
+        }
+        continue;
+      }
+      // Unknown emit without a tag: do not consume produces (would hide tags from freeform).
     }
   }
 
   // members is catalog `widget: custom` (hidden from composerFieldSpecs) — still preload it.
-  if (event.kind === KIND.DIRECTORY) {
+  if (event.kind === KIND.DIRECTORY && !values.members) {
     const v = directoryMembersRawFromTags(event.tags);
     if (v) values.members = v;
     consumed.add('a');

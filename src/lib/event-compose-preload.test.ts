@@ -159,6 +159,165 @@ describe('eventToComposeDraft', () => {
     expect(draft.freeformTags.some((t) => t[0] === 'm')).toBe(false);
     expect(draft.freeformTags.some((t) => t[0] === 'k')).toBe(false);
   });
+
+  it('maps relay lists with read/write markers', () => {
+    const draft = eventToComposeDraft(
+      ev({
+        kind: 10002,
+        pubkey: 'f'.repeat(64),
+        tags: [
+          ['r', 'wss://relay.example'],
+          ['r', 'wss://read.example', 'read']
+        ]
+      })
+    );
+    expect(draft.values.relays).toContain('wss://relay.example');
+    expect(draft.values.relays).toContain('wss://read.example read');
+  });
+
+  it('maps favorite / search / blocked relay tags into relays', () => {
+    for (const kind of [10006, 10007, 10012] as const) {
+      const draft = eventToComposeDraft(
+        ev({
+          kind,
+          pubkey: 'f'.repeat(64),
+          tags: [['relay', 'wss://list.example']]
+        })
+      );
+      expect(draft.values.relays).toBe('wss://list.example');
+    }
+  });
+
+  it('maps HTTP relay r-tags and payto rows', () => {
+    const relays = eventToComposeDraft(
+      ev({
+        kind: 10243,
+        pubkey: 'f'.repeat(64),
+        tags: [['r', 'https://http.example']]
+      })
+    );
+    expect(relays.values.relays).toBe('https://http.example');
+
+    const payto = eventToComposeDraft(
+      ev({
+        kind: 10133,
+        pubkey: 'f'.repeat(64),
+        tags: [
+          ['payto', 'lightning', 'a@b.com'],
+          ['payto', 'monero', '4abc']
+        ]
+      })
+    );
+    expect(payto.values.payto).toBe('lightning a@b.com\nmonero 4abc');
+  });
+
+  it('maps bookmark and e-list curation sets', () => {
+    const pk = 'f'.repeat(64);
+    const eid = 'b'.repeat(64);
+    const coord = `30023:${pk}:article`;
+    const bookmarks = eventToComposeDraft(
+      ev({
+        kind: 30003,
+        pubkey: pk,
+        tags: [
+          ['d', 'reading'],
+          ['title', 'Reading'],
+          ['e', eid, 'wss://hint.example'],
+          ['a', coord]
+        ]
+      })
+    );
+    expect(bookmarks.values.d).toBe('reading');
+    expect(bookmarks.values.title).toBe('Reading');
+    expect(bookmarks.values.bookmarks).toContain(`${eid}|wss://hint.example`);
+    expect(bookmarks.values.bookmarks).toContain(coord);
+
+    const videos = eventToComposeDraft(
+      ev({
+        kind: 30005,
+        pubkey: pk,
+        tags: [
+          ['d', 'clips'],
+          ['e', eid]
+        ]
+      })
+    );
+    expect(videos.values.items).toBe(eid);
+  });
+
+  it('maps highlight source and web comment URL', () => {
+    const eid = 'c'.repeat(64);
+    const highlight = eventToComposeDraft(
+      ev({
+        kind: 9802,
+        pubkey: 'f'.repeat(64),
+        content: 'quoted',
+        tags: [
+          ['e', eid],
+          ['context', 'surrounding']
+        ]
+      })
+    );
+    expect(highlight.values.highlight_source).toBe(eid);
+    expect(highlight.values.highlight_context).toBe('surrounding');
+
+    const web = eventToComposeDraft(
+      ev({
+        kind: 1111,
+        pubkey: 'f'.repeat(64),
+        content: 'nice page',
+        tags: [
+          ['I', 'https://example.com/page'],
+          ['i', 'https://example.com/page'],
+          ['K', 'web'],
+          ['k', 'web']
+        ]
+      })
+    );
+    expect(web.values.web_url).toBe('https://example.com/page');
+  });
+
+  it('maps long-form and citation tag fields', () => {
+    const article = eventToComposeDraft(
+      ev({
+        kind: KIND.LONG_FORM,
+        pubkey: 'f'.repeat(64),
+        content: 'body',
+        tags: [
+          ['d', 'post'],
+          ['title', 'Hello'],
+          ['summary', 'blurb'],
+          ['image', 'https://img.example/a.png'],
+          ['t', 'essays']
+        ]
+      })
+    );
+    expect(article.values).toMatchObject({
+      d: 'post',
+      title: 'Hello',
+      summary: 'blurb',
+      image: 'https://img.example/a.png'
+    });
+    expect(article.hashtags).toEqual(['essays']);
+
+    const cite = eventToComposeDraft(
+      ev({
+        kind: 31,
+        pubkey: 'f'.repeat(64),
+        content: 'notes',
+        tags: [
+          ['u', 'https://docs.example'],
+          ['title', 'Docs'],
+          ['author', 'Ada'],
+          ['accessed_on', '01.01.2024']
+        ]
+      })
+    );
+    expect(cite.values.u).toBe('https://docs.example');
+    expect(cite.values.title).toBe('Docs');
+    expect(cite.values.author).toBe('Ada');
+    expect(cite.values.accessed_on).toBe('01.01.2024');
+  });
 });
 
 describe('canCopy / canEdit / canFork gates', () => {
