@@ -107,8 +107,9 @@
     return `#${libraryDocumentPath(ev)}`;
   }
 
-  function forkDiffLines(other: Event): DiffLine[] {
-    return diffLines(event.content ?? '', other.content ?? '');
+  /** before → after: green = added in after, red = removed from before. */
+  function forkDiffLines(before: Event, after: Event): DiffLine[] {
+    return diffLines(before.content ?? '', after.content ?? '');
   }
 
   function toggleForkCompare(id: string): void {
@@ -382,11 +383,11 @@
                     >{forkCompareId === forksFrom.id ? 'Hide differences' : 'Show differences'}</button
                   >
                   {#if forkCompareId === forksFrom.id}
-                    {@const lines = forkDiffLines(forksFrom)}
+                    {@const lines = forkDiffLines(forksFrom, event)}
                     {#if diffHasChanges(lines)}
                       <pre
                         class="edition-fork-diff"
-                        aria-label="Diff against origin"
+                        aria-label="Diff from origin to this page"
                       ><code
                           >{#each lines as line, i (i)}<span
                               class="diff-line"
@@ -430,11 +431,11 @@
                       >{forkCompareId === fork.id ? 'Hide differences' : 'Show differences'}</button
                     >
                     {#if forkCompareId === fork.id}
-                      {@const lines = forkDiffLines(fork)}
+                      {@const lines = forkDiffLines(event, fork)}
                       {#if diffHasChanges(lines)}
                         <pre
                           class="edition-fork-diff"
-                          aria-label={`Diff against fork ${displayTitle(fork)}`}
+                          aria-label={`Diff from this page to fork ${displayTitle(fork)}`}
                         ><code
                             >{#each lines as line, i (i)}<span
                                 class="diff-line"
