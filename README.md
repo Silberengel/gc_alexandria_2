@@ -58,6 +58,9 @@ Without the shard files, the manifest still names them, so the reader treats the
 - `/seeds/` and `/assets/` must 404 when missing. A shard that returns `index.html` is parsed as verse data.
 - `Cache-Control: no-cache` on `index.html`, `sw.js`, and `/seeds/manifest.json`. Long cache on the shard files (`?v=` is already on those URLs).
 - EPUB and PDF use `VITE_ASCIIDOCTOR_SERVER_URL` when set. Otherwise proxy `/api/asciidoctor/`.
+- GIF Search (gifs.nostr.build) uses same-origin `/api/gifs/`. Set `GIFS_NOSTR_BUILD_API_KEY`
+  (`gnb_…`, same as imwald-android `gifs.nostr.build.apiKey`) in `.env` for `npm run dev`
+  and in the prod compose env. The proxy adds `Authorization: Bearer` and strips Origin.
 
 ## Related
 

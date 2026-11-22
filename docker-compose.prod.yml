@@ -12,6 +12,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:9071:80"
+    # GIF Search tab (gifs.nostr.build). Set in /opt/gc-alexandria-2/.env — never commit.
+    environment:
+      GIFS_NOSTR_BUILD_API_KEY: ${GIFS_NOSTR_BUILD_API_KEY:-}
     networks:
       - default
       - wikistr-network

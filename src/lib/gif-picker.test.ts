@@ -3,6 +3,7 @@ import {
   buildReactionClipDraft,
   dedupeGifItems,
   gifItemFromEvent,
+  gifItemFromNostrBuild,
   imetaFromGifItem,
   normalizeReactionEmotions,
   sortGifItemsForPicker,
@@ -48,6 +49,29 @@ describe('dedupeGifItems / sortGifItemsForPicker', () => {
     ]);
     expect(out).toHaveLength(1);
     expect(out[0]?.eventId).toBe('new');
+  });
+
+  it('dedupes by sha256 across different URLs', () => {
+    const hash = 'ab'.repeat(32);
+    const out = dedupeGifItems([
+      item({
+        url: `https://cdn.example/${hash}.gif`,
+        sha256: hash,
+        createdAt: 1,
+        eventId: 'old',
+        sourceKind: 0
+      }),
+      item({
+        url: `https://mirror.example/blob/${hash}`,
+        sha256: hash,
+        createdAt: 2,
+        eventId: 'new',
+        sourceKind: KIND.REACTION_CLIP
+      })
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.eventId).toBe('new');
+    expect(out[0]?.sourceKind).toBe(KIND.REACTION_CLIP);
   });
 
   it('sorts viewer clips first then by recency', () => {
@@ -98,6 +122,27 @@ describe('imetaFromGifItem / buildReactionClipDraft', () => {
     expect(draft!.tags).toContainEqual(['L', 'emotion']);
     expect(draft!.tags).toContainEqual(['l', 'joy', 'emotion']);
     expect(draft!.tags).toContainEqual(['t', 'gif']);
+  });
+});
+
+describe('gifItemFromNostrBuild', () => {
+  it('maps search pick fields for compose insert', () => {
+    const hash = 'cd'.repeat(32);
+    const item = gifItemFromNostrBuild({
+      id: `${hash}.gif`,
+      url: `https://gifs.nostr.build/${hash}.gif`,
+      width: 10,
+      height: 20,
+      bytes: 99,
+      format: 'webp',
+      title: 'wave',
+      mp4: `https://gifs.nostr.build/mp4/orig/${hash}.gif`
+    });
+    expect(item.sha256).toBe(hash);
+    expect(item.mimeType).toBe('image/webp');
+    expect(item.dim).toBe('10x20');
+    expect(item.description).toBe('wave');
+    expect(item.sourceKind).toBe(0);
   });
 });
 

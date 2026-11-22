@@ -69,6 +69,23 @@ server {
         client_max_body_size 32m;
     }
 
+    # gifs.nostr.build search (imwald-android Search tab). Authorization is injected
+    # from GIFS_NOSTR_BUILD_API_KEY (see Dockerfile envsubst + docker-compose.prod.yml).
+    # Origin/Referer stripped so the API treats us like a native client.
+    location /api/gifs/ {
+        set $gifs_upstream https://gifs.nostr.build;
+        rewrite ^/api/gifs/?(.*)$ /api/v1/$1 break;
+        proxy_pass $gifs_upstream;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_set_header Host gifs.nostr.build;
+        proxy_set_header Authorization "Bearer ${GIFS_NOSTR_BUILD_API_KEY}";
+        proxy_set_header Origin "";
+        proxy_set_header Referer "";
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
     # Hash-routed SPA: unknown paths fall back to index.html
     location / {
         try_files $uri $uri/ /index.html;

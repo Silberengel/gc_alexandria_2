@@ -1,10 +1,16 @@
 /**
  * Kind 1090 reaction-clip catalog (Find) + draft builder for Import.
  * Matches Imwald: insert URL + imeta; never re-upload Find picks.
+ * Search tab uses gifs.nostr.build (see gifs-nostr-build.ts).
  */
-import type { Event } from 'nostr-tools';
+import type { Event, Filter } from 'nostr-tools';
 import { KIND } from './constants';
 import { cleanTrackingUrl } from './clean-url';
+import {
+  mimeFromGifFormat,
+  sha256OfNostrBuildGif,
+  type NostrBuildGif
+} from './gifs-nostr-build';
 import { relayPool } from './nostr/pool';
 import { socialStack } from './nostr/selector';
 import { withClientTag } from './sign';
@@ -119,10 +125,21 @@ export function gifItemFromEvent(event: Event): GifPickerItem | null {
     }
   }
   if (!url || !/^https?:\/\//i.test(url)) return null;
+  let hash = sha.toLowerCase();
+  if (!SHA256_HEX.test(hash)) {
+    // Fall back to `<sha256>.<ext>` in the path (common on blossom / gifs.nostr.build).
+    try {
+      const leaf = new URL(url).pathname.split('/').pop() ?? '';
+      const stem = leaf.replace(/\.[^.]+$/, '').trim().toLowerCase();
+      hash = SHA256_HEX.test(stem) ? stem : '';
+    } catch {
+      hash = '';
+    }
+  }
   return {
     url: cleanTrackingUrl(url) || url,
     description: alt || undefined,
-    sha256: SHA256_HEX.test(sha.toLowerCase()) ? sha.toLowerCase() : undefined,
+    sha256: hash || undefined,
     mimeType: mime || 'image/gif',
     dim: dim || undefined,
     size,
@@ -133,32 +150,48 @@ export function gifItemFromEvent(event: Event): GifPickerItem | null {
   };
 }
 
-/** Deduplicate by normalized URL, then by sha256. Prefer newer created_at. */
+function reactionClipPriority(kind: number): number {
+  // Prefer kind 1090 over imported/hosted placeholders (sourceKind 0).
+  if (kind === KIND.REACTION_CLIP) return 4;
+  if (kind === 1063) return 3;
+  if (kind === 1111) return 2;
+  return 1;
+}
+
+function shouldPreferGifItem(candidate: GifPickerItem, existing: GifPickerItem): boolean {
+  const cp = reactionClipPriority(candidate.sourceKind);
+  const ep = reactionClipPriority(existing.sourceKind);
+  if (cp !== ep) return cp > ep;
+  return candidate.createdAt > existing.createdAt;
+}
+
+/**
+ * Deduplicate by normalized URL, then by sha256 (`x`).
+ * Same blob on two URLs collapses to one row (prefer reaction-clip / newer).
+ */
 export function dedupeGifItems(items: readonly GifPickerItem[]): GifPickerItem[] {
   const byUrl = new Map<string, GifPickerItem>();
-  const byHash = new Map<string, GifPickerItem>();
   for (const item of items) {
     const urlKey = normalizeUrl(item.url).toLowerCase();
-    const prevUrl = byUrl.get(urlKey);
-    if (!prevUrl || item.createdAt > prevUrl.createdAt) byUrl.set(urlKey, item);
-    if (item.sha256) {
-      const prevHash = byHash.get(item.sha256);
-      if (!prevHash || item.createdAt > prevHash.createdAt) byHash.set(item.sha256, item);
-    }
+    if (!urlKey) continue;
+    const prev = byUrl.get(urlKey);
+    if (!prev || shouldPreferGifItem(item, prev)) byUrl.set(urlKey, item);
   }
   const out: GifPickerItem[] = [];
-  const seen = new Set<string>();
+  const byHash = new Map<string, number>();
   for (const item of byUrl.values()) {
-    const key = item.sha256 ? `x:${item.sha256}` : `u:${normalizeUrl(item.url).toLowerCase()}`;
-    if (seen.has(key)) continue;
-    // Prefer hash-winner when URL and hash collide on different rows.
-    const preferred = item.sha256 ? (byHash.get(item.sha256) ?? item) : item;
-    const prefKey = preferred.sha256
-      ? `x:${preferred.sha256}`
-      : `u:${normalizeUrl(preferred.url).toLowerCase()}`;
-    if (seen.has(prefKey)) continue;
-    seen.add(prefKey);
-    out.push(preferred);
+    const hash = item.sha256?.trim().toLowerCase();
+    if (!hash || !SHA256_HEX.test(hash)) {
+      out.push(item);
+      continue;
+    }
+    const idx = byHash.get(hash);
+    if (idx == null) {
+      byHash.set(hash, out.length);
+      out.push(item);
+      continue;
+    }
+    if (shouldPreferGifItem(item, out[idx]!)) out[idx] = item;
   }
   return out;
 }
@@ -188,6 +221,25 @@ export function imetaFromGifItem(item: GifPickerItem): string[] {
   if (item.size != null && item.size > 0) parts.push(`size ${item.size}`);
   if (item.description?.trim()) parts.push(`alt ${item.description.trim()}`);
   return parts;
+}
+
+/** Map a gifs.nostr.build Search pick into the shared picker item shape. */
+export function gifItemFromNostrBuild(gif: NostrBuildGif): GifPickerItem {
+  const hash = sha256OfNostrBuildGif(gif);
+  const dim =
+    gif.width > 0 && gif.height > 0 ? `${gif.width}x${gif.height}` : undefined;
+  return {
+    url: gif.url.trim(),
+    description: (gif.title ?? '').trim() || undefined,
+    sha256: hash,
+    mimeType: mimeFromGifFormat(gif.format),
+    dim,
+    size: gif.bytes != null && gif.bytes > 0 ? Number(gif.bytes) : undefined,
+    sourceKind: 0,
+    eventId: '',
+    pubkey: '',
+    createdAt: Math.floor(Date.now() / 1000)
+  };
 }
 
 export function buildReactionClipDraft(opts: {
@@ -261,9 +313,7 @@ export async function loadReactionClips(opts: {
   const relays = pickerRelays();
   if (!relays.length) return [];
 
-  const filters: Array<Record<string, unknown>> = [
-    { kinds: [KIND.REACTION_CLIP], limit: 200 }
-  ];
+  const filters: Filter[] = [{ kinds: [KIND.REACTION_CLIP], limit: 200 }];
   if (viewer) {
     filters.push({ kinds: [KIND.REACTION_CLIP], authors: [viewer], limit: 120 });
     const follows = (opts.followPubkeys ?? [])

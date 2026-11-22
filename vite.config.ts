@@ -78,6 +78,13 @@ export default defineConfig(({ mode }) => {
       ogPreviewTarget = 'https://blog.imwald.eu';
     }
   }
+  // gifs.nostr.build — native clients send Authorization: Bearer gnb_… and no Origin.
+  // Same-origin `/api/gifs` injects the key so the browser never needs CORS.
+  const gifsApiKey = (
+    fileEnv.GIFS_NOSTR_BUILD_API_KEY ||
+    fileEnv.VITE_GIFS_NOSTR_BUILD_API_KEY ||
+    ''
+  ).trim();
 
   return {
   define: {
@@ -210,6 +217,32 @@ export default defineConfig(({ mode }) => {
             if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
               res.writeHead(502, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'asciidoctor unavailable', detail: msg }));
+            }
+          });
+        }
+      },
+      // gifs.nostr.build search / suggest (imwald-android NostrBuildGifsApi).
+      '/api/gifs': {
+        target: 'https://gifs.nostr.build',
+        changeOrigin: true,
+        agent: ipv4Https,
+        timeout: 15_000,
+        proxyTimeout: 15_000,
+        rewrite: (path) => path.replace(/^\/api\/gifs/, '/api/v1'),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // Native clients omit Origin; strip so the API does not CORS-reject.
+            proxyReq.removeHeader('origin');
+            proxyReq.removeHeader('referer');
+            if (gifsApiKey) {
+              proxyReq.setHeader('Authorization', `Bearer ${gifsApiKey}`);
+            }
+          });
+          proxy.on('error', (err, _req, res) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (res && 'writeHead' in res && typeof res.writeHead === 'function' && !res.headersSent) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: { message: 'GIF search unavailable', detail: msg } }));
             }
           });
         }

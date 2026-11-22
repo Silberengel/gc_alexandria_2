@@ -25,7 +25,10 @@ LABEL org.opencontainers.image.title="gc-alexandria-2" \
   org.opencontainers.image.source="https://github.com/Silberengel/gc_alexandria_2"
 
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY deploy/nginx-default.conf /etc/nginx/conf.d/default.conf
+# envsubst only rewrites GIFS_NOSTR_BUILD_API_KEY; other $nginx vars stay intact.
+COPY deploy/nginx-default.conf.template /etc/nginx/templates/default.conf.template
+ENV NGINX_ENVSUBST_FILTER=GIFS_NOSTR_BUILD_API_KEY
+ENV GIFS_NOSTR_BUILD_API_KEY=
 
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
