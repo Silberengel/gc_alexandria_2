@@ -86,6 +86,19 @@ server {
         proxy_send_timeout 20s;
     }
 
+    # Open Graph cards — same contract as Vite `/api/og-preview` → unfold `/og-preview/`.
+    # Without this, POST hits try_files and nginx returns 405 for the SPA shell.
+    location = /api/og-preview {
+        set $og_upstream https://blog.imwald.eu;
+        proxy_pass $og_upstream/og-preview/;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_set_header Host blog.imwald.eu;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 8s;
+        proxy_send_timeout 8s;
+    }
+
     # Hash-routed SPA: unknown paths fall back to index.html
     location / {
         try_files $uri $uri/ /index.html;
