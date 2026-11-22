@@ -1,10 +1,11 @@
 import type { Event } from 'nostr-tools';
 import { KIND } from './constants';
 import { displayTitle, hasPublicationSection, libraryDocumentPath } from './metadata';
-import { mercuryPublicationSearch } from './nostr/mercury';
+import { mercuryFilter, mercuryPublicationSearch } from './nostr/mercury';
 import { cachedEventsByKind } from './nostr/cache';
 import { memoryEventsByKind, rememberEvents } from './nostr/event-memory';
 import { relayPool } from './nostr/pool';
+import { relayTagSlug } from './nostr/relay-filters';
 import { pruneToLatestReplaceables } from './nostr/replaceable';
 import { documentStack } from './nostr/selector';
 import { firstTag, isTopLevel30040 } from './nostr/verify';
@@ -123,18 +124,28 @@ export async function pickRandomCatalogPage(kind: CatalogHubKind): Promise<Event
   return list[Math.floor(Math.random() * list.length)] ?? null;
 }
 
-function catalogMatchesQuery(event: Event, query: string): boolean {
-  const q = query.trim().toLowerCase();
+/** Title / d-tag / body match (normalized d + title substring, like wiki hub). */
+export function catalogMatchesQuery(event: Event, query: string): boolean {
+  const q = query.trim();
   if (!q) return true;
-  const title = displayTitle(event).toLowerCase();
-  if (title.includes(q)) return true;
-  const d = (firstTag(event, 'd') ?? '').toLowerCase();
-  if (d.includes(q) || normalizeDTag(q) === d) return true;
+  const raw = q.toLowerCase();
+  const needle = normalizeDTag(q) || raw;
+  const title = displayTitle(event);
+  const titleLower = title.toLowerCase();
+  if (titleLower.includes(raw)) return true;
+  const titleNorm = normalizeDTag(title);
+  if (titleNorm && needle && titleNorm.includes(needle)) return true;
+  const d = normalizeDTag(firstTag(event, 'd') ?? '') || (firstTag(event, 'd') ?? '').toLowerCase();
+  if (d && needle && (d === needle || d.includes(needle))) return true;
   const body = (event.content ?? '').toLowerCase();
-  return body.includes(q);
+  return body.includes(raw);
 }
 
-/** Title / d-tag / body search for a single catalog kind. */
+/**
+ * Title / d-tag / body search for a single catalog kind.
+ * Exact `#d` / `#title` / `#T` alone miss substring titles — also scan memory/cache,
+ * relay NIP-50, Mercury bare `q` (publications), and Mercury `#d`/`#T` filters.
+ */
 export async function searchCatalogHub(
   kind: CatalogHubKind,
   query: string,
@@ -144,11 +155,15 @@ export async function searchCatalogHub(
   if (!q || !isCatalogKind(kind)) return [];
   const slug = normalizeDTag(q);
   const variants = dTagVariants(slug || q);
-  const dFilter = { kinds: [kind], '#d': variants.length ? variants : [slug || q], limit };
+  const titleSlug = relayTagSlug(q);
+  const dValues = variants.length ? variants : [slug || q];
+  const dFilter = { kinds: [kind], '#d': dValues, limit };
   const titleFilter = { kinds: [kind], '#title': [q], limit };
+  const tFilter = titleSlug ? { kinds: [kind], '#T': [titleSlug], limit } : null;
   const searchFilter = { kinds: [kind], search: q, limit };
 
   const batches: Promise<Event[]>[] = [
+    Promise.resolve(memoryEventsByKind(kind)),
     cachedEventsByKind(kind).catch(() => [] as Event[]),
     relayPool
       .query(documentStack(), [dFilter], 4000, 4, undefined, {
@@ -167,12 +182,26 @@ export async function searchCatalogHub(
         priority: true,
         includeCooling: true
       })
-      .catch(() => [] as Event[])
+      .catch(() => [] as Event[]),
+    mercuryFilter(dFilter).catch(() => [] as Event[])
   ];
+  if (tFilter) {
+    batches.push(
+      relayPool
+        .query(documentStack(), [tFilter], 4000, 4, undefined, {
+          priority: true,
+          includeCooling: true
+        })
+        .catch(() => [] as Event[]),
+      mercuryFilter(tFilter).catch(() => [] as Event[])
+    );
+  }
   if (kind === KIND.PUBLICATION && q.length >= 2) {
     batches.push(
       mercuryPublicationSearch({ q, title: q, limit }).catch(() => [] as Event[]),
-      mercuryPublicationSearch({ q, d: slug || q, limit }).catch(() => [] as Event[])
+      mercuryPublicationSearch({ q, d: slug || q, limit }).catch(() => [] as Event[]),
+      // Bare `q` finds substring title hits; catalogMatchesQuery keeps body hits too.
+      mercuryPublicationSearch({ q, limit }).catch(() => [] as Event[])
     );
   }
 

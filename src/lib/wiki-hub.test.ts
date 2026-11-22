@@ -267,7 +267,7 @@ describe('wiki-hub helpers', () => {
     expect(sorted.map((e) => e.id)).toEqual([exactD.id, weak.id, titleHit.id]);
   });
 
-  it('searchWikiHub queries Mercury title/d only and filters body hits', async () => {
+  it('searchWikiHub keeps title/d hits and drops body-only Mercury rows', async () => {
     const mercury = await import('./nostr/mercury');
     const bodyHit = ev({
       id: '8'.repeat(64),
@@ -279,23 +279,37 @@ describe('wiki-hub helpers', () => {
       tags: [['d', 'amethyst'], ['title', 'Amethyst']],
       created_at: 5
     });
+    const titleSubstring = ev({
+      id: 'a'.repeat(64),
+      kind: KIND.SPEC,
+      tags: [
+        ['d', 'animated-media-reaction-clips'],
+        ['title', 'Animated Media (Reaction Clips)']
+      ],
+      created_at: 4
+    });
     vi.mocked(mercury.mercuryWikiSearch).mockImplementation(async (query) => {
       if (query.d) return [dHit, bodyHit];
       if (query.title) return [bodyHit];
-      return [bodyHit];
+      // Bare `q` may return body hits and title-substring hits.
+      return [bodyHit, titleSubstring];
     });
-    const { searchWikiHub } = await import('./wiki-hub');
+    const { searchWikiHub, wikiHubMatchesQuery } = await import('./wiki-hub');
+    expect(wikiHubMatchesQuery(titleSubstring, 'reaction')).toBe(true);
     const hits = await searchWikiHub('amethyst');
     expect(hits.map((e) => e.id)).toEqual([dHit.id]);
-    expect(vi.mocked(mercury.mercuryWikiSearch).mock.calls.every((c) => c[0].title || c[0].d)).toBe(
-      true
-    );
     expect(vi.mocked(mercury.mercuryWikiSearch).mock.calls.some((c) => c[0].title && !c[0].d)).toBe(
       true
     );
     expect(vi.mocked(mercury.mercuryWikiSearch).mock.calls.some((c) => c[0].d && !c[0].title)).toBe(
       true
     );
+    expect(
+      vi.mocked(mercury.mercuryWikiSearch).mock.calls.some((c) => !c[0].title && !c[0].d && c[0].q)
+    ).toBe(true);
+
+    const reactionHits = await searchWikiHub('reaction');
+    expect(reactionHits.map((e) => e.id)).toEqual([titleSubstring.id]);
   });
 
   it('searchWikiHub resolves alias redirects into target articles and ranks them highly', async () => {

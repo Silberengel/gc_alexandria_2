@@ -14,20 +14,24 @@ export function attachInlineMentions(root: HTMLElement): () => void {
     if (slot.dataset.mentionMounted === '1') continue;
     const pubkey = (slot.getAttribute('data-nostr-pubkey') ?? '').trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(pubkey)) continue;
-    slot.dataset.mentionMounted = '1';
-    slot.replaceChildren();
-    const ui = mount(UserBadge, {
-      target: slot,
-      props: { pubkey, compact: true }
-    });
-    cleanups.push(() => {
-      try {
-        unmount(ui);
-      } catch {
-        /* already gone */
-      }
+    try {
+      slot.replaceChildren();
+      const ui = mount(UserBadge, {
+        target: slot,
+        props: { pubkey, compact: true }
+      });
+      slot.dataset.mentionMounted = '1';
+      cleanups.push(() => {
+        try {
+          unmount(ui);
+        } catch {
+          /* already gone */
+        }
+        delete slot.dataset.mentionMounted;
+      });
+    } catch {
       delete slot.dataset.mentionMounted;
-    });
+    }
   }
   return () => {
     for (const stop of cleanups) stop();

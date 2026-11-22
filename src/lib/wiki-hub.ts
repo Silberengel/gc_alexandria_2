@@ -320,12 +320,31 @@ export async function pickRandomWikiPage(): Promise<Event | null> {
  * Wiki/spec search for the wiki hub page: d-tag and title (30818 / 30817),
  * plus kind-30819 aliases that resolve to those articles.
  * Ranked by match relevance then grapevine pubkey rank.
+ *
+ * Relays only match exact `#d` / `#T`, so substring title hits (e.g. query
+ * "reaction" → "Animated Media (Reaction Clips)") need Mercury `q` and/or the
+ * local cache/memory corpus. Results are still filtered to title/d matches —
+ * body-only hits are dropped.
  */
 export async function searchWikiHub(q: string, limit = 60): Promise<Event[]> {
   const query = q.trim();
   if (!query) return [];
   const cacheKey = `wiki-search:${query.toLowerCase()}:${limit}`;
   return wikiHubSearchCache.getOrLoad(cacheKey, () => searchWikiHubUncached(query, limit));
+}
+
+/** Session memory + client cache — catches just-published pages relays miss on exact tags. */
+async function localWikiCorpus(): Promise<Event[]> {
+  const [wikiCached, specCached] = await Promise.all([
+    cachedEventsByKind(KIND.WIKI).catch(() => [] as Event[]),
+    cachedEventsByKind(KIND.SPEC).catch(() => [] as Event[])
+  ]);
+  return [
+    ...memoryEventsByKind(KIND.WIKI),
+    ...memoryEventsByKind(KIND.SPEC),
+    ...wikiCached,
+    ...specCached
+  ];
 }
 
 async function searchWikiHubUncached(query: string, limit: number): Promise<Event[]> {
@@ -362,23 +381,27 @@ async function searchWikiHubUncached(query: string, limit: number): Promise<Even
   ]).then((batches) => batches.flat());
 
   const aliasesP = resolveWikiAliasArticles(query, limit);
+  const localP = localWikiCorpus();
 
-  // Mercury `/api/wiki/search` requires `q` (min 2). Pass title/d so we do not
-  // pull body/content hits — bare `q` alone matches article text.
+  // Mercury `/api/wiki/search` requires `q` (min 2). Title/d refine exact fields;
+  // bare `q` finds substring title hits Mercury indexes — wikiHubMatchesQuery then
+  // drops body-only rows.
   let wikiBatches: Event[][] = [];
   let aliasHit: Awaited<ReturnType<typeof resolveWikiAliasArticles>>;
   if (query.length >= 2) {
-    const [byTitle, byD, relays, aliases] = await Promise.all([
+    const [byTitle, byD, byQ, relays, aliases, local] = await Promise.all([
       mercuryWikiSearch({ q: query, title: query, limit }).catch(() => [] as Event[]),
       mercuryWikiSearch({ q: query, d: slug || query, limit }).catch(() => [] as Event[]),
+      mercuryWikiSearch({ q: query, limit }).catch(() => [] as Event[]),
       relaysP,
-      aliasesP
+      aliasesP,
+      localP
     ]);
-    wikiBatches = [byTitle, byD, relays];
+    wikiBatches = [byTitle, byD, byQ, relays, local];
     aliasHit = aliases;
   } else {
-    const [relays, aliases] = await Promise.all([relaysP, aliasesP]);
-    wikiBatches = [relays];
+    const [relays, aliases, local] = await Promise.all([relaysP, aliasesP, localP]);
+    wikiBatches = [relays, local];
     aliasHit = aliases;
   }
 

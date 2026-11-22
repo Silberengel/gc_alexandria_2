@@ -13,7 +13,7 @@ import { kindDescription } from './kind-label';
  * Mercury typed-search target — maps 1:1 to a REST endpoint:
  * - publications → POST /api/publications/search (kind 30040)
  * - sections → POST /api/publications/sections/search (kind 30041)
- * - wiki → POST /api/wiki/search (kind 30818)
+ * - wiki → POST /api/wiki/search (kinds 30817 + 30818)
  */
 export type MercurySearchTarget = 'publications' | 'sections' | 'wiki';
 

@@ -602,8 +602,8 @@
             Kind 30041 sections — body search requires <code>q</code> (min 4 chars), plus
             <code>d</code>/<code>T</code>/<code>title</code>.
           {:else}
-            Kind 30818 wiki — content search requires <code>q</code> (min 2 chars), plus
-            <code>d</code>/<code>T</code>/<code>s</code>/<code>i</code>/<code>title</code>.
+            Kinds 30817 (spec) and 30818 (wiki) — content search requires <code>q</code> (min 2
+            chars), plus <code>d</code>/<code>T</code>/<code>s</code>/<code>i</code>/<code>title</code>.
           {/if}
         </p>
         <div class="advanced-search-row">

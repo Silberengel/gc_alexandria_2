@@ -1204,7 +1204,8 @@ export async function runBookshelfSearch(
 
 function mercuryResultKinds(target: ReturnType<typeof normalizeMercuryTarget>): number[] {
   if (target === 'sections') return [KIND.SECTION];
-  if (target === 'wiki') return [KIND.WIKI];
+  // Same corpus as wiki hub search: specs (30817) and wikis (30818).
+  if (target === 'wiki') return [KIND.SPEC, KIND.WIKI];
   return [KIND.PUBLICATION];
 }
 
