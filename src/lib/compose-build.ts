@@ -25,6 +25,7 @@ import {
   isCalendarEventKind,
   withCalendarDayTags
 } from './nip52';
+import { emojiTagsForContent, mergeEmojiTagRows } from './emoji-compose';
 
 export type ComposeFormState = {
   kind: number;
@@ -32,6 +33,8 @@ export type ComposeFormState = {
   values: Record<string, string>;
   hashtags?: string[];
   imetaTags?: string[][];
+  /** NIP-30 custom emoji tags for shortcodes in content. */
+  emojiTags?: string[][];
   freeformTags?: string[][];
   /** Kind-0 editor rows (name/value[/…]); JSON + mirror tags are derived on publish. */
   kind0Tags?: string[][];
@@ -234,6 +237,15 @@ export function buildComposePartial(state: ComposeFormState): {
 
   if (state.imetaTags?.length) {
     for (const row of state.imetaTags) {
+      if (row.length) tags.push(row);
+    }
+  }
+  {
+    const emojiRows = mergeEmojiTagRows(
+      state.emojiTags ?? [],
+      emojiTagsForContent(content, [], state.emojiTags ?? [])
+    );
+    for (const row of emojiRows) {
       if (row.length) tags.push(row);
     }
   }

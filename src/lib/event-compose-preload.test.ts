@@ -175,6 +175,24 @@ describe('eventToComposeDraft', () => {
     expect(draft.values.relays).toContain('wss://read.example read');
   });
 
+  it('maps Blossom server list into servers (one URL per line)', () => {
+    const draft = eventToComposeDraft(
+      ev({
+        kind: 10063,
+        pubkey: 'f'.repeat(64),
+        content: 'opaque-private-cipher',
+        tags: [
+          ['server', 'https://blossom.band'],
+          ['server', 'https://0x0.oslim.dev'],
+          ['client', 'alexandria']
+        ]
+      })
+    );
+    expect(draft.values.servers).toBe('https://blossom.band\nhttps://0x0.oslim.dev');
+    expect(draft.freeformTags.some((t) => t[0] === 'server')).toBe(false);
+    expect(draft.content).toBe('opaque-private-cipher');
+  });
+
   it('maps favorite / search / blocked relay tags into relays', () => {
     for (const kind of [10006, 10007, 10012] as const) {
       const draft = eventToComposeDraft(

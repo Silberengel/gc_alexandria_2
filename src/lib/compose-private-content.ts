@@ -40,7 +40,8 @@ export function needsPrivateContentHydrate(kind: number): boolean {
   return (
     kind === KIND.MUTE ||
     kind === KIND.CONTACT_LIST ||
-    kind === KIND.PRIVATE_RELAY_LIST
+    kind === KIND.PRIVATE_RELAY_LIST ||
+    kind === KIND.BLOSSOM_SERVER_LIST
   );
 }
 

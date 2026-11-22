@@ -48,6 +48,7 @@
   const otherNodes = new Map<string, ThreadNode>();
   let commentText = $state('');
   let commentImeta = $state<string[][]>([]);
+  let commentEmoji = $state<string[][]>([]);
   let composeEl = $state<HTMLDivElement | null>(null);
   let localThread = $state<Event[]>([]);
   let posting = $state(false);
@@ -108,12 +109,17 @@
       });
       const published = await publishComment({
         ...partial,
-        tags: [...partial.tags, ...commentImeta.map((row) => [...row])]
+        tags: [
+          ...partial.tags,
+          ...commentImeta.map((row) => [...row]),
+          ...commentEmoji.map((row) => [...row])
+        ]
       });
       if (!published) return false;
       showPublished(published);
       commentText = '';
       commentImeta = [];
+      commentEmoji = [];
       closeOpCompose(target.id);
       asKind1Reply = false;
       return true;
@@ -134,6 +140,7 @@
         <ThreadCompose
           bind:value={commentText}
           bind:imetaTags={commentImeta}
+          bind:emojiTags={commentEmoji}
           bind:asKind1Reply
           draftScope={commentDraftScope}
           {posting}

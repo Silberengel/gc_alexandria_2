@@ -48,6 +48,10 @@
   import CitationComposeModal, {
     type CitationDraftResult
   } from './CitationComposeModal.svelte';
+  import EmojiPicker, { type EmojiPick } from './EmojiPicker.svelte';
+  import GifPicker from './GifPicker.svelte';
+  import { emojiTagRow, insertEmojiShortcode } from '$lib/emoji-compose';
+  import { imetaFromGifItem, type GifPickerItem } from '$lib/gif-picker';
 
   export type DraftRevisionEntry = {
     created_at: number;
@@ -71,6 +75,10 @@
     /** Blossom upload. Returns the published file so the URL can be inserted as markup. */
     onUploadMedia?: (file: File) => Promise<MediaFile>;
     uploading?: boolean;
+    /** Attach NIP-92 imeta when a GIF/hosted media URL is inserted. */
+    onAddImeta?: (tag: string[]) => void;
+    /** Attach NIP-30 emoji tags for custom shortcodes. */
+    onAddEmojiTag?: (tag: string[]) => void;
     /**
      * Publish an NKBIP-03 citation (kinds 30–33) and return a bech32 nevent
      * for `[[citation::mode::nevent]]` insertion.
@@ -95,12 +103,16 @@
     onFormat,
     onUploadMedia,
     uploading = false,
+    onAddImeta,
+    onAddEmojiTag,
     onCreateCitation,
     citing = false,
     revisionHistory = []
   }: Props = $props();
 
   let historyOpen = $state(false);
+  let emojiOpen = $state(false);
+  let gifOpen = $state(false);
   let citeOpen = $state(false);
   let citeInitial = $state('');
   let citeError = $state('');
@@ -452,6 +464,43 @@
     mediaInput?.click();
   }
 
+  function rememberCaretForPicker(): void {
+    const el = sourceEl;
+    if (el) caret = { start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 };
+  }
+
+  async function onEmojiPick(pick: EmojiPick): Promise<void> {
+    const { start, end } = caret;
+    const next = insertEmojiShortcode(
+      content.slice(0, start) + content.slice(end),
+      pick.shortcode,
+      start
+    );
+    content = next;
+    if (pick.kind === 'custom') {
+      onAddEmojiTag?.(emojiTagRow({ shortcode: pick.shortcode, url: pick.url }));
+    }
+    await tick();
+    const el = sourceEl;
+    if (el) {
+      const at = Math.min(start + pick.shortcode.length + 2 + 1, content.length);
+      el.focus();
+      el.setSelectionRange(at, at);
+    }
+  }
+
+  async function onGifPick(item: GifPickerItem): Promise<void> {
+    const { start, end } = caret;
+    await applyEdit(
+      editMedia(format, content, start, end, {
+        url: item.url,
+        mime: item.mimeType ?? 'image/gif',
+        name: item.description || 'gif'
+      })
+    );
+    onAddImeta?.(imetaFromGifItem(item));
+  }
+
   async function onMediaPicked(event: Event) {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
@@ -710,6 +759,36 @@
         <button
           type="button"
           class="advanced-tool"
+          title="Insert emoji"
+          aria-label="Insert emoji"
+          onpointerdown={(event) => {
+            event.preventDefault();
+            rememberCaretForPicker();
+            emojiOpen = true;
+          }}
+          onmousedown={(event) => event.preventDefault()}
+          onclick={(event) => event.preventDefault()}
+        >
+          <span>Emoji</span>
+        </button>
+        <button
+          type="button"
+          class="advanced-tool"
+          title="Insert GIF"
+          aria-label="Insert GIF"
+          onpointerdown={(event) => {
+            event.preventDefault();
+            rememberCaretForPicker();
+            gifOpen = true;
+          }}
+          onmousedown={(event) => event.preventDefault()}
+          onclick={(event) => event.preventDefault()}
+        >
+          <span>GIF</span>
+        </button>
+        <button
+          type="button"
+          class="advanced-tool"
           class:is-busy={uploading}
           title="Upload media — or paste a file / image URL"
           aria-label="Upload media"
@@ -890,6 +969,8 @@
     }
   }}
 />
+<EmojiPicker bind:open={emojiOpen} onPick={(pick) => void onEmojiPick(pick)} />
+<GifPicker bind:open={gifOpen} onPick={(item) => void onGifPick(item)} />
 
 <style>
   .advanced-editor {

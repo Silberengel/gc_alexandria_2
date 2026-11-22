@@ -62,7 +62,7 @@ describe('thread drafts', () => {
       asKind1Reply: false
     });
     expect(loadThreadDraft('pk', 'comment:abc')).toBeNull();
-    expect(isThreadDraftEmpty({ text: '', imetaTags: [] })).toBe(true);
+    expect(isThreadDraftEmpty({ text: '', imetaTags: [], emojiTags: [] })).toBe(true);
   });
 
   it('deleteThreadDraft removes the key', () => {

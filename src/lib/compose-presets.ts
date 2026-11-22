@@ -11,7 +11,7 @@ export const COMPOSE_DOCUMENT_PRESETS = [
   30, 31, 32, 33
 ] as const;
 export const COMPOSE_METADATA_KINDS = [
-  0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10243
+  0, 3, 30315, 10133, 10000, 10002, 10006, 10012, 10013, 10063, 10243
 ] as const;
 /** Action / context kinds composed elsewhere — not offered in the picker. */
 export const COMPOSE_PICKER_EXCLUDED = [
@@ -95,7 +95,9 @@ export function showContentBox(kind: number): boolean {
   const handler = def.handler ?? '';
   if (
     kind === 10013 ||
+    kind === 10063 ||
     handler === 'nip37_private_relay_list' ||
+    handler === 'blossom_server_list' ||
     handler.startsWith('nip51_') ||
     handler === 'reading_queue' ||
     handler === 'nkbip04_directory'

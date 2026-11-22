@@ -28,6 +28,12 @@ export function lruSet(key: string, value: unknown): void {
   }
 }
 
+export function lruDelete(key: string): void {
+  const k = key.trim().toLowerCase();
+  if (!k) return;
+  byKey.delete(k);
+}
+
 export function lruClear(): void {
   byKey.clear();
 }

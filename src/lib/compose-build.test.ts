@@ -3,6 +3,22 @@ import { buildComposePartial, parseKind0Json, validateComposeForm } from './comp
 import { assertReadyToSign } from './kind-compose';
 
 describe('buildComposePartial', () => {
+  it('emits Blossom server tags from the servers textarea', () => {
+    const partial = buildComposePartial({
+      kind: 10063,
+      content: '',
+      values: {
+        servers: 'https://blossom.band\nhttps://0x0.oslim.dev/\n'
+      }
+    });
+    expect(partial.kind).toBe(10063);
+    expect(partial.content).toBe('');
+    expect(partial.tags.filter((t) => t[0] === 'server')).toEqual([
+      ['server', 'https://blossom.band'],
+      ['server', 'https://0x0.oslim.dev']
+    ]);
+  });
+
   it('appends a NIP-36 content-warning tag when enabled', () => {
     const withWarn = buildComposePartial({
       kind: 1,

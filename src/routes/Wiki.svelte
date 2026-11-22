@@ -4,6 +4,7 @@
   import ErrorPage from '$lib/components/ErrorPage.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
+  import ComposeMediaToolbar from '$lib/components/ComposeMediaToolbar.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import PublicationCard from '$lib/components/PublicationCard.svelte';
@@ -12,6 +13,7 @@
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
   import { KIND } from '$lib/constants';
+  import { emojiTagsForContent, mergeEmojiTagRows } from '$lib/emoji-compose';
   import { libraryDocumentPath } from '$lib/metadata';
   import { addressPath, parseAddress } from '$lib/library-scope';
   import { getWikiDeferTarget, isDeferralPlaceholderContent, isWikiDeference, deferrerPubkeys, wikiPathFromCoordinate } from '$lib/wiki-defer';
@@ -94,6 +96,10 @@
   let notePromptText = $state('');
   let replyComposeOpen = $state(false);
   let replyDraftText = $state('');
+  let replyImeta = $state<string[][]>([]);
+  let replyEmoji = $state<string[][]>([]);
+  let notePromptImeta = $state<string[][]>([]);
+  let notePromptEmoji = $state<string[][]>([]);
   let selectionSheet = $state(false);
   /** Bumps on each wiki route paint; drops stale social/deferrer assignments. */
   let wikiPaintGen = 0;
@@ -203,11 +209,21 @@
     }
     const quote = wikiSelDraft.quote;
     const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${text}`;
-    const signed = await publishComment(commentDraft(event, body));
+    const partial = commentDraft(event, body);
+    const signed = await publishComment({
+      ...partial,
+      tags: [
+        ...partial.tags,
+        ...replyImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(replyEmoji, emojiTagsForContent(body, [], replyEmoji))
+      ]
+    });
     if (signed) {
       clearSelectionDraft('reply', quote);
       replyComposeOpen = false;
       replyDraftText = '';
+      replyImeta = [];
+      replyEmoji = [];
       wikiSelDraft = null;
       window.getSelection()?.removeAllRanges();
     }
@@ -275,6 +291,7 @@
     saveThreadDraft(pubkey, scope, {
       text,
       imetaTags: [],
+      emojiTags: [],
       asKind1Reply: false
     });
   }
@@ -876,6 +893,11 @@
           <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
         </label>
         <div class="compose-actions">
+          <ComposeMediaToolbar
+            bind:content={notePromptText}
+            bind:imetaTags={notePromptImeta}
+            bind:emojiTags={notePromptEmoji}
+          />
           <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
           <button
             class="btn btn-primary"
@@ -894,6 +916,11 @@
           <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
         </label>
         <div class="compose-actions">
+          <ComposeMediaToolbar
+            bind:content={replyDraftText}
+            bind:imetaTags={replyImeta}
+            bind:emojiTags={replyEmoji}
+          />
           <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
           <button
             class="btn btn-primary"

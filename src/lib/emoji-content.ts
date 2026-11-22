@@ -160,7 +160,7 @@ export function findEmojiShortcodes(
   return out.sort((a, b) => a.index - b.index);
 }
 
-function nativeForShortcode(code: string): string | null {
+export function nativeForShortcode(code: string): string | null {
   const trimmed = code.trim();
   const native =
     shortcodeToEmoji(trimmed, emojis) ??
@@ -280,7 +280,7 @@ function addEmojis(map: Map<string, EmojiInfo>, list: EmojiInfo[]): void {
 const authorEmojiCache = new Map<string, EmojiInfo[]>();
 const authorEmojiInflight = new Map<string, Promise<EmojiInfo[]>>();
 
-async function fetchAuthorEmojiInfos(pubkey: string): Promise<EmojiInfo[]> {
+export async function fetchAuthorEmojiInfos(pubkey: string): Promise<EmojiInfo[]> {
   const pk = pubkey.trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(pk)) return [];
   const cached = authorEmojiCache.get(pk);

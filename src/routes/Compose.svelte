@@ -6,6 +6,7 @@
   import EventBody from '$lib/components/EventBody.svelte';
   import ComposeGrammarTextarea from '$lib/components/ComposeGrammarTextarea.svelte';
   import AdvancedMarkupEditor from '$lib/components/AdvancedMarkupEditor.svelte';
+  import ComposeMediaToolbar from '$lib/components/ComposeMediaToolbar.svelte';
   import PublicationAsciidocSplitEditor from '$lib/components/PublicationAsciidocSplitEditor.svelte';
   import ComposeHashtagRows from '$lib/components/ComposeHashtagRows.svelte';
   import ComposeEventTagRows from '$lib/components/ComposeEventTagRows.svelte';
@@ -172,10 +173,13 @@
   } from '$lib/compose-grammar';
   import {
     blossomServersFromTags,
-    mergeBlossomServers,
     uploadToBlossomServers,
     imetaTagFromUpload
   } from '$lib/blossom';
+  import {
+    invalidateBlossomServerCache,
+    resolveBlossomServers
+  } from '$lib/compose-media-insert';
   import {
     proseHasShareTrackers,
     scrubClipboardTextPaste,
@@ -188,7 +192,7 @@
     looksLikeMediaUrl,
     mediaFilesFromDataTransfer
   } from '$lib/media-paste';
-  import { lruGet, lruSet } from '$lib/compose-lru';
+  import { lruSet } from '$lib/compose-lru';
   import { relayPool } from '$lib/nostr/pool';
   import { profileStack, writeStack } from '$lib/nostr/selector';
   import { memoryGetEvent } from '$lib/nostr/event-memory';
@@ -226,6 +230,7 @@
   let values = $state<Record<string, string>>({});
   let hashtagRows = $state<string[]>(['']);
   let imetaTags = $state<string[][]>([]);
+  let emojiTags = $state<string[][]>([]);
   let freeformTags = $state<string[][]>([['', '']]);
   let kind0Tags = $state<string[][]>(emptyKind0TagRows());
   let existingKind0 = $state<Record<string, unknown>>({});
@@ -554,6 +559,7 @@
     if (content.trim()) return true;
     if (cleanedHashtags(hashtagRows).length) return true;
     if (imetaTags.some((t) => t.some((c) => String(c).trim()))) return true;
+    if (emojiTags.some((t) => t.some((c) => String(c).trim()))) return true;
     if (cleanedFreeformTags(freeformTags).length) return true;
     if (contentWarningEnabled) return true;
     return false;
@@ -1015,6 +1021,7 @@
       values: { ...values },
       hashtags: cleanedHashtags(hashtagRows),
       imetaTags: imetaTags.map((t) => [...t]),
+      emojiTags: emojiTags.map((t) => [...t]),
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       markup: editorMarkup,
@@ -1043,6 +1050,7 @@
       values: Record<string, string>;
       hashtags: string[];
       imetaTags: string[][];
+      emojiTags?: string[][];
       freeformTags: string[][];
       kind0Tags?: string[][];
       markup?: 'djot' | 'asciidoc' | null;
@@ -1072,6 +1080,7 @@
       values: d.values,
       hashtags: d.hashtags,
       imetaTags: d.imetaTags,
+      emojiTags: d.emojiTags ?? [],
       freeformTags: d.freeformTags,
       kind0Tags: d.kind0Tags,
       markup: d.markup,
@@ -1100,6 +1109,7 @@
     values: Record<string, string>;
     hashtags: string[];
     imetaTags: string[][];
+    emojiTags?: string[][];
     freeformTags: string[][];
     kind0Tags?: string[][];
     markup?: 'djot' | 'asciidoc' | null;
@@ -1122,6 +1132,7 @@
     values = { ...emptyValuesFor(d.kind), ...d.values };
     hashtagRows = d.hashtags.length ? [...d.hashtags] : [''];
     imetaTags = d.imetaTags.map((t) => [...t]);
+    emojiTags = (d.emojiTags ?? []).map((row) => [...row]);
     freeformTags = d.freeformTags.length
       ? d.freeformTags.map((t) => (t.length >= 2 ? [...t] : [t[0] ?? '', '']))
       : [['', '']];
@@ -1345,6 +1356,7 @@
     values = emptyValuesFor(kind);
     hashtagRows = [''];
     imetaTags = [];
+    emojiTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
     contentWarningEnabled = false;
@@ -1387,6 +1399,7 @@
     values = emptyValuesFor(1);
     hashtagRows = [''];
     imetaTags = [];
+    emojiTags = [];
     freeformTags = [['', '']];
     kind0Tags = emptyKind0TagRows();
     contentWarningEnabled = false;
@@ -1442,7 +1455,8 @@
       return;
     }
 
-    if (event.kind === KIND.CONTACT_LIST) {
+    if (event.kind === KIND.CONTACT_LIST || event.kind === KIND.BLOSSOM_SERVER_LIST) {
+      // Public tags only in the form — keep any NIP-51 private ciphertext opaque.
       privateContent = loadComposePrivatePassthrough(event);
       return;
     }
@@ -1668,6 +1682,7 @@
       values = emptyValuesFor(nextKind);
       hashtagRows = [''];
       imetaTags = [];
+      emojiTags = [];
       freeformTags = [['', '']];
       kind0Tags = emptyKind0TagRows();
       existingKind0 = {};
@@ -1765,6 +1780,7 @@
       }
       hashtagRows = [''];
       imetaTags = [];
+      emojiTags = [];
       freeformTags = [['', '']];
       kind0Tags = emptyKind0TagRows();
       existingKind0 = {};
@@ -1788,6 +1804,7 @@
       values,
       hashtags: cleanedHashtags(hashtagRows),
       imetaTags,
+      emojiTags,
       freeformTags: cleanedFreeformTags(freeformTags),
       kind0Tags: kind0Tags.map((t) => [...t]),
       existingKind0,
@@ -1855,6 +1872,7 @@
     void JSON.stringify(values);
     void JSON.stringify(hashtagRows);
     void JSON.stringify(imetaTags);
+    void JSON.stringify(emojiTags);
     void JSON.stringify(freeformTags);
     void JSON.stringify(kind0Tags);
     void JSON.stringify(pollOptions);
@@ -1948,31 +1966,7 @@
   }
 
   async function blossomServerList(): Promise<string[]> {
-    const pk = $session.pubkey;
-    const cacheKey = pk ? `blossom-servers:${pk}` : '';
-    if (cacheKey) {
-      const cached = lruGet<string[]>(cacheKey);
-      if (cached?.length) return mergeBlossomServers(cached);
-    }
-    let user: string[] = [];
-    if (pk) {
-      try {
-        const hits = await relayPool.query(
-          profileStack(),
-          [{ authors: [pk], kinds: [10063], limit: 1 }],
-          4000,
-          2
-        );
-        const ev = hits[0];
-        if (ev) {
-          user = blossomServersFromTags(ev.tags);
-          if (cacheKey) lruSet(cacheKey, user);
-        }
-      } catch {
-        /* presets only */
-      }
-    }
-    return mergeBlossomServers(user);
+    return resolveBlossomServers($session.pubkey);
   }
 
   let citing = $state(false);
@@ -2456,6 +2450,7 @@
           values = emptyValuesFor(kind);
           hashtagRows = [''];
           imetaTags = [];
+          emojiTags = [];
           freeformTags = [['', '']];
           kind0Tags = emptyKind0TagRows();
         }
@@ -2472,8 +2467,8 @@
       }
       const partial = buildComposePartial(state);
 
-      if (kind === KIND.CONTACT_LIST) {
-        // Public follows only in the form — never blank out NIP-51 private content.
+      if (kind === KIND.CONTACT_LIST || kind === KIND.BLOSSOM_SERVER_LIST) {
+        // Public tags only in the form — never blank out NIP-51 private content.
         partial.content = await sealComposePrivateContent(privateContent, []);
       }
 
@@ -2489,6 +2484,12 @@
       if (!signed) {
         formError = consumeSignFailure() ?? 'Could not sign or publish.';
         return;
+      }
+      if (kind === KIND.BLOSSOM_SERVER_LIST && $session.pubkey) {
+        invalidateBlossomServerCache($session.pubkey);
+        const servers = blossomServersFromTags(signed.tags);
+        if (servers.length) lruSet(`blossom-servers:${$session.pubkey}`, servers);
+        session.rememberEvent(signed);
       }
       if (kind === KIND.MUTE) {
         try {
@@ -2510,6 +2511,7 @@
         values = emptyValuesFor(kind);
         hashtagRows = [''];
         imetaTags = [];
+        emojiTags = [];
         freeformTags = [['', '']];
         kind0Tags = emptyKind0TagRows();
       }
@@ -3483,34 +3485,13 @@
             Clear
           </button>
           {#if !shortNoteEditSource}
-          <label
-            class="btn btn-icon compose-upload-btn"
-            class:is-busy={uploading}
-            title={uploading ? 'Uploading…' : 'Upload'}
-            aria-label={uploading ? 'Uploading…' : 'Upload'}
-          >
-            {#if uploading}
-              <span class="jump-busy-spinner" aria-hidden="true"></span>
-            {:else}
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.75"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  d="M12 15V4m0 0L8 8m4-4 4 4M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"
-                />
-              </svg>
-            {/if}
-            <input
-              type="file"
-              accept="image/*,video/*,audio/*"
-              hidden
-              disabled={uploading}
-              onchange={(e) => void onFilePicked(e)}
+            <ComposeMediaToolbar
+              disabled={posting || savingDraft}
+              bind:uploading
+              bind:content
+              bind:imetaTags
+              bind:emojiTags
             />
-          </label>
           {/if}
         </div>
       </form>
@@ -3537,6 +3518,13 @@
     }}
     onUploadMedia={uploadBlossomFile}
     {uploading}
+    onAddImeta={(tag) => {
+      imetaTags = [...imetaTags, tag];
+    }}
+    onAddEmojiTag={(tag) => {
+      const code = (tag[1] ?? '').trim().toLowerCase();
+      emojiTags = [...emojiTags.filter((row) => (row[1] ?? '').trim().toLowerCase() !== code), tag];
+    }}
     onCreateCitation={createCitation}
     {citing}
     {revisionHistory}

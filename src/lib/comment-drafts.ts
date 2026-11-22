@@ -5,6 +5,8 @@ import { compressBackgroundDataUrl } from './drawing/compress';
 export type ThreadDraftState = {
   text: string;
   imetaTags: string[][];
+  /** NIP-30 custom emoji tags for shortcodes in `text`. */
+  emojiTags?: string[][];
   asKind1Reply: boolean;
   updatedAt: number;
 };
@@ -47,10 +49,17 @@ export function drawingDraftStorageKey(pubkey: string, scope: string): string {
 }
 
 export function isThreadDraftEmpty(
-  draft: Pick<ThreadDraftState, 'text' | 'imetaTags'>
+  draft: Pick<ThreadDraftState, 'text' | 'imetaTags'> & { emojiTags?: string[][] }
 ): boolean {
   if (draft.text.trim()) return false;
-  return !draft.imetaTags.some(
+  if (
+    draft.imetaTags.some(
+      (row) => Array.isArray(row) && row.some((c) => String(c ?? '').trim())
+    )
+  ) {
+    return false;
+  }
+  return !(draft.emojiTags ?? []).some(
     (row) => Array.isArray(row) && row.some((c) => String(c ?? '').trim())
   );
 }
@@ -67,6 +76,9 @@ export function loadThreadDraft(pubkey: string, scope: string): ThreadDraftState
       text: typeof parsed.text === 'string' ? parsed.text : '',
       imetaTags: Array.isArray(parsed.imetaTags)
         ? parsed.imetaTags.filter((row) => Array.isArray(row)).map((row) => row.map(String))
+        : [],
+      emojiTags: Array.isArray(parsed.emojiTags)
+        ? parsed.emojiTags.filter((row) => Array.isArray(row)).map((row) => row.map(String))
         : [],
       asKind1Reply: !!parsed.asKind1Reply,
       updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0
@@ -90,6 +102,7 @@ export function saveThreadDraft(
   const toStore: ThreadDraftState = {
     text: draft.text,
     imetaTags: draft.imetaTags.map((row) => [...row]),
+    emojiTags: (draft.emojiTags ?? []).map((row) => [...row]),
     asKind1Reply: !!draft.asKind1Reply,
     updatedAt: draft.updatedAt || Date.now()
   };

@@ -1,12 +1,5 @@
-import {
-  BLOSSOM_PRESET_SERVERS,
-  blossomServersFromTags,
-  imetaTagFromUpload,
-  mergeBlossomServers,
-  uploadToBlossomServers
-} from '$lib/blossom';
-import { relayPool } from '$lib/nostr/pool';
-import { profileStack } from '$lib/nostr/selector';
+import { imetaTagFromUpload, uploadToBlossomServers } from '$lib/blossom';
+import { resolveBlossomServers } from '$lib/compose-media-insert';
 import { signUnsigned } from '$lib/sign';
 import { DEFAULT_DRAW_SIZE } from './types';
 
@@ -15,23 +8,6 @@ export type DrawingUploadResult = {
   sha256: string;
   imeta: string[];
 };
-
-async function blossomServerList(pubkey: string): Promise<string[]> {
-  let user: string[] = [];
-  try {
-    const hits = await relayPool.query(
-      profileStack(),
-      [{ authors: [pubkey], kinds: [10063], limit: 1 }],
-      4000,
-      2
-    );
-    const ev = hits[0];
-    if (ev) user = blossomServersFromTags(ev.tags);
-  } catch {
-    /* presets */
-  }
-  return mergeBlossomServers(user, BLOSSOM_PRESET_SERVERS);
-}
 
 /** Upload a drawing image (PNG or GIF) and return URL + imeta tag parts. */
 export async function uploadDrawingImage(
@@ -44,7 +20,7 @@ export async function uploadDrawingImage(
     ? raw
     : 'image/png';
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  const servers = await blossomServerList(pubkey);
+  const servers = await resolveBlossomServers(pubkey);
   const result = await uploadToBlossomServers({
     servers,
     bytes,

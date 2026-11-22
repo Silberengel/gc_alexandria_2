@@ -5,6 +5,7 @@
   import { link, location, push, querystring, replace } from 'svelte-spa-router';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
+  import ComposeMediaToolbar from '$lib/components/ComposeMediaToolbar.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import EditionHeader from '$lib/components/EditionHeader.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
@@ -26,6 +27,7 @@
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
   import { appClientHeight, appOffsetTop, appScrollTo, appScrollY } from '$lib/app-scroll';
   import { KIND } from '$lib/constants';
+  import { emojiTagsForContent, mergeEmojiTagRows } from '$lib/emoji-compose';
   import { isNip53Kind, NIP53_KIND, parseLiveStream } from '$lib/nip53';
   import {
     collectLivePresence,
@@ -141,6 +143,7 @@
   let { params: _params = {} }: { params?: Record<string, string> } = $props();
   let drawOpen = $state(false);
   let pendingImeta = $state<string[][]>([]);
+  let pendingEmoji = $state<string[][]>([]);
   const feedNoteDraftScope = 'feed:note';
   let feedNoteHydrated = false;
 
@@ -737,6 +740,7 @@
   function clearNoteDraft(): void {
     noteDraft = '';
     pendingImeta = [];
+    pendingEmoji = [];
     notePreviewing = false;
     const pubkey = $session.pubkey;
     if (pubkey) deleteThreadDraft(pubkey, feedNoteDraftScope);
@@ -752,7 +756,10 @@
       created_at: Math.floor(Date.now() / 1000),
       kind: KIND.TEXT_NOTE,
       content: scrubProseText(noteDraft),
-      tags: pendingImeta.map((row) => [...row])
+      tags: [
+        ...pendingImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(pendingEmoji, emojiTagsForContent(noteDraft, [], pendingEmoji))
+      ]
     };
   });
 
@@ -766,17 +773,22 @@
     if (!pendingImeta.length && saved.imetaTags.length) {
       pendingImeta = saved.imetaTags.map((row) => [...row]);
     }
+    if (!pendingEmoji.length && saved.emojiTags?.length) {
+      pendingEmoji = saved.emojiTags.map((row) => [...row]);
+    }
   });
 
   $effect(() => {
     const pubkey = $session.pubkey;
     void noteDraft;
     void pendingImeta;
+    void pendingEmoji;
     if (!pubkey || !feedNoteHydrated) return;
     const t = setTimeout(() => {
       saveThreadDraft(pubkey, feedNoteDraftScope, {
         text: noteDraft,
         imetaTags: pendingImeta,
+        emojiTags: pendingEmoji,
         asKind1Reply: false
       });
     }, 280);
@@ -814,7 +826,10 @@
     noteDraft = content;
     notePosting = true;
     try {
-      const tags = pendingImeta.map((row) => [...row]);
+      const tags = [
+        ...pendingImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(pendingEmoji, emojiTagsForContent(content, [], pendingEmoji))
+      ];
       const signed = await signAndPublish({
         kind: KIND.TEXT_NOTE,
         content,
@@ -934,6 +949,10 @@
   let notePromptText = $state('');
   let replyComposeOpen = $state(false);
   let replyDraftText = $state('');
+  let replyImeta = $state<string[][]>([]);
+  let replyEmoji = $state<string[][]>([]);
+  let notePromptImeta = $state<string[][]>([]);
+  let notePromptEmoji = $state<string[][]>([]);
   let selectionSheet = $state(false);
 
   const libraryKind = $derived(
@@ -1023,9 +1042,23 @@
       openLoginDialog();
       return;
     }
-    const signed = await signAndPublish(
-      articleHighlightDraft(event, threadSelDraft.quote, threadSelDraft.context, comment)
+    const draft = articleHighlightDraft(
+      event,
+      threadSelDraft.quote,
+      threadSelDraft.context,
+      comment
     );
+    const signed = await signAndPublish({
+      ...draft,
+      tags: [
+        ...draft.tags,
+        ...notePromptImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(
+          notePromptEmoji,
+          emojiTagsForContent(comment ?? '', [], notePromptEmoji)
+        )
+      ]
+    });
     if (signed) {
       const mine = session
         .getMetadata()
@@ -1039,6 +1072,8 @@
       threadSelDraft = null;
       notePromptOpen = false;
       notePromptText = '';
+      notePromptImeta = [];
+      notePromptEmoji = [];
       window.getSelection()?.removeAllRanges();
     }
   }
@@ -1053,7 +1088,15 @@
     }
     const quote = threadSelDraft.quote;
     const body = `> ${quote.replace(/\n/g, '\n> ')}\n\n${text}`;
-    const signed = await publishComment(commentDraft(event, body));
+    const partial = commentDraft(event, body);
+    const signed = await publishComment({
+      ...partial,
+      tags: [
+        ...partial.tags,
+        ...replyImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(replyEmoji, emojiTagsForContent(body, [], replyEmoji))
+      ]
+    });
     if (signed) {
       clearThreadSelectionDraft('reply', quote);
       responses = {
@@ -1062,6 +1105,8 @@
       };
       replyComposeOpen = false;
       replyDraftText = '';
+      replyImeta = [];
+      replyEmoji = [];
       threadSelDraft = null;
       window.getSelection()?.removeAllRanges();
     }
@@ -1129,6 +1174,7 @@
     saveThreadDraft(pubkey, scope, {
       text,
       imetaTags: [],
+      emojiTags: [],
       asKind1Reply: false
     });
   }
@@ -1675,6 +1721,11 @@
                 <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
               </label>
               <div class="compose-actions">
+                <ComposeMediaToolbar
+                  bind:content={notePromptText}
+                  bind:imetaTags={notePromptImeta}
+                  bind:emojiTags={notePromptEmoji}
+                />
                 <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
                 <button
                   class="btn btn-primary"
@@ -1693,6 +1744,11 @@
                 <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
               </label>
               <div class="compose-actions">
+                <ComposeMediaToolbar
+                  bind:content={replyDraftText}
+                  bind:imetaTags={replyImeta}
+                  bind:emojiTags={replyEmoji}
+                />
                 <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
                 <button
                   class="btn btn-primary"
@@ -1828,11 +1884,38 @@
       <div class="compose-actions">
         {#if signedIn}
           <button
-            class="btn"
+            class="btn btn-icon"
             type="button"
+            title="Draw"
+            aria-label="Draw"
             disabled={notePosting || notePreviewing}
             onclick={() => (drawOpen = true)}
-          >Draw</button>
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M9.06 11.9 4 17.94V20h2.06l6.06-5.06"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M17.94 5.94a1.5 1.5 0 0 0-2.12 0L9.06 12.7l2.12 2.12 6.76-6.76a1.5 1.5 0 0 0 0-2.12Z"
+              />
+            </svg>
+          </button>
+          <ComposeMediaToolbar
+            disabled={notePosting || notePreviewing}
+            bind:content={noteDraft}
+            bind:imetaTags={pendingImeta}
+            bind:emojiTags={pendingEmoji}
+          />
           <button
             class="btn btn-primary"
             type="submit"

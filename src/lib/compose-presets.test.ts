@@ -82,6 +82,13 @@ describe('composePickerGroups', () => {
     expect(listed.has(KIND.MUTE)).toBe(true);
   });
 
+  it('offers Blossom server list under metadata and hides ciphertext body', () => {
+    const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
+    expect(COMPOSE_METADATA_KINDS).toContain(KIND.BLOSSOM_SERVER_LIST);
+    expect(listed.has(KIND.BLOSSOM_SERVER_LIST)).toBe(true);
+    expect(showContentBox(KIND.BLOSSOM_SERVER_LIST)).toBe(false);
+  });
+
   it('offers directories under documents', () => {
     const listed = new Set(composePickerGroups().flatMap((g) => g.kinds));
     expect(COMPOSE_DOCUMENT_PRESETS).toContain(KIND.DIRECTORY);

@@ -7,6 +7,8 @@ export type ComposeDraftState = {
   values: Record<string, string>;
   hashtags: string[];
   imetaTags: string[][];
+  /** NIP-30 custom emoji tags for shortcodes in content. */
+  emojiTags?: string[][];
   freeformTags: string[][];
   /** Kind-0 profile editor rows (JSON + tag mirrors). */
   kind0Tags?: string[][];
@@ -101,6 +103,7 @@ export function isComposeDraftEmpty(
     | 'values'
     | 'hashtags'
     | 'imetaTags'
+    | 'emojiTags'
     | 'freeformTags'
     | 'kind0Tags'
     | 'contentWarningEnabled'
@@ -122,6 +125,13 @@ export function isComposeDraftEmpty(
   if (draft.hashtags.some((h) => h.trim())) return false;
   if (
     draft.imetaTags.some(
+      (t) => t.length > 0 && t.some((c) => String(c).trim().length > 0),
+    )
+  ) {
+    return false;
+  }
+  if (
+    (draft.emojiTags ?? []).some(
       (t) => t.length > 0 && t.some((c) => String(c).trim().length > 0),
     )
   ) {

@@ -7,6 +7,10 @@
     isKnownKind0EditorName,
     kind0FieldLabel
   } from '$lib/compose-kind0';
+  import { uploadComposeMedia } from '$lib/compose-media-insert';
+  import { openLoginDialog } from '$lib/stores/login-ui';
+  import { session } from '$lib/stores/session';
+  import { showNotice } from '$lib/stores/toast';
 
   interface Props {
     tags?: string[][];
@@ -15,6 +19,7 @@
   let { tags = $bindable([] as string[][]) }: Props = $props();
 
   let addChoice = $state<string>(KIND0_ADD_TAG_OPTIONS[0]!);
+  let uploadingRow = $state<number | null>(null);
 
   $effect(() => {
     if (!tags.length) tags = emptyKind0TagRows();
@@ -80,6 +85,25 @@
     opts.push({ id: '__custom__', label: 'Custom…', disabled: false });
     return opts;
   });
+
+  async function uploadFieldImage(i: number, file: File | undefined): Promise<void> {
+    if (!file) return;
+    if (!$session.pubkey) {
+      openLoginDialog();
+      showNotice('Sign in to upload.');
+      return;
+    }
+    uploadingRow = i;
+    try {
+      const uploaded = await uploadComposeMedia({ file, pubkey: $session.pubkey });
+      setValue(i, uploaded.url);
+      showNotice('Image uploaded.', true);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      uploadingRow = null;
+    }
+  }
 </script>
 
 <div class="tag-rows kind0-rows">
@@ -153,9 +177,51 @@
             </label>
           {/each}
         </div>
+      {:else if name === 'picture' || name === 'banner'}
+        <div class="kind0-url-row">
+          <input
+            type="url"
+            value={value}
+            placeholder={kind0FieldLabel(name) || 'value'}
+            aria-label={kind0FieldLabel(name) || 'value'}
+            oninput={(e) => setValue(i, e.currentTarget.value)}
+          />
+          <label
+            class="btn btn-icon kind0-upload"
+            class:is-busy={uploadingRow === i}
+            title={uploadingRow === i ? 'Uploading…' : 'Upload image'}
+            aria-label={uploadingRow === i ? 'Uploading…' : 'Upload image'}
+          >
+            {#if uploadingRow === i}
+              <span class="jump-busy-spinner" aria-hidden="true"></span>
+            {:else}
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 15V4m0 0L8 8m4-4 4 4M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5"
+                />
+              </svg>
+            {/if}
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              disabled={uploadingRow !== null}
+              onchange={(e) => {
+                const file = e.currentTarget.files?.[0];
+                e.currentTarget.value = '';
+                void uploadFieldImage(i, file);
+              }}
+            />
+          </label>
+        </div>
       {:else}
         <input
-          type={name === 'picture' || name === 'banner' || name === 'website' ? 'url' : 'text'}
+          type={name === 'website' ? 'url' : 'text'}
           value={value}
           placeholder={kind0FieldLabel(name) || 'value'}
           aria-label={kind0FieldLabel(name) || 'value'}
@@ -218,11 +284,34 @@
     flex: 0 0 auto;
   }
   .kind0-block > input[type='text'],
-  .kind0-block > input[type='url'] {
+  .kind0-block > input[type='url'],
+  .kind0-url-row > input[type='url'] {
     width: 100%;
     box-sizing: border-box;
     padding: 0.35rem 0.55rem;
     font-size: 0.9rem;
+  }
+  .kind0-url-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+  }
+  .kind0-url-row > input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .kind0-upload {
+    flex: 0 0 auto;
+    cursor: pointer;
+    min-width: 2rem;
+    min-height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .kind0-upload.is-busy {
+    opacity: 0.75;
   }
   .kind0-bot {
     display: flex;

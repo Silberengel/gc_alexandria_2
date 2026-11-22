@@ -113,6 +113,15 @@ function relayListField(event: Event): string {
     .join('\n');
 }
 
+/** Reverse of server_list (BUD-03 Blossom) — one URL per line. */
+function serverListField(event: Event): string {
+  return event.tags
+    .filter((t) => t[0] === 'server' && t[1]?.trim())
+    .map((t) => t[1]!.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
 /** Reverse of payto_list (`type authority` or payto URI). */
 function paytoListField(event: Event): string {
   return event.tags
@@ -249,6 +258,12 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         const v = relayListField(event);
         if (v) values[field.id] = v;
         consumeProduces(consumed, field, ['r', 'relay', 'server']);
+        continue;
+      }
+      if (field.emit === 'server_list' || field.id === 'servers') {
+        const v = serverListField(event);
+        if (v) values[field.id] = v;
+        consumeProduces(consumed, field, ['server']);
         continue;
       }
       if (field.emit === 'payto_list' || field.id === 'payto') {

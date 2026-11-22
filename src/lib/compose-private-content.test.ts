@@ -55,10 +55,11 @@ beforeEach(() => {
 });
 
 describe('needsPrivateContentHydrate', () => {
-  it('flags mute, contacts, and private relay list', () => {
+  it('flags mute, contacts, private relays, and blossom servers', () => {
     expect(needsPrivateContentHydrate(KIND.MUTE)).toBe(true);
     expect(needsPrivateContentHydrate(KIND.CONTACT_LIST)).toBe(true);
     expect(needsPrivateContentHydrate(KIND.PRIVATE_RELAY_LIST)).toBe(true);
+    expect(needsPrivateContentHydrate(KIND.BLOSSOM_SERVER_LIST)).toBe(true);
     expect(needsPrivateContentHydrate(1)).toBe(false);
     expect(needsPrivateContentHydrate(10002)).toBe(false);
   });

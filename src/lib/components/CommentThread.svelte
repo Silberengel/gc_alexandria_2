@@ -50,6 +50,7 @@
 
   let reply = $state('');
   let replyImeta = $state<string[][]>([]);
+  let replyEmoji = $state<string[][]>([]);
   let posting = $state(false);
   let asKind1Reply = $state(false);
 
@@ -75,13 +76,18 @@
       });
       const published = await publishComment({
         ...partial,
-        tags: [...partial.tags, ...replyImeta.map((row) => [...row])]
+        tags: [
+          ...partial.tags,
+          ...replyImeta.map((row) => [...row]),
+          ...replyEmoji.map((row) => [...row])
+        ]
       });
       if (!published) return false;
       if (onPublished) onPublished(published);
       else node.children = [...node.children, { event: published, placeholder: null, children: [] }];
       reply = '';
       replyImeta = [];
+      replyEmoji = [];
       asKind1Reply = false;
       replyOpenId = null;
       return true;
@@ -161,6 +167,7 @@
       <ThreadCompose
         bind:value={reply}
         bind:imetaTags={replyImeta}
+        bind:emojiTags={replyEmoji}
         bind:asKind1Reply
         draftScope={replyDraftScope}
         placeholder="Write a reply"

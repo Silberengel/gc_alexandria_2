@@ -17,6 +17,8 @@
   import EventCard from '$lib/components/EventCard.svelte';
   import EventBody from '$lib/components/EventBody.svelte';
   import ProseGrammarField from '$lib/components/ProseGrammarField.svelte';
+  import ComposeMediaToolbar from '$lib/components/ComposeMediaToolbar.svelte';
+  import { emojiTagsForContent, mergeEmojiTagRows } from '$lib/emoji-compose';
   import CommentThread from '$lib/components/CommentThread.svelte';
   import WorkCommentsPanel from '$lib/components/WorkCommentsPanel.svelte';
   import LoadingHint from '$lib/components/LoadingHint.svelte';
@@ -365,6 +367,10 @@
   let inkAnchor = $state<{ section: Event; quote: string } | null>(null);
   let replyComposeOpen = $state(false);
   let replyDraftText = $state('');
+  let replyImeta = $state<string[][]>([]);
+  let replyEmoji = $state<string[][]>([]);
+  let notePromptImeta = $state<string[][]>([]);
+  let notePromptEmoji = $state<string[][]>([]);
   let notePromptOpen = $state(false);
   let notePromptText = $state('');
   const pageFind = createPageFindController();
@@ -3547,11 +3553,20 @@
     }
     const body = `> ${draft.quote.replace(/\n/g, '\n> ')}\n\n${text}`;
     const partial = commentDraft(draft.section, body);
-    const signed = await publishComment(partial);
+    const signed = await publishComment({
+      ...partial,
+      tags: [
+        ...partial.tags,
+        ...replyImeta.map((row) => [...row]),
+        ...mergeEmojiTagRows(replyEmoji, emojiTagsForContent(body, [], replyEmoji))
+      ]
+    });
     if (signed) {
       clearReaderSelectionDraft('reply', draft.quote);
       replyComposeOpen = false;
       replyDraftText = '';
+      replyImeta = [];
+      replyEmoji = [];
       readerHighlightDraft = null;
       window.getSelection()?.removeAllRanges();
     }
@@ -3632,6 +3647,7 @@
     saveThreadDraft(pubkey, scope, {
       text,
       imetaTags: [],
+      emojiTags: [],
       asKind1Reply: false
     });
   }
@@ -4474,6 +4490,11 @@
               <ProseGrammarField rows={3} bind:value={notePromptText} placeholder="Your note…" />
             </label>
             <div class="compose-actions">
+              <ComposeMediaToolbar
+                bind:content={notePromptText}
+                bind:imetaTags={notePromptImeta}
+                bind:emojiTags={notePromptEmoji}
+              />
               <button class="btn" type="button" onclick={() => (notePromptOpen = false)}>Cancel</button>
               <button
                 class="btn btn-primary"
@@ -4492,6 +4513,11 @@
               <ProseGrammarField rows={3} bind:value={replyDraftText} placeholder="Your reply…" />
             </label>
             <div class="compose-actions">
+              <ComposeMediaToolbar
+                bind:content={replyDraftText}
+                bind:imetaTags={replyImeta}
+                bind:emojiTags={replyEmoji}
+              />
               <button class="btn" type="button" onclick={() => (replyComposeOpen = false)}>Cancel</button>
               <button
                 class="btn btn-primary"

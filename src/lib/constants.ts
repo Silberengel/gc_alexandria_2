@@ -180,6 +180,8 @@ export const KIND = {
   REPOST: 6,
   GENERIC_REPOST: 16,
   REACTION: 7,
+  /** Reaction-clip / GIF index (NIP draft animated media). */
+  REACTION_CLIP: 1090,
   HIGHLIGHT: 9802,
   /** NIP-57 zap receipt. */
   ZAP: 9735,
@@ -204,6 +206,8 @@ export const KIND = {
   /** NIP-51 communities list (NIP-72). */
   COMMUNITIES: 10004,
   RELAY_LIST: 10002,
+  /** BUD-03 Blossom user server list. */
+  BLOSSOM_SERVER_LIST: 10063,
   /**
    * Deprecated NIP-51 categorized list (addressable).
    * Only `d` = pin | bookmark | communities — migrate to 10001 / 10003 / 10004.
@@ -338,6 +342,7 @@ export const LOGIN_METADATA_KINDS = [
   KIND.BLOCKED,
   KIND.FAVORITE,
   KIND.PRIVATE_RELAY_LIST,
+  KIND.BLOSSOM_SERVER_LIST,
   KIND.LOCAL,
   KIND.PAYMENT,
   KIND.LABEL,
