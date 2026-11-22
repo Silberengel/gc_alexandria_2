@@ -282,7 +282,7 @@ export function eventToComposeDraft(event: Event): ComposeDraftState {
         continue;
       }
       if (field.emit === 'mute_list' || field.id === 'muted') {
-        // Private mute ciphertext needs an async decrypt — public tags only on copy.
+        // Public tags only here — Compose hydrates private rows via loadComposePrivateContent.
         const v = mutedRawFromTags(event.tags, []);
         if (v) values[field.id] = v;
         consumeProduces(consumed, field, ['p', 'e', 'word', 't']);

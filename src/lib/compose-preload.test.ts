@@ -87,4 +87,30 @@ describe('valuesFromReplaceableEvent', () => {
     );
     expect(pre.values.muted).toBe(`p ${pk}\nword spam`);
   });
+
+  it('maps blocked relays, HTTP relays, and payto via eventToComposeDraft', () => {
+    expect(
+      valuesFromReplaceableEvent(
+        ev({ kind: 10006, tags: [['relay', 'wss://blocked.example']] })
+      ).values.relays
+    ).toBe('wss://blocked.example');
+
+    expect(
+      valuesFromReplaceableEvent(
+        ev({ kind: 10243, tags: [['r', 'https://http.example']] })
+      ).values.relays
+    ).toBe('https://http.example');
+
+    expect(
+      valuesFromReplaceableEvent(
+        ev({
+          kind: 10133,
+          tags: [
+            ['payto', 'lightning', 'a@b.com'],
+            ['payto', 'monero', '4abc']
+          ]
+        })
+      ).values.payto
+    ).toBe('lightning a@b.com\nmonero 4abc');
+  });
 });

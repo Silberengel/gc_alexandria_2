@@ -195,12 +195,19 @@
   import { cacheGetEvent } from '$lib/nostr/cache';
   import { fetchById } from '$lib/nostr/fetch';
   import { KIND } from '$lib/constants';
-  import { buildMuteListPayload, mutedRawFromTags } from '$lib/compose-mute-list';
+  import { buildMuteListPayload } from '$lib/compose-mute-list';
+  import {
+    type ComposePrivateContent,
+    loadComposePrivateContent,
+    loadComposePrivatePassthrough,
+    mutedFieldFromEvent,
+    needsPrivateContentHydrate,
+    privateTagsFromMutePayload,
+    sealComposePrivateContent
+  } from '$lib/compose-private-content';
   import {
     applyMuteList,
     decryptPrivateMuteTags,
-    looksLikeNip04Ciphertext,
-    looksLikeNip44Ciphertext,
     parseMuteList
   } from '$lib/mute';
 
@@ -339,15 +346,10 @@
    */
   let draftPersistSuspended = $state(false);
   /**
-   * When a mute list has ciphertext we could not decrypt, keep it on republish so
-   * private mutes are not wiped by a public-only edit.
+   * NIP-51 private `.content` bag for mute / contacts (and similar).
+   * Set by hydrate after Clone or replaceable preload; sealed on publish.
    */
-  let mutePreserveCipher = $state('');
-  /**
-   * Contact (and similar) lists: composer only edits public tags. Pass through any
-   * existing `.content` (NIP-51 private ciphertext) so replace does not wipe it.
-   */
-  let contactPreserveContent = $state('');
+  let privateContent = $state<ComposePrivateContent | null>(null);
   const documentKindSet = new Set<number>(COMPOSE_DOCUMENT_PRESETS);
   const showSaveToDraft = $derived(
     !shortNoteEditSource && !otherMode && documentKindSet.has(kind)
@@ -746,6 +748,7 @@
       return;
     }
     markReplaceablePreloaded(false);
+    privateContent = null;
     const synthetic = {
       id: wrap.wrap.id,
       pubkey: wrap.wrap.pubkey,
@@ -756,6 +759,8 @@
       sig: ''
     } as NostrEvent;
     applyDraft(eventToComposeDraft(synthetic));
+    // Inner draft is already plaintext; hydrate if it still carries private-tag ciphertext.
+    void hydratePrivateComposeFields(synthetic);
     activeDraftD = wrap.d;
     draftListOpen = false;
     void loadCheckpointsFor(wrap.d);
@@ -1416,14 +1421,56 @@
     );
   }
 
+  /**
+   * Decrypt / preserve private `.content` into form fields + `privateContent`.
+   * Sync {@link eventToComposeDraft} only maps public tags — call this after.
+   */
+  async function hydratePrivateComposeFields(event: NostrEvent): Promise<void> {
+    if (!needsPrivateContentHydrate(event.kind)) {
+      privateContent = null;
+      return;
+    }
+
+    if (event.kind === KIND.PRIVATE_RELAY_LIST) {
+      privateContent = null;
+      try {
+        const urls = await parsePrivateRelayList(event);
+        values = { ...values, relays: urls.join('\n') };
+      } catch {
+        /* leave relays as mapped from public tags (usually empty) */
+      }
+      return;
+    }
+
+    if (event.kind === KIND.CONTACT_LIST) {
+      privateContent = loadComposePrivatePassthrough(event);
+      return;
+    }
+
+    if (event.kind === KIND.MUTE) {
+      try {
+        const bag = await loadComposePrivateContent(event);
+        privateContent = bag;
+        values = {
+          ...values,
+          muted: mutedFieldFromEvent(event, bag.privateTags)
+        };
+      } catch {
+        privateContent = loadComposePrivatePassthrough(event);
+      }
+    }
+  }
+
   async function applyCopyIntent(source: NostrEvent): Promise<void> {
     persistCurrent();
     draftPersistSuspended = true;
     try {
       shortNoteEditSource = null;
       markReplaceablePreloaded(false);
+      privateContent = null;
       const draft = eventToComposeDraft(source);
       applyDraft(draft);
+      await hydratePrivateComposeFields(source);
       publicationCopyRoot = source.kind === KIND.PUBLICATION ? source : null;
       formError = '';
       editorTab = 'edit';
@@ -1553,11 +1600,8 @@
           pickLatestByKind(session.getMetadata(), nextKind) ??
           (await fetchPrivateRelayListEvent());
         if (live) {
-          const urls = await parsePrivateRelayList(live);
-          values = {
-            ...emptyValuesFor(nextKind),
-            relays: urls.join('\n')
-          };
+          values = emptyValuesFor(nextKind);
+          await hydratePrivateComposeFields(live);
           return true;
         }
       } catch {
@@ -1587,35 +1631,7 @@
     const pre = valuesFromReplaceableEvent(live);
     content = pre.content;
     values = { ...emptyValuesFor(nextKind), ...pre.values };
-
-    contactPreserveContent = '';
-    if (nextKind === KIND.CONTACT_LIST) {
-      // Follow UI is public `p` tags only — keep encrypted private follows intact.
-      contactPreserveContent = live.content ?? '';
-    }
-
-    if (nextKind === KIND.MUTE) {
-      mutePreserveCipher = '';
-      try {
-        const privateTags = await decryptPrivateMuteTags(live);
-        values = {
-          ...values,
-          muted: mutedRawFromTags(live.tags, privateTags)
-        };
-        const ct = (live.content ?? '').trim();
-        if (
-          ct &&
-          !privateTags.length &&
-          !ct.startsWith('[') &&
-          (looksLikeNip44Ciphertext(ct) || looksLikeNip04Ciphertext(ct))
-        ) {
-          mutePreserveCipher = live.content;
-        }
-      } catch {
-        const ct = (live.content ?? '').trim();
-        if (ct && !ct.startsWith('[')) mutePreserveCipher = live.content;
-      }
-    }
+    await hydratePrivateComposeFields(live);
 
     if (pre.existingKind0) existingKind0 = pre.existingKind0;
     if (pre.kind0Tags) kind0Tags = pre.kind0Tags.map((t) => [...t]);
@@ -1647,8 +1663,7 @@
       grammarIssues = [];
       activeDraftD = null;
       markReplaceablePreloaded(false);
-      mutePreserveCipher = '';
-      contactPreserveContent = '';
+      privateContent = null;
       content = '';
       values = emptyValuesFor(nextKind);
       hashtagRows = [''];
@@ -1685,6 +1700,7 @@
       return;
     }
     markReplaceablePreloaded(false);
+    privateContent = null;
     applyDraft(saved);
     await hydrateManuscriptForDraft(saved);
     activeDraftD = saved.values.d?.trim() || null;
@@ -1736,6 +1752,7 @@
       grammarIssues = [];
       activeDraftD = null;
       markReplaceablePreloaded(false);
+      privateContent = null;
 
       content = '';
       values = emptyValuesFor(n);
@@ -2457,30 +2474,15 @@
 
       if (kind === KIND.CONTACT_LIST) {
         // Public follows only in the form — never blank out NIP-51 private content.
-        partial.content = contactPreserveContent;
+        partial.content = await sealComposePrivateContent(privateContent, []);
       }
 
       if (kind === KIND.MUTE) {
         const mute = buildMuteListPayload(values.muted ?? '');
-        if (mute.privateJson) {
-          const pk = $session.pubkey;
-          const signer = session.getSigner();
-          if (signer?.nip44Encrypt && pk) {
-            try {
-              partial.content = await signer.nip44Encrypt(pk, mute.privateJson);
-            } catch {
-              /* keep plaintext JSON private tags */
-              partial.content = mute.privateJson;
-            }
-          } else {
-            partial.content = mute.privateJson;
-          }
-        } else if (mutePreserveCipher) {
-          // Could not decrypt existing private mutes — leave ciphertext intact.
-          partial.content = mutePreserveCipher;
-        } else {
-          partial.content = '';
-        }
+        partial.content = await sealComposePrivateContent(
+          privateContent,
+          privateTagsFromMutePayload(mute.privateJson)
+        );
       }
 
       const signed = await signAndPublish(partial);
@@ -2495,12 +2497,11 @@
         } catch {
           applyMuteList(parseMuteList(signed, []));
         }
-        mutePreserveCipher =
-          signed.content &&
-          !signed.content.trim().startsWith('[') &&
-          (looksLikeNip44Ciphertext(signed.content) || looksLikeNip04Ciphertext(signed.content))
-            ? signed.content
-            : '';
+        try {
+          privateContent = await loadComposePrivateContent(signed);
+        } catch {
+          privateContent = loadComposePrivatePassthrough(signed);
+        }
       }
       deleteComposeDraft($session.pubkey, kind);
       refreshDraftList();
