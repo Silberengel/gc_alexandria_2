@@ -27,6 +27,7 @@
   } from '$lib/result-scope';
   import { suggestTitles, isNsec } from '$lib/search';
   import { warmNavEvent } from '$lib/nav-warm';
+  import { getFollowsOfFollowsSet } from '$lib/follows-of-follows';
   import { followPubkeysFromMetadata } from '$lib/mute';
   import { session } from '$lib/stores/session';
   import { trust } from '$lib/stores/trust';
@@ -123,6 +124,7 @@
       return filterEventsByAuthorScope(recentPool, authorScope, {
         viewerPubkey: $session.pubkey,
         followPubkeySet: follows,
+        followsOfFollowsSet: getFollowsOfFollowsSet($session.pubkey),
         rankMin: $trust.rankMin,
         getScore: (pk) => trustedAssertions.getScore(pk)
       });

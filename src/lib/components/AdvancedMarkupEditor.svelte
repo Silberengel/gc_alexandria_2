@@ -6,6 +6,7 @@
   import UserBadge from './UserBadge.svelte';
   import { grammarLanguageOptions, type GrammarIssue } from '$lib/compose-grammar';
   import { expandCustomEmojiPlaceholders, prepareContentWithEmojis } from '$lib/emoji-content';
+  import { attachInlineMentions } from '$lib/attach-inline-mentions';
   import { renderFormat } from '$lib/markup';
   import { fetchByAddress, fetchById } from '$lib/nostr/fetch';
   import {
@@ -314,6 +315,13 @@
 
   $effect(() => {
     sourceEl?.focus();
+  });
+
+  $effect(() => {
+    const preview = previewEl;
+    void blocks;
+    if (!preview) return;
+    return attachInlineMentions(preview);
   });
 
   $effect(() => {

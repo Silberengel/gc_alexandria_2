@@ -559,6 +559,39 @@ export function trimHtmlAdjacentToBlockEmbeds(segments: RenderSegment[]): Render
   return out.filter((s) => s.type !== 'html' || s.html.length > 0);
 }
 
+/**
+ * Slot for a compact UserBadge. Kept inside the surrounding markup so a mention
+ * inside `::: note` / blockquotes does not tear the call-out open (browsers
+ * auto-close unclosed tags when `{@html}` is split across siblings).
+ */
+export function inlineMentionSlotHtml(pubkey: string): string {
+  const pk = pubkey.trim().toLowerCase();
+  return `<span class="event-inline nostr-mention-slot" data-nostr-pubkey="${escapeAttr(pk)}"></span>`;
+}
+
+/** True when this ref should stay inside HTML instead of becoming a body block. */
+export function isHtmlEmbeddedInlineRef(seg: RefSegment): boolean {
+  if (seg.citationMode) return false;
+  if (isInlineLabeledRef(seg)) return true;
+  return (seg.kind === 'npub' || seg.kind === 'nprofile') && !!seg.pubkey;
+}
+
+function inlineRefAsHtml(seg: RefSegment): string {
+  if (isInlineLabeledRef(seg)) return inlineNostrRefHtml(seg);
+  if (seg.pubkey) return inlineMentionSlotHtml(seg.pubkey);
+  return escapeAttr(seg.raw);
+}
+
+function pushHtmlChunk(segments: RenderSegment[], html: string): void {
+  if (!html) return;
+  const last = segments[segments.length - 1];
+  if (last?.type === 'html') {
+    last.html += html;
+    return;
+  }
+  segments.push({ type: 'html', html });
+}
+
 export function expandNostrRefPlaceholders(html: string, refs: RefSegment[]): RenderSegment[] {
   if (!refs.length) return [{ type: 'html', html }];
   const segments: RenderSegment[] = [];
@@ -567,15 +600,20 @@ export function expandNostrRefPlaceholders(html: string, refs: RefSegment[]): Re
   let match: RegExpExecArray | null;
   while ((match = re.exec(html))) {
     if (match.index > last) {
-      segments.push({ type: 'html', html: html.slice(last, match.index) });
+      pushHtmlChunk(segments, html.slice(last, match.index));
     }
     const idx = Number(match[1]);
     const ref = refs[idx];
-    if (ref) segments.push(ref);
-    else segments.push({ type: 'html', html: match[0] });
+    if (ref && isHtmlEmbeddedInlineRef(ref)) {
+      pushHtmlChunk(segments, inlineRefAsHtml(ref));
+    } else if (ref) {
+      segments.push(ref);
+    } else {
+      pushHtmlChunk(segments, match[0]);
+    }
     last = match.index + match[0].length;
   }
-  if (last < html.length) segments.push({ type: 'html', html: html.slice(last) });
+  if (last < html.length) pushHtmlChunk(segments, html.slice(last));
   if (!segments.length) segments.push({ type: 'html', html });
   return trimHtmlAdjacentToBlockEmbeds(segments);
 }

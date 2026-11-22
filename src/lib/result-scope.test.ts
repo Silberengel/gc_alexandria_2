@@ -61,10 +61,28 @@ describe('result-scope', () => {
     };
     expect(filterEventsByAuthorScope(list, 'mine', ctx).map((e) => e.pubkey)).toEqual([me]);
     expect(filterEventsByAuthorScope(list, 'follows', ctx).map((e) => e.pubkey)).toEqual([follow]);
+    // Self and follows always pass Trust — even with unknown / low rank.
     expect(filterEventsByAuthorScope(list, 'trusted', ctx).map((e) => e.pubkey)).toEqual([
+      me,
       follow,
       trusted
     ]);
     expect(filterEventsByAuthorScope(list, 'all', ctx)).toHaveLength(4);
+  });
+
+  it('trusted scope soft-passes unknown-rank follows-of-follows', () => {
+    const fof = 'e'.repeat(64);
+    const list = [
+      ev({ id: '5'.repeat(64), pubkey: fof }),
+      ev({ id: '4'.repeat(64), pubkey: other })
+    ];
+    const ctx = {
+      viewerPubkey: me,
+      followPubkeySet: new Set([follow]),
+      followsOfFollowsSet: new Set([fof]),
+      rankMin: 10,
+      getScore: () => null
+    };
+    expect(filterEventsByAuthorScope(list, 'trusted', ctx).map((e) => e.pubkey)).toEqual([fof]);
   });
 });

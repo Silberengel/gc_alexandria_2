@@ -14,6 +14,7 @@
     type HighlightQuote
   } from '$lib/markup';
   import { attachHighlightBadges } from '$lib/text-highlights';
+  import { attachInlineMentions } from '$lib/attach-inline-mentions';
   import { attachYoutubeEmbeds } from '$lib/attach-youtube';
   import { eventHeroImageUrls, isContentHeroKind, stripEarlyDuplicateHeroImage } from '$lib/cover';
   import { orphanMedia, sameMedia, stripRenderedMedia } from '$lib/media';
@@ -520,12 +521,14 @@
     if (!el || !ready) return;
     void qSnap;
     const stopYoutube = attachYoutubeEmbeds(el);
+    const stopMentions = attachInlineMentions(el);
     const stopBadges =
       qSnap.length > 0 || selfMarked || !!el.querySelector('mark.text-highlight')
         ? attachHighlightBadges(el)
         : undefined;
     return () => {
       stopBadges?.();
+      stopMentions();
       stopYoutube();
     };
   });

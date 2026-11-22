@@ -5816,10 +5816,15 @@ a.nostrdown-ref {
 }
 /* A mention inside a sentence is ordinary inline text, so it shares that line. */
 .event-inline .userbadge,
-.event-inline .userbadge span {
+.event-inline .userbadge span,
+.nostr-mention-slot .userbadge,
+.nostr-mention-slot .userbadge span {
   display: inline;
   vertical-align: baseline;
   line-height: inherit;
+}
+.nostr-mention-slot {
+  display: inline;
 }
 .pub-card .userbadge-avatar {
   width: 1.15rem;

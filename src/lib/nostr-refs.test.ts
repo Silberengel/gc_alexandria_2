@@ -227,4 +227,28 @@ describe('expandNostrRefPlaceholders', () => {
       { type: 'html', html: '<p>Outro</p>' }
     ]);
   });
+
+  it('keeps an npub inside a djot note call-out (one contiguous html chunk)', () => {
+    const pk = 'a'.repeat(64);
+    const npub = nip19.npubEncode(pk);
+    const { text, refs } = protectNostrRefsForMarkup(
+      `::: note\nsee the article from nostr:${npub}\n:::`
+    );
+    expect(refs).toHaveLength(1);
+    expect(refs[0]?.kind).toBe('npub');
+    expect(text).toContain(nostrRefPlaceholder(0));
+    const segs = expandNostrRefPlaceholders(
+      `<div class="note">\n<p>see the article from ${nostrRefPlaceholder(0)}</p>\n</div>\n`,
+      refs
+    );
+    expect(segs).toHaveLength(1);
+    expect(segs[0]?.type).toBe('html');
+    if (segs[0]?.type !== 'html') return;
+    expect(segs[0].html).toContain('<div class="note">');
+    expect(segs[0].html).toContain('</div>');
+    expect(segs[0].html).toContain(`data-nostr-pubkey="${pk}"`);
+    expect(segs[0].html).toMatch(
+      /<div class="note">\s*<p>see the article from <span class="event-inline nostr-mention-slot"/
+    );
+  });
 });

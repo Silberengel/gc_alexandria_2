@@ -36,6 +36,7 @@
   import SearchPointerEditor from '$lib/components/SearchPointerEditor.svelte';
   import UserBadge from '$lib/components/UserBadge.svelte';
   import CopyPointerButton from '$lib/components/CopyPointerButton.svelte';
+  import { getFollowsOfFollowsSet } from '$lib/follows-of-follows';
   import { muteState, filterMuted, followPubkeysFromMetadata } from '$lib/mute';
   import { filterPageEvents } from '$lib/page-filter';
   import {
@@ -443,6 +444,7 @@
         {
           viewerPubkey: $session.pubkey,
           followPubkeySet: follows,
+          followsOfFollowsSet: getFollowsOfFollowsSet($session.pubkey),
           rankMin: $trust.rankMin,
           getScore: (pk) => trustedAssertions.getScore(pk)
         }

@@ -31,9 +31,7 @@ const READ_ONLY_HOSTS = new Set(
     AGGR_RELAY,
     BRAINSTORM_SEARCH_RELAY_URL,
     GRAPEVINE_SCORES_RELAY_URL,
-    GRAPEVINE_SCORES_STAGING_RELAY_URL,
-    'wss://feeds.nostrarchives.com',
-    'wss://search.nostrarchives.com'
+    GRAPEVINE_SCORES_STAGING_RELAY_URL
   ]
     .map((url) => relayHostname(url))
     .filter((host): host is string => !!host)
@@ -46,9 +44,7 @@ export const READ_ONLY_WSS = new Set(
     AGGR_RELAY,
     BRAINSTORM_SEARCH_RELAY_URL,
     GRAPEVINE_SCORES_RELAY_URL,
-    GRAPEVINE_SCORES_STAGING_RELAY_URL,
-    'wss://feeds.nostrarchives.com',
-    'wss://search.nostrarchives.com'
+    GRAPEVINE_SCORES_STAGING_RELAY_URL
   ].map(readOnlyKey)
 );
 
@@ -56,7 +52,7 @@ export const READ_ONLY_WSS = new Set(
 export function isReadOnlyRelay(url: string): boolean {
   const key = readOnlyKey(url);
   if (READ_ONLY_WSS.has(key)) return true;
-  // Favorites sometimes store path-suffixed feed URLs (e.g. nostrarchives /notes/…).
+  // Favorites sometimes store path-suffixed index URLs (e.g. Mercury `/relay`).
   const base = key.replace(/\/(notes|relay)(\/.*)?$/i, '');
   if (base !== key && READ_ONLY_WSS.has(base)) return true;
   const host = relayHostname(url);

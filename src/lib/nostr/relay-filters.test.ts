@@ -32,17 +32,16 @@ describe('Tor and I2P relays', () => {
 });
 
 describe('writeWebSocketRelays', () => {
-  it('drops Mercury, aggregator, Brainstorm, and Nostr Archives relays', () => {
+  it('drops Mercury, aggregator, and Brainstorm relays', () => {
     expect(
       writeWebSocketRelays([
         'wss://nostr.land/',
         MERCURY_WSS,
         `${MERCURY_WSS}/`,
+        `${MERCURY_WSS}/relay`,
         AGGR_RELAY,
         BRAINSTORM_SEARCH_RELAY_URL,
-        'wss://thecitadel.nostr1.com',
-        'wss://feeds.nostrarchives.com/notes/trending/reactions/today',
-        'wss://search.nostrarchives.com/'
+        'wss://thecitadel.nostr1.com'
       ])
     ).toEqual(['wss://nostr.land', 'wss://thecitadel.nostr1.com']);
   });

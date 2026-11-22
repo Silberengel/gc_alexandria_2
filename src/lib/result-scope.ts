@@ -1,5 +1,6 @@
 import type { Event } from 'nostr-tools';
 import { GRAPEVINE_RANK_MIN_DEFAULT } from './constants';
+import { shouldHideByGrapevineRank } from './grapevine-rank';
 import { hasKnownRank, type TrustedAssertionScore } from './nip85-trusted-assertions';
 
 /** Author-source chips on search / wiki listings. */
@@ -8,6 +9,8 @@ export type AuthorResultScope = 'all' | 'mine' | 'follows' | 'trusted';
 export type AuthorScopeContext = {
   viewerPubkey?: string | null;
   followPubkeySet?: ReadonlySet<string> | Set<string>;
+  /** Soft-pass unknown-rank FoF when Trust scope is on (search.feature). */
+  followsOfFollowsSet?: ReadonlySet<string> | Set<string>;
   rankMin?: number;
   getScore?: (pubkey: string) => TrustedAssertionScore | null | undefined;
 };
@@ -53,6 +56,16 @@ export function filterEventsByAuthorScope(
     if (!follows?.size) return [];
     return events.filter((e) => follows.has(e.pubkey.toLowerCase()));
   }
-  const rankMin = ctx.rankMin ?? GRAPEVINE_RANK_MIN_DEFAULT;
-  return events.filter((e) => meetsMinimumTrustedRank(e.pubkey, ctx.getScore, rankMin));
+  // Trust chip = grapevine gate: self + follows never hidden; FoF soft-pass when unknown.
+  return events.filter(
+    (e) =>
+      !shouldHideByGrapevineRank(e.pubkey, {
+        trustFilterEnabled: true,
+        rankCutoff: ctx.rankMin ?? GRAPEVINE_RANK_MIN_DEFAULT,
+        viewerPubkey: ctx.viewerPubkey,
+        followPubkeySet: ctx.followPubkeySet,
+        followsOfFollowsSet: ctx.followsOfFollowsSet,
+        getScore: ctx.getScore
+      })
+  );
 }
